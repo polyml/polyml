@@ -36,7 +36,7 @@ sig
     and  typeVarForm
     and  typeConstrSet
     and  values
-    and  fixStatus
+    and  infixity
     and  structVals
 
     type typeParsetree
@@ -167,7 +167,7 @@ sig
     |   Directive           of
             (* Directives are infix, infixr and nonfix. They are processed by the
                parser itself and only appear in the parse tree for completeness. *)
-            { tlist: string list, fix: fixStatus, location: location } 
+            { tlist: string list, fix: infixity, location: location } 
 
     |   ExDeclaration       of exbind list * location
 
@@ -316,7 +316,7 @@ sig
         and  typeVarForm = typeVarForm
         and  typeConstrSet = typeConstrSet
         and  values = values
-        and  fixStatus = fixStatus
+        and  infixity = infixity
         and  structVals = structVals
         and  typeParsetree = typeParsetree
         and  parsetree = parsetree

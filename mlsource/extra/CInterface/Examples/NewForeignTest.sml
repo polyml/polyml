@@ -33,7 +33,8 @@ typedef struct _tree {
 local
     (* Start with the C structure. *)
     val treeNode = cStruct3(cPointer, cPointer, cInt) 
-    val {store=storeStruct, load=loadStruct, ctype = {size = sizeStruct, ...}, ... } = treeNode
+    val {store=storeStruct, load=loadStruct, ctype = {size = sizeStruct, ...}, ... } =
+        breakConversion treeNode
 in
 (* The following function builds a C data structure from an ML datatype. *)
     fun treeMake NullTree = Memory.null
@@ -41,11 +42,28 @@ in
         let
             val mem = Memory.malloc sizeStruct
         in
-            storeStruct(mem, (treeMake left, treeMake right, valu));
+            ignore(storeStruct(mem, (treeMake left, treeMake right, valu)));
             mem
         end
+    
+    fun treeClear a =
+        if a = Memory.null
+        then ()
+        else
+        let
+            val (left, right, _) = loadStruct a
+        in
+            treeClear left; treeClear right; Memory.free a
+        end
 
-    fun treeStore(addr, tree) = Memory.setAddress(addr, 0w0, treeMake tree)
+    fun treeStore(addr, tree) =
+    let
+        val mem = treeMake tree
+    in
+        Memory.setAddress(addr, 0w0, mem);
+        (* The store function returns a function that frees the memory. *)
+        fn () => treeClear mem
+    end
            
     (* The inverse of treeStore. We don't actually use this in this example. *)
     fun treeGet a = 
@@ -59,26 +77,14 @@ in
         end
 
     fun treeLoad v = treeGet(Memory.getAddress(v, 0w0))
-    
-    fun treeClear a =
-        if a = Memory.null
-        then ()
-        else
-        let
-            val (left, right, _) = loadStruct a
-        in
-            treeClear left; treeClear right; Memory.free a
-        end
-    
-    fun treeRelease(v, _) = treeClear(Memory.getAddress(v, 0w0))
 
 end;
 
 (* Build a conversion out of this. *)
 val cTree: intTree conversion =
-    { load = treeLoad, store = treeStore, release = treeRelease, ctype = LowLevel.cTypePointer };
+    makeConversion { load = treeLoad, store = treeStore, ctype = LowLevel.cTypePointer };
 
-val sumTree = call1 ( getSymbol mylib "SumTree" ) cTree cInt;
+val sumTree = buildCall1 (getSymbol mylib "SumTree", cTree, cInt);
 
 val aTree = Node{left=Node{left=NullTree, right=NullTree, valu=4},
                right=Node{
@@ -89,19 +95,23 @@ sumTree aTree;
 
 
 (* Example of returning a structure. *)
-val returnR2 = call2 (getSymbol mylib "ReturnR2") (cInt, cInt) (cStruct2(cInt, cInt));
+val returnR2 = buildCall2 (getSymbol mylib "ReturnR2", (cInt, cInt), cStruct2(cInt, cInt));
 returnR2(5,6);
 
 (* Example of passing and returning strings. *)
-val dupNString = call2 (getSymbol mylib "DupNString") (cInt, cString) cString;
+val dupNString = buildCall2 (getSymbol mylib "DupNString", (cInt, cString), cString);
 
 dupNString (4, "hi");
 
 (* Example of a callback function. *)
 
 fun f (i, j) = (PolyML.print(i, j); i+j);
-val doAdd = call2 (getSymbol mylib "MakeCallback") (cInt, cFunction2 (cInt, cInt) cInt) cInt;
-doAdd(4, f);
+
+val fAsCFunction = buildClosure2(f, (cInt, cInt), cInt);
+
+val doAdd =
+	buildCall2 (getSymbol mylib "MakeCallback", (cInt, cFunction: (int*int->int) closure conversion), cInt);
+doAdd(4, fAsCFunction);
 
 fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
 (
@@ -109,20 +119,29 @@ fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
     99.0
 );
 
-val returnR3 =
-    call1 (getSymbol mylib "MakeCallback2") (cFunction6(cInt, cChar, cDouble, cFloat, cShort, cPointer) cDouble) cDouble
-        myCallback;
+local
+	val myCallbackC =
+		buildClosure6(myCallback, (cInt, cChar, cDouble, cFloat, cShort, cPointer), cDouble)
 
+	val MakeCallback2 =
+	    buildCall1(getSymbol mylib "MakeCallback2", cFunction, cDouble)
+in
+	val returnR3 = MakeCallback2 myCallbackC
+end;
 
-val doit = call2(getSymbol mylib "MakeCallback3") (cFunction1 cInt cVoid, cInt) cVoid;
-doit(fn i => print(Int.toString i), 2);
+let
+	val f = buildClosure1(fn i => print(Int.toString i), cInt, cVoid)
+	val doit = buildCall2(getSymbol mylib "MakeCallback3", (cFunction, cInt), cVoid)
+in
+	doit(f, 2)
+end;
 
 (* Call-by-reference. *)
 
 val r = ref 6;
 
 val updateArg =
-    call2 (getSymbol mylib "UpdateArg") (cInt, cStar cInt) cVoid;
+    buildCall2 (getSymbol mylib "UpdateArg", (cInt, cStar cInt), cVoid);
 
 updateArg(5, r); (* Adds its first argument to the ref. *)
 

@@ -118,7 +118,7 @@
 #define POLY_SYS_Div_real            128
 #define POLY_SYS_Abs_real            129 // DCJM 26/12/11
 #define POLY_SYS_Neg_real            130
-#define POLY_SYS_Repr_real           132
+//#define POLY_SYS_Repr_real           132
 #define POLY_SYS_conv_real           133
 #define POLY_SYS_real_to_int         134
 #define POLY_SYS_int_to_real         135

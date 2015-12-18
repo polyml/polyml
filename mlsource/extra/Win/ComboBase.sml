@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,25 +19,25 @@
 structure ComboBase =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
         datatype CBDirAttr =
             DDL_READWRITE | DDL_READONLY | DDL_HIDDEN | DDL_SYSTEM | DDL_DIRECTORY |
             DDL_ARCHIVE | DDL_POSTMSGS | DDL_DRIVES | DDL_EXCLUSIVE
         local
             val tab = [
-                (DDL_READWRITE, 0x0000),
-                (DDL_READONLY, 0x0001),
-                (DDL_HIDDEN, 0x0002),
-                (DDL_SYSTEM, 0x0004),
-                (DDL_DIRECTORY, 0x0010),
-                (DDL_ARCHIVE, 0x0020),
-                (DDL_POSTMSGS, 0x2000),
-                (DDL_DRIVES, 0x4000),
-                (DDL_EXCLUSIVE, 0x8000)
+                (DDL_READWRITE, 0wx0000),
+                (DDL_READONLY, 0wx0001),
+                (DDL_HIDDEN, 0wx0002),
+                (DDL_SYSTEM, 0wx0004),
+                (DDL_DIRECTORY, 0wx0010),
+                (DDL_ARCHIVE, 0wx0020),
+                (DDL_POSTMSGS, 0wx2000),
+                (DDL_DRIVES, 0wx4000),
+                (DDL_EXCLUSIVE, 0wx8000)
                 ]
         in
-            val CBDIRATTRS = tableSetConversion(tab, NONE)
+            val CBDIRATTRS = tableSetLookup(tab, NONE)
         end
     end
 end;

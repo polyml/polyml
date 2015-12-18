@@ -40,6 +40,8 @@ sig
     val PTfirstChild: (unit -> exportTree) -> ptProperties
     val PTcompletions: string list -> ptProperties
     val PTbreakPoint: bool ref -> ptProperties (* Breakpoint associated with location. *)
+    val PTdefId: int -> ptProperties (* Defining binding id *)
+    val PTrefId: int -> ptProperties (* Reference binding id *)
     
     type navigation =
         {parent: (unit -> exportTree) option,

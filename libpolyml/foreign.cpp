@@ -973,7 +973,7 @@ static Handle fromCchar (TaskData *taskData, Handle h)
 {
     char c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
     mes(("<%c>\n", c));
-    return SAVE(Buffer_to_Poly(taskData, &c,1));
+    return SAVE(C_string_to_Poly(taskData, &c,1));
 }
 
 
@@ -1200,7 +1200,7 @@ static Handle fromCbytes (TaskData *taskData, Handle h)
     char* str = *(char**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0));
     size_t size = get_C_long(taskData, DEREFHANDLE(h)->Get(1));
     if (str == NULL) return SAVE(EmptyString());
-    else return SAVE(Buffer_to_Poly(taskData, str, size));
+    else return SAVE(C_string_to_Poly(taskData, str, size));
 }}
 
 

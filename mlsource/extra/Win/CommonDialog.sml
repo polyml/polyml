@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -71,7 +70,7 @@ structure CommonDialog :
     val CommDlgExtendedError : unit -> CDERR
 
     (* ChooseColor *)
-
+(*
     structure ChooseColorFlags :
       sig
         include BIT_FLAGS
@@ -148,6 +147,7 @@ structure CommonDialog :
     }
 
     val ChooseFont : CHOOSEFONT -> CHOOSEFONT option
+    *)
 
     (* FindText and ReplaceText *)
     structure FindReplaceFlags :
@@ -313,36 +313,22 @@ structure CommonDialog :
  =
 struct
     local
-        open CInterface
+        open Foreign
         open Globals
         open Base
         open DeviceContext Color Font GdiBase
         
+        val stringToBuf = copyStringToMem
 
-        (* Copy a string to a particular offset in a buffer and
-           add a null terminator. *)
-        fun stringToBuf (buf, n, s) =
+        fun allocAndInitialise(space: int, str: string) =
         let
-            fun copyToBuf (buf, n) (i, v): unit =
-                assign Cchar (offset (n+i) Cchar buf) (toCchar v)
-        in
-            CharVector.appi (copyToBuf (buf, n)) s;
-            assign Cchar (offset (n + size s) Cchar buf) (toCint 0)
-        end
-
-        fun allocAndInitialise(space: int, str: string): vol =
-        let
+            open Memory
             val space = Int.max(space, size str) + 1
-            val buf = alloc space Cchar
+            val buf = malloc(Word.fromInt space)
         in
             stringToBuf(buf, 0, str);
-            address buf
+            buf
         end
-
-        val (toHWND,  fromHWND, _)  = breakConversion HWND
-        and (toRESID, fromRESID, _) = breakConversion RESID
-        and (toHINST, fromHINST, _) = breakConversion HINSTANCE
-        and (fromCDevMode, toCDevMode, _) = breakConversion DeviceBase.LPDEVMODE
 
     in
         type HWND = HWND and HDC = HDC and COLORREF = COLORREF and HINSTANCE = HINSTANCE
@@ -393,49 +379,53 @@ struct
         |   CHOOSECOLORCODES (* 0x5000 *)
 
 
-        fun CommDlgExtendedError () =
-            case call0 (commdlg "CommDlgExtendedError") () INT () of
-                0x0000  => GENERALCODES
-            |   0x0001  => STRUCTSIZE
+        local
+            val commDlgExtendedError = winCall0 (commdlg "CommDlgExtendedError") () cDWORD
+        in
+            fun CommDlgExtendedError () =
+                case commDlgExtendedError () of
+                    0x0000  => GENERALCODES
+                |   0x0001  => STRUCTSIZE
             
-            |   0x0002  => INITIALIZATION
-            |   0x0003  => NOTEMPLATE
-            |   0x0004  => NOHINSTANCE
-            |   0x0005  => LOADSTRFAILURE
-            |   0x0006  => FINDRESFAILURE
-            |   0x0007  => LOADRESFAILURE
-            |   0x0008  => LOCKRESFAILURE
-            |   0x0009  => MEMALLOCFAILURE
-            |   0x000A  => MEMLOCKFAILURE
-            |   0x000B  => NOHOOK
-            |   0x000C  => REGISTERMSGFAIL
+                |   0x0002  => INITIALIZATION
+                |   0x0003  => NOTEMPLATE
+                |   0x0004  => NOHINSTANCE
+                |   0x0005  => LOADSTRFAILURE
+                |   0x0006  => FINDRESFAILURE
+                |   0x0007  => LOADRESFAILURE
+                |   0x0008  => LOCKRESFAILURE
+                |   0x0009  => MEMALLOCFAILURE
+                |   0x000A  => MEMLOCKFAILURE
+                |   0x000B  => NOHOOK
+                |   0x000C  => REGISTERMSGFAIL
             
-            |   0x1000  => PRINTERCODES
-            |   0x1001  => SETUPFAILURE
-            |   0x1002  => PARSEFAILURE
-            |   0x1003  => RETDEFFAILURE
-            |   0x1004  => LOADDRVFAILURE
-            |   0x1005  => GETDEVMODEFAIL
-            |   0x1006  => INITFAILURE
-            |   0x1007  => NODEVICES
-            |   0x1008  => NODEFAULTPRN
-            |   0x1009  => DNDMMISMATCH
-            |   0x100A  => CREATEICFAILURE
-            |   0x100B  => PRINTERNOTFOUND
-            |   0x100C  => DEFAULTDIFFERENT
+                |   0x1000  => PRINTERCODES
+                |   0x1001  => SETUPFAILURE
+                |   0x1002  => PARSEFAILURE
+                |   0x1003  => RETDEFFAILURE
+                |   0x1004  => LOADDRVFAILURE
+                |   0x1005  => GETDEVMODEFAIL
+                |   0x1006  => INITFAILURE
+                |   0x1007  => NODEVICES
+                |   0x1008  => NODEFAULTPRN
+                |   0x1009  => DNDMMISMATCH
+                |   0x100A  => CREATEICFAILURE
+                |   0x100B  => PRINTERNOTFOUND
+                |   0x100C  => DEFAULTDIFFERENT
             
-            |   0x2000  => CHOOSEFONTCODES
-            |   0x2001  => NOFONTS
-            |   0x2002  => MAXLESSTHANMIN
+                |   0x2000  => CHOOSEFONTCODES
+                |   0x2001  => NOFONTS
+                |   0x2002  => MAXLESSTHANMIN
             
-            |   0x3000  => FILENAMECODES
-            |   0x3001  => SUBCLASSFAILURE
-            |   0x3002  => INVALIDFILENAME
-            |   0x3003  => BUFFERTOOSMALL
+                |   0x3000  => FILENAMECODES
+                |   0x3001  => SUBCLASSFAILURE
+                |   0x3002  => INVALIDFILENAME
+                |   0x3003  => BUFFERTOOSMALL
             
-            |   0x4000  => FINDREPLACECODES
-            |   0x4001  => BUFFERLENGTHZERO
-            |   _       => DIALOGFAILURE;
+                |   0x4000  => FINDREPLACECODES
+                |   0x4001  => BUFFERLENGTHZERO
+                |   _       => DIALOGFAILURE
+        end;
 
         (* As always there are a number of ways of matching the C types to
            ML.  Since functions such as GetOpenFileName update their
@@ -445,7 +435,7 @@ struct
             TemplateHandle of Dialog.DLGTEMPLATE
         |   TemplateResource of HINSTANCE * Resource.RESID
         |   TemplateDefault
-    
+
         structure OpenFileFlags:>
           sig
             include BIT_FLAGS
@@ -468,16 +458,19 @@ struct
             val OFN_READONLY : flags
             val OFN_SHAREAWARE : flags
             val OFN_SHOWHELP : flags
+            
+            val cConvert: flags conversion
           end
         =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = word
+            val toWord = toLargeWord
+            and fromWord = fromLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val OFN_READONLY                 = 0wx00000001
             val OFN_OVERWRITEPROMPT          = 0wx00000002
@@ -507,13 +500,15 @@ struct
                             OFN_NONETWORKBUTTON, OFN_NOLONGNAMES, OFN_EXPLORER,
                             OFN_NODEREFERENCELINKS, OFN_LONGNAMES]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+            
+            val cConvert = cDWORDw
         end
 
         (* These flags are local only. *)
-        val OFN_ENABLEHOOK               = 0wx00000020 (* Never used. *)
-        val OFN_ENABLETEMPLATE           = 0wx00000040
-        val OFN_ENABLETEMPLATEHANDLE     = 0wx00000080
+        (*val OFN_ENABLEHOOK               = OpenFileFlags.fromWord 0wx00000020 *)
+        val OFN_ENABLETEMPLATE           = OpenFileFlags.fromWord 0wx00000040
+        val OFN_ENABLETEMPLATEHANDLE     = OpenFileFlags.fromWord 0wx00000080
 
         type OPENFILENAME =
         {
@@ -532,13 +527,16 @@ struct
         }
 
         local
-            val OPENFILENAME = STRUCT20(UINT, HWNDOPT, POINTER, POINTER, POINTER, INT, INT,
-                POINTER, INT, POINTER, INT, STRINGOPT, STRINGOPT, WORD, SHORT, SHORT,
-                STRINGOPT, INT, INT, POINTER)
-            val (toOFN, fromOFN, ofnStruct) = breakConversion OPENFILENAME
+            val OPENFILENAME =
+                cStruct20(cDWORD, cHWNDOPT, cPointer (*HINSTANCE*), cPointer (* LPCTSTR*), cPointer (*LPTSTR*),
+                    cDWORD, cDWORD, cPointer (*LPTSTR*), cDWORD, cPointer (*LPTSTR*), cDWORD, STRINGOPT, STRINGOPT,
+                    OpenFileFlags.cConvert, cWORD, cWORD, STRINGOPT, cLPARAM, cPointer (* LPOFNHOOKPROC *),
+                    cPointer (* LPCTSTR*) (* cPointer, DWORD, DWORD*))
+            val {load=loadOFN, store=fromOFN, ctype={size=sizeOfnStruct, ...}, ...} = breakConversion OPENFILENAME
 
-            fun toCOpenFileName(
-                {
+            fun getOpenSave doCall (arg: OPENFILENAME): OPENFILENAME option =
+            let
+                val {
                     owner: HWND option,
                     template: TemplateType,
                     filter: (string * string) list,
@@ -550,75 +548,84 @@ struct
                     initialDir: string option,
                     title: string option,
                     flags: OpenFileFlags.flags,
-                    defExt: string option
-                }:OPENFILENAME): vol =
-            let
-                val hw: vol = fromHWND(getOpt(owner, hwndNull))
-
-                val (f1: LargeWord.word, inst: vol, templ: vol) =
+                    defExt: string option, ...} = arg
+                open Memory
+                infix 6 ++
+                val (f1, inst, templ, toFree) =
                     case template of
                         TemplateHandle dlgTemp =>
-                            (OFN_ENABLETEMPLATEHANDLE,
-                             (* This is supposed to be a handle. *)
-                             fromWord8vec(Dialog.compileTemplate dlgTemp),
-                             toCint 0)
-                    |   TemplateResource(hInst, resId) =>
+                            let
+                                val dlg = toCWord8vec(Dialog.compileTemplate dlgTemp)
+                            in
+                                (OFN_ENABLETEMPLATEHANDLE, dlg, null, dlg)
+                            end
+                    |   TemplateResource(hInst, IdAsInt wb) =>
                             (
                             OFN_ENABLETEMPLATE,
-                            fromHINST hInst,
-                            fromRESID resId
+                            voidStarOfHandle hInst,
+                            Memory.sysWord2VoidStar(SysWord.fromInt wb),
+                            null
                             )
-                    |   TemplateDefault => (0w0, toCint 0, toCint 0)
+                    |   TemplateResource(hInst, IdAsString str) =>
+                            let
+                                val s = toCstring str
+                            in
+                                (OFN_ENABLETEMPLATE, voidStarOfHandle hInst, s, s)
+                            end
+                    |   TemplateDefault => (OpenFileFlags.fromWord 0w0, null, null, null)
 
-                local
-                    (* The filter strings are pairs of strings with a final
-                       terminating null.  That implies that the strings cannot be empty.
-                       Should we check that?
-                       Get the store needed for the strings, including the null
-                       terminations and the final null. *)
-                    val filterSize =
-                        List.foldl (fn((s1,s2),n) => size s1 + size s2 + n + 2) 1 filter
-                    val buf = alloc filterSize Cchar
+                val lpstrFilter =
+                    case filter of
+                        nil => Memory.null
+                    |   _ =>
+                        let
+                            (* The filter strings are pairs of strings with a final
+                               terminating null.  That implies that the strings cannot be empty.
+                               Should we check that?
+                               Get the store needed for the strings, including the null
+                               terminations and the final null. *)
+                            val filterSize =
+                                List.foldl (fn((s1,s2),n) => size s1 + size s2 + n + 2) 1 filter
+                            open Memory
+                            infix 6 ++
+                            val buf = malloc (Word.fromInt filterSize)
 
-                    fun copyToBuf((s1,s2), n) =
-                    let
-                        val ss1 = size s1 and ss2 = size s2
-                    in
-                        stringToBuf(buf, n, s1);
-                        stringToBuf(buf, n+ss1+1, s2);
-                        n+ss1+ss2+2 (* Result is the next offset. *)
-                    end
+                            fun copyToBuf((s1,s2), n) =
+                            let
+                                val ss1 = size s1 and ss2 = size s2
+                            in
+                                stringToBuf(buf, n, s1);
+                                stringToBuf(buf, n+ss1+1, s2);
+                                n+ss1+ss2+2 (* Result is the next offset. *)
+                            end
 
-                    val lastAddr = List.foldl copyToBuf 0 filter
-                    val _ = assign Cchar (offset lastAddr Cchar buf) (toCint 0);
-                in
-                    val lpstrFilter =
-                        case filter of
-                            nil => toCint 0 (* Set it to null. *)
-                        |   _ => address buf
-                end
+                            val lastAddr = List.foldl copyToBuf 0 filter
+                            val _ = set8(buf, Word.fromInt lastAddr, 0w0)
+                        in
+                            buf
+                        end
 
                 val (lpstrCustomFilter, nMaxCustFilter) =
                     case customFilter of
-                        NONE => (toCint 0, 0)
+                        NONE => (null, 0)
                     |   SOME (dispString, pattern) =>
                         let
                             (* Make sure we have enough space. 100 is probably big enough. *)
                             val space = Int.max(size dispString + size pattern + 2, 100)
-                            val buf = alloc space Cchar
+                            val buf = Memory.malloc(Word.fromInt space)
                         in
                             stringToBuf(buf, 0, dispString);
                             stringToBuf(buf, size dispString + 1, pattern);
-                            (address buf, space)
+                            (buf, space)
                         end
 
                 val lpstrFile = (* Full name of file including path. *)
                     allocAndInitialise(maxFile, file)
                 val lpstrFileTitle = (* Name excluding the path. *)
                     allocAndInitialise(maxFile, fileTitle)
-            in
-                address(
-                fromOFN(sizeof ofnStruct, (* lStructSize *)
+
+                val ofn = malloc sizeOfnStruct
+                val args = (Word.toInt sizeOfnStruct, (* lStructSize *)
                       owner, (* hwndOwner *)
                       inst, (* hInstance *)
                       lpstrFilter,
@@ -631,104 +638,97 @@ struct
                       maxFile+1, (* nMaxFileTitle *)
                       initialDir,
                       title,
-                      LargeWord.orb(f1, OpenFileFlags.toWord flags), (* Flags *)
+                      OpenFileFlags.flags[f1, flags], (* Flags *)
                       0, (* nFileOffset *)
                       0, (* nFileExtension *)
                       defExt,
                       0, (* lCustData *)
-                      0, (* lpfnHook *)
-                      templ)) (* lpTemplateName *)
-            end
-
-            (* Most of the fields are unchanged so we're better off extracting
-               them from the original.  If we've passed in a template we have
-               to get it from the original because we can only convert a
-               memory object to a Word8Vector.vector if we know its length. *)
-            fun fromCOpenFileName v
-                ({ owner, template, filter, maxFile, initialDir,
-                   title, defExt, ...}:OPENFILENAME): OPENFILENAME =
-            let
-                val (_, _, _, _, lpstrCustomFilter, _, nFilterIndex, lpstrFile,
-                     _, lpstrFileTitle, _, _, _, flags, _, _, _, _, _, _) = toOFN(deref v)
-
-                val customFilter =
-                    if fromCint lpstrCustomFilter = 0
-                    then NONE
-                    else
-                    let
-                        val s1 = fromCstring lpstrCustomFilter
-                        val s2 = fromCstring
-                            (address(offset (size s1 +1) Cchar (deref lpstrCustomFilter)))
-                    in
-                        SOME(s1, s2)
-                    end
+                      null, (* lpfnHook *)
+                      templ) (* lpTemplateName *)
+                val freeOfn = fromOFN(ofn, args) (* Copy into the memory *)
+                fun freeAll() =
+                    (
+                        freeOfn();
+                        List.app free [ofn, toFree, lpstrFilter, lpstrCustomFilter, lpstrFile, lpstrFileTitle]
+                    )
+                val result =
+                    doCall ofn handle ex => (freeAll(); raise ex)
             in
-                {
-                    owner = owner,
-                    template = template,
-                    filter = filter,
-                    customFilter = customFilter,
-                    filterIndex = nFilterIndex,
-                    file = fromCstring lpstrFile,
-                    maxFile = maxFile,
-                    fileTitle = fromCstring lpstrFileTitle,
-                    initialDir = initialDir,
-                    title = title,
-                        (* Mask off the template flags. *)
-                    flags = OpenFileFlags.fromWord(LargeWord.andb(LargeWord.notb 0wxE0, flags)),
-                    defExt = defExt
-                }
+                (if result
+                then
+                let
+                    (* Most of the fields are unchanged so we're better off extracting
+                       them from the original.  If we've passed in a template we have
+                       to get it from the original because we can only convert a
+                       memory object to a Word8Vector.vector if we know its length. *)
+
+                    val (_, _, _, _, lpstrCustomFilter, _, nFilterIndex, lpstrFile,
+                         _, lpstrFileTitle, _, _, _, flagBits, _, _, _, _, _, _) = loadOFN ofn
+
+                    val customFilter =
+                        if lpstrCustomFilter = null
+                        then NONE
+                        else
+                        let
+                            (* The dialogue box copies the selected filter into the section of
+                               this string after the first string. *)
+                            val s1 = fromCstring lpstrCustomFilter
+                            val s2 = fromCstring (lpstrCustomFilter ++ Word.fromInt(size s1 +1))
+                        in
+                            SOME(s1, s2)
+                        end
+                in
+                    SOME 
+                    {
+                        owner = owner,
+                        template = template,
+                        filter = filter,
+                        customFilter = customFilter,
+                        filterIndex = nFilterIndex,
+                        file = fromCstring lpstrFile,
+                        maxFile = maxFile,
+                        fileTitle = fromCstring lpstrFileTitle,
+                        initialDir = initialDir,
+                        title = title,
+                            (* Mask off the template flags. *)
+                        flags = let open OpenFileFlags in clear(fromWord 0wxE0, flagBits) end,
+                        defExt = defExt
+                    }
+                end
+                else NONE) before freeAll()
             end
+
         in
-    
-            fun GetOpenFileName (arg: OPENFILENAME): OPENFILENAME option =
-            let
-                val converted = toCOpenFileName arg
-                val result =
-                    call1 (commdlg "GetOpenFileNameA") POINTER BOOL converted
-            in
-                if result
-                then SOME(fromCOpenFileName converted arg)
-                else NONE
-            end
-            and GetSaveFileName (arg: OPENFILENAME): OPENFILENAME option =
-            let
-                val converted = toCOpenFileName arg
-                val result =
-                    call1 (commdlg "GetSaveFileNameA") POINTER BOOL converted
-            in
-                if result
-                then SOME(fromCOpenFileName converted arg)
-                else NONE
-            end
+            val GetOpenFileName =
+                getOpenSave (winCall1 (commdlg "GetOpenFileNameA") cPointer cBool)
+            and GetSaveFileName =
+                getOpenSave (winCall1 (commdlg "GetSaveFileNameA") cPointer cBool)
         end (* local *)
 
-        fun GetFileTitle(file: string): string =
-        let
-            val gft = call3(commdlg "GetFileTitleA") (STRING, POINTER, SHORT) SHORT
-            val buffsize = gft(file, toCint 0, 0)
-            val _ = checkResult(buffsize >= 0)
-            val buf = alloc buffsize Cchar
-            val result = gft(file, address buf, buffsize)
+        local
+            val getFileTitle = winCall3(commdlg "GetFileTitleA") (cString, cPointer, cWORD) cShort
         in
-            checkResult(result >= 0);
-            fromCstring(address buf)
+            fun GetFileTitle(file: string): string =
+            let
+                fun gft (m, n) = getFileTitle(file, m, n)
+            in
+                getStringWithNullIsLength gft
+            end
         end
-
 
         (* This is a bit messy.  It creates a modeless dialogue box
            and sends messages to the parent window.  The only problem is that
            the message identifier is not a constant.  It has to be obtained
            by a call to RegisterWindowMessage. *)
-        (* We also have to ensure that the "vol" containing the FINDREPLACE
+        (* We also have to ensure that the memory containing the FINDREPLACE
            structure is not freed until the dialogue window is destroyed. *)
 
         structure FindReplaceFlags = FindReplaceFlags
 
         (* These flags are local only. *)
-        val FR_ENABLEHOOK                 = 0wx00000100
-        val FR_ENABLETEMPLATE             = 0wx00000200
-        val FR_ENABLETEMPLATEHANDLE       = 0wx00002000
+        (*val FR_ENABLEHOOK                 = FindReplaceFlags.fromWord 0wx00000100*)
+        val FR_ENABLETEMPLATE             = FindReplaceFlags.fromWord 0wx00000200
+        val FR_ENABLETEMPLATEHANDLE       = FindReplaceFlags.fromWord 0wx00002000
 
         (* The address of this structure is passed in messages.  That all looks
            extremely messy. *)
@@ -743,68 +743,81 @@ struct
         }
 
         local
-            val FINDREPLACE = STRUCT11(UINT, HWND, POINTER, WORD, POINTER, POINTER,
-                SHORT, SHORT, INT, INT, POINTER)
-            val (toOFR, fromOFR, ofrStruct) = breakConversion FINDREPLACE
+            val FINDREPLACE =
+                cStruct11(cDWORD, cHWND, cPointer (*HINSTANCE*), FindReplaceFlags.cFindReplaceFlags,
+                          cPointer, cPointer, cWORD, cWORD, cLPARAM, cPointer (* LPFRHOOKPROC *), cPointer)
+            val {store=fromOFR, ctype={size=sizeFR, ...}, ...} = breakConversion FINDREPLACE
 
-            fun toCFindReplace(
-                    {
+            val findText = winCall1 (commdlg "FindTextA") cPointer cHWND
+            and replaceText = winCall1 (commdlg "ReplaceTextA") cPointer cHWND
+
+            fun findReplace doCall (arg: FINDREPLACE): HWND =
+            let
+                val {
                         owner : HWND, (* NOT an option. *)
                         template: TemplateType,
                         flags: FindReplaceFlags.flags,
                         findWhat: string,
                         replaceWith: string,
                         bufferSize: int
-                    }: FINDREPLACE): vol =
-            let
-                val (f1: LargeWord.word, inst: vol, templ: vol) =
+                    } = arg
+                open Memory
+                val (f1, inst, templ, toFree) =
                     case template of
                         TemplateHandle dlgTemp =>
-                            (FR_ENABLETEMPLATEHANDLE,
-                             (* This is supposed to be a handle. *)
-                             fromWord8vec(Dialog.compileTemplate dlgTemp),
-                             toCint 0)
-                    |   TemplateResource(hInst, resId) =>
+                            let
+                                val dlg = toCWord8vec(Dialog.compileTemplate dlgTemp)
+                            in
+                                (FR_ENABLETEMPLATEHANDLE, dlg, null, dlg)
+                            end
+                    |   TemplateResource(hInst, IdAsInt wb) =>
                             (
                             FR_ENABLETEMPLATE,
-                            fromHINST hInst,
-                            fromRESID resId
+                            voidStarOfHandle hInst,
+                            Memory.sysWord2VoidStar(SysWord.fromInt wb),
+                            null
                             )
-                    |   TemplateDefault => (0w0, toCint 0, toCint 0)
+                    |   TemplateResource(hInst, IdAsString str) =>
+                            let
+                                val s = toCstring str
+                            in
+                                (FR_ENABLETEMPLATE, voidStarOfHandle hInst, s, s)
+                            end
+                    |   TemplateDefault => (FindReplaceFlags.fromWord 0w0, null, null, null)
                 val lpstrFindWhat = allocAndInitialise(bufferSize, findWhat)
                 val lpstrReplaceWith = allocAndInitialise(bufferSize, replaceWith)
-            in
-                address(
-                fromOFR(sizeof ofrStruct, (* lStructSize *)
+                val m = malloc sizeFR
+                val args =
+                    (Word.toInt sizeFR, (* lStructSize *)
                       owner, (* hwndOwner *)
                       inst, (* hInstance *)
-                      LargeWord.orb(f1, FindReplaceFlags.toWord flags), (* Flags *)
+                      FindReplaceFlags.flags[f1, flags], (* Flags *)
                       lpstrFindWhat,
                       lpstrReplaceWith,
                       bufferSize,
                       bufferSize,
                       0, (* lCustData *)
-                      0, (* lpfnHook *)
-                      templ)) (* lpTemplateName *)
-            end
-
-            fun findReplace name (arg: FINDREPLACE): HWND =
-            let
-                val converted = toCFindReplace arg
-                val result =
-                    call1 (commdlg (name ^"A")) POINTER HWND converted
+                      null, (* lpfnHook *)
+                      templ) (* lpTemplateName *)
+                val freeOfr = fromOFR(m, args)
+                fun freeAll() =
+                (
+                    freeOfr();
+                    List.app free [m, toFree, lpstrFindWhat, lpstrReplaceWith]
+                )
+                val result = doCall m handle ex => (freeAll(); raise ex)
+                val () =
+                    checkResult(not(isHNull result)) handle ex => (freeAll(); raise ex)
             in
-                checkResult(not(isHNull result));
-                (* We need to keep hold of the vol corresponding to the
-                    FINDREPLACE structure otherwise it may be garbage-
-                    collected away. Also, since this is a modeless dialogue
-                    we have to add it to the modeless dialogue list so
-                    that keyboard functions work. *)
-                (Message.addModelessDialogue(result, converted); result)
+                (*  The memory cannot be released until the dialogue is dismissed. Also,
+                    since this is a modeless dialogue we have to add it to the modeless 
+                    dialogue list so that keyboard functions work. *)
+                (* TODO: There may be better ways of ensuring the memory is freed. *)
+                (Message.addModelessDialogue(result, SOME freeAll); result)
             end
         in
-            val FindText = findReplace "FindText"
-            and ReplaceText = findReplace "ReplaceText"
+            val FindText = findReplace findText
+            and ReplaceText = findReplace replaceText
         end
 
         structure PageSetupFlags :>
@@ -824,16 +837,18 @@ struct
             val PSD_NOWARNING : flags
             val PSD_RETURNDEFAULT : flags
             val PSD_SHOWHELP : flags
+            val cConvert: flags conversion
           end
          =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = word
+            val toWord = toLargeWord
+            and fromWord = fromLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val PSD_DEFAULTMINMARGINS             = 0wx00000000 (* default (printer's) *)
             (*val PSD_INWININIINTLMEASURE           = 0wx00000000 *)(* 1st of 4 possible *)
@@ -864,7 +879,9 @@ struct
                             PSD_DISABLEORIENTATION, PSD_RETURNDEFAULT, PSD_DISABLEPAPER,
                             PSD_SHOWHELP, PSD_DISABLEPAGEPAINTING, PSD_NONETWORKBUTTON]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+            
+            val cConvert = cDWORDw
         end
 
         structure PrintDlgFlags :>
@@ -888,16 +905,18 @@ struct
             val PD_SHOWHELP : flags
             val PD_USEDEVMODECOPIES : flags
             val PD_USEDEVMODECOPIESANDCOLLATE : flags
+            val cConvert: flags conversion
           end
      =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = word
+            val toWord = toLargeWord
+            and fromWord = fromLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val PD_ALLPAGES                  = 0wx00000000
             val PD_SELECTION                 = 0wx00000001
@@ -931,7 +950,9 @@ struct
                             PD_USEDEVMODECOPIESANDCOLLATE, PD_DISABLEPRINTTOFILE,
                             PD_HIDEPRINTTOFILE, PD_NONETWORKBUTTON]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+            
+            val cConvert = cDWORDw
         end
 
         type PAGESETUPDLG =
@@ -962,210 +983,141 @@ struct
         }
 
         local
-
-            val PAGESETUPDLG = STRUCT14(UINT, HWNDOPT, HGLOBAL, HGLOBAL, WORD, POINT,
-                                    RECT, RECT, HINSTANCE, INT, INT, INT, INT, INT)
-            val (toPSD, fromPSD, psdStruct) = breakConversion PAGESETUPDLG
-
             (* A DEVNAMES structure is a structure containing offsets followed by
                the actual strings. *)
-            val DEVNAMES = STRUCT4(SHORT, SHORT, SHORT, SHORT)
-            val (toDN, fromDN, dnStruct) = breakConversion DEVNAMES
+            val DEVNAMES = cStruct4(cWORD, cWORD, cWORD, cWORD)
+            val {load=toDN, store=fromDN, ctype={size=sizeDevN, ...}, ...} = breakConversion DEVNAMES
             val DN_DEFAULTPRN      = 0x0001
 
-            fun toDevNames NONE = hglobalNull
+            (* Allocate global memory for the devnames if necessary *)
+            fun toDevNames NONE = hNull
             |   toDevNames (SOME{driver, device, output, default}) =
                 let
                     (* We need memory for the DEVNAMES structure plus the strings plus
                        their terminating nulls. *)
-                    val devnameSize = sizeof dnStruct
+                    val devnameSize = Word.toInt sizeDevN
                     val sizeDriver = size driver
                     and sizeDevice = size device
                     and sizeOutput = size output
                     val space = devnameSize + sizeDriver + sizeDevice + sizeOutput + 3
                     val mHandle = GlobalAlloc(0, space)
-                    val buff = deref(GlobalLock mHandle)
+                    val buff = GlobalLock mHandle
                     (* Copy in the strings and calculate the next offset. *)
+                    open Memory
+                    infix 6 ++
                     fun copyString b str =
                     (
-                        fillCstring b str;
-                        offset (size str+1) Cchar b
+                        stringToBuf(b, 0, str);
+                        b ++ Word.fromInt(size str+1)
                     );
-                    val off1 = copyString (offset 1 dnStruct buff) driver;
+                    val off1 = copyString (buff ++ sizeDevN) driver;
                     val off2 = copyString off1 device
                     val _ = copyString off2 output
                 in
-                    assign dnStruct buff
-                        (fromDN(devnameSize, devnameSize+sizeDriver+1,
-                                devnameSize+sizeDriver+sizeDevice+2,
-                                if default then DN_DEFAULTPRN else 0));
+                    ignore(fromDN(buff, (devnameSize, devnameSize+sizeDriver+1,
+                                 devnameSize+sizeDriver+sizeDevice+2,
+                                 if default then DN_DEFAULTPRN else 0)));
                     GlobalUnlock mHandle;
                     mHandle
                 end
 
-            (* Convert a DevNames structure.  Also frees the handle if it's not null. *)
+            (* Convert a DevNames structure. *)
             fun fromDevNames v =
-                if isHglobalNull v then NONE
+                if isHNull v then NONE
                 else
                 let
-                    val buff = deref(GlobalLock v)
+                    val buff = GlobalLock v
                     val (off0, off1, off2, def) = toDN buff
-                    val driver = fromCstring(address(offset off0 Cchar buff))
-                    val device = fromCstring(address(offset off1 Cchar buff))
-                    val output = fromCstring(address(offset off2 Cchar buff))
+                    open Memory
+                    infix 6 ++
+                    val driver = fromCstring(buff ++ Word.fromInt off0)
+                    val device = fromCstring(buff ++ Word.fromInt off1)
+                    val output = fromCstring(buff ++ Word.fromInt off2)
                     val default = IntInf.andb(def, DN_DEFAULTPRN) <> 0
                 in
                     GlobalUnlock v;
-                    GlobalFree v;
                     SOME {driver=driver, device=device, output=output, default=default}
                 end
 
-            fun toCPageSetupDlg({
-                owner: HWND option,
-                devMode: DEVMODE option,
-                devNames: {driver: string, device: string, output: string, default: bool} option,
-                flags: PageSetupFlags.flags,
-                paperSize: POINT,
-                minMargin: RECT,
-                margin: RECT}: PAGESETUPDLG) : vol =
-            let
-                val devnames = toDevNames devNames
-                val devmode =
-                    case devMode of
-                        NONE => hglobalNull
-                    |   SOME dv =>
-                        let
-                            val dev = deref(toCDevMode dv)
-                            (* toCDevMode constructs the structure in local memory.
-                               We have to copy it to store allocated with GlobalAlloc. *)
-                            val size = fromCshort(offset 36 Cchar dev) +
-                                       fromCshort(offset 38 Cchar dev)
-                            val hGlob = GlobalAlloc(0, size)
-                            val mem = deref(GlobalLock hGlob)
-                            fun doCopy t f 0 = ()
-                             |  doCopy t f i =
-                                (
-                                 assign Cchar t f;
-                                 doCopy(offset 1 Cchar t) (offset 1 Cchar f) (i-1)
-                                )
-                        in
-                            doCopy mem dev size;
-                            GlobalUnlock hGlob;
-                            hGlob
-                        end
-            in
-                address(
-                    fromPSD (sizeof psdStruct, owner, devmode, devnames, PageSetupFlags.toWord flags,
-                        paperSize, minMargin, margin, hinstanceNull, 0, 0, 0, 0, 0 ) )
-            end
+            val PAGESETUPDLG =
+                cStruct14(cDWORD, cHWNDOPT, cHGLOBAL, cHGLOBAL, PageSetupFlags.cConvert, cPoint,
+                          cRect, cRect, cHINSTANCE, cLPARAM, cPointer, cPointer, cPointer, cPointer)
+            val {load=toPSD, store=fromPSD, ctype={size=sizePageSD, ...}, ...} = breakConversion PAGESETUPDLG
 
-            fun fromCPageSetupDlg v : PAGESETUPDLG =
-            let
-                val (_, owner, hgDevMode, hgDevNames, flags, paperSize, minMargin, margin,
-                     _, _, _, _, _, _) = toPSD(deref v)
-                val devMode =
-                    if isHglobalNull hgDevMode
-                    then NONE
-                    else let
-                        
-                        val r = SOME(fromCDevMode(GlobalLock hgDevMode))
-                    in
-                        GlobalUnlock hgDevMode;
-                        GlobalFree hgDevMode;
-                        r
-                    end;
-                val devNames = fromDevNames hgDevNames
-            in
-                { owner = owner, devMode = devMode, devNames = devNames,
-                  flags = PageSetupFlags.fromWord flags,
-                  paperSize = paperSize, minMargin = minMargin, margin = margin }
-            end
+            (* This is a bit of a mess.  It seems that it uses structure packing on 32-bits
+               which means that the fields after the five shorts are not aligned onto
+               4-byte boundaries.  We currently don't use them so we just define this as
+               the structure as far as we use it and set the length explicitly.
+               This problem doesn't arise with PrintDlgEx so that might be preferable. *)
+            val PRINTDLG = cStruct11(cDWORD, cHWNDOPT, cHGLOBAL, cHGLOBAL, cHDC, PrintDlgFlags.cConvert, cWORD,
+                                    cWORD, cWORD, cWORD, cWORD)
+            val {load=toPRD, store=fromPRD, ...} = breakConversion PRINTDLG
+            val printDlgSize =
+                if #size LowLevel.cTypePointer = 0w4 then 0w66 else 0w120
 
-
-            (* This is a bit of a mess.  It turns out that the fields after the five
-               shorts are not aligned onto 4-byte boundaries. Since we don't currently use
-               them this doesn't matter except that we have to set the size explicitly. *)
-            val PRINTDLG = STRUCT19(UINT, HWNDOPT, HGLOBAL, HGLOBAL, HDC, WORD, SHORT,
-                                    SHORT, SHORT, SHORT, SHORT, INT, INT, INT,
-                                    INT, INT, INT, INT, INT)
-            val (toPRD, fromPRD, _) = breakConversion PRINTDLG
-            val printDlgSize = 66
-
-            fun toCPrintDlg({
-                owner: HWND option,
-                devMode: DEVMODE option,
-                devNames: {driver: string, device: string, output: string, default: bool} option,
-                context: HDC option,
-                flags: PrintDlgFlags.flags,
-                fromPage: int,
-                toPage: int,
-                minPage: int,
-                maxPage: int,
-                copies: int}: PRINTDLG) : vol =
-            let
-                val devnames = toDevNames devNames
-                val devmode =
-                    case devMode of
-                        NONE => hglobalNull
-                    |   SOME dv =>
-                        let
-                            val dev = deref(toCDevMode dv)
-                            (* toCDevMode constructs the structure in local memory.
-                               We have to copy it to store allocated with GlobalAlloc. *)
-                            val size = fromCshort(offset 36 Cchar dev) +
-                                       fromCshort(offset 38 Cchar dev)
-                            val hGlob = GlobalAlloc(0, size)
-                            val mem = deref(GlobalLock hGlob)
-                            fun doCopy t f 0 = ()
-                             |  doCopy t f i =
-                                (
-                                 assign Cchar t f;
-                                 doCopy(offset 1 Cchar t) (offset 1 Cchar f) (i-1)
-                                )
-                        in
-                            doCopy mem dev size;
-                            GlobalUnlock hGlob;
-                            hGlob
-                        end
-            in
-                address(
-                    fromPRD (printDlgSize, owner, devmode, devnames, getOpt(context, hdcNull),
-                        PrintDlgFlags.toWord flags, fromPage, toPage, minPage, maxPage, copies,
-                        0, 0, 0, 0, 0, 0, 0, 0 ) )
-            end
-
-            fun fromCPrintDlg v : PRINTDLG =
-            let
-                val (_, owner, hgDevMode, hgDevNames, hdc, flags, fromPage, toPage, minPage,
-                     maxPage, copies, _, _, _, _, _, _, _, _) = toPRD(deref v)
-                val devMode =
-                    if isHglobalNull hgDevMode
-                    then NONE
-                    else let
-                        
-                        val r = SOME(fromCDevMode(GlobalLock hgDevMode))
-                    in
-                        GlobalUnlock hgDevMode;
-                        GlobalFree hgDevMode;
-                        r
-                    end;
-                val devNames = fromDevNames hgDevNames
-            in
-                { owner = owner, devMode = devMode, devNames = devNames,
-                  context = if isHdcNull hdc then NONE else SOME hdc,
-                  flags = PrintDlgFlags.fromWord flags, fromPage = fromPage, toPage = toPage,
-                  minPage = minPage, maxPage = maxPage, copies = copies }
-            end
-
+            val pageSetupDlg = winCall1 (commdlg "PageSetupDlgA") cPointer cBool
+            and printDlg = winCall1 (commdlg "PrintDlgA") cPointer cBool
         in
             fun PageSetupDlg (arg: PAGESETUPDLG): PAGESETUPDLG option =
             let
-                val converted = toCPageSetupDlg arg
-                val result =
-                    call1 (commdlg "PageSetupDlgA") POINTER BOOL converted
-                (* Convert the result.  We have to do this even if the result is
-                   false to make sure we call GlobalFree on any global handles. *)
-                val newArg = fromCPageSetupDlg converted
+                val {
+                    owner: HWND option,
+                    devMode: DEVMODE option,
+                    devNames: {driver: string, device: string, output: string, default: bool} option,
+                    flags: PageSetupFlags.flags,
+                    paperSize: POINT,
+                    minMargin: RECT,
+                    margin: RECT} = arg
+                val devnames = toDevNames devNames
+                val devmode =
+                    case devMode of
+                        NONE => hNull
+                    |   SOME dv =>
+                        let
+                            (* This has to be in global memory *)
+                            open DeviceBase
+                            val hGlob = GlobalAlloc(0, Word.toInt(devModeSize dv))
+                            val mem = GlobalLock hGlob
+                            val () = setCDevMode(mem, dv)
+                        in
+                            GlobalUnlock hGlob;
+                            hGlob
+                        end
+                open Memory
+                val mem = malloc sizePageSD
+                val str = (Word.toInt sizePageSD, owner, devmode, devnames, flags,
+                           paperSize, minMargin, margin, hinstanceNull, 0, null, null, null, null)
+                val freePsd = fromPSD(mem, str) (* Set the PAGESETUPDLG struct *)
+
+                fun freeAll() =
+                let
+                    (* We can only free the handles after we've reloaded them. *)
+                    val (_, _, hgDevMode, hgDevNames, _, _, _, _, _, _, _, _, _, _) = toPSD mem
+                in
+                    if isHNull hgDevNames then () else ignore(GlobalFree hgDevNames);
+                    if isHNull hgDevMode then () else ignore(GlobalFree hgDevMode);
+                    free mem; freePsd()
+                end
+
+                val result = pageSetupDlg mem handle ex => (freeAll(); raise ex)
+                val (_, owner, hgDevMode, hgDevNames, flags, paperSize, minMargin, margin,
+                     _, _, _, _, _, _) = toPSD mem
+                val devMode =
+                    if isHNull hgDevMode
+                    then NONE
+                    else
+                    let
+                        val r = SOME(DeviceBase.getCDevMode(GlobalLock hgDevMode))
+                    in
+                        GlobalUnlock hgDevMode;
+                        r
+                    end;
+                val devNames = fromDevNames hgDevNames
+                val newArg =
+                    { owner = owner, devMode = devMode, devNames = devNames,
+                      flags = flags,
+                      paperSize = paperSize, minMargin = minMargin, margin = margin }
+                val () = freeAll()
             in
                 if result
                 then SOME newArg
@@ -1174,19 +1126,83 @@ struct
 
             and PrintDlg (arg: PRINTDLG): PRINTDLG option =
             let
-                val converted = toCPrintDlg arg
-                val result =
-                    call1 (commdlg "PrintDlgA") POINTER BOOL converted
+                val {
+                    owner: HWND option,
+                    devMode: DEVMODE option,
+                    devNames: {driver: string, device: string, output: string, default: bool} option,
+                    context: HDC option,
+                    flags: PrintDlgFlags.flags,
+                    fromPage: int,
+                    toPage: int,
+                    minPage: int,
+                    maxPage: int,
+                    copies: int} = arg
+                val devnames = toDevNames devNames
+                val devmode =
+                    case devMode of
+                        NONE => hNull
+                    |   SOME dv =>
+                        let
+                            (* This has to be in global memory *)
+                            open DeviceBase
+                            val hGlob = GlobalAlloc(0, Word.toInt(devModeSize dv))
+                            val mem = GlobalLock hGlob
+                            val () = setCDevMode(mem, dv)
+                        in
+                            GlobalUnlock hGlob;
+                            hGlob
+                        end
+                open Memory
+                val mem = malloc printDlgSize
+                (* Since we're not going to set all of it we need to zero it. *)
+                local
+                    fun zero n = if n = printDlgSize then () else (set8(mem, n, 0w0); zero(n+0w1))
+                in
+                    val () = zero 0w0
+                end
+                val freePRD =
+                    fromPRD(mem, (Word.toInt printDlgSize, owner, devmode, devnames, getOpt(context, hdcNull),
+                        flags, fromPage, toPage, minPage, maxPage, copies)) 
+
+                fun freeAll() =
+                let
+                    (* We can only free the handles after we've reloaded them. *)
+                    val (_, _, hgDevMode, hgDevNames, _, _, _, _, _, _, _) = toPRD mem
+                in
+                    if isHNull hgDevNames then () else ignore(GlobalFree hgDevNames);
+                    if isHNull hgDevMode then () else ignore(GlobalFree hgDevMode);
+                    free mem; freePRD()
+                end
+                
+                val result = printDlg mem handle ex => (freeAll(); raise ex)
                 (* Convert the result.  We have to do this even if the result is
                    false to make sure we call GlobalFree on any global handles. *)
-                val newArg = fromCPrintDlg converted
+                val (_, owner, hgDevMode, hgDevNames, hdc, flags, fromPage, toPage, minPage,
+                     maxPage, copies) = toPRD mem
+                val devMode =
+                    if isHNull hgDevMode
+                    then NONE
+                    else
+                    let
+                        val r = SOME(DeviceBase.getCDevMode(GlobalLock hgDevMode))
+                    in
+                        GlobalUnlock hgDevMode;
+                        r
+                    end;
+                val devNames = fromDevNames hgDevNames
+                val newArg =
+                    { owner = owner, devMode = devMode, devNames = devNames,
+                      context = if isHdcNull hdc then NONE else SOME hdc,
+                      flags = flags, fromPage = fromPage, toPage = toPage,
+                      minPage = minPage, maxPage = maxPage, copies = copies }
+                val () = freeAll()
             in
                 if result
                 then SOME newArg
                 else NONE
             end
         end
-
+(*
         structure ChooseFontFlags :>
           sig
             include BIT_FLAGS
@@ -1309,7 +1325,7 @@ struct
             }
 
         local
-            val CHOOSEFONT = STRUCT16(UINT, HWNDOPT, HDC, POINTER, INT, WORD, COLORREF,
+            val CHOOSEFONT = cStruct16(UINT, HWNDOPT, HDC, POINTER, INT, WORD, COLORREF,
                                 INT, INT, INT, INT, POINTER, SHORT, SHORT, INT, INT)
             val (toCF, fromCF, cfStruct) = breakConversion CHOOSEFONT
             val (toLF, fromLF, lfStruct) = breakConversion FontBase.LOGFONT
@@ -1375,7 +1391,7 @@ struct
             let
                 val converted = toCChooseFont arg
                 val result =
-                    call1 (commdlg "ChooseFontA") POINTER BOOL converted
+                    winCall1 (commdlg "ChooseFontA") POINTER BOOL converted
             in
                 if result
                 then SOME(fromCChooseFont converted)
@@ -1429,10 +1445,10 @@ struct
         }
 
         local
-            val CHOOSECOLOR = STRUCT9(UINT, HWNDOPT, INT, COLORREF, POINTER, WORD,
+            val CHOOSECOLOR = cStruct9(UINT, HWNDOPT, INT, COLORREF, POINTER, WORD,
                                       INT, INT, INT)
             (* The custom colours are held in an array of 16 elements. *)
-            val CUSTOM = STRUCT16(COLORREF, COLORREF, COLORREF, COLORREF,
+            val CUSTOM = cStruct16(COLORREF, COLORREF, COLORREF, COLORREF,
                                   COLORREF, COLORREF, COLORREF, COLORREF, 
                                   COLORREF, COLORREF, COLORREF, COLORREF, 
                                   COLORREF, COLORREF, COLORREF, COLORREF)
@@ -1475,14 +1491,14 @@ struct
             let
                 val converted = toCChooseColor arg
                 val result =
-                    call1 (commdlg "ChooseColorA") POINTER BOOL converted
+                    winCall1 (commdlg "ChooseColorA") POINTER BOOL converted
             in
                 if result
                 then SOME(fromCChooseColor converted)
                 else NONE
             end
         end
-
+*)
 (*
 typedef struct tagCHOOSECOLORA {
    DWORD        lStructSize;

@@ -751,6 +751,8 @@ int PolyWinMain(
     HANDLE hWriteToScreen = INVALID_HANDLE_VALUE;
     DWORD dwInId, dwRes;
 
+    SetErrorMode(0); // Force a proper error report
+
     InitializeCriticalSection(&csIOInterlock);
     hInputEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     hApplicationInstance = hInstance;

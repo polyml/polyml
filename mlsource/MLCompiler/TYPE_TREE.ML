@@ -31,14 +31,8 @@ functor TYPE_TREE (
     structure PRETTY : PRETTYSIG
     structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
     structure EXPORTTREE: EXPORTTREESIG;
+    structure DEBUG: DEBUGSIG
 
-    structure DEBUG :
-    sig
-        val errorDepthTag: int Universal.tag
-        val narrowOverloadFlexRecordTag: bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
     structure UTILITIES :
     sig
         val mapTable: ('a * 'a -> bool) ->
@@ -3157,6 +3151,31 @@ struct
                 )
         |   _ => false
 
+    fun checkDiscard(t: types, lex: lexan): string option =
+    let
+        open DEBUG
+        val checkLevel = getParameter reportDiscardedValuesTag (debugParams lex)
+
+        fun isUnit(LabelledType{recList=[], ...}) = true (* Unit is actually an empty record *)
+        |   isUnit(TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...},
+                    args, ...}) =
+                isUnit(makeEquivalent(constr, args))
+        |   isUnit(TypeVar _) = true (* Allow unbound type vars *)
+        |   isUnit _ = false
+        
+        fun isAFunction(FunctionType _) = true
+        |   isAFunction(TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...},
+                    args, ...}) =
+                isAFunction(makeEquivalent(constr, args))
+        |   isAFunction _ = false
+    in
+        case checkLevel of
+            1 => if isAFunction (eventual t) then SOME "A function value is being discarded." else NONE
+        |   2 => if isUnit (eventual t) then NONE else SOME "A non unit value is being discarded."
+        |   _ => NONE
+    end
 
     structure Sharing =
     struct

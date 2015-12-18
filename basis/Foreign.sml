@@ -179,8 +179,8 @@ sig
         
         val cStruct: ctype list -> ctype
 
-        val callwithAbi: LibFFI.abi -> symbol -> ctype list -> ctype -> Memory.voidStar list * Memory.voidStar -> unit
-        val call: symbol -> ctype list -> ctype -> Memory.voidStar list * Memory.voidStar -> unit
+        val callwithAbi: LibFFI.abi -> ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
+        val call: ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
         
         val cFunctionWithAbi:
             LibFFI.abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
@@ -188,13 +188,22 @@ sig
             ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
     end
 
-    type 'a conversion =
-    {
-        load: Memory.voidStar -> 'a, (* Load a value from C memory *)
-        store: Memory.voidStar * 'a -> unit, (* Store a value in C memory *)
-        release: Memory.voidStar * 'a -> unit, (* Copy back any result and free any memory allocated in "store" *)
-        ctype: LowLevel.ctype
-    }
+    type 'a conversion
+
+    val makeConversion:
+        {
+            load: Memory.voidStar -> 'a, (* Load a value from C memory *)
+            store: Memory.voidStar * 'a -> unit -> unit, (* Store value and return free function. *)
+            ctype: LowLevel.ctype
+        } -> 'a conversion
+
+    val breakConversion:
+        'a conversion ->
+        {
+            load: Memory.voidStar -> 'a, (* Load a value from C memory *)
+            store: Memory.voidStar * 'a -> unit -> unit, (* Store value and return free function. *)
+            ctype: LowLevel.ctype
+        }
 
     val cVoid: unit conversion
     val cPointer: Memory.voidStar conversion
@@ -215,42 +224,68 @@ sig
     val cLong: int conversion
     val cUlong: int conversion
     val cString: string conversion
+    val cByteArray: Word8Vector.vector conversion
     val cFloat: real conversion
     val cDouble: real conversion
+    
+    (* When a pointer e.g. a string may be null. *)
+    val cOptionPtr: 'a conversion -> 'a option conversion
 
-    val cFunction0withAbi: LibFFI.abi -> unit -> 'a conversion -> (unit -> 'a) conversion
-    val cFunction0: unit -> 'a conversion -> (unit -> 'a) conversion
-    val cFunction1withAbi: LibFFI.abi -> 'a conversion -> 'b conversion -> ('a -> 'b) conversion
-    val cFunction1: 'a conversion -> 'b conversion -> ('a -> 'b) conversion
-    val cFunction2withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion -> 'c conversion -> ('a * 'b -> 'c) conversion
-    val cFunction2: 'a conversion * 'b conversion -> 'c conversion -> ('a * 'b -> 'c) conversion
-    val cFunction3withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> ('a * 'b *'c -> 'd) conversion
-    val cFunction3: 'a conversion * 'b conversion *  'c conversion -> 'd conversion -> ('a * 'b * 'c -> 'd) conversion
-    val cFunction4withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
-            ('a * 'b * 'c * 'd -> 'e) conversion
-    val cFunction4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
-            ('a * 'b * 'c * 'd -> 'e) conversion
-    val cFunction5withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion -> 'f conversion ->
-            ('a * 'b * 'c * 'd * 'e -> 'f) conversion
-    val cFunction5: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion -> 'f conversion ->
-            ('a * 'b * 'c * 'd * 'e -> 'f) conversion
-    val cFunction6withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion ->
-            'g conversion -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) conversion
-    val cFunction6:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion ->
-            'g conversion -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) conversion
+    type 'a closure
+    
+    val cFunction: ('a->'b) closure conversion
 
-    (* Remove the "release" from a conversion.  Used if extra memory allocated
+    val buildClosure0withAbi: (unit -> 'a) * LibFFI.abi * unit * 'a conversion -> (unit -> 'a) closure
+    val buildClosure0: (unit -> 'a) * unit * 'a conversion -> (unit -> 'a) closure
+    val buildClosure1withAbi: ('a -> 'b) * LibFFI.abi * 'a conversion * 'b conversion -> ('a -> 'b) closure
+    val buildClosure1:  ('a -> 'b) * 'a conversion * 'b conversion -> ('a -> 'b) closure
+    val buildClosure2withAbi:
+         ('a * 'b -> 'c) * LibFFI.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
+    val buildClosure2: ('a * 'b -> 'c) * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
+    val buildClosure3withAbi:
+         ('a * 'b *'c -> 'd) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) closure
+    val buildClosure3: ('a * 'b *'c -> 'd) * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) closure
+    val buildClosure4withAbi:
+         ('a * 'b * 'c  * 'd -> 'e) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c * 'd -> 'e) closure
+    val buildClosure4:
+        ('a * 'b * 'c  * 'd -> 'e) * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c * 'd -> 'e) closure
+    val buildClosure5withAbi:
+        ('a * 'b * 'c * 'd * 'e -> 'f) *
+            LibFFI.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildClosure5:
+        ('a * 'b * 'c * 'd * 'e -> 'f) *
+        ('a conversion * 'b conversion * 'c conversion* 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildClosure6withAbi:
+        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) * LibFFI.abi *
+            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+    val buildClosure6:
+        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) *
+            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+
+    (* Remove the "free" from a conversion.  Used if extra memory allocated
        by the argument must not be freed when the function returns.  *)
     val permanent: 'a conversion -> 'a conversion
 
     (* Call by reference.  *)
     val cStar: 'a conversion -> 'a ref conversion
+    (* Pass a const pointer *)
+    val cConstStar: 'a conversion -> 'a conversion
+    
+    (* Fixed size vector.  It is treated as a struct and passed by value or embedded in a structure. *)
+    val cVectorFixedSize: int * 'a conversion -> 'a vector conversion
+    (* Pass an ML vector as a pointer to a C array. *)
+    and cVectorPointer: 'a conversion -> 'a vector conversion
+    (* Pass an ML array as a pointer to a C array and, on return, update each element of
+       the ML array from the C array. *)
+    and cArrayPointer: 'a conversion -> 'a array conversion
 
     (* structs. *)
     val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
@@ -267,102 +302,141 @@ sig
     val cStruct9: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
                        'e conversion * 'f conversion * 'g conversion * 'h conversion * 'i conversion ->
                        ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion
+    val cStruct10: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion
+    val cStruct11: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion
+    val cStruct12: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion
+    val cStruct13: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion
+    val cStruct14: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion
+    val cStruct15: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion
+    val cStruct16: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion
+    val cStruct17: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion
+    val cStruct18: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion
+    val cStruct19: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion
+    val cStruct20: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion * 't conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion
 
-    val call0withAbi: LibFFI.abi -> symbol -> unit -> 'a conversion -> unit -> 'a
-    val call0: symbol -> unit -> 'a conversion -> unit -> 'a
-    val call1withAbi: LibFFI.abi -> symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
-    val call1: symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
-    val call2withAbi: LibFFI.abi -> symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
-    val call2: symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
-    val call3withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
-    val call3: symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
-    val call4withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+    val buildCall0withAbi: LibFFI.abi * symbol * unit * 'a conversion -> unit -> 'a
+    val buildCall0: symbol * unit * 'a conversion -> unit -> 'a
+    val buildCall1withAbi: LibFFI.abi * symbol * 'a conversion * 'b conversion -> 'a -> 'b
+    val buildCall1: symbol * 'a conversion * 'b conversion -> 'a -> 'b
+    val buildCall2withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
+    val buildCall2:
+        symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
+    val buildCall3withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
+    val buildCall3:
+        symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
+    val buildCall4withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
             'a * 'b * 'c * 'd -> 'e
-    val call4: symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+    val buildCall4:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
             'a * 'b * 'c * 'd -> 'e
-    val call5withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion ->
-            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
-    val call5:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion *  'e conversion ->
-            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
-    val call6withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
-    val call6:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
-    val call7withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion -> 'h conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
-    val call7:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion -> 'h conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
-    val call8withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
-    val call8:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
-    val call9withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion ->
-             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
-    val call9:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion ->
-             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
-    val call10withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
-             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
-    val call10:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
-             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
-    val call11withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
-             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
-    val call11:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
-             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
-    val call12withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+    val buildCall5withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            'a * 'b * 'c * 'd * 'e -> 'f
+    val buildCall5:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            'a * 'b * 'c * 'd * 'e -> 'f
+    val buildCall6withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
+                'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val buildCall6:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
+                'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val buildCall7withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion) *
+                'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val buildCall7:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion) *
+                'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val buildCall8withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion) *
+                'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val buildCall8:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion) *
+                'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val buildCall9withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion) *
+                'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val buildCall9:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion) *
+                'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val buildCall10withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
+                'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val buildCall10:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
+                'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val buildCall11withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
+                'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+    val buildCall11:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k  -> 'l
+    val buildCall12withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion -> 'm conversion ->
+             'l conversion) * 'm conversion ->
+                'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val buildCall12:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion) * 'm conversion ->
              'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
-    val call12:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+    val buildCall13withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion -> 'm conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
-    val call13withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'l conversion * 'm conversion) *
+            'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val buildCall13:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion * 'm conversion -> 'n conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
-    val call13:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'l conversion * 'm conversion) *
+            'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val buildCall14withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion * 'm conversion -> 'n conversion ->
-             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
-    val call14withAbi:
-        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion * 'm conversion * 'n conversion ->
+             'l conversion * 'm conversion * 'n conversion) *
             'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
-    val call14:
-        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+    val buildCall14:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
-             'l conversion * 'm conversion * 'n conversion ->
+             'l conversion * 'm conversion * 'n conversion) *
             'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
 end;
 
@@ -581,7 +655,7 @@ struct
                 {align=align, size=size, ffiType=memoise ffiType ()}
             end
 
-            fun callwithAbi (abi: abi) (fnAddr: unit->voidStar) (argTypes: ctype list) (resType: ctype): voidStar list * voidStar -> unit =
+            fun callwithAbi (abi: abi) (argTypes: ctype list) (resType: ctype): symbol -> voidStar list * voidStar -> unit =
             let
                 (* Preparation when we create the function. *)
                 fun buildCif () = createCIF (abi, #ffiType resType (), map (fn {ffiType, ...} => ffiType ()) argTypes)
@@ -592,7 +666,7 @@ struct
                 (* If the result size is smaller than ffiMinArgSize we have to
                    first store the result in a value of size ffiMinArgSize then copy
                    the result.  This is a restriction of libffi. *)
-                fun smallSpace (args, resMem) =
+                fun smallSpace (fnAddr: unit->voidStar) (args, resMem) =
                 let
                     val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
                     val resultSize = alignUp(ffiMinArgSize, #align saPointer)
@@ -618,7 +692,7 @@ struct
                 end
                 
                 (* If we have enough space. *)
-                fun largeSpace (args, resMem) =
+                fun largeSpace (fnAddr: unit->voidStar) (args, resMem) =
                 let
                     val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
                     val argVec =
@@ -658,10 +732,17 @@ struct
     type 'a conversion =
     {
         load: Memory.voidStar -> 'a, (* Load a value from C memory *)
-        store: Memory.voidStar * 'a -> unit, (* Store a value in C memory *)
-        release: Memory.voidStar * 'a -> unit, (* Free any memory allocated in "store" *)
+        store: Memory.voidStar * 'a -> unit -> unit, (* Store a value in C memory *)
+        updateML: Memory.voidStar * 'a -> unit, (* Update ML value after call - only used in cStar. *)
+        updateC: Memory.voidStar * 'a -> unit,  (* Update C value after callback - only used in cStar. *)
         ctype: LowLevel.ctype
     }
+    
+    fun makeConversion { load, store, ctype } =
+        { load = load, store = store, ctype = ctype, updateML = fn _ => (), updateC = fn _ => () }
+
+    fun breakConversion({load, store, ctype, ... }: 'a conversion) =
+        { load = load, store = store, ctype = ctype }
 
     (* Conversions *)
     local
@@ -670,84 +751,84 @@ struct
         fun noFree _ = () (* None of these allocate extra memory or need to update. *)
     in
         val cVoid: unit conversion =
-            { load=fn _ => (), store=fn _ => (), release = noFree, ctype = cTypeVoid }
+            makeConversion{ load=fn _ => (), store=fn _ => noFree, ctype = cTypeVoid }
 
         (* cPointer should only be used to base other conversions on. *)
         val cPointer: voidStar conversion =
-            { load=fn a => getAddress(a, 0w0), store=fn(a, v) => setAddress(a, 0w0, v),
-              release = noFree, ctype = cTypePointer }
+            makeConversion { load=fn a => getAddress(a, 0w0), store=fn(a, v) => (setAddress(a, 0w0, v); noFree),
+                             ctype = cTypePointer }
 
         local
             fun load(m: voidStar): int = Word8.toIntX(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set8(m, 0w0, Word8.fromInt(checkRange(i, ~128, 127)))
+                (set8(m, 0w0, Word8.fromInt(checkRange(i, ~128, 127))); noFree)
         in
             val cInt8: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeInt8 }
+                makeConversion { load=load, store=store, ctype = cTypeInt8 }
         end
 
         local
             (* Char is signed in C but unsigned in ML. *)
             fun load(m: voidStar): char = Char.chr(Word8.toInt(get8(m, 0w0)))
             fun store(m: voidStar, i: char) =
-                set8(m, 0w0, Word8.fromInt(Char.ord i))
+                (set8(m, 0w0, Word8.fromInt(Char.ord i)); noFree)
         in
             val cChar: char conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeChar }
+                makeConversion{ load=load, store=store, ctype = cTypeChar }
         end
 
         local
             (* Uchar - convert as Word8.word. *)
             fun load(m: voidStar): Word8.word = get8(m, 0w0)
-            fun store(m: voidStar, i: Word8.word) = set8(m, 0w0, i)
+            fun store(m: voidStar, i: Word8.word) = (set8(m, 0w0, i); noFree)
         in
             val cUchar: Word8.word conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeUchar }
+                makeConversion{ load=load, store=store, ctype = cTypeUchar }
         end
 
         local
             fun load(m: voidStar): int = Word8.toInt(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set8(m, 0w0, Word8.fromInt(checkRange(i, 0, 255)))
+                (set8(m, 0w0, Word8.fromInt(checkRange(i, 0, 255))); noFree)
         in
             val cUint8: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeUint8 }
+                makeConversion{ load=load, store=store, ctype = cTypeUint8 }
         end
 
         local
             fun load(m: voidStar): int = Word.toIntX(get16(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set16(m, 0w0, Word.fromInt(checkRange(i, ~32768, 32767)))
+                (set16(m, 0w0, Word.fromInt(checkRange(i, ~32768, 32767))); noFree)
         in
             val cInt16: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeInt16 }
+                makeConversion{ load=load, store=store, ctype = cTypeInt16 }
         end
 
         local
             fun load(m: voidStar): int = Word.toInt(get16(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set16(m, 0w0, Word.fromInt(checkRange(i, 0, 65535)))
+                (set16(m, 0w0, Word.fromInt(checkRange(i, 0, 65535))); noFree)
         in
             val cUint16: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeUint16 }
+                makeConversion{ load=load, store=store, ctype = cTypeUint16 }
         end
 
         local
             fun load(m: voidStar): int = Word32.toIntX(get32(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set32(m, 0w0, Word32.fromInt(checkRange(i, ~2147483648, 2147483647)))
+                (set32(m, 0w0, Word32.fromInt(checkRange(i, ~2147483648, 2147483647))); noFree)
         in
             val cInt32: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeInt32 }
+                makeConversion{ load=load, store=store, ctype = cTypeInt32 }
         end
 
         local
             fun load(m: voidStar): int = Word32.toInt(get32(m, 0w0))
             fun store(m: voidStar, i: int) =
-                set32(m, 0w0, Word32.fromInt(checkRange(i, 0, 4294967295)))
+                (set32(m, 0w0, Word32.fromInt(checkRange(i, 0, 4294967295))); noFree)
         in
             val cUint32: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeUint32 }
+                makeConversion{ load=load, store=store, ctype = cTypeUint32 }
         end
 
         local
@@ -774,12 +855,13 @@ struct
                 in
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
-                    else (set32(m, 0w0, lo); set32(m, 0w1, hi))
+                    else (set32(m, 0w0, lo); set32(m, 0w1, hi));
+                    noFree
                 end
-                else set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max)))
+                else (set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max))); noFree)
         in
             val cInt64: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeInt64 }
+                makeConversion{ load=load, store=store, ctype = cTypeInt64 }
         end
 
         local
@@ -806,28 +888,29 @@ struct
                 in
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
-                    else (set32(m, 0w0, lo); set32(m, 0w1, hi))
+                    else (set32(m, 0w0, lo); set32(m, 0w1, hi));
+                    noFree
                 end
-                else set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max)))
+                else (set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max))); noFree)
         in
             val cUint64: int conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeUint64 }
+                makeConversion{ load=load, store=store, ctype = cTypeUint64 }
         end
 
         local
             fun load(m: voidStar): real = getFloat(m, 0w0)
-            fun store(m: voidStar, v: real) = setFloat(m, 0w0, v)
+            fun store(m: voidStar, v: real) = (setFloat(m, 0w0, v); noFree)
         in
             val cFloat: real conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeFloat }
+                makeConversion{ load=load, store=store, ctype = cTypeFloat }
         end
 
         local
             fun load(m: voidStar): real = getDouble(m, 0w0)
-            fun store(m: voidStar, v: real) = setDouble(m, 0w0, v)
+            fun store(m: voidStar, v: real) = (setDouble(m, 0w0, v); noFree)
         in
             val cDouble: real conversion =
-                { load=load, store=store, release = noFree, ctype = cTypeDouble }
+                makeConversion{ load=load, store=store, ctype = cTypeDouble }
         end
 
         val cShort =
@@ -876,7 +959,7 @@ struct
             in
                 CharVector.tabulate(Word.toInt length, loadChar)
             end
-            
+
             fun store(v: voidStar, s: string) =
             let
                 val sLen = Word.fromInt(String.size s)
@@ -884,84 +967,150 @@ struct
                 val () = CharVector.appi(fn(i, ch) => set8(sMem, Word.fromInt i, Word8.fromInt(Char.ord ch))) s
                 val () = set8(sMem, sLen, 0w0)
             in
-                setAddress(v, 0w0, sMem)
+                setAddress(v, 0w0, sMem);
+                fn () => Memory.free sMem
             end
-            
-            fun release(s: voidStar, _) = Memory.free(getAddress(s, 0w0))
+
         in
             val cString: string conversion =
-                { load=load, store=store, release = release, ctype = cTypePointer }
+                makeConversion { load=load, store=store, ctype = cTypePointer }
         end
 
+        (* This is used if we want to pass NULL rather than a pointer in some cases. *)
+        fun cOptionPtr({load, store, updateML, updateC, ctype}:'a conversion): 'a option conversion =
+            if #typeCode(extractFFItype(#ffiType ctype ())) <> ffiTypeCodePointer
+            then raise Foreign "cOptionPtr must be applied to a pointer type"
+            else
+            let
+                fun loadOpt(s: voidStar) =
+                    if getAddress(s, 0w0) = null then NONE else SOME(load s)
+
+                fun storeOpt(v: voidStar, NONE) = (setAddress(v, 0w0, null); fn _ => ())
+                |   storeOpt(v: voidStar, SOME s) = store(v, s)
+                
+                (* Do we have update here? *)
+                fun updateMLOpt(_, NONE) = ()
+                |   updateMLOpt(v: voidStar, SOME s) = updateML(v, s)
+                
+                fun updateCOpt(_, NONE) = ()
+                |   updateCOpt(v, SOME s) = updateC(v, s)
+            in
+                { load=loadOpt, store=storeOpt, updateML = updateMLOpt,
+                  updateC = updateCOpt, ctype = cTypePointer }
+            end
+
+        local
+            (* Word8Vector.vector to C array of bytes.  It is only possible to
+               do this one way because conversion from a C array requires
+               us to know the size. *)
+            fun load _ = raise Foreign "cByteArray cannot convert from C to ML"
+
+            fun store(v: voidStar, s: Word8Vector.vector) =
+            let
+                open Word8Vector
+                val sLen = Word.fromInt(length s)
+                val sMem = malloc sLen
+                val () = appi(fn(i, b) => set8(sMem, Word.fromInt i, b)) s
+            in
+                setAddress(v, 0w0, sMem);
+                fn () => Memory.free sMem
+            end
+
+        in
+            val cByteArray: Word8Vector.vector conversion =
+                makeConversion{ load=load, store=store, ctype = cTypePointer }
+        end
     end
 
-    (* Replace the "release" function by a null function.  This is intended for situations
-       where an argument should not be deleted once the function completes.
-       This also prevents copying of the result if necessary. *)
-    fun permanent({load, store, ctype, ...}: 'a conversion): 'a conversion =
-        { release=fn _ => (), load=load, store=store, ctype=ctype }
+    (* Remove the free part from the store fn.  This is intended for situations
+       where an argument should not be deleted once the function completes. *)
+    fun permanent({load, store, ctype, updateML, updateC }: 'a conversion): 'a conversion =
+    let
+        fun storeP args = (ignore (store args); fn () => ())
+    in
+        { load=load, store=storeP, updateML = updateML, updateC = updateC, ctype=ctype }
+    end
  
     val op ++ = Memory.++
 
     fun cStruct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ... }} = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {align=alignb, ... }} = b
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ... }} = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {align=alignb, ... }} = b
         
         val offsetb = alignUp(sizea, alignb)
         fun load s = (loada s, loadb(s ++ offsetb))
-        and store (s, (a, b)) = (storea(s, a); storeb(s ++ offsetb, b))
-        and release(s, (a, b)) = (releasea(s, a); releaseb(s ++ offsetb, b))
-
+        and store (x, (a, b)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b)
+        in
+            fn () => ( freea(); freeb() )
+        end
+        and updateML(s, (a, b)) = (updateMLa(s, a); updateMLb(s ++ offsetb, b))
+        and updateC(x, (a, b)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b))
     in
-        {load=load, store=store, release = release, ctype = LowLevel.cStruct[ctypea, ctypeb]}
+        {load=load, store=store, updateML = updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb]}
     end
 
     fun cStruct3(a: 'a conversion, b: 'b conversion, c: 'c conversion): ('a*'b*'c)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {align=alignc, ...} } = c
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {align=alignc, ...} } = c
        
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
 
         fun load s = (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc))
-        and store (s, (a, b, c)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c))
-        and release(s, (a, b, c)) = (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c))
+        and store (x, (a, b, c)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+        in
+            fn () => ( freea(); freeb(); freec() )
+        end
+        and updateML(s, (a, b, c)) = (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c))
+        and updateC(x, (a, b, c)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c))
     in
-        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
     end
 
     fun cStruct4(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion): ('a*'b*'c*'d)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {align=alignd, ...} } = d
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {align=alignd, ...} } = d
  
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
         val offsetd = alignUp(offsetc + sizec, alignd)
 
         fun load s = (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd))
-        and store (s, (a, b, c, d)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d))
-        and release(s, (a, b, c, d)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d))
+        and store (x, (a, b, c, d)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d)
+        in
+            fn () => ( freea(); freeb(); freec(); freed() )
+        end
+        and updateML(s, (a, b, c, d)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d))
+        and updateC(x, (a, b, c, d)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d))
     in
-        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
     end
 
     fun cStruct5(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion): ('a*'b*'c*'d*'e)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, release=releasee, ctype = ctypee as {align=aligne, ...} } = e
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {align=aligne, ...} } = e
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -970,24 +1119,32 @@ struct
 
         fun load s =
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd), loade(s ++ offsete))
-        and store (s, (a, b, c, d, e)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d); storee(s ++ offsete, e))
-        and release(s, (a, b, c, d, e)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c);
-             released(s ++ offsetd, d); releasee(s ++ offsete, e))
+        and store (x, (a, b, c, d, e)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e)
+        in
+            fn () => ( freea(); freeb(); freec(); freed(); freee() )
+        end
+        and updateML(s, (a, b, c, d, e)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c);
+             updateMLd(s ++ offsetd, d); updateMLe(s ++ offsete, e))
+        and updateC(x, (a, b, c, d, e)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e))
     in
-        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
     end
 
     fun cStruct6(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion): ('a*'b*'c*'d*'e*'f)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {align=alignf, ...} } = f
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {align=alignf, ...} } = f
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -998,26 +1155,33 @@ struct
         fun load s =
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
              loade(s ++ offsete), loadf(s ++ offsetf))
-        and store (s, (a, b, c, d, e, f)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
-             storee(s ++ offsete, e); storef(s ++ offsetf, f))
-        and release(s, (a, b, c, d, e, f)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
-             releasee(s ++ offsete, e); releasef(s ++ offsetf, f))
+        and store (x, (a, b, c, d, e, f)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+        in
+            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef() )
+        end
+        and updateML(s, (a, b, c, d, e, f)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f))
+        and updateC(x, (a, b, c, d, e, f)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f))
     in
-        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
     end
 
     fun cStruct7(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion, g: 'g conversion): ('a*'b*'c*'d*'e*'f*'g)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {align=aligng, ...} } = g
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {align=aligng, ...} } = g
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1029,28 +1193,36 @@ struct
         fun load s =
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
              loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg))
-        and store (s, (a, b, c, d, e, f, g)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
-             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g))
-        and release(s, (a, b, c, d, e, f, g)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
-             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g))
+        and store (x, (a, b, c, d, e, f, g)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g)
+        in
+            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg() )
+        end
+        and updateML(s, (a, b, c, d, e, f, g)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g))
+        and updateC(x, (a, b, c, d, e, f, g)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g))
     in
-        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
     end
 
     fun cStruct8(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion):
                     ('a*'b*'c*'d*'e*'f*'g*'h)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {align=alignh, ...} } = h
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {align=alignh, ...} } = h
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1063,15 +1235,24 @@ struct
         fun load s =
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
              loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg), loadh(s ++ offseth))
-        and store (s, (a, b, c, d, e, f, g, h)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
-             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g); storeh(s ++ offseth, h))
-        and release(s, (a, b, c, d, e, f, g, h)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
-             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g);
-             releaseh(s ++ offseth, h))
+        and store (x, (a, b, c, d, e, f, g, h)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h)
+        in
+            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh() )
+        end
+        and updateML(s, (a, b, c, d, e, f, g, h)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
+             updateMLh(s ++ offseth, h))
+        and updateC(x, (a, b, c, d, e, f, g, h)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h))
     in
-        {load=load, store=store, release=release,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh]}
     end
 
@@ -1079,15 +1260,15 @@ struct
                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
                  i: 'i conversion): ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion =
     let
-        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {align=aligni, ...} } = i
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {align=aligni, ...} } = i
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1102,28 +1283,868 @@ struct
             (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
              loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
              loadh(s ++ offseth), loadi(s ++ offseti))
-        and store (s, (a, b, c, d, e, f, g, h, i)) =
-            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
-             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g);
-             storeh(s ++ offseth, h); storei(s ++ offseti, i))
-        and release(s, (a, b, c, d, e, f, g, h, i)) =
-            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
-             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g);
-             releaseh(s ++ offseth, h); releasei(s ++ offseti, i))
+        and store (x, (a, b, c, d, e, f, g, h, i)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+        in
+            fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh(); freei() )
+        end
+        and updateML(s, (a, b, c, d, e, f, g, h, i)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
+             updateMLh(s ++ offseth, h); updateMLi(s ++ offseti, i))
+        and updateC(x, (a, b, c, d, e, f, g, h, i)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i))
     in
-        {load=load, store=store, release=release,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
+    end
+
+    fun cStruct10(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {align=alignj, ...} } = j
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj))
+        and store (x, (a, b, c, d, e, f, g, h, i, j)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej]}
+    end
+
+    fun cStruct11(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {align=alignk, ...} } = k
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek]}
+    end
+    
+    fun cStruct12(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {align=alignl, ...} } = l
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel]}
+    end
+    
+    fun cStruct13(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {align=alignm, ...} } = m
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem]}
+    end
+    
+    nonfix o
+
+    fun cStruct14(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {align=alignn, ...} } = n
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen]}
+    end
+
+    fun cStruct15(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {align=aligno, ...} } = o
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo]}
+    end
+
+    fun cStruct16(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {align=alignp, ...} } = p
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+            and freep = storep(x ++ offsetp, p)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef();
+                    freeg(); freeh(); freei(); freej(); freek(); freel();
+                    freem(); freen(); freeo(); freep()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep]}
+    end
+
+    fun cStruct17(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {align=alignq, ...} } = q
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+            and freep = storep(x ++ offsetp, p) and freeq = storeq(x ++ offsetq, q)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo(); freep(); freeq()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq]}
+    end
+
+    fun cStruct18(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {align=alignr, ...} } = r
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+            and freep = storep(x ++ offsetp, p) and freeq = storeq(x ++ offsetq, q) and freer = storer(x ++ offsetr, r)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo(); freep(); freeq(); freer()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper]}
+    end
+
+    fun cStruct19(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion, s: 's conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {align=aligns, ...} } = s
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+        val offsets = alignUp(offsetr + sizer, aligns)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr), loads(s ++ offsets))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+            and freep = storep(x ++ offsetp, p) and freeq = storeq(x ++ offsetq, q) and freer = storer(x ++ offsetr, r)
+            and frees = stores(x ++ offsets, s)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo(); freep(); freeq(); freer(); frees()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r); updateMLs(x ++ offsets, s))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes]}
+    end
+
+    fun cStruct20(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion, s: 's conversion, t: 't conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion =
+    let
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {size=sizes, align=aligns, ...} } = s
+        and {load=loadt, store=storet, updateML=updateMLt, updateC=updateCt, ctype = ctypet as {align=alignt, ...} } = t
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+        val offsets = alignUp(offsetr + sizer, aligns)
+        val offsett = alignUp(offsets + sizes, alignt)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr), loads(s ++ offsets), loadt(s ++ offsett))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+        let
+            val freea = storea(x, a) and freeb = storeb(x ++ offsetb, b) and freec = storec(x ++ offsetc, c)
+            and freed = stored(x ++ offsetd, d) and freee = storee(x ++ offsete, e) and freef = storef(x ++ offsetf, f)
+            and freeg = storeg(x ++ offsetg, g) and freeh = storeh(x ++ offseth, h) and freei = storei(x ++ offseti, i)
+            and freej = storej(x ++ offsetj, j) and freek = storek(x ++ offsetk, k) and freel = storel(x ++ offsetl, l)
+            and freem = storem(x ++ offsetm, m) and freen = storen(x ++ offsetn, n) and freeo = storeo(x ++ offseto, o)
+            and freep = storep(x ++ offsetp, p) and freeq = storeq(x ++ offsetq, q) and freer = storer(x ++ offsetr, r)
+            and frees = stores(x ++ offsets, s) and freet = storet(x ++ offsett, t)
+        in
+            fn () =>
+                (
+                    freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                    freeh(); freei(); freej(); freek(); freel(); freem();
+                    freen(); freeo(); freep(); freeq(); freer(); frees(); freet()
+                )
+        end
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r); updateMLs(x ++ offsets, s); updateMLt(x ++ offsett, t))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s); updateCt(x ++ offsett, t))
+    in
+        {load=load, store=store, updateML=updateML, updateC=updateC,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes, ctypet]}
     end
 
     (* Conversion for call-by-reference. *)
     local
         open Memory LowLevel
     in
-        fun cStar({load=loada, store=storea, release=releasea, ctype=ctypea}: 'a conversion): 'a ref conversion =
+        fun cStar({load=loada, store=storea, ctype=ctypea, ...}: 'a conversion): 'a ref conversion =
         let
-            (* It's not clear if this is useful. *)
-            fun load s = ref(loada(getAddress(s, 0w0)))
-            
             fun store(m, ref s) =
             let
                 (* When we pass a ref X into a cStar cX function we need to
@@ -1132,22 +2153,140 @@ struct
                    the argument, a pointer, to the address of the cell. *)
                 val mem = malloc(#size ctypea)
                 val () = setAddress(m, 0w0, mem)
+                val freea = storea(mem, s)
             in
-                storea(mem, s)
+                fn () => (free mem; freea())
             end
             
-            fun release(m, s) =
-            let
-                val mem = getAddress(m, 0w0) (* The address of our cell. *)
-                val olds = !s
-            in
-                s := loada mem; (* Update the ref from the value in the cell. *)
-                (* It's not clear what release should do here. *)
-                releasea(mem, olds);
-                free mem
-            end
+            (* Called to update the ML value when the C . *)
+            fun updateML(m, s) = s := loada(getAddress(m, 0w0))
+
+            (* Used when an ML callback receives a cStar argument. *)
+            fun load s = ref(loada(getAddress(s, 0w0)))
+            
+            (* Used when a callback has returned to update the C value.
+               If storea allocates then there's nothing we can do. *)
+            fun updateC(m, ref s) = ignore(storea(getAddress(m, 0w0), s))
         in
-            {load=load, store=store, release=release, ctype = cTypePointer}
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
+        end
+
+        (* Similar to cStar but without the need to update the result. *)
+        fun cConstStar({load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype=ctypea}: 'a conversion): 'a conversion =
+        let
+            fun load s = loada(getAddress(s, 0w0))
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(#size ctypea)
+                val () = setAddress(m, 0w0, mem)
+                val freea = storea(mem, s)
+            in
+                fn () => (free mem; freea())
+            end
+            
+            (* Do we have to do anything here?  Could we pass a const pointer
+               to a structure with variable fields? *)
+            fun updateML(m, s) = updateMLa(getAddress(m, 0w0), s)
+            and updateC(m, s) = updateCa(getAddress(m, 0w0), s)
+        in
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
+        end
+
+        (* Fixed size vector.  It is treated as a struct and passed by value or embedded in a structure. *)
+        fun cVectorFixedSize(n,
+            {load=loadEl, store=storeEl, updateML=updateMLel, updateC=updateCel,
+             ctype={size=sizeEl, align=alignEl, ffiType=ffiTypeEl}, ...}: 'a conversion)
+                : 'a vector conversion =
+        let
+            val arraySize = sizeEl * Word.fromInt n
+            fun ffiTypeArray () =
+                LibFFI.createFFItype {
+                    size = arraySize, align = alignEl, typeCode=LibFFI.ffiTypeCodeStruct,
+                    elements = List.tabulate (n, fn _ => ffiTypeEl()) }
+            val arrayType = { size = arraySize, align = alignEl, ffiType = ffiTypeArray }
+
+            fun load(v: voidStar): 'a vector =
+                Vector.tabulate(n, fn i => loadEl(v ++ Word.fromInt i))
+
+            fun store(v: voidStar, s: 'a vector) =
+            let
+                val sLen = Vector.length s
+                val _ = sLen <= n orelse raise Foreign "vector too long"
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Vector.foldli(fn(i, el, l) => storeEl(v ++ Word.fromInt i, el) :: l) [] s;
+            in
+                fn () => List.app (fn f => f()) frees
+            end
+            
+            (* If we have a ref in here we need to update *)
+            fun updateML(v, s) = Vector.appi(fn (i, el) => updateMLel(v ++ Word.fromInt i, el)) s
+            and updateC(v, s) = Vector.appi(fn (i, el) => updateCel(v ++ Word.fromInt i, el)) s
+        in
+            { load = load, store = store, updateML=updateML, updateC=updateC, ctype = arrayType }
+        end
+
+        (* Pass an ML vector as a pointer to a C array. *)
+        fun cVectorPointer
+            ({store=storeEl, updateML=updateMLel, ctype={size=sizeEl, ...}, ...}: 'a conversion)
+                : 'a vector conversion =
+        let
+            (* We can't determine the size so can't construct a suitable ML value. *)
+            fun load _ = raise Foreign "Cannot return a cVectorPointer from C to ML"
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(sizeEl * Word.fromInt(Vector.length s))
+                val () = setAddress(m, 0w0, mem)
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Vector.foldli(fn(i, el, l) => storeEl(mem ++ (sizeEl * Word.fromInt i), el) :: l) [] s;
+            in
+                fn () => (List.app (fn f => f()) frees; free mem)
+            end
+            
+            (* This is only appropriate if the elements are refs. *)
+            fun updateML(v, s) =
+            let
+                val addr = getAddress(v, 0w0)
+            in
+                Vector.appi(fn (i, el) => updateMLel(addr ++ (sizeEl * Word.fromInt i), el)) s
+            end
+            (* updateC can't actually be used because we can't load a suitable value *)
+            and updateC _ = raise Foreign "Cannot return a cVectorPointer from C to ML"
+        in
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
+        end
+
+        (* Pass an ML array as a pointer to a C array and, on return, update each element of
+           the ML array from the C array. *)
+        fun cArrayPointer
+            ({load=loadEl, store=storeEl, ctype={size=sizeEl, ...}, ...}: 'a conversion) : 'a array conversion =
+        let
+            (* We can't determine the size so can't construct a suitable ML value. *)
+            fun load _ = raise Foreign "Cannot return a cArrayPointer from C to ML"
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(sizeEl * Word.fromInt(Array.length s))
+                val () = setAddress(m, 0w0, mem)
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Array.foldli(fn(i, el, l) => storeEl(mem ++ (sizeEl * Word.fromInt i), el) :: l) [] s;
+            in
+                fn () => (List.app (fn f => f()) frees; free mem)
+            end
+            
+            (* updateML is used after a C function returns.  It needs to update each element. *)
+            fun updateML(v, s) =
+            let
+                val addr = getAddress(v, 0w0)
+            in
+                Array.modifyi(fn (i, _) => loadEl(addr ++ (sizeEl * Word.fromInt i))) s
+            end
+
+            (* updateC can't actually be used because we can't load a suitable value *)
+            and updateC _ = raise Foreign "Cannot return a cArrayPointer from C to ML"
+        in
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
         end
     end
 
@@ -1158,10 +2297,10 @@ struct
     local
         open LibFFI Memory LowLevel
     in
-        fun call0withAbi (abi: abi) (fnAddr: unit->voidStar) ()
-            ({ctype = resType, load= resLoad, ...} : 'a conversion): unit->'a =
+    
+        fun buildCall0withAbi(abi: abi, fnAddr, (), {ctype = resType, load= resLoad, ...} : 'a conversion): unit->'a =
         let
-            val callF = callwithAbi abi fnAddr [] resType
+            val callF = callwithAbi abi [] resType fnAddr
         in
             fn () =>
             let
@@ -1177,13 +2316,13 @@ struct
             end
         end
 
-        fun call0 x = call0withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+        fun buildCall0(symbol, argTypes, resType) = buildCall0withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call1withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = argType, store = argStore, release = argRelease, ...}: 'a conversion)
-            ({ ctype = resType, load= resLoad, ...}: 'b conversion): 'a ->'b =
+        fun buildCall1withAbi (abi: abi, fnAddr,
+            { ctype = argType, store = argStore, updateML = argUpdate, ...}: 'a conversion,
+            { ctype = resType, load= resLoad, ...}: 'b conversion): 'a ->'b =
         let
-            val callF = callwithAbi abi fnAddr [argType] resType
+            val callF = callwithAbi abi [argType] resType fnAddr
         in
             fn x =>
             let
@@ -1193,61 +2332,62 @@ struct
                 val argOffset = alignUp(#size resType, #align argType)
                 val rMem = malloc(argOffset + #size argType)
                 val argAddr = rMem ++ argOffset
-                val () = argStore (argAddr, x)
-                fun freeAll () = (argRelease (argAddr, x); free rMem)
+                val freea = argStore (argAddr, x)
+                fun freeAll () = (freea(); free rMem)
             in
                 let
                     val () = callF([argAddr], rMem)
                     val result = resLoad rMem
                 in
+                    argUpdate (argAddr, x);
                     freeAll ();
                     result
                 end handle exn => (freeAll (); raise exn)
             end
         end
 
-        fun call1 x = call1withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+        fun buildCall1(symbol, argTypes, resType) = buildCall1withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call2withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion)
-            ({ ctype = resType, load= resLoad, ...}: 'c conversion): 'a * 'b -> 'c =
+        fun buildCall2withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion),
+             { ctype = resType, load= resLoad, ...}: 'c conversion): 'a * 'b -> 'c =
         let
-            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type] resType
+            val callF = callwithAbi abi [arg1Type, arg2Type] resType fnAddr
         in
-            fn (x, y) =>
+            fn (a, b) =>
             let
                 val arg1Offset = alignUp(#size resType, #align arg1Type)
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
                 val rMem = malloc(arg2Offset + #size arg2Type)
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
-                val () = arg1Store (arg1Addr, x)
-                val () = arg2Store (arg2Addr, y)
-                fun freeAll() =
-                    (arg1Release(arg1Addr, x); arg2Release (arg2Addr, y); free rMem)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                fun freeAll() = (freea(); freeb(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call2 x = call2withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+        fun buildCall2(symbol, argTypes, resType) = buildCall2withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call3withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion)
-            ({ ctype = resType, load= resLoad, ...}: 'd conversion): 'a * 'b *'c -> 'd =
+        fun buildCall3withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion),
+             { ctype = resType, load= resLoad, ...}: 'd conversion): 'a * 'b *'c -> 'd =
         let
-            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type] resType
+            val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type] resType fnAddr
         in
-            fn (x, y, z) =>
+            fn (a, b, c) =>
             let
                 val arg1Offset = alignUp(#size resType, #align arg1Type)
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
@@ -1256,32 +2396,32 @@ struct
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
-                val () = arg1Store (arg1Addr, x)
-                val () = arg2Store (arg2Addr, y)
-                val () = arg3Store (arg3Addr, z)
-                fun freeAll() =
-                    (arg1Release(arg1Addr, x); arg2Release (arg2Addr, y); arg3Release (arg3Addr, z); free rMem)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                fun freeAll() = (freea(); freeb(); freec(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call3 x = call3withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+        fun buildCall3(symbol, argTypes, resType) = buildCall3withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call4withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'e conversion): 'a * 'b *'c * 'd -> 'e =
+        fun buildCall4withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion),
+             { ctype = resType, load= resLoad, ...}: 'e conversion): 'a * 'b *'c * 'd -> 'e =
         let
-            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type] resType
+            val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type] resType fnAddr
         in
             fn (a, b, c, d) =>
             let
@@ -1294,35 +2434,36 @@ struct
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
                 val arg4Addr = rMem ++ arg4Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c); arg4Release (arg4Addr, d); free rMem)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                fun freeAll() = (freea(); freeb(); freec(); freed(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call4 x = call4withAbi abiDefault x
+        fun buildCall4(symbol, argTypes, resType) = buildCall4withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call5withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'f conversion): 'a * 'b *'c * 'd * 'e -> 'f =
+        fun buildCall5withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion),
+             { ctype = resType, load= resLoad, ...}: 'f conversion): 'a * 'b *'c * 'd * 'e -> 'f =
         let
             val callF =
-                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type] resType
+                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type] resType fnAddr
         in
             fn (a, b, c, d, e) =>
             let
@@ -1337,38 +2478,39 @@ struct
                 val arg3Addr = rMem ++ arg3Offset
                 val arg4Addr = rMem ++ arg4Offset
                 val arg5Addr = rMem ++ arg5Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call5 x = call5withAbi abiDefault x
+        fun buildCall5(symbol, argTypes, resType) = buildCall5withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call6withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'g conversion): 'a * 'b *'c * 'd * 'e * 'f -> 'g =
+        fun buildCall6withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion),
+             { ctype = resType, load= resLoad, ...}: 'g conversion): 'a * 'b *'c * 'd * 'e * 'f -> 'g =
         let
             val callF =
-                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type] resType
+                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type] resType fnAddr
         in
             fn (a, b, c, d, e, f) =>
             let
@@ -1385,40 +2527,42 @@ struct
                 val arg4Addr = rMem ++ arg4Offset
                 val arg5Addr = rMem ++ arg5Offset
                 val arg6Addr = rMem ++ arg6Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr , arg6Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call6 x = call6withAbi abiDefault x
+        fun buildCall6(symbol, argTypes, resType) = buildCall6withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call7withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'h conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
+        fun buildCall7withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion),
+             { ctype = resType, load= resLoad, ...}: 'h conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
         let
             val callF =
-                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type] resType
+                callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g) =>
             let
@@ -1437,45 +2581,46 @@ struct
                 val arg5Addr = rMem ++ arg5Offset
                 val arg6Addr = rMem ++ arg6Offset
                 val arg7Addr = rMem ++ arg7Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g);free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call7 x = call7withAbi abiDefault x
+        fun buildCall7(symbol, argTypes, resType) = buildCall7withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call8withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'i conversion):
+        fun buildCall8withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion),
+             { ctype = resType, load= resLoad, ...}: 'i conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h -> 'i =
         let
             val callF =
-                callwithAbi abi fnAddr
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type] resType
+                callwithAbi abi
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h) =>
             let
@@ -1496,47 +2641,50 @@ struct
                 val arg6Addr = rMem ++ arg6Offset
                 val arg7Addr = rMem ++ arg7Offset
                 val arg8Addr = rMem ++ arg8Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); free rMem)
             in
                 let
                     val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call8 x = call8withAbi abiDefault x
+        fun buildCall8(symbol, argTypes, resType) = buildCall8withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call9withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'j conversion):
+        fun buildCall9withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion),
+             { ctype = resType, load= resLoad, ...}: 'j conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j =
         let
             val callF =
-                callwithAbi abi fnAddr
-                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type, arg9Type] resType
+                callwithAbi abi
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type, arg9Type]
+                        resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i) =>
             let
@@ -1559,51 +2707,53 @@ struct
                 val arg7Addr = rMem ++ arg7Offset
                 val arg8Addr = rMem ++ arg8Offset
                 val arg9Addr = rMem ++ arg9Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); free rMem)
             in
                 let
                     val () =
                         callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr, arg9Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call9 x = call9withAbi abiDefault x
+        fun buildCall9(symbol, argTypes, resType) = buildCall9withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call10withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'k conversion):
+        fun buildCall10withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion),
+             { ctype = resType, load= resLoad, ...}: 'k conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k =
         let
             val callF =
-                callwithAbi abi fnAddr
+                callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type] resType
+                     arg8Type, arg9Type, arg10Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i, j) =>
             let
@@ -1628,21 +2778,19 @@ struct
                 val arg8Addr = rMem ++ arg8Offset
                 val arg9Addr = rMem ++ arg9Offset
                 val arg10Addr = rMem ++ arg10Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
-                val () = arg10Store (arg10Addr, j)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
+                val freej = arg10Store (arg10Addr, j)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
-                     arg10Release (arg10Addr, j); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); freej(); free rMem)
             in
                 let
                     val () =
@@ -1650,33 +2798,37 @@ struct
                                arg8Addr, arg9Addr, arg10Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    arg10Update (arg10Addr, j);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call10 x = call10withAbi abiDefault x
+        fun buildCall10(symbol, argTypes, resType) = buildCall10withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call11withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'l conversion):
+        fun buildCall11withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion),     
+             { ctype = resType, load= resLoad, ...}: 'l conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l =
         let
             val callF =
-                callwithAbi abi fnAddr
+                callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type] resType
+                     arg8Type, arg9Type, arg10Type, arg11Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i, j, k) =>
             let
@@ -1703,22 +2855,20 @@ struct
                 val arg9Addr = rMem ++ arg9Offset
                 val arg10Addr = rMem ++ arg10Offset
                 val arg11Addr = rMem ++ arg11Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
-                val () = arg10Store (arg10Addr, j)
-                val () = arg11Store (arg11Addr, k)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
+                val freej = arg10Store (arg10Addr, j)
+                val freek = arg11Store (arg11Addr, k)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
-                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); freej(); freek(); free rMem)
             in
                 let
                     val () =
@@ -1726,34 +2876,38 @@ struct
                                arg8Addr, arg9Addr, arg10Addr, arg11Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call11 x = call11withAbi abiDefault x
+        fun buildCall11(symbol, argTypes, resType) = buildCall11withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call12withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,             
-             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'm conversion):
-                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
+        fun buildCall12withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion),            
+             { ctype = resType, load= resLoad, ...}: 'm conversion):
+                    'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
         let
             val callF =
-                callwithAbi abi fnAddr
+                callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type] resType
+                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l) =>
             let
@@ -1782,23 +2936,21 @@ struct
                 val arg10Addr = rMem ++ arg10Offset
                 val arg11Addr = rMem ++ arg11Offset
                 val arg12Addr = rMem ++ arg12Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
-                val () = arg10Store (arg10Addr, j)
-                val () = arg11Store (arg11Addr, k)
-                val () = arg12Store (arg12Addr, l)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
+                val freej = arg10Store (arg10Addr, j)
+                val freek = arg11Store (arg11Addr, k)
+                val freel = arg12Store (arg12Addr, l)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
-                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); freej(); freek(); freel(); free rMem)
             in
                 let
                     val () =
@@ -1806,35 +2958,39 @@ struct
                                arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call12 x = call12withAbi abiDefault x
+        fun buildCall12(symbol, argTypes, resType) = buildCall12withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call13withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,             
-             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion,             
-             { ctype = arg13Type, store = arg13Store, release = arg13Release, ...}: 'm conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'n conversion):
+        fun buildCall13withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,             
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,             
+             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion),             
+             { ctype = resType, load= resLoad, ...}: 'n conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n =
         let
             val callF =
-                callwithAbi abi fnAddr
+                callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
-                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type] resType
+                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l, m) =>
             let
@@ -1865,25 +3021,22 @@ struct
                 val arg11Addr = rMem ++ arg11Offset
                 val arg12Addr = rMem ++ arg12Offset
                 val arg13Addr = rMem ++ arg13Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
-                val () = arg10Store (arg10Addr, j)
-                val () = arg11Store (arg11Addr, k)
-                val () = arg12Store (arg12Addr, l)
-                val () = arg13Store (arg13Addr, m)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
+                val freej = arg10Store (arg10Addr, j)
+                val freek = arg11Store (arg11Addr, k)
+                val freel = arg12Store (arg12Addr, l)
+                val freem = arg13Store (arg13Addr, m)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
-                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l);
-                     arg13Release (arg13Addr, m); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); freej(); freek(); freel(); freem(); free rMem)
             in
                 let
                     val () =
@@ -1891,37 +3044,42 @@ struct
                                arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
+                    arg13Update (arg13Addr, m);
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call13 x = call13withAbi abiDefault x
+        fun buildCall13(symbol, argTypes, resType) = buildCall13withAbi (abiDefault, symbol, argTypes, resType)
 
-        fun call14withAbi (abi: abi) (fnAddr: unit->voidStar)
-            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,
-             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,
-             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,
-             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,
-             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,
-             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion,
-             { ctype = arg13Type, store = arg13Store, release = arg13Release, ...}: 'm conversion,           
-             { ctype = arg14Type, store = arg14Store, release = arg14Release, ...}: 'n conversion)             
-            ({ ctype = resType, load= resLoad, ...}: 'o conversion):
+        fun buildCall14withAbi (abi: abi, fnAddr,
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,
+             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion,
+             { ctype = arg14Type, store = arg14Store, updateML = arg14Update, ...}: 'n conversion),
+             { ctype = resType, load= resLoad, ...}: 'o conversion):
                 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o =
         let
             val callF =
-                callwithAbi abi fnAddr
+                callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type,
-                     arg14Type] resType
+                     arg14Type] resType fnAddr
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l, m, n) =>
             let
@@ -1954,26 +3112,23 @@ struct
                 val arg12Addr = rMem ++ arg12Offset
                 val arg13Addr = rMem ++ arg13Offset
                 val arg14Addr = rMem ++ arg14Offset
-                val () = arg1Store (arg1Addr, a)
-                val () = arg2Store (arg2Addr, b)
-                val () = arg3Store (arg3Addr, c)
-                val () = arg4Store (arg4Addr, d)
-                val () = arg5Store (arg5Addr, e)
-                val () = arg6Store (arg6Addr, f)
-                val () = arg7Store (arg7Addr, g)
-                val () = arg8Store (arg8Addr, h)
-                val () = arg9Store (arg9Addr, i)
-                val () = arg10Store (arg10Addr, j)
-                val () = arg11Store (arg11Addr, k)
-                val () = arg12Store (arg12Addr, l)
-                val () = arg13Store (arg13Addr, m)
-                val () = arg14Store (arg14Addr, n)
+                val freea = arg1Store (arg1Addr, a)
+                val freeb = arg2Store (arg2Addr, b)
+                val freec = arg3Store (arg3Addr, c)
+                val freed = arg4Store (arg4Addr, d)
+                val freee = arg5Store (arg5Addr, e)
+                val freef = arg6Store (arg6Addr, f)
+                val freeg = arg7Store (arg7Addr, g)
+                val freeh = arg8Store (arg8Addr, h)
+                val freei = arg9Store (arg9Addr, i)
+                val freej = arg10Store (arg10Addr, j)
+                val freek = arg11Store (arg11Addr, k)
+                val freel = arg12Store (arg12Addr, l)
+                val freem = arg13Store (arg13Addr, m)
+                val freen = arg14Store (arg14Addr, n)
                 fun freeAll() =
-                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
-                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
-                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
-                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l);
-                     arg13Release (arg13Addr, m); arg14Release (arg14Addr, n); free rMem)
+                    (freea(); freeb(); freec(); freed(); freee(); freef(); freeg();
+                     freeh(); freei(); freej(); freek(); freel(); freem(); freen(); free rMem)
             in
                 let
                     val () =
@@ -1981,266 +3136,256 @@ struct
                                arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr, arg14Addr], rMem)
                     val result = resLoad rMem
                 in
+                    arg1Update(arg1Addr, a); arg2Update (arg2Addr, b); arg3Update (arg3Addr, c);
+                    arg4Update (arg4Addr, d); arg5Update (arg5Addr, e); arg6Update (arg6Addr, f);
+                    arg7Update (arg7Addr, g); arg8Update (arg8Addr, h); arg9Update (arg9Addr, i);
+                    arg10Update (arg10Addr, j); arg11Update (arg11Addr, k); arg12Update (arg12Addr, l);
+                    arg13Update (arg13Addr, m); arg14Update (arg14Addr, n); 
                     freeAll();
                     result
                 end handle exn => (freeAll(); raise exn)
             end
         end
 
-        fun call14 x = call14withAbi abiDefault x
+        fun buildCall14(symbol, argTypes, resType) = buildCall14withAbi (abiDefault, symbol, argTypes, resType)
 
+    end
+
+    (* A closure is a memoised address.  *)
+    type 'a closure = unit -> Memory.voidStar
+
+    local
+        open Memory LowLevel
+        fun load _ = raise Foreign "Cannot return a closure"
+        (* "dememoise" the value when we store it.  This means that the closure is actually
+           created when the value is first stored and then it is cached. *)
+        and store(v, cl: ('a->'b) closure) = (Memory.setAddress(v, 0w0, cl()); fn () => ())
+    in
+        val cFunction: ('a->'b) closure conversion =
+            makeConversion { load=load, store=store, ctype = LowLevel.cTypePointer }
     end
 
     local
         open LibFFI Memory LowLevel
-       
-        (* Release the callback *)
-        fun release(v, _) = freeCallback(getAddress(v, 0w0))
-
-        (* load should never be called. *)
-        fun load _ = raise Foreign "Callbacks cannot be returned as results" 
     in
-        (* Callback conversion *)
-        fun cFunction0withAbi (abi: abi) () (resConv: 'a conversion) : (unit->'a) conversion =
+        fun buildClosure0withAbi(f: unit-> 'a, abi: abi, (), resConv: 'a conversion): (unit->'a) closure =
         let
             fun callback (f: unit -> 'a) (_: voidStar, res: voidStar): unit =
-                #store resConv (res, f ())
+                ignore(#store resConv (res, f ()))
+            (* Ignore the result of #store resConv.  What this means is if the
+               callback returns something, e.g. a string, that requires
+               dynamic allocation there will be a memory leak. *)
 
             val makeCallback = cFunctionWithAbi abi [] (#ctype resConv)
-
-            (* Really make the callback when we store the actual function. *)
-            fun store (v: voidStar, f) = setAddress(v, 0w0, makeCallback(callback f))
         in
-            { load=load, store=store, release=release, ctype=cTypePointer }
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
-   
-        fun cFunction0 x = cFunction0withAbi abiDefault x
 
-        fun cFunction1withAbi (abi: abi)
-                (argConv: 'a conversion) (resConv: 'b conversion) : ('a -> 'b) conversion =
+        fun buildClosure0(f, argConv, resConv) = buildClosure0withAbi(f, abiDefault, argConv, resConv)
+
+        fun buildClosure1withAbi (f: 'a -> 'b, abi: abi, argConv: 'a conversion, resConv: 'b conversion) : ('a -> 'b) closure =
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
             let
-                val result = f (#load argConv (getAddress(args, 0w0)))
+                val arg1Addr = getAddress(args, 0w0)
+                val arg1 = #load argConv arg1Addr
+                val result = f arg1
+                val () = #updateC argConv (arg1Addr, arg1)
             in
-                #store resConv (res, result)
+                ignore(#store resConv (res, result))
             end
 
             val makeCallback = cFunctionWithAbi abi [#ctype argConv] (#ctype resConv)
-
-            (* Really make the callback when we store the actual function. *)
-            fun store (v: voidStar, f) = setAddress(v, 0w0, makeCallback(callback f))
         in
-            { load=load, store=store, release=release, ctype=cTypePointer }
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
    
-        fun cFunction1 x = cFunction1withAbi abiDefault x
+        fun buildClosure1(f, argConv, resConv) = buildClosure1withAbi(f, abiDefault, argConv, resConv)
 
-        (* For the cases with more arguments we take out the conversion code.
-           The reason has to do with inlining.  All callback functions have
-           ctype=cTypePointer whatever the function arguments and we REALLY
-           want that to be inlined even if the construction of the arguments
-           isn't.  Having the result record inlined enables the calling
-           function to compute the size of the argument record at compile
-           time. *)
-        local
-            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, resConv: 'c conversion) =
+        fun buildClosure2withAbi
+            (f: 'a * 'b -> 'c, abi: abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion), resConv: 'c conversion) :
+                ('a * 'b -> 'c) closure =
+        let
+            fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
             let
-                fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
-                let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)))
-                in
-                    #store resConv (res, result)
-                end
-            
-                val argTypes = [#ctype arg1Conv, #ctype arg2Conv]
-                and resType = #ctype resConv
+                val arg1Addr = getAddress(args, 0w0)
+                and arg2Addr = getAddress(args, 0w1)
+                val arg1 = #load arg1Conv arg1Addr
+                and arg2 = #load arg2Conv arg2Addr
 
-                val makeCallback = cFunctionWithAbi abi argTypes resType
+                val result = f (arg1, arg2)
+
+                val () = #updateC arg1Conv(arg1Addr, arg1)
+                and () = #updateC arg2Conv(arg2Addr, arg2)
             in
-                (* Really make the callback when we store the actual function. *)
-                fn f => makeCallback(callback f)
+                ignore(#store resConv (res, result))
             end
+        
+            val argTypes = [#ctype arg1Conv, #ctype arg2Conv]
+            and resType = #ctype resConv
+
+            val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            fun cFunction2withAbi (abi: abi)
-                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion) (resConv: 'c conversion) : ('a *'b -> 'c) conversion =
-            let
-                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, resConv)
-                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
-            in
-                { load=load, store=store, release=release, ctype=cTypePointer }
-            end
-       
-            fun cFunction2 x = cFunction2withAbi abiDefault x
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
 
+        fun buildClosure2(f, argConv, resConv) = buildClosure2withAbi(f, abiDefault, argConv, resConv)
 
-        local
-            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, resConv: 'd conversion) =
+        fun buildClosure3withAbi
+            (f, abi, (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion), resConv: 'd conversion) =
+        let
+            fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
             let
-                fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
-                let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)))
-                in
-                    #store resConv (res, result)
-                end
-            
-                val argTypes =
-                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv]
-                and resType = #ctype resConv
+                val arg1Addr = getAddress(args, 0w0)
+                and arg2Addr = getAddress(args, 0w1)
+                and arg3Addr = getAddress(args, 0w2)
+                val arg1 = #load arg1Conv arg1Addr
+                and arg2 = #load arg2Conv arg2Addr
+                and arg3 = #load arg3Conv arg3Addr
 
-                val makeCallback = cFunctionWithAbi abi argTypes resType
+                val result = f (arg1, arg2, arg3)
+
+                val () = #updateC arg1Conv(arg1Addr, arg1)
+                and () = #updateC arg2Conv(arg2Addr, arg2)
+                and () = #updateC arg3Conv(arg3Addr, arg3)
             in
-                (* Really make the callback when we store the actual function. *)
-                fn f => makeCallback(callback f)
+                ignore(#store resConv (res, result))
             end
+        
+            val argTypes =
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv]
+            and resType = #ctype resConv
+
+            val makeCallback = cFunctionWithAbi abi argTypes resType
         in
-            fun cFunction3withAbi (abi: abi)
-                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion)
-                    (resConv: 'd conversion) : ('a *'b * 'c -> 'd) conversion =
-            let
-                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv, resConv)
-                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
-            in
-                { load=load, store=store, release=release, ctype=cTypePointer }
-            end
-       
-            fun cFunction3 x = cFunction3withAbi abiDefault x
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
 
-        local
-            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                 arg4Conv: 'd conversion, resConv: 'e conversion) =
-            let
-                fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
-                let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)))
-                in
-                    #store resConv (res, result)
-                end
-            
-                val argTypes =
-                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv]
-                and resType = #ctype resConv
+        fun buildClosure3(f, argConv, resConv) = buildClosure3withAbi(f, abiDefault, argConv, resConv)
 
-                val makeCallback = cFunctionWithAbi abi argTypes resType
-            in
-                (* Really make the callback when we store the actual function. *)
-                fn f => makeCallback(callback f)
-            end
-        in
-            fun cFunction4withAbi (abi: abi)
-                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                     arg4Conv: 'd conversion) (resConv: 'e conversion) : ('a *'b * 'c * 'd -> 'e) conversion =
+        fun buildClosure4withAbi
+            (f, abi,
+                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, arg4Conv: 'd conversion),
+             resConv: 'e conversion) =
+        let
+            fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
             let
-                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv, arg4Conv, resConv)
-                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+                val arg1Addr = getAddress(args, 0w0)
+                and arg2Addr = getAddress(args, 0w1)
+                and arg3Addr = getAddress(args, 0w2)
+                and arg4Addr = getAddress(args, 0w3)
+                val arg1 = #load arg1Conv arg1Addr
+                and arg2 = #load arg2Conv arg2Addr
+                and arg3 = #load arg3Conv arg3Addr
+                and arg4 = #load arg4Conv arg4Addr
+
+                val result = f (arg1, arg2, arg3, arg4)
+
+                val () = #updateC arg1Conv(arg1Addr, arg1)
+                and () = #updateC arg2Conv(arg2Addr, arg2)
+                and () = #updateC arg3Conv(arg3Addr, arg3)
+                and () = #updateC arg4Conv(arg4Addr, arg4)
             in
-                { load=load, store=store, release=release, ctype=cTypePointer }
+                ignore(#store resConv (res, result))
             end
-       
-            fun cFunction4 x = cFunction4withAbi abiDefault x
+        
+            val argTypes =
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv]
+            and resType = #ctype resConv
+
+            val makeCallback = cFunctionWithAbi abi argTypes resType
+        in
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
 
-        local
-            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, resConv: 'f conversion) =
-            let
-                fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
-                let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)),
-                            #load arg5Conv (getAddress(args, 0w4)))
-                in
-                    #store resConv (res, result)
-                end
-            
-                val argTypes =
-                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
-                         #ctype arg4Conv, #ctype arg5Conv]
-                and resType = #ctype resConv
+        fun buildClosure4(f, argConv, resConv) = buildClosure4withAbi(f, abiDefault, argConv, resConv)
 
-                val makeCallback = cFunctionWithAbi abi argTypes resType
-            in
-                (* Really make the callback when we store the actual function. *)
-                fn f => makeCallback(callback f)
-            end
-        in
-            fun cFunction5withAbi (abi: abi)
-                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                     arg4Conv: 'd conversion, arg5Conv: 'e conversion)
-                    (resConv: 'f conversion) : ('a *'b * 'c * 'd * 'e -> 'f) conversion =
+        fun buildClosure5withAbi
+            (f, abi,
+                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                 arg4Conv: 'd conversion, arg5Conv: 'e conversion),
+             resConv: 'f conversion) =
+        let
+            fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
             let
-                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv,
-                                      arg4Conv, arg5Conv, resConv)
-                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+                val arg1Addr = getAddress(args, 0w0)
+                and arg2Addr = getAddress(args, 0w1)
+                and arg3Addr = getAddress(args, 0w2)
+                and arg4Addr = getAddress(args, 0w3)
+                and arg5Addr = getAddress(args, 0w4)
+                val arg1 = #load arg1Conv arg1Addr
+                and arg2 = #load arg2Conv arg2Addr
+                and arg3 = #load arg3Conv arg3Addr
+                and arg4 = #load arg4Conv arg4Addr
+                and arg5 = #load arg5Conv arg5Addr
+
+                val result = f (arg1, arg2, arg3, arg4, arg5)
+
+                val () = #updateC arg1Conv(arg1Addr, arg1)
+                and () = #updateC arg2Conv(arg2Addr, arg2)
+                and () = #updateC arg3Conv(arg3Addr, arg3)
+                and () = #updateC arg4Conv(arg4Addr, arg4)
+                and () = #updateC arg5Conv(arg5Addr, arg5)
             in
-                { load=load, store=store, release=release, ctype=cTypePointer }
+                ignore(#store resConv (res, result))
             end
-       
-            fun cFunction5 x = cFunction5withAbi abiDefault x
+        
+            val argTypes =
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
+                     #ctype arg4Conv, #ctype arg5Conv]
+            and resType = #ctype resConv
+
+            val makeCallback = cFunctionWithAbi abi argTypes resType
+        in
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
 
-        local
-            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion,
-                 resConv: 'g conversion) =
-            let
-                fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
-                let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)),
-                            #load arg5Conv (getAddress(args, 0w4)),
-                            #load arg6Conv (getAddress(args, 0w5)))
-                in
-                    #store resConv (res, result)
-                end
-            
-                val argTypes =
-                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
-                         #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv]
-                and resType = #ctype resConv
+        fun buildClosure5(f, argConv, resConv) = buildClosure5withAbi(f, abiDefault, argConv, resConv)
 
-                val makeCallback = cFunctionWithAbi abi argTypes resType
-            in
-                (* Really make the callback when we store the actual function. *)
-                fn f => makeCallback(callback f)
-            end
-        in
-            fun cFunction6withAbi (abi: abi)
-                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                     arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion)
-                    (resConv: 'g conversion) : ('a *'b * 'c * 'd * 'e * 'f -> 'g) conversion =
+        fun buildClosure6withAbi
+            (f, abi,
+                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion),
+             resConv: 'g conversion) =
+        let
+            fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
             let
-                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv,
-                                      arg4Conv, arg5Conv, arg6Conv, resConv)
-                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+                val arg1Addr = getAddress(args, 0w0)
+                and arg2Addr = getAddress(args, 0w1)
+                and arg3Addr = getAddress(args, 0w2)
+                and arg4Addr = getAddress(args, 0w3)
+                and arg5Addr = getAddress(args, 0w4)
+                and arg6Addr = getAddress(args, 0w5)
+                val arg1 = #load arg1Conv arg1Addr
+                and arg2 = #load arg2Conv arg2Addr
+                and arg3 = #load arg3Conv arg3Addr
+                and arg4 = #load arg4Conv arg4Addr
+                and arg5 = #load arg5Conv arg5Addr
+                and arg6 = #load arg6Conv arg6Addr
+
+                val result = f (arg1, arg2, arg3, arg4, arg5, arg6)
+
+                val () = #updateC arg1Conv(arg1Addr, arg1)
+                and () = #updateC arg2Conv(arg2Addr, arg2)
+                and () = #updateC arg3Conv(arg3Addr, arg3)
+                and () = #updateC arg4Conv(arg4Addr, arg4)
+                and () = #updateC arg5Conv(arg5Addr, arg5)
+                and () = #updateC arg6Conv(arg6Addr, arg6)
             in
-                { load=load, store=store, release=release, ctype=cTypePointer }
+                ignore(#store resConv (res, result))
             end
-       
-            fun cFunction6 x = cFunction6withAbi abiDefault x
+        
+            val argTypes =
+                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
+                     #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv]
+            and resType = #ctype resConv
+
+            val makeCallback = cFunctionWithAbi abi argTypes resType
+        in
+            Memory.memoise (fn () => makeCallback(callback f)) ()
         end
+
+        fun buildClosure6(f, argConv, resConv) = buildClosure6withAbi(f, abiDefault, argConv, resConv)
 
     end
 end;

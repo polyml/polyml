@@ -9,12 +9,11 @@
         Cambridge University Technical Services Limited
         
     Further development:
-    Copyright (c) 2000-7 David C.J. Matthews
+    Copyright (c) 2000-7, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,19 +26,9 @@
 *)
 
 functor LEX_ (
-structure PRETTY: PRETTYSIG;
-
+structure PRETTY: PRETTYSIG
 structure SYMBOLS : SymbolsSig
-
-structure DEBUG:
-sig
-    val lineNumberTag: (unit -> int) Universal.tag
-    val offsetTag: (unit->int) Universal.tag
-    val fileNameTag: string Universal.tag
-    val errorDepthTag : int Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end
+structure DEBUG: DEBUGSIG
 
 ) : LEXSIG =
 
@@ -73,7 +62,8 @@ struct
       startLine:   int ref,
       endLine:     int ref,
       startPosition: int ref,
-      endPosition:   int ref
+      endPosition:   int ref,
+      bindingCounter: unit -> int
     };
     
   (* The lexical analyser reads characters from the stream and updates the
@@ -112,6 +102,7 @@ struct
         val filename = getParameter fileNameTag parameters
         val initialLine = lineno() (* Before the first char. *)
         and initialOffset = offset()
+        val bindingCounter = getParameter bindingCounterTag parameters
     in
         {
           stream      = stream,
@@ -129,7 +120,8 @@ struct
           startLine   = ref initialLine,
           endLine     = ref initialLine,
           startPosition = ref initialOffset,
-          endPosition   = ref initialOffset
+          endPosition   = ref initialOffset,
+          bindingCounter = bindingCounter
         }
     end
 
@@ -243,7 +235,7 @@ struct
     end;
 
     (* Read in a number. *)
-    fun parseNumber (state as { sy, id, ch, extraChars, ... }) =
+    fun parseNumber (hasMinus, state as { sy, id, ch, extraChars, ... }) =
      (
         sy := IntegerConst;
         
@@ -256,8 +248,9 @@ struct
            as part of the integer if it is well-formed.  If it is not
            we return the "0" as an integer constant and leave the rest
            to be returned.  In particular that means that 0wxz is
-           the INTEGER constant "0" followed by the identifier "wxz". *)
-        if !ch = #"w" andalso !id = "0"
+           the INTEGER constant "0" followed by the identifier "wxz".
+           N.B. ~0w1 is ~0 w1 because word constants cannot begin with ~. *)
+        if not hasMinus andalso !ch = #"w" andalso !id = "0"
         then (* word constant; if it's well formed. *)
         (
             nextCh state;
@@ -491,7 +484,7 @@ struct
                then
                (
                  (* Read the number and sets sy to integerConst. *)
-                 parseNumber state;
+                 parseNumber(true, state);
                  
                  (* Prepend the "~" to the num *)
                  id := "~" ^ !id 
@@ -569,7 +562,7 @@ struct
             then sy := AbortParse
           
             else if isNumeric firstCh
-            then parseNumber state
+            then parseNumber(false, state)
 
             else if isAlphabetic firstCh orelse firstCh = #"'"
             then parseIdent state isAlphaNumeric ""
@@ -627,6 +620,8 @@ struct
    fun id ({id=ref id,...}:lexan) = id;
    
    val debugParams = #debugParams
+   
+   fun newBindingId({bindingCounter, ...}: lexan) = bindingCounter()
    
    val nullLocation: location =
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }

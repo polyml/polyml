@@ -201,9 +201,9 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             {
                 char buf[256];
 #if (defined(UNICODE))
-                _snprintf(buf, sizeof(buf), "Loading <%S> failed. Error %lu", libName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading <%S> failed. Error %lu", (LPCTSTR)libName, GetLastError());
 #else
-                _snprintf(buf, sizeof(buf), "Loading <%s> failed. Error %lu", libName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading <%s> failed. Error %lu", (const char*)libName, GetLastError());
 #endif
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
@@ -264,7 +264,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (sym == NULL)
             {
                 char buf[256];
-                _snprintf(buf, sizeof(buf), "Loading symbol <%s> failed. Error %lu", symName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading symbol <%s> failed. Error %lu", (LPCSTR)symName, GetLastError());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
@@ -393,6 +393,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // even if this thread is blocked in the C code.
             processes->ThreadReleaseMLMemory(taskData);
             ffi_call(cif, FFI_FN(f), res, arg);
+            // Do we need to save the value of errno/GetLastError here?
             processes->ThreadUseMLMemory(taskData);
             return taskData->saveVec.push(TAGGED(0));
         }
@@ -444,8 +445,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // we need to search the table.
             void *resFun = *(void**)args->Word().AsAddress();
             PLocker pLocker(&callbackTableLock);
-            unsigned i = 0;
-            while (i < callBackEntries)
+            for (unsigned i = 0; i < callBackEntries; i++)
             {
                 if (callbackTable[i].resultFunction == resFun)
                 {
@@ -659,6 +659,9 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
         }
     }
     else processes->ThreadUseMLMemory(taskData);
+    // We may get multiple calls to call-backs and we mustn't risk
+    // overflowing the save-vec.
+    Handle mark = taskData->saveVec.mark();
 
     // In the future we might want to call C functions without some of the
     // overhead that comes with an RTS call which may allocate in ML
@@ -684,6 +687,8 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     // They could easily be cached in X86TaskData::SetCallbackFunction at least
     // up to the next GC.
     taskData->EnterCallbackFunction(mlEntryHandle, pairHandle);
+
+    taskData->saveVec.reset(mark);
 
     // Release ML memory now we're going back to C.
     processes->ThreadReleaseMLMemory(taskData);

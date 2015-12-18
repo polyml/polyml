@@ -1,3 +1,4 @@
+PolyML.Compiler.reportUnreferencedIds := true;
 use "Base";
 use "Globals";
 use "LocaleBase";
@@ -7,7 +8,7 @@ use "WinBase";
 use "ComboBase";
 use "ScrollBase";
 use "MenuBase";
-use "MessageBase";
+use "MESSAGE.signature";
 use "Message";
 use "Class";
 use "FlagPrint";

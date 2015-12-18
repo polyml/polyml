@@ -1020,7 +1020,7 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     POLYUNSIGNED limitSize = getPolyUnsigned(taskData, taskData->threadObject->mlStackSize);
 
     // Do not grow the stack if its size is already too big.
-    if (limitSize != 0 && old_len >= limitSize || ! gMem.GrowOrShrinkStack(taskData, new_len))
+    if ((limitSize != 0 && old_len >= limitSize) || ! gMem.GrowOrShrinkStack(taskData, new_len))
     {
         /* Cannot expand the stack any further. */
         fprintf(stderr, "Warning - Unable to increase stack - interrupting thread\n");

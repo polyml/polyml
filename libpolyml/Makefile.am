@@ -1,12 +1,14 @@
 AUTOMAKE_OPTIONS=foreign
 
-AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall
+moduledir = @moduledir@
+
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -DMODULEDIR=$(moduledir)
 AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 6:0:0
+libpolyml_la_LDFLAGS = -version-info 7:0:0
 
 if INTERNAL_LIBFFI
 libpolyml_la_LIBADD = ../libffi/libffi_convenience.la

@@ -1,12 +1,11 @@
 /*
     Title:  statics.h - Interface to profiling statistics
 
-    Copyright (c) 2011 David C.J. Matthews
+    Copyright (c) 2011, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -28,6 +27,8 @@
 
 #include "globals.h"
 #include "locking.h"
+#include "rts_module.h"
+
 #include "../polystatistics.h"
 enum {
     PSC_THREADS = 0,                // Total number of threads
@@ -62,11 +63,13 @@ class TaskData;
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 
-class Statistics  
+class Statistics: RtsModule
 {
 public:
     Statistics();
     ~Statistics();
+
+    virtual void Init(void); // Initialise after set-up
 
     Handle getLocalStatistics(TaskData *taskData);
     Handle getRemoteStatistics(TaskData *taskData, POLYUNSIGNED processId);
@@ -92,6 +95,8 @@ public:
 #endif
     
     void updatePeriodicStats(POLYUNSIGNED freeSpace, unsigned threadsInML);
+
+    bool exportStats;
 
 private:
     PLock accessLock;

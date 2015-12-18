@@ -554,7 +554,7 @@ struct
         in
             val locationCons =
                 makeTypeConstructor("location",
-                    makeTypeFunction(basisDescription "location", ([], mkLabelled(sortLabels fields, true))),
+                    makeTypeFunction(basisDescription "PolyML.location", ([], mkLabelled(sortLabels fields, true))),
                     [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
         end

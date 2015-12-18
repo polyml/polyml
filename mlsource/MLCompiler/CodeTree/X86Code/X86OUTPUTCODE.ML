@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015
     
     Based on original code:    
     Copyright (c) 2000
@@ -7,8 +7,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -35,15 +34,7 @@
  *)
 
 functor X86OUTPUTCODE (
-
-structure DEBUG :
-sig
-    val assemblyCodeTag : bool Universal.tag
-    val lowlevelOptimiseTag: bool Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
-
+structure DEBUG: DEBUGSIG
 structure PRETTY: PRETTYSIG (* for compilerOutTag *)
 
 ) : X86CODESIG =

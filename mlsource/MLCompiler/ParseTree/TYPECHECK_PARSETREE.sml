@@ -36,7 +36,6 @@ functor TYPECHECK_PARSETREE (
 structure BASEPARSETREE : BaseParseTreeSig
 structure PRINTTREE: PrintParsetreeSig
 structure EXPORTTREE: ExportParsetreeSig
-
 structure LEX : LEXSIG
 structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG;
@@ -302,11 +301,22 @@ struct
         }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
-        fun assignSeq env depth l =
+        fun assignSeq(env, depth, l, isExp) =
         let
             fun applyList last []       = last
-            |   applyList _ ((h, _) :: t) = 
-                    applyList (assignValues(level, depth, env, v, h)) t
+            |   applyList _ ((h, _) :: t) =
+                let
+                    val expT = assignValues(level, depth, env, v, h)
+                    val _ =
+                        if isExp andalso not (null t)
+                        then (* It's not the last value and we're going to discard it *)
+                        case checkDiscard(expT, lex) of
+                            NONE => ()
+                        |   SOME s => errorNear (lex, false, h, getLocation h, s)
+                        else ()
+                in
+                    applyList expT t
+                end
         in
             applyList badType l
         end
@@ -523,8 +533,8 @@ struct
                         (* If undefined or another variable, construct a new variable. *)
                         else
                         let
-                            val var = 
-                                mkVar(name, mkTypeVar (level, false, false, false), [DeclaredAt location]);
+                            val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
+                            val var =  mkVar(name, mkTypeVar (level, false, false, false), props)
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -978,6 +988,8 @@ struct
                        right-hand side of the declaration.  If we are effectively
                        giving a new name to a type constructor we use the same type
                        identifier.  This is needed to check "well-formedness" in signatures. *)
+                    val props = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+
                     val tcon =
                         if isEmpty decType
                         then (* Type specification *)
@@ -985,17 +997,17 @@ struct
                             val description = { location = nameLoc, name = name, description = "" }
                         in
                             makeTypeConstructor (name,
-                                makeTypeId(isEqtype, false, (typeVars, EmptyType), description), [DeclaredAt nameLoc])
+                                makeTypeId(isEqtype, false, (typeVars, EmptyType), description), props)
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeTypeConstructor (name, typeId, [DeclaredAt nameLoc])
+                                makeTypeConstructor (name, typeId, props)
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
                                 makeTypeConstructor (name,
-                                    makeTypeId(isEqtype, false, (typeVars, decType), description), [DeclaredAt nameLoc])
+                                    makeTypeId(isEqtype, false, (typeVars, decType), description), props)
                             end
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
@@ -1034,7 +1046,7 @@ struct
                                     namePrefix, giveError (v, lex, oldLoc))
                     val TypeConstrSet(tcons, tcConstructors) = oldTypeCons
                     val newName = newType
-                    val locations = [DeclaredAt newLoc]
+                    val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
                     val newTypeCons = makeTypeConstructor(newName, typeID, locations)
@@ -1164,7 +1176,7 @@ struct
                 };
         
               (* Process the local declarations and discard the result. *)
-              val _ : types = assignSeq localEnv newLetDepth decs;
+              val _ : types = assignSeq(localEnv, newLetDepth, decs, false)
         
               (* This is the environment used for the body of the declaration.
                  Declarations are added both to the local environment and to
@@ -1198,7 +1210,7 @@ struct
                   allValNames   = #allValNames localEnv
                 };
               (* Now the body, returning its result if it is an expression. *)
-                val resType = assignSeq bodyEnv newLetDepth body
+                val resType = assignSeq(bodyEnv, newLetDepth, body, not isLocal)
             in
                 resType
             end (* LocalDec *)
@@ -1206,7 +1218,7 @@ struct
           | ExpSeq (ptl, _) =>
              (* A sequence of expressions separated by semicolons.
                 Result is result of last expression. *)
-              assignSeq env letDepth ptl
+              assignSeq (env, letDepth, ptl, true)
 
           | ExDeclaration(tlist, _) =>
             let
@@ -1226,11 +1238,12 @@ struct
                         case ofType of
                             NONE => exnType
                         |   SOME typeof => mkFunctionType(ptAssignTypes(typeof, v), exnType)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
     
                     val exValue = 
                         case previous of 
-                            EmptyTree => (* Generative binding. *)
-                                mkEx (name, oldType, [DeclaredAt nameLoc])
+                            EmptyTree => mkEx (name, oldType, locations) (* Generative binding. *)
+                                
                         |   Ident {name = prevName, value = prevValue, location, expType, possible, ...} =>
                             let 
                                 (* ex = ex' i.e. a non-generative binding? *)
@@ -1252,7 +1265,7 @@ struct
                                 expType := excType; (* And remember the type. *)
                                 possible := #allValNames env;
                                 (* The result is an exception with the same type. *)
-                                mkEx (name, excType, [DeclaredAt nameLoc])
+                                mkEx (name, excType, locations)
                             end
                         | _ =>
                             raise InternalError "processException: badly-formed parse-tree"
@@ -1379,7 +1392,7 @@ struct
                   (
                 (* Infix declarations have already been processed by the parser.  We include
                    them here merely so that we get all declarations in the correct order. *)
-                List.app (fn name => #enterFix env (name, fix)) tlist;
+                List.app (fn name => #enterFix env (name, FixStatus(name, fix))) tlist;
                 badType
                 )
 
@@ -1631,8 +1644,9 @@ struct
                     (* Just look at the first clause for the moment. *)
                     val { ident = { name, location, ... }, ... } = dec;
                     (* Declare a new identifier with this name. *)
+                    val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location])
+                        mkValVar (name, mkTypeVar (funLevel, false, false, false), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -1911,7 +1925,8 @@ struct
                     if letDepth = 0
                     then makeTypeId(false, true, (typeVars, EmptyType), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
-                val tc = makeTypeConstructor(name, newId, [DeclaredAt nameLoc])
+                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val tc = makeTypeConstructor(name, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -1945,9 +1960,10 @@ struct
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
+                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
                     makeTypeConstructor (name,
-                        makeTypeId(false, false, (typeVars, decType), description), [DeclaredAt nameLoc])
+                        makeTypeId(false, false, (typeVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in
                 tcRef := tset;
@@ -1972,7 +1988,8 @@ struct
                 val typeVarsAsTypes = List.map TypeVar typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
-                val resultType = mkTypeConstruction (name, typ, typeVarsAsTypes, [DeclaredAt nameLoc]);
+                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val resultType = mkTypeConstruction (name, typ, typeVarsAsTypes, locations)
 
                 (* Sort the constructors by name.  This simplifies matching with
                    datatypes in signatures. *)
@@ -1986,9 +2003,10 @@ struct
                             NONE => (resultType, true)
                         |   SOME argtype =>
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
+                    val locations = [DeclaredAt idLocn, SequenceNo (newBindingId lex)]
                     val cons =
                         makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
-                                         [DeclaredAt idLocn])
+                                         locations)
         
                     (* Name must not be qualified *)
                     val () = checkForDots (name, lex, idLocn);
@@ -2073,7 +2091,7 @@ struct
   
                 in
                     (* Process the declarations, discarding the result. *)
-                    assignSeq decEnv letDepth declist;
+                    assignSeq (decEnv, letDepth, declist, false);
                     (* Turn off equality outside the with..end block.  This is required by the
                        "Abs" function defined in section 4.9 of the ML Definition.
                        We need to record the equality status, though, because we need

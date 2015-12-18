@@ -25,15 +25,11 @@
 #error "No configuration file"
 #endif
 
+#include <winsock2.h>
+#include <windows.h>
+
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
-#endif
-
-#include <windows.h>
-#ifdef USEWINSOCK2
-#include <winsock2.h>
-#else
-#include <winsock.h>
 #endif
 
 #ifdef HAVE_TCHAR_H
@@ -185,12 +181,12 @@ static Handle make_handle_entry(TaskData *taskData)
             {
                 POLYUNSIGNED oldMax = maxHandleTab;
                 maxHandleTab += maxHandleTab/2;
-                handleTable =
-                    (PHANDLETAB)realloc(handleTable,
-                                    maxHandleTab*sizeof(HANDLETAB));
+                void *p = realloc(handleTable, maxHandleTab*sizeof(HANDLETAB));
+                // If there's insufficient memory leave the old table.
+                if (p == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                handleTable = (PHANDLETAB)p;
                 /* Clear the new space. */
-                memset(handleTable+oldMax, 0,
-                        (maxHandleTab-oldMax)*sizeof(HANDLETAB));
+                memset(handleTable+oldMax, 0, (maxHandleTab-oldMax)*sizeof(HANDLETAB));
             }
         }
     } while (handle_no >= maxHandleTab);
@@ -539,7 +535,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftUTC);
+            getFileTimeFromArb(taskData, args, &ftUTC);
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
                 raise_syscall(taskData, "FileTimeToLocalFileTime failed",
                         -(int)GetLastError());
@@ -550,7 +546,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftLocal);
+            getFileTimeFromArb(taskData, args, &ftLocal);
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
                 raise_syscall(taskData, "LocalFileTimeToFileTime failed",
                         -(int)GetLastError());
@@ -750,11 +746,11 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1101: // Wait for a message.
         {
+            HWND hwnd = *(HWND*)(DEREFWORDHANDLE(args)->Get(0).AsCodePtr());
+            UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+            UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
             while (1)
             {
-                HWND hwnd = (HWND)get_C_long(taskData, DEREFWORDHANDLE(args)->Get(0)); /* Handles are treated as SIGNED. */
-                UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-                UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
                 MSG msg;
                 processes->ThreadReleaseMLMemory(taskData);
                 // N.B.  PeekMessage may directly call the window proc resulting in a
@@ -770,10 +766,18 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     // case 1102: // Return the address of the window callback function.
 
     case 1103: // Return the application instance.
-        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hApplicationInstance);
+        {
+            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+            *(HINSTANCE*)(result->Word().AsCodePtr()) = hApplicationInstance;
+            return result;
+        }
 
     case 1104: // Return the main window handle
-        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hMainWindow);
+        {
+            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+            *(HWND*)(result->Word().AsCodePtr()) = hMainWindow;
+            return result;
+        }
 
 //    case 1105: // Set the callback function
 
@@ -1156,11 +1160,17 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     // try reading directly into ML store to save copying but
     // it hardly seems worthwhile.
     // Note: It seems that valSize can be zero for some items.
-    if (valSize == 0) resVal = SAVE(Buffer_to_Poly(taskData, "", 0));
+    if (valSize == 0) resVal = SAVE(C_string_to_Poly(taskData, "", 0));
     else
     {
         do {
-            keyValue = (byte*)realloc(keyValue, valSize);
+            byte *newAlloc = (byte*)realloc(keyValue, valSize);
+            if (newAlloc == 0)
+            {
+                free(keyValue);
+                raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            }
+            keyValue = newAlloc;
             lRes = RegQueryValueEx(hkey, valName, 0, &dwType, keyValue, &valSize);
             // In the special case of HKEY_PERFORMANCE_DATA we may need to keep
             // growing the buffer.
@@ -1172,7 +1182,10 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
             free(keyValue);
             raise_syscall(taskData, "RegQueryValue failed", -lRes);
         }
-        resVal = SAVE(Buffer_to_Poly(taskData, (char*)keyValue, valSize));
+        // If we have a string we have to convert this to ANSI/utf-8.
+        if (dwType == REG_SZ || dwType == REG_MULTI_SZ || dwType == REG_EXPAND_SZ)
+            resVal = SAVE(C_string_to_Poly(taskData, (TCHAR*)keyValue, valSize / sizeof(TCHAR)));
+        else resVal = SAVE(C_string_to_Poly(taskData, (char*)keyValue, valSize));
         free(keyValue);
     }
 

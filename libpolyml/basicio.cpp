@@ -111,11 +111,7 @@ typedef char TCHAR;
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
 #include <winsock2.h>
-#else
-#include <winsock.h>
-#endif
 #endif
 
 #if(!defined(MAXPATHLEN) && defined(MAX_PATH))
@@ -612,7 +608,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         }
         if (haveRead >= 0)
         {
-            Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
+            Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
             free(buff);
             return result;
         }
@@ -888,7 +884,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* The time argument is an absolute time. */
                     FILETIME ftTime, ftNow;
                     /* Get the file time. */
-                    getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(2), &ftTime);
+                    getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
                     GetSystemTimeAsFileTime(&ftNow);
                     taskData->saveVec.reset(hSave);
                     /* If the timeout time is earlier than the current time
@@ -1158,7 +1154,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
         len = NAMLEN(dp);
         if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
               (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
-            return SAVE(Buffer_to_Poly(taskData, dp->d_name, len));
+            return SAVE(C_string_to_Poly(taskData, dp->d_name, len));
     }
 #endif
 }
@@ -1361,7 +1357,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
     {
         FILETIME ft;
         /* Get the file time. */
-        getFileTimeFromArb(taskData, DEREFWORDHANDLE(fileTime), &ft);
+        getFileTimeFromArb(taskData, fileTime, &ft);
         /* Open an existing file with write access. We need that
            for SetFileTime. */
         HANDLE hFile = CreateFile(cFileName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
@@ -1733,7 +1729,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             char resBuf[MAXPATHLEN];
             nLen = readlink(linkName, resBuf, sizeof(resBuf));
             if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
-            return(SAVE(Buffer_to_Poly(taskData, resBuf, nLen)));
+            return(SAVE(C_string_to_Poly(taskData, resBuf, nLen)));
 #endif
         }
 

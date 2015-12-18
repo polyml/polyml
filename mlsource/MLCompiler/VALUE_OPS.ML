@@ -48,13 +48,7 @@ sig
     val app: (string * universal -> unit) -> univTable -> unit
 end;
 
-structure DEBUG :
-sig
-    val printDepthFunTag : (unit->int) Universal.tag
-    val errorDepthTag: int Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
+structure DEBUG : DEBUGSIG
 
 structure MISC :
 sig
@@ -195,10 +189,10 @@ struct
                     case lookupStruct suffix of
                         SOME (Struct {signat, access, name=structName, locations, ...})  =>
                         let
-                            val Signatures { name=sigName, tab, typeIdMap = childMap, declaredAt, ... } = signat
+                            val Signatures { name=sigName, tab, typeIdMap = childMap, locations=sigLocs, ... } = signat
                             (* We need to apply the map from the parent structure to the child. *)
                             val copiedSig =
-                                makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(childMap, typeIdMap), [])
+                                makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(childMap, typeIdMap), [])
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case access of
@@ -389,13 +383,24 @@ struct
         pretty
     end
 
-    fun displayFixStatus Nonfix = PrettyString "nonfix"
-    | displayFixStatus (Infix prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
-    | displayFixStatus (InfixR prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    (* These are used to display the declarations made. *)
+    fun displayFixStatus(FixStatus(name, f)): pretty =
+    let
+        open PRETTY
+        
+        val status =
+            case f of
+                Nonfix => PrettyString "nonfix"
+            |   Infix prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+            |   InfixR prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    in
+        PrettyBlock (0, false, [],
+            [status, PrettyBreak (1, 0), PrettyString name])
+    end
 
     (* Returns the declaration location as the location for the context. *)
     fun getLocation locations =
@@ -472,13 +477,13 @@ struct
             PrettyBlock (3, false, [],
                 [ valPart("constructor", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
      
-        | PattBound => (* Can this every occur? *)
+        | PattBound => (* Can this ever occur? *)
             PrettyBlock (3, false, [],
                 [ valPart("val", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
     end
 
-  (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-  fun printValues (Value{typeOf, class, access, ...}, depth, _) =
+    (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
+    fun printValues (Value{typeOf, class, access, ...}, depth) =
         case (class, access) of
             (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
@@ -574,7 +579,7 @@ struct
         end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str as Signatures{declaredAt, name, ...}, depth : int, nameSpace) : pretty =
+  and displaySignatures (str as Signatures{locations, name, ...}, depth : int, nameSpace) : pretty =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock(0, false, [],
@@ -583,7 +588,7 @@ struct
                     [
                         PrettyString "signature",
                         PrettyBreak(1, 0),
-                        PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                        PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                         PrettyBreak(1, 0),
                         PrettyString "="
                     ]
@@ -617,7 +622,7 @@ struct
             displaySig (sign, depth, space, nameSpace, sigMap)
     |   displayNamedSig(Signatures{name, ...}, _, _, _, _) = PrettyString name
 
-    fun displayFunctors (Functor{ name, declaredAt, arg, result, ...}, depth, nameSpace) =
+    fun displayFunctors (Functor{ name, locations, arg, result, ...}, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock (0, false, [],
@@ -625,7 +630,7 @@ struct
                 [
                     PrettyString "functor",
                     PrettyBreak(1, 0),
-                    PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak(1, 0),
                     PrettyString "("
                 ]) ::
@@ -707,7 +712,7 @@ struct
         (getOverload(name, constr, fn _ => raise InternalError "getOverloadInstance: Missing"), tcName constr)
     end
 
-    (* This is only used in addPrettyPrint and install_pp.  There's no point in
+    (* This is only used in addPrettyPrint.  There's no point in
        producing a lot of detailed information. *)
     fun checkPPType (instanceType, matchType, fnName, lex, location, moreInfo) =
         case unifyTypes (instanceType, matchType) of
@@ -1026,146 +1031,6 @@ struct
 
   |  codeVal (Value{access = Overloaded AddPretty, ...}, _, _, _, _, _) =
         raise InternalError "Overloaded AddPretty - wrong instance type"
-
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, [], _, _) =
-        mkProc(
-            mkConst (toMachineWord
-                        (fn _ => raise Fail "installPP: The argument type was not a simple type construction")),
-            1, "InstallPP(P)", [], 0)
-
-  |  codeVal (Value{access = Overloaded InstallPP, typeOf, name, class, locations, references, instanceTypes, ...},
-              level: level, typeVarMap, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
-        let
-         (* This is the old function to install a pretty printer.  It has
-            been retained for backwards compatibility.
-            Since it will eventually be removed there's not much point in
-            avoiding duplication with the code for AddPretty. *)
-         (* "instance" should be ((,,,) -> int-> 'a -> 'b -> unit) -> unit.
-             We need to get the 'a and 'b.  This function installs a
-             pretty printer against the type which matches 'b.
-             The type 'a is related to type of 'b as follows:
-             If 'b is a monotype t then 'a is ignored.
-             If 'b is a unary type constructor 'c t then 'a must have
-             type 'c * int -> unit.
-             If 'b is a binary or higher type constructor e.g. ('c, 'd, 'e) t
-             then 'a must be a tuple of functions of the form
-             ('c * int -> unit, 'd * int -> unit, 'e * int -> unit).
-             When the installed function is called it will be passed the
-             appropriate argument functions which it can call to print the
-             argument types.  *)
-
-            (* Find the last type constructor in the chain. We have to install
-                 this against the last in the chain because type constructors in
-                 different modules may be at different points in the chain. *)
-              (* This does mean that it's not possible to install a
-                 pretty printer for a type constructor rather than a datatype. *)
-            fun followTypes (TypeConstruction{constr, args, ...}) =
-                if not (tcIsAbbreviation constr)
-                then SOME(tcIdentifier constr, constr, List.length args)
-                else followTypes (makeEquivalent (constr, args))
-            |   followTypes (TypeVar tv) =
-                (
-                    case tvValue tv of
-                        EmptyType => NONE (* Unbound type variable *)
-                    |   t => followTypes t
-                )
-            |   followTypes _ = NONE;
-
-            val constrId = followTypes installType
-
-            (* This is the type of the pretty-printer as seen by the user *)
-            type pp =
-                (* addString *)  (string -> unit) *
-                (* beginBlock *) (int * bool -> unit) *
-                (* break *)      (int * int -> unit) *
-                (* endBlock *)   (unit -> unit);
-
-            (* Convert the old imperative form into the new pretty datatype. *)
-            fun createPretty (pprint:pp -> int -> machineWord -> machineWord -> unit) 
-                             depth (elemFns: machineWord) (valToPrint: machineWord): pretty =
-            let
-                val (_, _, tupleWidth) = valOf constrId
-                (* Result stack. This contains open Begins and also accumulates the result. *)
-                val resultStack = ref []
-                (* Add an entry to the top block in the stack. *)
-                fun addEntry p =
-                    case ! resultStack of
-                        [] => (* Nothing there so far. *)
-                            resultStack := [p]
-                    |   head :: tail =>
-                            if isPrettyBlock head
-                            then
-                            let
-                                val (i, b, c, l) = projPrettyBlock head
-                            in (* Add to current block. *)
-                                resultStack := PrettyBlock(i, b, c, l @ [p]) :: tail
-                            end
-                            else (* Something there but not a Begin. *)
-                                raise Fail "Missing Begin"
-                fun addString s =
-                    addEntry(PrettyString s)
-                and beginBlock(i: int, b: bool) =
-                    resultStack := PrettyBlock(i, b, [], []) :: ! resultStack
-                and break (i: int, j: int) : unit =
-                    addEntry(PrettyBreak(i, j))
-                and endBlock () =
-                    case ! resultStack of
-                        [] => raise Fail "End found with no Begin"
-                    |   hd :: tl =>
-                            (* Pop the current block from the stack and
-                               add it as an entry to the immediately containing block. *)
-                        (
-                            resultStack := tl;
-                            addEntry hd
-                        )
-
-                val processElement: machineWord =
-                (* This is the single function or tuple of functions to process
-                   the elements when this is a polytype. e.g. for "int" if this
-                   is "int list". *)
-                case tupleWidth of
-                    0 => toMachineWord (* Not used for monotypes. *)
-                            (fn _ => raise Fail "Monotype has no type argument")
-                |   1 => toMachineWord (* Single argument polytypes e.g. list *)
-                            (fn (v, depth) => addEntry(RunCall.unsafeCast elemFns (v, depth)))
-                |   n => (* Polytypes of more than one type e.g. ('a, 'b) pair. *)
-                    let (* We have to construct a tuple of functions each of which calls
-                           the corresponding function in the tuple that is passed in. *)
-                        fun getElem n (v, depth) =
-                        let
-                            val prettyFn =
-                                RunCall.unsafeCast(loadWord(toAddress elemFns, Word.fromInt n))
-                        in
-                            addEntry(prettyFn(v, depth))
-                        end
-                        (* As with the print code in printConstruction we use CodeTree
-                           to create the tuple. *)
-                        val fns = List.tabulate (n, fn n => mkConst(toMachineWord(getElem n)))
-                    in
-                        valOf(evalue (mkTuple fns))
-                    end
-            in
-                pprint (addString, beginBlock, break, endBlock) depth processElement valToPrint;
-                case ! resultStack of
-                    [] => PrettyBlock(0, false, [], [])
-                |   [one] => one
-                |   _ => raise Fail "Incorrect nesting of begin...end blocks"
-            end
-
-            val nLevel = newLevel level
-        in
-            mkProc(
-                mkEval (
-                    codeVal(Value{access = Overloaded AddPretty, typeOf=typeOf, name=name, class=class,
-                                  locations=locations, references=references, instanceTypes=instanceTypes},
-                            nLevel, typeVarMap,
-                            [addStatus installType, addStatus argPrints], lex, loc),
-                    [mkEval(mkConst(toMachineWord createPretty), [arg1])]),
-                1, "installPP", getClosure nLevel, 0)
-        end
-
-  |  codeVal (Value{access = Overloaded InstallPP, ...}, _, _, _, _, _) =
-        raise InternalError "Overloaded InstallPP - wrong instance type"
 
   |  codeVal (Value{access = Overloaded GetLocation, ...}, _, _, _, _, _) =
         (* This can't be used a value: It must be called immediately. *)

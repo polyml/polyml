@@ -1177,7 +1177,7 @@ local
                                            an environment to the parse tree. *)
                                         case List.find (fn (PolyML.PTtype _) => true | _ => false) tree of
                                             SOME(PolyML.PTtype t) =>
-                                                SOME(PolyML.NameSpace.displayTypeExpression(t, 100, PolyML.globalNameSpace))
+                                                SOME(PolyML.NameSpace.Values.printType(t, 100, SOME PolyML.globalNameSpace))
                                         |   _ => NONE
                                     )
                         in
@@ -1291,9 +1291,9 @@ local
                             open PolyML.NameSpace
                             (* Put in the results without printing. *)
                             fun resultFun
-                                { fixes: (string * fixityVal) list, values: (string * valueVal) list,
-                                  structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-                                  functors: (string * functorVal) list, types: (string * typeVal) list} =
+                                { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+                                  structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+                                  functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list} =
                             let
                                 open PolyML
                             in

@@ -19,17 +19,8 @@ functor TYPEIDCODE (
     structure LEX : LEXSIG;
     structure CODETREE : CODETREESIG
     structure TYPETREE : TYPETREESIG
-
-    structure STRUCTVALS : STRUCTVALSIG;
-
-    structure DEBUG :
-    sig
-        val printDepthFunTag : (unit->int) Universal.tag
-        val errorDepthTag: int Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
-
+    structure STRUCTVALS : STRUCTVALSIG
+    structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
     structure ADDRESS : AddressSig
     
@@ -891,16 +882,16 @@ struct
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
         val constrArity = tcArity typeCons
+        val argTypes = 
+            List.tabulate(constrArity,
+                fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                             equality=false, printable=false})
 
         val (localArgList, innerLevel, newTypeVarMap) =
             case constrArity of
                 0 => ([], nLevel, typeVarMap)
-            |   arity =>
+            |   _ =>
                 let
-                    val argTypes = 
-                        List.tabulate(arity,
-                            fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
-                                         equality=false, printable=false})
                     val nnLevel = newLevel nLevel
                     fun mkTcArgMap (argTypes, level, oldLevel) =
                         let
@@ -1035,10 +1026,7 @@ struct
                     then (* Just the name *) nameCode
                     else
                     let
-                        val typeOfArg =
-                            case typeOf of
-                                FunctionType{arg, ...} => arg
-                            |   _ => raise InternalError "contructor not a function"
+                        val typeOfArg = constructorResult(typeOf, List.map TypeVar argTypes)
                         val getValue = mkEval(addPolymorphism(extractProjection constructorCode), [argCode])
                         
                     in

@@ -453,11 +453,23 @@ struct
             )
 
       | Directive {fix, tlist, ...} =>
+        let
+            val status =
+                case fix of
+                    Nonfix => PrettyString "nonfix"
+                |   Infix prec =>
+                        PrettyBlock(0, false, [],
+                            [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+                |   InfixR prec =>
+                        PrettyBlock(0, false, [],
+                            [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+        in
             PrettyBlock (3, true, [],
-                displayFixStatus fix ::
+                status ::
                 PrettyBreak (1, 0) ::
                 printList (fn (name, _) => PrettyString name) (tlist, "", depth - 1)
             )
+        end
 
       | ExDeclaration(pt, _) =>
           let

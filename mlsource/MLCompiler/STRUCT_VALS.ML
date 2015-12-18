@@ -210,7 +210,7 @@ struct
             typeIdMap:          int -> typeId,
             firstBoundIndex:    int,
             boundIds:           typeId list,
-            declaredAt:         location
+            locations:          locationProp list
         }
 
     and functors =
@@ -220,7 +220,7 @@ struct
             arg:        structVals,
             result:     signatures,
             access:     valAccess,
-            declaredAt: location
+            locations:  locationProp list
         }
 
     (* Values. *)
@@ -231,7 +231,6 @@ struct
         Print
     |   GetPretty
     |   MakeString
-    |   InstallPP
     |   AddPretty
     |   Equal
     |   NotEqual
@@ -266,6 +265,7 @@ struct
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
+    |   SequenceNo of int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
@@ -358,13 +358,13 @@ struct
     val makeSignatureTable = makeUnivTable
 
     (* Make a signature, freezing the table. *)
-    fun makeSignature (name, table, fbi, location, typeIdMap, boundIds) =
+    fun makeSignature (name, table, fbi, locations, typeIdMap, boundIds) =
         Signatures { name = name,
                tab        = univFreeze table,
                typeIdMap  = typeIdMap,
                firstBoundIndex   = fbi,
                boundIds   = boundIds,
-               declaredAt = location  };
+               locations = locations  }
     
   (* Types. *)
 
@@ -490,13 +490,15 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
     fun basisDescription name = { location = inBasis, description = "In Basis", name = name }
-    (* Infix status. *) 
- 
-    datatype fixStatus = 
+
+
+    (* Infix status. *)
+    datatype infixity = 
         Infix of int
     |   InfixR of int
-    |   Nonfix;
-  
+    |   Nonfix
+
+    datatype fixStatus = FixStatus of string * infixity
       
     fun isGlobal   (Global   _) = true | isGlobal   _ = false;
     fun isLocal    (Local    _) = true | isLocal    _ = false;
@@ -531,8 +533,8 @@ struct
                    typeIdMap  = fn _ => raise Subscript,
                    firstBoundIndex   = 0, 
                    boundIds   = [],
-                   declaredAt = inBasis  },
-            makeGlobal CodeZero, [DeclaredAt inBasis]);
+                   locations =  [DeclaredAt inBasis] },
+            makeGlobal CodeZero, [DeclaredAt inBasis])
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -573,14 +575,14 @@ struct
 
 
     (* Functor value. *)
-    fun makeFunctor (name, arg, result, access, location) = 
+    fun makeFunctor (name, arg, result, access, locations) = 
         Functor 
         {
             name = name,
             arg = arg,
             result = result,
             access = access,
-            declaredAt = location
+            locations = locations
         }
 
     val valueVar:      values      tag = tag();
@@ -644,6 +646,7 @@ struct
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm

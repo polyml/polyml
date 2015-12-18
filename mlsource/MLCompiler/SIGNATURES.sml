@@ -48,12 +48,7 @@ functor SIGNATURES (
         val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
     end;
 
-    structure DEBUG :
-    sig
-        val errorDepthTag : int Universal.tag
-        val getParameter :
-               'a Universal.tag -> Universal.universal list -> 'a 
-    end;
+    structure DEBUG: DEBUGSIG
 
     structure UTILITIES :
     sig
@@ -78,7 +73,7 @@ struct
     open VALUEOPS UTILITIES Universal
 
     datatype sigs =
-        SignatureIdent of string * location * location option ref  (* A signature name *)
+        SignatureIdent of string * location * locationProp list ref  (* A signature name *)
 
     |   SigDec         of specs list * location (* sig ... end *)
 
@@ -127,7 +122,7 @@ struct
         line: location
       }
 
-    fun mkSigIdent(name, nameLoc) = SignatureIdent(name, nameLoc, ref NONE);
+    fun mkSigIdent(name, nameLoc) = SignatureIdent(name, nameLoc, ref [])
   
     fun mkCoreType (dec, location) =
         CoreType { dec = dec, location = location };
@@ -178,11 +173,8 @@ struct
 
     (* Make a signature for initialisating variables and for
        undeclared signature variables. *)
-    val noLocation =
-        { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
     val undefinedSignature =
-       makeSignature("<undefined>", makeSignatureTable(),
-                0, noLocation, fn _ => raise Subscript, []);
+       makeSignature("<undefined>", makeSignatureTable(), 0, [], fn _ => raise Subscript, []);
 
     (* We use a name that isn't otherwise valid for a signature. *)
     fun isUndefinedSignature(Signatures{name, ...}) = name = "<undefined>"
@@ -336,9 +328,8 @@ struct
         fun asParent () = sigExportTree(navigation, s)
     in
         case s of
-            SignatureIdent(_, loc, ref decLoc) =>
-                (loc,
-                    (case decLoc of NONE => [] | SOME decl => [PTdeclaredAt decl]) @ commonProps)
+            SignatureIdent(_, loc, ref decLocs) =>
+                (loc, mapLocationProps decLocs @ commonProps)
 
         |   SigDec(structList, location) =>
                 (location, exportList(specExportTree, SOME asParent) structList @ commonProps)
@@ -757,13 +748,13 @@ struct
             |   SigDec(sigList, lno) =>
                     makeSigInto(sigList, Env env, lno, 0, structPath)
 
-        and signatureIdentValue(name, loc, declLoc, _, structPath) =
+        and signatureIdentValue(name, loc, declLocs, _, structPath) =
         let
             (* Look up the signature and copy it to turn bound IDs into variables.
                This is needed because we may have sharing. *)
-            val Signatures { name, tab, typeIdMap, firstBoundIndex, boundIds, declaredAt, ...} = lookSig(name, loc);
+            val Signatures { name, tab, typeIdMap, firstBoundIndex, boundIds, locations, ...} = lookSig(name, loc);
             (* Remember the declaration location for possible browsing. *)
-            val () = declLoc := SOME declaredAt
+            val () = declLocs := locations
             val startNewIds = ! idCount
 
             (* Create a new variable ID for each bound ID.  Type functions have to be copied to
@@ -800,7 +791,7 @@ struct
                     composeMaps(typeIdMap, mapId)
                 end
         in
-            makeSignature(name, tab, !idCount, declaredAt, mapIds, [])
+            makeSignature(name, tab, !idCount, locations, mapIds, [])
         end
 
         and signatureWhereType(sigExp, typeVars, typeName, realisationType, line, Env globalEnv, structPath) =
@@ -1040,7 +1031,8 @@ struct
                          the structure. *)
                       val result = pStruct t (offset + 1);
                       (* Make a structure. *)
-                      val resStruct = makeFormalStruct (name, resSig, offset, [DeclaredAt lno]);
+                        val locations = [DeclaredAt lno, SequenceNo (newBindingId lex)]
+                      val resStruct = makeFormalStruct (name, resSig, offset, locations)
                       val () = #enterStruct structEnv (name, resStruct);
                     in
                       result (* One slot for each structure. *)
@@ -1068,14 +1060,16 @@ struct
                             orelse name = "::" orelse name = "ref"
                         then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                         else ();
-                  val typeof = assignTypes (typeof, lookup, lex);
+                  val typeof = assignTypes (typeof, lookup, lex)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+
                 in  (* If the type is not found give an error. *)
                   (* The type is copied before being entered in the environment.
                      This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
                   #enterVal structEnv (name,
                     mkFormal (name, ValBound,
-                        copyType (typeof, fn x => x, fn x => x), offset, [DeclaredAt nameLoc]));
+                        copyType (typeof, fn x => x, fn x => x), offset, locations));
                   (offset + 1)
                 end
                
@@ -1094,17 +1088,18 @@ struct
                      s,
                      errorFn);
 
-                  val exType =
-                    case typeof of
-                        NONE => exnType
-                    |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                    val exType =
+                        case typeof of
+                            NONE => exnType
+                        |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins. "it" is not allowed. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
                   orelse name = "::" orelse name = "ref" orelse name = "it"
                   then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                   else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, [DeclaredAt nameLoc]));
+                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, locations));
                   (offset + 1)
                 end
                
@@ -1282,8 +1277,9 @@ struct
             val _ =
                 List.foldl (fn (signat, offset) => processSig (signat, offset, lno))
                     offset sigsList
+            val locations = [DeclaredAt lno, SequenceNo (newBindingId lex)]
         in
-            makeSignature("", newTable, ! idCount, lno, typeIdEnv (), [])
+            makeSignature("", newTable, ! idCount, locations, typeIdEnv (), [])
         end
 
         (* Process the contents of the signature. *)
@@ -1392,7 +1388,7 @@ struct
         end
     in
         let
-            val Signatures { tab, name, declaredAt, typeIdMap, ... } = resultSig
+            val Signatures { tab, name, locations, typeIdMap, ... } = resultSig
             (* We have allocated Bound Ids starting at initTypeId.  If there has not been any sharing or
                where type constraints these Ids will correspond exactly to the bound Ids of the signature
                and we can use the result without any further mapping.  This is particularly the case if
@@ -1402,7 +1398,7 @@ struct
             val finalMap =
                 if allMapped then typeIdMap else composeMaps(typeIdMap, mapFunction)
         in
-            makeSignature(name, tab, initTypeId, declaredAt, finalMap, distinctIds)
+            makeSignature(name, tab, initTypeId, locations, finalMap, distinctIds)
         end
     end (* sigVal *);
 

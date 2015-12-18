@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9.
+    Modified David C.J. Matthews 2008-9, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -32,62 +31,8 @@
 
 functor MAKE_ (
 
-(*****************************************************************************)
-(*                  COMPILERBODY                                             *)
-(*****************************************************************************)
+structure COMPILERBODY : COMPILERBODYSIG
 
-structure COMPILERBODY :
-sig
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    (* Export tree. *)
-    type exportTree
-
-    (* The completed compiler. *)
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * ( unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
-
-end;
-
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
@@ -101,29 +46,9 @@ sig
     val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
 end;
 
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
 structure STRUCTVALS : STRUCTVALSIG;
-
-structure DEBUG:
-sig
-    val lineNumberTag: (unit->int) Universal.tag
-    val maxInlineSizeTag: int Universal.tag
-    val traceCompilerTag: bool Universal.tag
-    val fileNameTag: string Universal.tag
-    val reportUnreferencedIdsTag: bool Universal.tag
-    val reportExhaustiveHandlersTag: bool Universal.tag
-    val parsetreeTag: bool Universal.tag
-    val codetreeTag: bool Universal.tag
-    val codetreeAfterOptTag: bool Universal.tag
-    val pstackTraceTag: bool Universal.tag
-    val assemblyCodeTag: bool Universal.tag
-    val printDepthFunTag: (unit->int) Universal.tag
-end
-
+structure DEBUG: DEBUGSIG
 structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
-
 structure LEX: LEXSIG (* For errorMessageProcTag *)
 
 structure VERSION:
@@ -131,44 +56,12 @@ structure VERSION:
         val versionSuffix: string
     end
 
-(*****************************************************************************)
-(*                  MAKE sharing constraints                                 *)
-(*****************************************************************************)
-
-sharing type
-  STRUCTVALS.values
-= COMPILERBODY.values
-
-sharing type
-  STRUCTVALS.structVals
-= COMPILERBODY.structVals
-
-sharing type
-  STRUCTVALS.typeConstrSet
-= COMPILERBODY.typeConstrSet
-
-sharing type
-  STRUCTVALS.fixStatus
-= COMPILERBODY.fixStatus
-
-sharing type
-  STRUCTVALS.signatures
-= COMPILERBODY.signatures
-
-sharing type
-  STRUCTVALS.functors
-= COMPILERBODY.functors
-
-sharing type
-    LEX.pretty
-=   PRETTY.pretty
+sharing STRUCTVALS.Sharing = COMPILERBODY.Sharing
+sharing LEX.Sharing = PRETTY.Sharing
 
 )
  :
 
-(*****************************************************************************)
-(*                  MAKE export signature                                    *)
-(*****************************************************************************)
 sig
   type env
   type gEnv
@@ -218,7 +111,7 @@ sig
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
-    val useIntoEnv   : gEnv -> string -> unit
+    val useIntoEnv   : gEnv -> Universal.universal list -> string -> unit
     val useStringIntoEnv: gEnv -> string -> unit
     val shellProc   : gEnv -> unit -> unit    (* The command processor *)
  end =
@@ -334,7 +227,7 @@ struct
     (*****************************************************************************)
     (*                  useIntoEnv (runcompiler with ML compiler bound in)       *)
     (*****************************************************************************)
-    fun compileIntoEnv (globalEnv : gEnv) : (string * TextIO.instream) -> unit =
+    fun compileIntoEnv (globalEnv : gEnv) : (string * TextIO.instream * Universal.universal list) -> unit =
     let
         val useEnv : nameSpace =
         { 
@@ -358,7 +251,7 @@ struct
             allFunct     = dbEnvAll globalEnv STRUCTVALS.functorVar
         };
 
-        fun use (fileName, inStream) =
+        fun use (fileName, inStream, parameters) =
         let            
             val lineNo   = ref 1;
             val eof      = ref false;
@@ -388,6 +281,7 @@ struct
                     val code = 
                         case COMPILERBODY.compiler
                             (useEnv, getChar,
+                              parameters @ (* These will be found first and override the defaults. *)
                               [
                                  tagInject traceCompilerTag true,
                                  tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70)),
@@ -436,7 +330,7 @@ struct
         use
     end; (* scope of compileIntoEnv *)
 
-    fun useIntoEnv globalEnv baseName =
+    fun useIntoEnv globalEnv parameters baseName =
     let
         val () = print ("Use: " ^ baseName ^ "\n")
         (* See if there is a path given as a command line argument. *)
@@ -467,14 +361,14 @@ struct
             (TextIO.openIn versionName, versionName)
                 handle IO.Io _ => (TextIO.openIn filePath, filePath)
     in
-        compileIntoEnv globalEnv (fileName, inStream);
+        compileIntoEnv globalEnv (fileName, inStream, parameters);
         TextIO.closeIn inStream
     end
 
-    fun shellProc globalEnv () = compileIntoEnv globalEnv ("<stdin>", TextIO.stdIn)
+    fun shellProc globalEnv () = compileIntoEnv globalEnv ("<stdin>", TextIO.stdIn, [])
     
     fun useStringIntoEnv globalEnv str =
-        compileIntoEnv globalEnv (str, TextIO.openString str)
+        compileIntoEnv globalEnv (str, TextIO.openString str, [])
 
 end (* MAKE *)
 

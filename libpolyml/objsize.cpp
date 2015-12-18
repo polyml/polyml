@@ -269,7 +269,7 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     
     if (bm == 0)
     {
-        printf("Bad address "ZERO_X"%p found\n", w.AsObjPtr());
+        printf("Bad address " ZERO_X "%p found\n", w.AsObjPtr());
         return 0;
     }
     

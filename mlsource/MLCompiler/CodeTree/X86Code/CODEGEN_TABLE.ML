@@ -34,17 +34,8 @@
    of bindings.  Hotspots are marked in the code. *)
 
 functor CODEGEN_TABLE (
-
     structure CODECONS : CODECONSSIG
-
-    structure DEBUG :
-    sig
-        (* Produce debugging output. *)
-        val pstackTraceTag : bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
-
+    structure DEBUG: DEBUGSIG
     structure PRETTY: PRETTYSIG
 
     structure MISC :

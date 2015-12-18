@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews
+    Copyright (c) 2009, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,20 +16,8 @@
 *)
 
 functor ExportTree(
-structure STRUCTVALS :
-sig
-    type types
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    datatype locationProp =
-        DeclaredAt of location
-    |   OpenedAt of location
-    |   StructureAt of location
-end;
-
+structure STRUCTVALS : STRUCTVALSIG
 structure PRETTY: PRETTYSIG
-
 ): EXPORTTREESIG =
 struct
     open PRETTY STRUCTVALS
@@ -60,15 +47,17 @@ struct
         fun PTbreakPoint(bpt: bool ref): ptProperties = cast(0w0, bpt)
         and PTcompletions(sl: string list): ptProperties = cast(0w1, sl)
         and PTdeclaredAt(loc: location): ptProperties = cast(0w2, loc)
-        and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w3, entry)
-        and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w4, entry)
-        and PTopenedAt(loc: location): ptProperties = cast(0w5, loc)
-        and PTparent(entry: unit -> exportTree): ptProperties = cast(0w6, entry)
-        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w7, entry)
-        and PTprint(pr: int -> pretty): ptProperties = cast(0w8, pr)
-        and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w9, exp, locs)
-        and PTstructureAt(loc: location): ptProperties = cast(0w10, loc)
-        and PTtype(typ: types): ptProperties = cast(0w11, typ)
+        and PTdefId(id: int): ptProperties = cast(0w3, id)
+        and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w4, entry)
+        and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w5, entry)
+        and PTopenedAt(loc: location): ptProperties = cast(0w6, loc)
+        and PTparent(entry: unit -> exportTree): ptProperties = cast(0w7, entry)
+        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w8, entry)
+        and PTprint(pr: int -> pretty): ptProperties = cast(0w9, pr)
+        and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w10, exp, locs)
+        and PTrefId(id: int): ptProperties = cast(0w11, id)
+        and PTstructureAt(loc: location): ptProperties = cast(0w12, loc)
+        and PTtype(typ: types): ptProperties = cast(0w13, typ)
     end
 
     (* This representation is exported so we have to use a *)
@@ -123,6 +112,7 @@ struct
         fun prop (DeclaredAt loc) = PTdeclaredAt loc
         |   prop (OpenedAt loc) = PTopenedAt loc
         |   prop (StructureAt loc) = PTstructureAt loc
+        |   prop (SequenceNo id) = PTrefId id
     in
         List.map prop locs
     end

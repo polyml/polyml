@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,235 +17,216 @@
 *)
 (* This contains various types and other values which are needed in various
    modules.  All the exported types are contained in other structures. *)
-structure Base =
-struct
-local
-    open CInterface
-    val System_isShort : vol -> bool =
-        RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short
-in
+structure Base:
+sig
+    val winCall0: Foreign.symbol -> unit -> 'a Foreign.conversion -> unit -> 'a
+    val winCall1: Foreign.symbol -> 'a Foreign.conversion -> 'b Foreign.conversion -> 'a -> 'b
+    val winCall2: Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion -> 'c Foreign.conversion -> 'a * 'b -> 'c
+    val winCall3: Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion -> 'd Foreign.conversion -> 'a * 'b * 'c -> 'd
+    val winCall4: Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion -> 'e Foreign.conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val winCall5:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion *  'e Foreign.conversion ->
+            'f Foreign.conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
+    val winCall6:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion -> 'g Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val winCall7:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion -> 'h Foreign.conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val winCall8:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion -> 'i Foreign.conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val winCall9:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion ->
+             'j Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val winCall10:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion ->
+             'k Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val winCall11:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion * 'k Foreign.conversion ->
+             'l Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+    val winCall12:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion * 'k Foreign.conversion *
+             'l Foreign.conversion -> 'm Foreign.conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val winCall13:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion * 'k Foreign.conversion *
+             'l Foreign.conversion * 'm Foreign.conversion -> 'n Foreign.conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val winCall14:
+        Foreign.symbol -> 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion *
+             'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion * 'k Foreign.conversion *
+             'l Foreign.conversion * 'm Foreign.conversion * 'n Foreign.conversion ->
+            'o Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+            
+    val winAbi: Foreign.LibFFI.abi
 
-    fun absConversion {abs,rep} C = 
-    let val (fromC,toC,Ctype) = breakConversion C   
-    in mkConversion (abs o fromC) (toC o rep) (Ctype)
-    end
+    val kernel: string -> Foreign.symbol
+    and user: string -> Foreign.symbol
+    and commdlg: string -> Foreign.symbol
+    and gdi: string -> Foreign.symbol
+    and shell: string -> Foreign.symbol
+    and comctl: string -> Foreign.symbol
+    
+    val cSIZE_T: int Foreign.conversion
+    and cLPARAM: int Foreign.conversion
+    and cLONG_PTR: int Foreign.conversion
+    and cULONG_PTR: int Foreign.conversion
+    and cINT_PTR: int Foreign.conversion
+    and cUINT_PTR: int Foreign.conversion
+    and cDWORD: int Foreign.conversion
+    and cWORD: int Foreign.conversion
+    and cDWORD_PTR: int Foreign.conversion
+    and cUINT_PTRw: SysWord.word Foreign.conversion
 
-    (* In many cases we can pass a set of options as a bit set. *)
-    fun bitsetConversion {abs, rep} =
-    let
-        val (fromC, toC, Ctype) = breakConversion INT
-        val fromList = List.foldl (fn(i, n) => IntInf.orb(rep i, n)) 0
-        fun toList n = [abs n] (* This is a bit of a mess. *)
-    in
-        mkConversion (toList o fromCuint) (toCuint o fromList) Cuint
-    end
+    val cUint8w: Word8.word Foreign.conversion
+    and cUint16w: Word.word Foreign.conversion
+    and cUint32w: Word32.word Foreign.conversion
+    and cUintw: Word32.word Foreign.conversion
+    and cUlongw: Word32.word Foreign.conversion
 
-    (* Whenever we call a foreign function we remember the value of GetLastError.
-       We have to do that because we may have changed to a different ML process in
-       the meantime and made another system call. *)
-    fun GetLastError(): OS.syserror =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1100, ())
+    val cDWORDw: Word32.word Foreign.conversion
+    and cWORDw: Word.word Foreign.conversion
 
-    (* The string argument of the SysErr exception is supposed to match the result of OS.errMsg. *)
-    fun raiseSysErr () = let val err = GetLastError() in raise OS.SysErr(OS.errorMsg err, SOME err) end
-
-    (* Many system calls return bool.  If the result is false we raise an exception. *)
-    fun checkResult true = () | checkResult false = raiseSysErr ()
-
-    (* SUCCESSSTATE returns a conversion which checks the result is true.
-       It cannot be used for an argument, only a result. *)
-    local
-        val (fromCbool, _, bool) = breakConversion BOOL
-    in
-    fun SUCCESSSTATE name =
-        mkConversion (checkResult o fromCbool)
-            (fn () => raise OS.SysErr("SUCCESSSTATE", NONE)) bool
-    end
-
+    val cBool: bool Foreign.conversion
+    
+    val successState: string -> unit Foreign.conversion
+    val cPOSINT: string -> int Foreign.conversion
+    
     type POINT = { x: int, y: int }
-
-    local
-        fun breakPoint ({x,y}: POINT) = (x,y)
-        fun mkPoint (x,y): POINT = {x=x, y=y}
-    in
-        val POINT = absConversion {abs=mkPoint, rep=breakPoint} (STRUCT2 (LONG,LONG))
-    end
-
+    val cPoint: POINT Foreign.conversion
     type RECT =  { left: int, top: int, right: int, bottom: int }
-
-    local
-        fun breakRect ({left,top,right,bottom}: RECT) = (left,top,right,bottom)
-        fun mkRect (left,top,right,bottom): RECT =
-            {left=left,top=top,right=right,bottom=bottom}
-    in
-        val RECT = absConversion {abs=mkRect, rep=breakRect} (STRUCT4 (LONG,LONG,LONG,LONG))
-    end
-
+    val cRect: RECT Foreign.conversion
     type SIZE = { cx: int, cy: int }
-    local
-        fun breakSize ({cx,cy}: SIZE) = (cx,cy)
-        fun mkSize (cx,cy): SIZE = {cx=cx, cy=cy}
-    in
-        val SIZE = absConversion {abs=mkSize, rep=breakSize} (STRUCT2 (LONG,LONG))
-    end
+    val cSize: SIZE Foreign.conversion
 
-    (* Handles are generally opaque values. *)
-    abstype 'a HANDLE = Hand of int
-    with
-        val hNull = Hand 0
-        fun isHNull(Hand 0) = true | isHNull _ = false
-        (* We sometimes need the next two functions internally.
-           They're needed externally unless we change the result type
-           of SendMessage to allow us to return a handle for certain
-           messages. *)
-        val handleOfInt = Hand
-        fun intOfHandle(Hand n) = n
-    end
+    eqtype 'a HANDLE
+    val hNull: 'a HANDLE
+    val isHNull: 'a HANDLE -> bool
+    val handleOfVoidStar: Foreign.Memory.voidStar -> 'a HANDLE
+    and voidStarOfHandle: 'a HANDLE -> Foreign.Memory.voidStar
 
-    (* We just need these as placeholders. We never create values of
-       these types.  They are used simply as a way of creating different
-       handle types. *)
-    abstype GdiObj = GdiObj
-    and Instance = Instance
-    and Drop = Drop
-    and DeviceContext = DeviceContext
-    and Menu = Menu
-    and Window = Window
-    with
-    end
+    eqtype HMENU and HDC and HWND and HINSTANCE and HGDIOBJ
+    and HDROP and HRSRC and HUPDATE
 
+    val cHGDIOBJ:   HGDIOBJ Foreign.conversion
+    and cHDROP:     HDROP Foreign.conversion
+    and cHMENU:     HMENU Foreign.conversion
+    and cHINSTANCE: HINSTANCE Foreign.conversion
+    and cHDC:       HDC Foreign.conversion
+    and cHWND:      HWND Foreign.conversion
+    val cHMENUOPT:  HMENU option Foreign.conversion
+    and cHGDIOBJOPT: HGDIOBJ option Foreign.conversion
+    and cHWNDOPT: HWND option Foreign.conversion
+    and cHRSRC: HRSRC Foreign.conversion
+    and cHUPDATE: HUPDATE Foreign.conversion
 
-    (* HINSTANCE is used as an instance of a module. *)
-    type HINSTANCE = Instance HANDLE
-    and  HDROP = Drop HANDLE
-    and  HGDIOBJ = GdiObj HANDLE
-    and  HDC = DeviceContext HANDLE
-    and  HMENU = Menu HANDLE
-    and  HWND = Window HANDLE
+    val hgdiObjNull:HGDIOBJ 
+    and isHgdiObjNull: HGDIOBJ -> bool
+    and hdcNull: HDC
+    and isHdcNull: HDC -> bool
+    and hmenuNull: HMENU
+    and isHmenuNull: HMENU -> bool
+    and hinstanceNull: HINSTANCE
+    and isHinstanceNull: HINSTANCE -> bool
+    and hwndNull: HWND
 
-    local
-        (* We need to use INT here rather than UINT to maintain
-           compatibility with ApplicationInstance. *)
-        fun HANDLE() =
-            absConversion {abs=handleOfInt, rep=intOfHandle} INT
-        fun hoptOfInt 0 = NONE
-         |  hoptOfInt i = SOME(handleOfInt i)
-        
-        fun HANDLEOPT() =
-            absConversion {abs=hoptOfInt, rep=fn v => intOfHandle(getOpt(v, hNull)) } INT
-    in
-        val HGDIOBJ:   HGDIOBJ Conversion = HANDLE()
-        and HDROP:     HDROP Conversion = HANDLE()
-        and HMENU:     HMENU Conversion = HANDLE()
-        and HINSTANCE: HINSTANCE Conversion = HANDLE()
-        and HDC:       HDC Conversion = HANDLE()
-        and HWND:      HWND Conversion = HANDLE()
-
-        val HMENUOPT:  HMENU option Conversion = HANDLEOPT()
-        and HGDIOBJOPT: HGDIOBJ option Conversion = HANDLEOPT()
-        and HWNDOPT: HWND option Conversion = HANDLEOPT()
-    end
-
-    (* Temporary declarations. *)
-    val hgdiObjNull:HGDIOBJ  = hNull
-    and isHgdiObjNull: HGDIOBJ -> bool = isHNull
-    and hgdiAsInt: HGDIOBJ -> int = intOfHandle
-    and intAsHgdi: int -> HGDIOBJ = handleOfInt
-    and hdcNull: HDC = hNull
-    and isHdcNull: HDC -> bool = isHNull
-    and hmenuNull: HMENU = hNull
-    and isHmenuNull: HMENU -> bool = isHNull
-    and hinstanceNull: HINSTANCE = hNull
-    and isHinstanceNull: HINSTANCE -> bool = isHNull
-    and hwndNull: HWND = hNull
-
-    (* All these are various kinds of HGDIOBJ.  It's too complicated to try
-       to use different types for them. *)
     type HPALETTE = HGDIOBJ and HFONT = HGDIOBJ and HPEN = HGDIOBJ
     and HBITMAP = HGDIOBJ and HRGN = HGDIOBJ and HBRUSH = HGDIOBJ
     and HENHMETAFILE = HGDIOBJ and HMETAFILE = HGDIOBJ
 
-    val HPALETTE: HPALETTE Conversion = HGDIOBJ
-    and HFONT: HFONT Conversion = HGDIOBJ
-    and HPEN: HPEN Conversion = HGDIOBJ
-    and HBITMAP: HBITMAP Conversion = HGDIOBJ
-    and HRGN: HRGN Conversion = HGDIOBJ
-    and HBRUSH: HBRUSH Conversion = HGDIOBJ
-    and HENHMETAFILE: HENHMETAFILE Conversion = HGDIOBJ
-    and HMETAFILE: HMETAFILE Conversion = HGDIOBJ
-
-    (* I'm not so happy about treating these as HGDIOBJ but it makes the
-       types of messages such as BM_SETIMAGE simpler. *)
-    type HICON = HGDIOBJ and HCURSOR = HGDIOBJ
-    val HICON = HGDIOBJ and HCURSOR = HGDIOBJ
-
-    (* The easiest way to deal with datatypes is often by way of a table. *)
-    fun tableLookup (table: (''a * int) list, default) =
-    let
-        fun toInt [] x =
-            (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
-         |  toInt ((y, i) :: tl) x = if x = y then i else toInt tl x
-
-        fun fromInt [] x =
-            (case default of
-                NONE => raise Fail ("tableLookup: not found" ^ Int.toString x)
-             |  SOME (d, _) => d x)
-         |  fromInt ((y, i) :: tl) x = if x = i then y else fromInt tl x
-    in
-        (toInt table, fromInt table)
-    end
-
-    fun tableConversion (table: (''a * int) list, default): ''a Conversion  =
-    let
-        val (toInt, fromInt) = tableLookup(table, default)
-    in
-        absConversion {abs = fromInt, rep = toInt} INT
-    end
-
-    (* In other cases we have sets of options.  We represent them by a list.
-       The order of the elements in the table is significant if we are to be
-       able to handle multiple bits.  Patterns with more than one bit set
-       MUST be placed later than those with a subset of those bits. *)
-    fun tableSetLookup (table: (''a * int) list, default) =
-    let
-        (* Conversion to integer - just fold the values. *)
-        fun toInt' [] x =
-            (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
-         |  toInt' ((y, i) :: tl) x = if x = y then i else toInt' tl x
-
-        val toInt = List.foldl (fn (a, b) => IntInf.orb(toInt' table a, b)) 0
-
-        (* It would speed up the searches if we ordered the list so that multiple
-           bit entries preceded those with fewer bits but it's much easier to lay
-           out the tables if we do it this way. *)
-        fun fromInt _ _ 0 = [] (* Zero is an empty list. *)
-
-         |  fromInt [] NONE x = (* Not found *)
-                (case default of
-                    NONE => raise Fail ("tableLookup: not found" ^ Int.toString x)
-                  | SOME (d, _) => [d x])
-
-         |  fromInt [] (SOME(res, bits)) x = (* Found something - remove it from the set. *)
-                (res :: fromInt table NONE (IntInf.andb(x, IntInf.notb bits)))
-
-         |  fromInt ((res, bits)::tl) sofar x =
-                if bits <> 0 andalso IntInf.andb(x, bits) = bits
-                then (* Matches *) fromInt tl (SOME(res, bits)) x
-                else (* Doesn't match *) fromInt tl sofar x
-    in
-        (toInt, fromInt table NONE)
-    end
-
-    fun tableSetConversion (table: (''a * int) list, default): ''a list Conversion  =
-    let
-        val (toInt, fromInt) = tableSetLookup(table, default)
-    in
-        absConversion {abs = fromInt, rep = toInt} INT
-    end
+    val cHPALETTE: HPALETTE Foreign.conversion
+    and cHFONT: HFONT Foreign.conversion
+    and cHPEN: HPEN Foreign.conversion
+    and cHBITMAP: HBITMAP Foreign.conversion
+    and cHRGN: HRGN Foreign.conversion
+    and cHBRUSH: HBRUSH Foreign.conversion
+    and cHENHMETAFILE: HENHMETAFILE Foreign.conversion
+    and cHMETAFILE: HMETAFILE Foreign.conversion
 
     
-    structure FindReplaceFlags:>
-      sig
+    type HICON = HGDIOBJ and HCURSOR = HGDIOBJ
+    val cHICON: HICON Foreign.conversion
+    and cHCURSOR: HCURSOR Foreign.conversion
+    
+    val absConversion:
+        {abs: 'a -> 'b, rep: 'b -> 'a} -> 'a Foreign.conversion -> 'b Foreign.conversion
+
+    val tableLookup:
+        (''a * ''b) list * ((''b -> ''a) * (''a -> ''b)) option -> (''a -> ''b) * (''b -> ''a)
+    and tableSetLookup:
+        (''a * Word32.word) list * ((Word32.word -> ''a) * (''a -> Word32.word)) option ->
+            (''a list -> Word32.word) * (Word32.word -> ''a list)
+
+    val tableConversion:
+        (''a * ''b) list * ((''b -> ''a) * (''a -> ''b)) option ->
+            ''b Foreign.conversion -> ''a Foreign.conversion
+    (* tableSetConversion is always a cUint *)
+    and tableSetConversion:
+        (''a * Word32.word) list * ((Word32.word -> ''a) * (''a -> Word32.word)) option ->
+            ''a list Foreign.conversion
+    
+    val list2Vector: 'a Foreign.conversion -> 'a list -> Foreign.Memory.voidStar * int
+    
+    datatype ClassType = NamedClass of string | ClassAtom of int
+    val cCLASS: ClassType Foreign.conversion
+
+    datatype ClipboardFormat =
+        CF_NONE | CF_TEXT | CF_BITMAP | CF_METAFILEPICT | CF_SYLK | CF_DIF | CF_TIFF |
+        CF_OEMTEXT | CF_DIB | CF_PALETTE | CF_PENDATA | CF_RIFF | CF_WAVE | CF_UNICODETEXT |
+        CF_ENHMETAFILE | CF_OWNERDISPLAY | CF_DSPTEXT | CF_DSPBITMAP | CF_DSPMETAFILEPICT |
+        CF_DSPENHMETAFILE | CF_PRIVATE of int | CF_GDIOBJ of int | CF_REGISTERED of int |
+        CF_HDROP | CF_LOCALE
+    val clipLookup: (ClipboardFormat -> int) * (int -> ClipboardFormat)
+    
+    datatype RESID = IdAsInt of int | IdAsString of string
+    val cRESID: RESID Foreign.conversion
+    
+    val STRINGOPT: string option Foreign.conversion
+    val cCHARARRAY: int -> string Foreign.conversion
+    val fromCstring: Foreign.Memory.voidStar -> string
+    val toCstring: string -> Foreign.Memory.voidStar (* Memory must be freed *)
+    val copyStringToMem: Foreign.Memory.voidStar * int * string -> unit
+    val fromCWord8vec: Foreign.Memory.voidStar * int -> Word8Vector.vector
+    val toCWord8vec: Word8Vector.vector -> Foreign.Memory.voidStar (* Memory must be freed *)
+    
+    val getStringCall: (Foreign.Memory.voidStar * int -> int) -> string
+    val getStringWithNullIsLength: (Foreign.Memory.voidStar * int -> int) -> string
+    val getVectorResult:
+        'a Foreign.conversion -> (Foreign.Memory.voidStar * int -> int) -> int -> 'a vector
+
+    eqtype HGLOBAL
+    val cHGLOBAL: HGLOBAL Foreign.conversion
+    val GlobalAlloc: int * int -> HGLOBAL
+    val GlobalLock: HGLOBAL -> Foreign.Memory.voidStar
+    val GlobalFree: HGLOBAL -> HGLOBAL
+    val GlobalSize: HGLOBAL -> int
+    val GlobalUnlock: HGLOBAL -> bool
+
+    val HIWORD: Word32.word -> Word.word
+    val LOWORD: Word32.word -> Word.word
+    val MAKELONG: Word.word * Word.word -> Word32.word
+    val HIBYTE: Word.word -> Word8.word
+    val LOBYTE: Word.word -> Word8.word
+    
+    val unicodeToString: Word8Vector.vector -> string
+    val stringToUnicode: string -> Word8Vector.vector
+    
+    val GetLastError: unit -> OS.syserror
+    
+    val checkResult: bool -> unit
+    val raiseSysErr: unit -> 'a
+    
+    structure FindReplaceFlags:
+    sig
         include BIT_FLAGS
         val FR_DIALOGTERM : flags
         val FR_DOWN : flags
@@ -262,15 +242,391 @@ in
         val FR_REPLACEALL : flags
         val FR_SHOWHELP : flags
         val FR_WHOLEWORD : flags
-      end =
+        val cFindReplaceFlags: flags Foreign.conversion
+    end
+
+end =
+struct
+    open Foreign
+(*    val System_isShort : vol -> bool =
+        RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short*)
+
+    fun absConversion {abs: 'a -> 'b, rep: 'b -> 'a} (c: 'a conversion) : 'b conversion =
+    let
+        val { load=loadI, store=storeI, ctype } = breakConversion c
+        fun load m = abs(loadI m)
+        fun store(m, v) = storeI(m, rep v)
+    in
+        makeConversion { load = load, store = store, ctype = ctype }
+    end
+
+    (* In many cases we can pass a set of options as a bit set. *)
+    (*
+    fun bitsetConversion {abs, rep} =
+    let
+        val (fromC, toC, Ctype) = breakConversion INT
+        val fromList = List.foldl (fn(i, n) => IntInf.orb(rep i, n)) 0
+        fun toList n = [abs n] (* This is a bit of a mess. *)
+    in
+        mkConversion (toList o fromCuint) (toCuint o fromList) Cuint
+    end*)
+
+    (* Conversions between Word/Word32/LargeWord etc. *)
+    local
+        open Memory LowLevel
+        fun noFree () = ()
+    in
+        local
+            fun load(m: voidStar): Word8.word = get8(m, 0w0)
+            fun store(m: voidStar, i: Word8.word) = (set8(m, 0w0, i); noFree)
+        in
+            val cUint8w: Word8.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeUint8 }
+        end
+        local
+            fun load(m: voidStar): Word.word = get16(m, 0w0)
+            fun store(m: voidStar, i: Word.word) = (set16(m, 0w0, i); noFree)
+        in
+            val cUint16w: Word.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeInt16 }
+        end
+        local
+            fun load(m: voidStar): Word32.word = get32(m, 0w0)
+            fun store(m: voidStar, i: Word32.word) = (set32(m, 0w0, i); noFree)
+        in
+            val cUint32w: Word32.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeUint32 }
+            
+        end
+        val cUintw = cUint32w
+        (* Int should be 32-bits on Windows. *)
+        val _ = #size LowLevel.cTypeUint = #size LowLevel.cTypeUint32
+                    orelse raise Fail "unsigned int is not 32-bits"
+        val cUlongw = cUint32w
+        val _ = #size LowLevel.cTypeUlong = #size LowLevel.cTypeUint32
+                    orelse raise Fail "unsigned long is not 32-bits"
+    end
+
+    val cDWORD = cUint32 (* Defined to be 32-bit unsigned *)
+    and cWORD = cUint16 (* Defined to be 16-bit unsigned *)
+    
+    val cDWORDw = cUint32w
+    and cWORDw = cUint16w
+    
+    (* For some reason Windows has both INT_PTR and LONG_PTR and they
+       are slightly different. *)
+    val cLONG_PTR =
+        if #size LowLevel.cTypePointer = 0w4
+        then cLong
+        else cInt64
+    
+    val cINT_PTR =
+        if #size LowLevel.cTypePointer = 0w4
+        then cInt
+        else cInt64
+
+    val cULONG_PTR =
+        if #size LowLevel.cTypePointer = 0w4
+        then cUlong
+        else cUint64
+
+    val cUINT_PTR =
+        if #size LowLevel.cTypePointer = 0w4
+        then cUint
+        else cUint64
+
+    val cLPARAM = cLONG_PTR
+    val cSIZE_T = cULONG_PTR (* Probably. *)
+    val cDWORD_PTR = cULONG_PTR (* Defined to be the same so I'm not sure why it's there .*)
+    
+    val cUINT_PTRw = absConversion{abs=Memory.voidStar2Sysword, rep=Memory.sysWord2VoidStar} cPointer
+
+    (* These are called XXX32.DLL on both 32-bit and 64-bit. *)
+    fun kernel name = getSymbol(loadLibrary "kernel32.dll") name
+    and user sym = getSymbol(loadLibrary "user32.DLL") sym
+    and commdlg sym = getSymbol(loadLibrary "comdlg32.DLL") sym
+    and gdi sym = getSymbol(loadLibrary "gdi32.DLL") sym
+    and shell sym = getSymbol(loadLibrary "shell32.DLL") sym
+    and comctl sym = getSymbol(loadLibrary "comctl32.DLL") sym
+
+    (* We need to use the Pascal calling convention on 32-bit Windows. *)
+    val winAbi =
+        case List.find (fn ("stdcall", _) => true | _ => false) LibFFI.abiList of
+            SOME(_, abi) => abi
+        |   NONE => LibFFI.abiDefault
+
+    (* As well as setting the abi we can also use the old argument order. *)
+    fun winCall0 sym argConv resConv = buildCall0withAbi(winAbi, sym, argConv, resConv)
+    and winCall1 sym argConv resConv = buildCall1withAbi(winAbi, sym, argConv, resConv)
+    and winCall2 sym argConv resConv = buildCall2withAbi(winAbi, sym, argConv, resConv)
+    and winCall3 sym argConv resConv = buildCall3withAbi(winAbi, sym, argConv, resConv)
+    and winCall4 sym argConv resConv = buildCall4withAbi(winAbi, sym, argConv, resConv)
+    and winCall5 sym argConv resConv = buildCall5withAbi(winAbi, sym, argConv, resConv)
+    and winCall6 sym argConv resConv = buildCall6withAbi(winAbi, sym, argConv, resConv)
+    and winCall7 sym argConv resConv = buildCall7withAbi(winAbi, sym, argConv, resConv)
+    and winCall8 sym argConv resConv = buildCall8withAbi(winAbi, sym, argConv, resConv)
+    and winCall9 sym argConv resConv = buildCall9withAbi(winAbi, sym, argConv, resConv)
+    and winCall10 sym argConv resConv = buildCall10withAbi(winAbi, sym, argConv, resConv)
+    and winCall11 sym argConv resConv = buildCall11withAbi(winAbi, sym, argConv, resConv)
+    and winCall12 sym argConv resConv = buildCall12withAbi(winAbi, sym, argConv, resConv)
+    and winCall13 sym argConv resConv = buildCall13withAbi(winAbi, sym, argConv, resConv)
+    and winCall14 sym argConv resConv = buildCall14withAbi(winAbi, sym, argConv, resConv)
+
+    (* Previously we had a specific call to do this.  The error state is
+       no longer set by the new FFI. *)
+(*
+    fun GetLastError(): OS.syserror =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1100, ())
+*)
+    local
+        val getLastError = winCall0 (kernel "GetLastError") () cDWORD
+    in
+        fun GetLastError(): OS.syserror =
+            (* Windows error codes are negative values in OS.syserror. *)
+            RunCall.unsafeCast (~ (getLastError()))
+    end
+
+    (* The string argument of the SysErr exception is supposed to match the result of OS.errMsg. *)
+    fun raiseSysErr () = let val err = GetLastError() in raise OS.SysErr(OS.errorMsg err, SOME err) end
+
+    (* Many system calls return bool.  If the result is false we raise an exception. *)
+    fun checkResult true = () | checkResult false = raiseSysErr ()
+    
+    val cBool: bool conversion =
+        absConversion{abs = fn 0 => false | _ => true, rep = fn false => 0 | true => 1} cInt
+
+    fun successState name: unit conversion =
+         absConversion { abs = checkResult, rep = fn _ => raise Fail ("successState:" ^ name) } cBool
+
+
+    type POINT = { x: int, y: int }
+
+    local
+        fun breakPoint ({x,y}: POINT) = (x,y)
+        fun mkPoint (x,y): POINT = {x=x, y=y}
+    in
+        val cPoint = absConversion {abs=mkPoint, rep=breakPoint} (cStruct2 (cLong, cLong))
+    end
+
+    type RECT =  { left: int, top: int, right: int, bottom: int }
+
+    local
+        fun breakRect ({left,top,right,bottom}: RECT) = (left,top,right,bottom)
+        fun mkRect (left,top,right,bottom): RECT =
+            {left=left,top=top,right=right,bottom=bottom}
+    in
+        val cRect = absConversion {abs=mkRect, rep=breakRect} (cStruct4 (cLong,cLong,cLong,cLong))
+    end
+
+    type SIZE = { cx: int, cy: int }
+    local
+        fun breakSize ({cx,cy}: SIZE) = (cx,cy)
+        fun mkSize (cx,cy): SIZE = {cx=cx, cy=cy}
+    in
+        val cSize = absConversion {abs=mkSize, rep=breakSize} (cStruct2 (cLong,cLong))
+    end
+
+    (* Handles are generally opaque values.  We want them to be eqtypes, though. *)
+    local
+        structure HandStruct :>
+            sig
+                eqtype 'a HANDLE
+                val hNull: 'a HANDLE
+                val isHNull: 'a HANDLE -> bool
+                val handleOfVoidStar: Memory.voidStar -> 'a HANDLE
+                and voidStarOfHandle: 'a HANDLE -> Memory.voidStar
+            end =
+        struct
+            type 'a HANDLE = Memory.voidStar
+            val hNull = Memory.null
+            fun isHNull h = h = hNull
+        
+            (* We sometimes need the next two functions internally.
+               They're needed externally unless we change the result type
+               of SendMessage to allow us to return a handle for certain
+               messages. *)
+            fun handleOfVoidStar h = h
+            and voidStarOfHandle h = h
+        end
+    in
+        open HandStruct
+    end
+
+    (* We just need these as placeholders. We never create values of
+       these types.  They are used simply as a way of creating different
+       handle types. *)
+    (* Don't use abstype - we want them to eqtypes *)
+    datatype GdiObj = GdiObj
+    and Instance = Instance
+    and Drop = Drop
+    and DeviceContext = DeviceContext
+    and Menu = Menu
+    and Window = Window
+    and Global = Global
+    and Src = Src
+    and Update = Update
+
+    (* HINSTANCE is used as an instance of a module. *)
+    type HINSTANCE = Instance HANDLE
+    and  HDROP = Drop HANDLE
+    and  HGDIOBJ = GdiObj HANDLE
+    and  HDC = DeviceContext HANDLE
+    and  HMENU = Menu HANDLE
+    and  HWND = Window HANDLE
+    and  HGLOBAL = Global HANDLE
+    and  HRSRC = Src HANDLE
+    and  HUPDATE = Update HANDLE
+
+    local
+        fun cHANDLE() =
+            absConversion {abs=handleOfVoidStar, rep=voidStarOfHandle} cPointer
+        fun hoptOfvs n =
+            if Memory.voidStar2Sysword n = 0w0 then NONE else SOME(handleOfVoidStar n)
+        
+        fun cHANDLEOPT() =
+            absConversion {abs=hoptOfvs, rep=fn v => voidStarOfHandle(getOpt(v, hNull)) } cPointer
+    in
+        val cHGDIOBJ:   HGDIOBJ conversion = cHANDLE()
+        and cHDROP:     HDROP conversion = cHANDLE()
+        and cHMENU:     HMENU conversion = cHANDLE()
+        and cHINSTANCE: HINSTANCE conversion = cHANDLE()
+        and cHDC:       HDC conversion = cHANDLE()
+        and cHWND:      HWND conversion = cHANDLE()
+
+        val cHMENUOPT:  HMENU option conversion = cHANDLEOPT()
+        and cHGDIOBJOPT: HGDIOBJ option conversion = cHANDLEOPT()
+        and cHWNDOPT: HWND option conversion = cHANDLEOPT()
+        
+        val cHGLOBAL: HGLOBAL conversion = cHANDLE()
+        and cHRSRC: HRSRC conversion = cHANDLE()
+        and cHUPDATE: HUPDATE conversion = cHANDLE()
+    end
+
+    (* Temporary declarations. *)
+    val hgdiObjNull:HGDIOBJ  = hNull
+    and isHgdiObjNull: HGDIOBJ -> bool = isHNull
+    and hdcNull: HDC = hNull
+    and isHdcNull: HDC -> bool = isHNull
+    and hmenuNull: HMENU = hNull
+    and isHmenuNull: HMENU -> bool = isHNull
+    and hinstanceNull: HINSTANCE = hNull
+    and isHinstanceNull: HINSTANCE -> bool = isHNull
+    and hwndNull: HWND = hNull
+
+    (* All these are various kinds of HGDIOBJ.  It's too complicated to try
+       to use different types for them. *)
+    type HPALETTE = HGDIOBJ and HFONT = HGDIOBJ and HPEN = HGDIOBJ
+    and HBITMAP = HGDIOBJ and HRGN = HGDIOBJ and HBRUSH = HGDIOBJ
+    and HENHMETAFILE = HGDIOBJ and HMETAFILE = HGDIOBJ
+
+    val cHPALETTE: HPALETTE conversion = cHGDIOBJ
+    and cHFONT: HFONT conversion = cHGDIOBJ
+    and cHPEN: HPEN conversion = cHGDIOBJ
+    and cHBITMAP: HBITMAP conversion = cHGDIOBJ
+    and cHRGN: HRGN conversion = cHGDIOBJ
+    and cHBRUSH: HBRUSH conversion = cHGDIOBJ
+    and cHENHMETAFILE: HENHMETAFILE conversion = cHGDIOBJ
+    and cHMETAFILE: HMETAFILE conversion = cHGDIOBJ
+
+    (* I'm not so happy about treating these as HGDIOBJ but it makes the
+       types of messages such as BM_SETIMAGE simpler. *)
+    type HICON = HGDIOBJ and HCURSOR = HGDIOBJ
+    val cHICON = cHGDIOBJ and cHCURSOR = cHGDIOBJ
+
+    (* The easiest way to deal with datatypes is often by way of a table. *)
+    fun tableLookup (table: (''a * ''b) list, default) =
+    let
+        fun toInt [] x =
+            (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
+         |  toInt ((y, i) :: tl) x = if x = y then i else toInt tl x
+
+        fun fromInt [] x =
+            (case default of
+                NONE => raise Fail ("tableLookup: not found")
+             |  SOME (d, _) => d x)
+         |  fromInt ((y, i) :: tl) x = if x = i then y else fromInt tl x
+    in
+        (toInt table, fromInt table)
+    end
+
+    fun tableConversion (table: (''a * ''b) list, default) (conv: ''b conversion): ''a conversion  =
+    let
+        val (toInt, fromInt) = tableLookup(table, default)
+    in
+        absConversion {abs = fromInt, rep = toInt} conv
+    end
+
+    (* In other cases we have sets of options.  We represent them by a list.
+       The order of the elements in the table is significant if we are to be
+       able to handle multiple bits.  Patterns with more than one bit set
+       MUST be placed later than those with a subset of those bits. *)
+    fun tableSetLookup (table: (''a * Word32.word) list, default) =
+    let
+        open Word32
+        (* Conversion to integer - just fold the values. *)
+        fun toInt' [] x =
+            (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
+         |  toInt' ((y, i) :: tl) x = if x = y then i else toInt' tl x
+
+        val toInt = List.foldl (fn (a, b) => orb(toInt' table a, b)) 0w0
+
+        (* It would speed up the searches if we ordered the list so that multiple
+           bit entries preceded those with fewer bits but it's much easier to lay
+           out the tables if we do it this way. *)
+        fun fromInt _ _ 0w0 = [] (* Zero is an empty list. *)
+
+         |  fromInt [] NONE x = (* Not found *)
+                (case default of
+                    NONE => raise Fail ("tableLookup: not found" ^ Word32.toString x)
+                  | SOME (d, _) => [d x])
+
+         |  fromInt [] (SOME(res, bits)) x = (* Found something - remove it from the set. *)
+                (res :: fromInt table NONE (andb(x, notb bits)))
+
+         |  fromInt ((res, bits)::tl) sofar x =
+                if bits <> 0w0 andalso andb(x, bits) = bits
+                then (* Matches *) fromInt tl (SOME(res, bits)) x
+                else (* Doesn't match *) fromInt tl sofar x
+    in
+        (toInt, fromInt table NONE)
+    end
+
+    fun tableSetConversion (table: (''a * Word32.word) list, default): ''a list conversion  =
+    let
+        val (toInt, fromInt) = tableSetLookup(table, default)
+    in
+        absConversion {abs = fromInt, rep = toInt} cUintw
+    end
+
+    
+    structure FindReplaceFlags:>
+    sig
+        include BIT_FLAGS
+        val FR_DIALOGTERM : flags
+        val FR_DOWN : flags
+        val FR_FINDNEXT : flags
+        val FR_HIDEMATCHCASE : flags
+        val FR_HIDEUPDOWN : flags
+        val FR_HIDEWHOLEWORD : flags
+        val FR_MATCHCASE : flags
+        val FR_NOMATCHCASE : flags
+        val FR_NOUPDOWN : flags
+        val FR_NOWHOLEWORD : flags
+        val FR_REPLACE : flags
+        val FR_REPLACEALL : flags
+        val FR_SHOWHELP : flags
+        val FR_WHOLEWORD : flags
+        val cFindReplaceFlags: flags conversion
+    end =
     struct
-        type flags = SysWord.word
-        fun toWord f = f
-        fun fromWord f = f
-        val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-        fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-        fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-        fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+        open Word32
+        type flags = word
+        val toWord = toLargeWord
+        and fromWord = fromLargeWord
+        val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+        fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+        fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+        fun clear (fl1, fl2) = andb(notb fl1, fl2)
 
         val FR_DOWN                       = 0wx00000001
         val FR_WHOLEWORD                  = 0wx00000002
@@ -291,29 +647,39 @@ in
                         FR_REPLACEALL, FR_DIALOGTERM, FR_NOUPDOWN, FR_NOMATCHCASE,
                         FR_NOWHOLEWORD, FR_HIDEUPDOWN, FR_HIDEMATCHCASE, FR_HIDEWHOLEWORD]
 
-        val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+        val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+        
+        val cFindReplaceFlags = cDWORDw
     end
 
     (* The class "string" may be a name or an atom. *)
     datatype ClassType = NamedClass of string | ClassAtom of int
 
     local
-        fun class2Vol (ClassAtom i) =
-                if i >= 0 andalso i < 0xC000 then toCint i
-                else raise Fail "atom out of range"
-        |   class2Vol (NamedClass s) = toCstring s
+        open Memory
+        val {store=storeS, load=loadS, ctype} = breakConversion cString
 
-        fun vol2Class v =
+        fun storeClass(m, ClassAtom i) =
+            if i >= 0 andalso i < 0xC000
+            then (setAddress(m, 0w0, sysWord2VoidStar(SysWord.fromInt i)); fn () => ())
+            else raise Fail "atom out of range"
+        |   storeClass(m, NamedClass s) = storeS(m, s)
+
+        fun loadClass m =
         let
-            val v' = fromCint v
+            val v = getAddress(m, 0w0)
         in
-            if System_isShort v then ClassAtom v' else NamedClass(fromCstring v)
+            if voidStar2Sysword v < 0wxC000
+            then ClassAtom(SysWord.toInt(voidStar2Sysword v))
+            else NamedClass(loadS m)
         end
+
     in
-        val CLASS = mkConversion vol2Class class2Vol voidStar
+        val cCLASS = makeConversion { load = loadClass, store = storeClass, ctype = ctype }
     end
 
-    (* Clipboard formats.  I've added CF_NONE, CF_PRIVATE, CF_GDIOBJ and CF_REGISTERED *)
+    (* Clipboard formats.  I've added CF_NONE, CF_PRIVATE, CF_GDIOBJ and CF_REGISTERED.
+       This is here because it is used in both Clipboard and Message (WM_RENDERFORMAT) *)
     datatype ClipboardFormat =
         CF_NONE | CF_TEXT | CF_BITMAP | CF_METAFILEPICT | CF_SYLK | CF_DIF | CF_TIFF |
         CF_OEMTEXT | CF_DIB | CF_PALETTE | CF_PENDATA | CF_RIFF | CF_WAVE | CF_UNICODETEXT |
@@ -321,64 +687,71 @@ in
         CF_DSPENHMETAFILE | CF_PRIVATE of int | CF_GDIOBJ of int | CF_REGISTERED of int |
         CF_HDROP | CF_LOCALE
 
-        local
-            val tab = [
-                (CF_NONE,                  0),
-                (CF_TEXT,                  1),
-                (CF_BITMAP,                2),
-                (CF_METAFILEPICT,          3),
-                (CF_SYLK,                  4),
-                (CF_DIF,                   5),
-                (CF_TIFF,                  6),
-                (CF_OEMTEXT,               7),
-                (CF_DIB,                   8),
-                (CF_PALETTE,               9),
-                (CF_PENDATA,               10),
-                (CF_RIFF,                  11),
-                (CF_WAVE,                  12),
-                (CF_UNICODETEXT,           13),
-                (CF_ENHMETAFILE,           14),
-                (CF_HDROP,                 15),
-                (CF_LOCALE,                16),
-                (CF_OWNERDISPLAY,          0x0080),
-                (CF_DSPTEXT,               0x0081),
-                (CF_DSPBITMAP,             0x0082),
-                (CF_DSPMETAFILEPICT,       0x0083),
-                (CF_DSPENHMETAFILE,        0x008E)
-                ]
-            fun toInt (CF_PRIVATE i) =
-                    if i >= 0 andalso i < 0xff then 0x0200 + i else raise Size
-            |   toInt (CF_GDIOBJ i) =
-                    if i >= 0 andalso i < 0xff then 0x0300 + i else raise Size
-            |   toInt (CF_REGISTERED i) = i
-            |   toInt _ = raise Match
+    local
+        val tab = [
+            (CF_NONE,                  0),
+            (CF_TEXT,                  1),
+            (CF_BITMAP,                2),
+            (CF_METAFILEPICT,          3),
+            (CF_SYLK,                  4),
+            (CF_DIF,                   5),
+            (CF_TIFF,                  6),
+            (CF_OEMTEXT,               7),
+            (CF_DIB,                   8),
+            (CF_PALETTE,               9),
+            (CF_PENDATA,               10),
+            (CF_RIFF,                  11),
+            (CF_WAVE,                  12),
+            (CF_UNICODETEXT,           13),
+            (CF_ENHMETAFILE,           14),
+            (CF_HDROP,                 15),
+            (CF_LOCALE,                16),
+            (CF_OWNERDISPLAY,          0x0080),
+            (CF_DSPTEXT,               0x0081),
+            (CF_DSPBITMAP,             0x0082),
+            (CF_DSPMETAFILEPICT,       0x0083),
+            (CF_DSPENHMETAFILE,        0x008E)
+            ]
+        fun toInt (CF_PRIVATE i) =
+                if i >= 0 andalso i < 0xff then 0x0200 + i else raise Size
+        |   toInt (CF_GDIOBJ i) =
+                if i >= 0 andalso i < 0xff then 0x0300 + i else raise Size
+        |   toInt (CF_REGISTERED i) = i
+        |   toInt _ = raise Match
 
-            fun fromInt i =
-                if i >= 0x0200 andalso i <= 0x02ff then CF_PRIVATE(i-0x0200)
-                else if i >= 0x0300 andalso i <= 0x03ff then CF_GDIOBJ(i-0x0300)
-                else if i >= 0xC000 andalso i < 0xFFFF then CF_REGISTERED i
-                else raise Match
-        in
-            val CLIPFORMAT = tableConversion(tab, SOME(fromInt, toInt))
-        end
+        fun fromInt i =
+            if i >= 0x0200 andalso i <= 0x02ff then CF_PRIVATE(i-0x0200)
+            else if i >= 0x0300 andalso i <= 0x03ff then CF_GDIOBJ(i-0x0300)
+            else if i >= 0xC000 andalso i < 0xFFFF then CF_REGISTERED i
+            else raise Match
+    in
+        val clipLookup = tableLookup (tab, SOME(fromInt, toInt))
+    end
 
-    (* Resources may be specified by strings or by ints.  Should this be an abstype? *)
+    (* Resources may be specified by strings or by ints. *)
     datatype RESID = IdAsInt of int | IdAsString of string
 
     local
-        fun resid2Vol (IdAsInt i) =
-                if i >= 0 andalso i < 65536 then toCint i
-                else raise Fail "resource id out of range"
-        |   resid2Vol (IdAsString s) = toCstring s
+        open Memory
+        val {store=storeS, load=loadS, ctype} = breakConversion cString
 
-        fun vol2Resid v =
+        fun storeResid(m, IdAsInt i) =
+            if i >= 0 andalso i < 65536
+            then (setAddress(m, 0w0, sysWord2VoidStar(SysWord.fromInt i)); fn () => ())
+            else raise Fail "resource id out of range"
+        |   storeResid(m, IdAsString s) = storeS(m, s)
+
+        fun loadResid m =
         let
-            val v' = fromCint v
+            val v = getAddress(m, 0w0)
         in
-            if System_isShort v then IdAsInt v' else IdAsString(fromCstring v)
+            if voidStar2Sysword v < 0w65536
+            then IdAsInt(SysWord.toInt(voidStar2Sysword v))
+            else IdAsString(loadS m)
         end
     in
-        val RESID = mkConversion vol2Resid resid2Vol voidStar;
+        val cRESID =
+            makeConversion { load = loadResid, store = storeResid, ctype = ctype }
     end
 
     (*datatype HelpContext =
@@ -390,390 +763,69 @@ in
 
 
     (* Useful conversions. *)
-
-    (* It would be nice if these were included in CInterface but that only goes as
-       far as STRUCT9. *)
-    fun STRUCT10 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10) =
-        let
-        fun break10 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j] => (a,b,c,d,e,f,g,h,i,j)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,ctype7,ctype8,ctype9,ctype10]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10) = break10 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e,
-                                                to6 f,to7 g,to8 h,to9 i,to10 j]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT11 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11) =
-        let
-        fun break11 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k] => (a,b,c,d,e,f,g,h,i,j,k)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11) = break11 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-
-    fun STRUCT12 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12) =
-        let
-        fun break12 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l] => (a,b,c,d,e,f,g,h,i,j,k,l)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12) = break12 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT14 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14) =
-        let
-        fun break14 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l,m,n] => (a,b,c,d,e,f,g,h,i,j,k,l,m,n)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-        val (from13,to13,ctype13) = breakConversion c13
-        val (from14,to14,ctype14) = breakConversion c14
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12,
-                      ctype13,ctype14]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v14) = break14 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12,
-                from13 v13,from14 v14)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l,m,n) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l,
-                                                to13 m, to14 n]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT16 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16) =
-        let
-        nonfix o
-        fun break16 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p] => (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-        val (from13,to13,ctype13) = breakConversion c13
-        val (from14,to14,ctype14) = breakConversion c14
-        val (from15,to15,ctype15) = breakConversion c15
-        val (from16,to16,ctype16) = breakConversion c16
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12,
-                      ctype13,ctype14,ctype15,ctype16]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v14,v15,v16) = break16 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12,
-                from13 v13,from14 v14,from15 v15,from16 v16)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l,
-                                                to13 m, to14 n, to15 o, to16 p]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT18 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18) =
-        let
-        nonfix o
-        fun break18 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r] =>
-                    (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-        val (from13,to13,ctype13) = breakConversion c13
-        val (from14,to14,ctype14) = breakConversion c14
-        val (from15,to15,ctype15) = breakConversion c15
-        val (from16,to16,ctype16) = breakConversion c16
-        val (from17,to17,ctype17) = breakConversion c17
-        val (from18,to18,ctype18) = breakConversion c18
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12,
-                      ctype13,ctype14,ctype15,ctype16,ctype17,ctype18]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,
-                     v11,v12,v13,v14,v15,v16,v17,v18) = break18 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12,
-                from13 v13,from14 v14,from15 v15,from16 v16,
-                from17 v17,from18 v18)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l,
-                                                to13 m,to14 n,to15 o, to16 p,
-                                                to17 q,to18 r]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT19 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19) =
-        let
-        nonfix o
-        fun break19 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s] =>
-                    (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-        val (from13,to13,ctype13) = breakConversion c13
-        val (from14,to14,ctype14) = breakConversion c14
-        val (from15,to15,ctype15) = breakConversion c15
-        val (from16,to16,ctype16) = breakConversion c16
-        val (from17,to17,ctype17) = breakConversion c17
-        val (from18,to18,ctype18) = breakConversion c18
-        val (from19,to19,ctype19) = breakConversion c19
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12,
-                      ctype13,ctype14,ctype15,ctype16,ctype17,ctype18,
-                      ctype19]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,
-                     v11,v12,v13,v14,v15,v16,v17,v18,v19) = break19 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12,
-                from13 v13,from14 v14,from15 v15,from16 v16,
-                from17 v17,from18 v18,from19 v19)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l,
-                                                to13 m,to14 n,to15 o, to16 p,
-                                                to17 q,to18 r,to19 s]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    fun STRUCT20 (c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c20) =
-        let
-        nonfix o
-        fun break20 ts v =
-            case break_struct ts v of
-                [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t] =>
-                    (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t)
-            | _ => raise Fail "break"
-        val (from1,to1,ctype1) = breakConversion c1
-        val (from2,to2,ctype2) = breakConversion c2
-        val (from3,to3,ctype3) = breakConversion c3
-        val (from4,to4,ctype4) = breakConversion c4
-        val (from5,to5,ctype5) = breakConversion c5
-        val (from6,to6,ctype6) = breakConversion c6
-        val (from7,to7,ctype7) = breakConversion c7
-        val (from8,to8,ctype8) = breakConversion c8
-        val (from9,to9,ctype9) = breakConversion c9
-        val (from10,to10,ctype10) = breakConversion c10
-        val (from11,to11,ctype11) = breakConversion c11
-        val (from12,to12,ctype12) = breakConversion c12
-        val (from13,to13,ctype13) = breakConversion c13
-        val (from14,to14,ctype14) = breakConversion c14
-        val (from15,to15,ctype15) = breakConversion c15
-        val (from16,to16,ctype16) = breakConversion c16
-        val (from17,to17,ctype17) = breakConversion c17
-        val (from18,to18,ctype18) = breakConversion c18
-        val (from19,to19,ctype19) = breakConversion c19
-        val (from20,to20,ctype20) = breakConversion c20
-    
-        val ctypes = [ctype1,ctype2,ctype3,ctype4,ctype5,ctype6,
-                      ctype7,ctype8,ctype9,ctype10,ctype11,ctype12,
-                      ctype13,ctype14,ctype15,ctype16,ctype17,ctype18,
-                      ctype19,ctype20]
-            
-        fun from v =
-            let val (v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,
-                     v11,v12,v13,v14,v15,v16,v17,v18,v19,v20) = break20 ctypes v
-            in (from1 v1,from2 v2,from3 v3,from4 v4,from5 v5,from6 v6,
-                from7 v7,from8 v8,from9 v9,from10 v10,from11 v11,from12 v12,
-                from13 v13,from14 v14,from15 v15,from16 v16,
-                from17 v17,from18 v18,from19 v19,from20 v20)
-            end
-    
-        fun to (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t) =
-            make_struct (ListPair.zip (ctypes, [to1 a,to2 b,to3 c,to4 d,to5 e, to6 f,
-                                                to7 g,to8 h,to9 i,to10 j,to11 k, to12 l,
-                                                to13 m,to14 n,to15 o, to16 p,
-                                                to17 q,to18 r,to19 s,to20 t]))
-        in
-        mkConversion from to (Cstruct ctypes)
-        end
-
-    (* Conversion for a fixed size character array. *)
-    fun CHARARRAY n =
-        let
-            val base = Cstruct (List.tabulate (n, fn _ => Cchar))
-            fun from (v: vol) : string = fromCstring(address v)
-            fun to (s:string): vol =
-                deref(toCstring(if size s > n-1 then String.substring(s, 0, n-1) else s))
-        in
-            mkConversion from to base
-        end
-
-
-    fun kernel name = get_sym "kernel32.dll" name
-    and user sym = get_sym "user32.DLL" sym
-    and commdlg sym = get_sym "comdlg32.DLL" sym
-    and gdi sym = get_sym "gdi32.DLL" sym
-    and shell sym = get_sym "shell32.DLL" sym
-    and comctl sym = get_sym "comctl32.DLL" sym
-
-    (* Conversion to and from LargeWord.word.  This is used for 32-bit flags. *)
-    val WORD = absConversion {abs = LargeWord.fromInt, rep = LargeWord.toInt} UINT
-
     (* Various functions return zero if error.  This conversion checks for that. *)
-    fun POSINT name =
-        absConversion {abs = fn 0 => raiseSysErr() | n => n, rep = fn i => i} UINT
+    fun cPOSINT _ =
+        absConversion {abs = fn 0 => raiseSysErr() | n => n, rep = fn i => i} cInt
 
     (* Conversion between string option and C strings.  NONE is converted to NULL. *)
-    local
-        fun toCstropt NONE = toCint 0
-         |  toCstropt (SOME s) = toCstring s
+    val STRINGOPT = cOptionPtr cString
 
-        fun fromCstropt v =
-            if fromCint v = 0
-            then NONE
-            else SOME(fromCstring v)
+    (* Convert a C string to ML. *)
+    fun fromCstring buff =
+    let
+        open Memory
+        (* We can't use #load cString because the argument is the address of
+           the address of the string. *)
+        fun sLen i = if get8(buff, i) = 0w0 then i else sLen(i+0w1)
+        val length = sLen 0w0
+        fun loadChar i =
+            Char.chr(Word8.toInt(get8(buff, Word.fromInt i)))
     in
-        val STRINGOPT = mkConversion fromCstropt toCstropt (Cpointer Cchar)
+        CharVector.tabulate(Word.toInt length, loadChar)
+    end
+
+    (* Copy a string to a particular offset in a buffer and
+       add a null terminator. *)
+    fun copyStringToMem (buf, n, s) =
+    let
+        open Memory
+        infix 6 ++
+        fun copyToBuf (i, v) = set8(buf, Word.fromInt(i+n), Byte.charToByte v)
+    in
+        CharVector.appi copyToBuf s;
+        set8(buf, Word.fromInt(n + size s), 0w0)
+    end
+
+    fun toCstring s =
+    let
+        open Memory
+        val sLen = Word.fromInt(String.size s)
+        val sMem = malloc(sLen + 0w1)
+        val () = copyStringToMem(sMem, 0, s)
+    in
+        sMem
+    end
+
+    (* When getting a string it is often the case that passing NULL returns the
+       length required.  Then a second call will actually retrieve the string. *)
+    fun getStringWithNullIsLength(f: Memory.voidStar*int -> int): string =
+    let
+        open Memory
+        val realLength = f(null, 0)
+        val buff = malloc (Word.fromInt(realLength+1))
+        val _ = f(buff, realLength) handle ex => (free buff; raise ex)
+    in
+        fromCstring buff before free buff
     end
 
     (* In several cases when extracting a string it is not possible in advance
        to know how big to make the buffer.  This function loops until all the
        string has been extracted. *)
-    fun getStringCall(f: vol*int -> int): string =
+    (* This is at least needed for GetClassName *)
+    fun getStringCall(f: Memory.voidStar*int -> int): string =
     let
+        open Memory
+        
         fun doCall initialSize =
         let
             (* Allocate a buffer to receive the result.  For safety we make it
@@ -782,50 +834,79 @@ in
                Equally we are only certain we have read the whole string if
                the return value is less than initialSize-1 because the return
                value could be the number of real characters copied to the buffer. *)
-            val buff = alloc (initialSize+1) Cchar
-            val resultSize = f(address buff, initialSize)
+            val buff = malloc (Word.fromInt(initialSize+1))
+            val resultSize =
+                f(buff, initialSize) handle ex => (free buff; raise ex)
         in
             if resultSize < initialSize-1
-            then (* We've got it all. *) fromCstring(address buff)
-            else doCall(initialSize + initialSize div 2)
+            then (* We've got it all. *)
+                fromCstring buff before free buff
+            else ( free buff; doCall(initialSize + initialSize div 2) )
         end
     in
         doCall (*1024*) 3 (* Use a small size initially for testing. *)
     end
 
-    (* Some C functions take a vector of values to allow a variable number of
-       elements to be passed.  We use a list for this in ML. *)
-    fun list2Vector (conv: 'a Conversion) (l:'a list): vol * int =
+    (* We have a number of calls that extract a vector of results.  They
+       are called with an initial size, set the vector to the results and
+       return a count of the number actually assigned.  *)
+    fun getVectorResult(element: 'a conversion) =
     let
-        val count = List.length l
-        val (_, to, element) = breakConversion conv
-        val vec =alloc count element
-        fun setItem(item, n) =
-            (assign element (offset n element vec) (to item); n+1)
-        val _: int = List.foldl setItem 0 l 
+        val { load=loadElem, ctype={size=sizeElem, ...}, ...} = breakConversion element
+        fun run f initialCount =
+        let
+            open Memory
+            infix 6 ++ --
+            val vec = malloc(Word.fromInt initialCount * sizeElem)
+            fun getElement i = loadElem(vec ++ Word.fromInt i * sizeElem)
+            val resultCount =
+                f (vec, initialCount) handle ex => (free vec; raise ex)
+        in
+            Vector.tabulate(resultCount, getElement) before free vec
+        end
     in
-        (address vec, count)
+        run 
     end
 
-    (* We have to allocate some of the values as global handles. *)
-    abstype HGLOBAL = HG of int
-    with
-        val hglobalNull = HG 0
-        fun isHglobalNull(HG 0) = true | isHglobalNull _ = false
-        val HGLOBAL = absConversion {abs=HG, rep=fn (HG i) => i} UINT
+    (* Some C functions take a vector of values to allow a variable number of
+       elements to be passed.  We use a list for this in ML. *)
+    (* TODO: This discards the result of any store function so if we
+       store strings we'll leak store. *)
+    fun list2Vector (conv: 'a conversion) (l:'a list): Memory.voidStar * int =
+    let
+        val count = List.length l
+        val {store=storea, ctype={size=sizea, ...}, ...} = breakConversion conv
+        open Memory
+        infix 6 ++
+        val vec = malloc(Word.fromInt count * sizea)
+        fun setItem(item, v) = (ignore(storea(v, item)); v ++ sizea)
+        val _ = List.foldl setItem vec l 
+    in
+        (vec, count)
     end
-    
-    val GlobalAlloc = call2 (kernel "GlobalAlloc") (INT, INT) HGLOBAL
-    val GlobalLock = call1 (kernel "GlobalLock") (HGLOBAL) POINTER
-    val GlobalFree = call1 (kernel "GlobalFree") (HGLOBAL) HGLOBAL
-    val GlobalSize = call1 (kernel "GlobalSize") (HGLOBAL) INT
-    val GlobalUnlock = call1 (kernel "GlobalUnlock") (HGLOBAL) BOOL
+
+    val GlobalAlloc = winCall2 (kernel "GlobalAlloc") (cInt, cSIZE_T) cHGLOBAL
+    val GlobalLock = winCall1 (kernel "GlobalLock") (cHGLOBAL) cPointer
+    val GlobalFree = winCall1 (kernel "GlobalFree") (cHGLOBAL) cHGLOBAL
+    val GlobalSize = winCall1 (kernel "GlobalSize") (cHGLOBAL) cSIZE_T
+    val GlobalUnlock = winCall1 (kernel "GlobalUnlock") (cHGLOBAL) cBool
 
     (* Conversion for Word8Vector.  We can't do this as a general conversion because
        we can't find out how big the C vector is. *)
-    val fromWord8vec = toCbytes
-    and toWord8vec = fromCbytes
+    fun fromCWord8vec (buff, length) =
+        Word8Vector.tabulate(length, fn i => Memory.get8(buff, Word.fromInt i))
 
+    fun toCWord8vec(s: Word8Vector.vector): Memory.voidStar =
+    let
+        open Memory Word8Vector
+        val sLen = Word.fromInt(length s)
+        val sMem = malloc sLen
+        val () = appi(fn(i, b) => set8(sMem, Word.fromInt i, b)) s
+    in
+        sMem
+    end
+    
+(*
     (* Conversion for a fixed size byte array. *)
     fun BYTEARRAY n =
     let
@@ -835,91 +916,108 @@ in
             if Word8Vector.length w <> n then raise Size else deref(fromWord8vec w)
     in
         mkConversion from to base
-    end
+    end *)
 
     (* Conversion for a fixed size char array. *)
-    fun CHARARRAY n =
+    fun cCHARARRAY n : string conversion =
     let
-        val base = Cstruct (List.tabulate (n, fn _ => Cchar))
-        fun from (v: vol): string =
+        (* Make it a struct of chars *)
+        val { size=sizeC, align=alignC, ffiType=ffiTypeC } = LowLevel.cTypeChar
+        val arraySize = sizeC * Word.fromInt n
+        fun ffiType () =
+            LibFFI.createFFItype {
+                size = arraySize, align = alignC, typeCode=LibFFI.ffiTypeCodeStruct,
+                elements = List.tabulate (n, fn _ => ffiTypeC()) }
+        val arrayType: LowLevel.ctype =
+            { size = arraySize, align = alignC, ffiType = ffiType }
+
+        open Memory
+
+        fun load(v: voidStar): string =
         let
-            open Word8Vector
-            infix sub
-            val vector = toWord8vec(address v, n)
-            val len = length vector
-            (* This will be null-terminated - trim it at the first null. *)
-            fun term i =
-                if i = len orelse (vector sub i) = 0w0 then i else term (i+1)
+            (* It should be null-terminated but just in case... *)
+            fun sLen i = if i = Word.fromInt n orelse get8(v, i) = 0w0 then i else sLen(i+0w1)
+            val length = sLen 0w0
+            fun loadChar i =
+                Char.chr(Word8.toInt(get8(v, Word.fromInt i)))
         in
-            Byte.unpackStringVec(Word8VectorSlice.slice(vector, 0, SOME(term 0)))
+            CharVector.tabulate(Word.toInt length, loadChar)
         end
-        fun to (s: string): vol =
+
+        fun store(v: voidStar, s: string) =
         let
-            open Word8Array
-            val substr = if size s < n then s else String.substring(s, 0, n-1)
-            val arr = array(n, 0w0)
-            val _ = copyVec{src=Byte.stringToBytes substr, dst=arr, di=0}
+            (* The length must be less than the size to allow for the null *)
+            val sLen = size s
+            val _ = sLen < n orelse raise Fail "string too long"
         in
-            deref(fromWord8vec(vector arr))
+            CharVector.appi(fn(i, ch) => set8(v, Word.fromInt i, Word8.fromInt(Char.ord ch))) s;
+            set8(v, Word.fromInt sLen, 0w0);
+            fn () => ()
         end
     in
-        mkConversion from to base
+        makeConversion { load = load, store = store, ctype = arrayType }
     end
 
     (* These should always be UNSIGNED values. *)
     local
-        open LargeWord
+        open Word32
         infix << >> orb andb
+        val w32ToW = Word.fromLargeWord o Word32.toLargeWord
+        and wTow32 = Word32.fromLargeWord o Word.toLargeWord
     in
-        fun LOWORD(l) = toInt(fromInt l andb 0wxFFFF)
-        fun HIWORD(l) = toInt((fromInt l >> 0w16) andb 0wxFFFF)
+        fun LOWORD(l) = w32ToW(l andb 0wxFFFF)
+        fun HIWORD(l) = w32ToW((l >> 0w16) andb 0wxFFFF)
     
-        fun MAKELONG(a, b) =
-            toInt ((fromInt b << 0w16) orb (fromInt a andb 0wxFFFF))
-            
-        fun HIBYTE(w) = toInt((fromInt w >> 0w8) andb 0wxFF)
-        fun LOBYTE(w) = toInt(fromInt w andb 0wxFF)
+        fun MAKELONG(a, b) = (wTow32 b << 0w16) orb (wTow32 a andb 0wxFFFF)
+    end
+
+    local
+        open Word
+        infix << >> orb andb
+        val wToW8 = Word8.fromLargeWord o Word.toLargeWord
+    in
+        fun HIBYTE(w) = wToW8((w >> 0w8) andb 0wxFF)
+        fun LOBYTE(w) = wToW8(w andb 0wxFF)
     end
 
     (* Convert between strings and vectors containing Unicode characters.
        N.B.  These are not null terminated. *)
-    fun unicodeToString(w: Word8Vector.vector): string =
-    let
-        val inputLength = Word8Vector.length w
-        val WideCharToMultiByte = call8 (kernel "WideCharToMultiByte")
-            (INT, INT, POINTER, INT, POINTER, INT, INT, INT) INT;
-        val outputBuf = alloc inputLength Cchar (* Assume big enough for the moment. *)
-
-        val conv = WideCharToMultiByte(0 (* CP_ACP *),
-            0 (* Default *),
-            fromWord8vec w,
-            inputLength div 2, (* Number of Unicode characters. *)
-            address outputBuf,
-            inputLength,
-            0,
-            0);
-    in
-        (* We can't use fromCstring here because it's not necessarily null terminated. *)
-        CharVector.tabulate(conv, fn i => fromCchar(offset i Cchar outputBuf))
-    end
-
-    fun stringToUnicode(s: string): Word8Vector.vector =
-    let
-        val inputLength = size s
-        val outputLength = inputLength * 2 (* Should be enough. *)
+    local
+        val CP_ACP = 0 (* Default *)
+        val WideCharToMultiByte = winCall8 (kernel "WideCharToMultiByte")
+            (cUint, cDWORD, cByteArray, cInt, cPointer, cInt, cPointer, cPointer) cInt
         val MultiByteToWideChar =
-            call6 (kernel "MultiByteToWideChar") (INT, INT, STRING, INT, POINTER, INT) INT;
-        val outputBuf = alloc outputLength Cchar
-
-        val conv = MultiByteToWideChar(0 (* CP_ACP *),
-            0 (* Default *),
-            s,
-            inputLength,
-            address outputBuf,
-            outputLength+1);
+            winCall6 (kernel "MultiByteToWideChar") (cUint, cDWORD, cString, cInt, cPointer, cInt) cInt
     in
-        toWord8vec (address outputBuf, conv*2)
+        fun unicodeToString(w: Word8Vector.vector): string =
+        let
+            open Memory
+            val inputLength = Word8Vector.length w  div 2 (* Number of unicode chars *)
+            val outputLength =
+                WideCharToMultiByte(CP_ACP, 0, w, inputLength, null, 0, null, null)
+            val outputBuf = malloc(Word.fromInt outputLength)
+
+            val conv = WideCharToMultiByte(CP_ACP, 0, w, inputLength, outputBuf, outputLength, null, null)
+
+            fun loadChar i =
+                Char.chr(Word8.toInt(get8(outputBuf, Word.fromInt i)))
+        in
+            (* We can't use fromCstring here because it's not necessarily null terminated. *)
+            CharVector.tabulate(conv, loadChar) before free outputBuf
+        end
+
+        fun stringToUnicode(s: string): Word8Vector.vector =
+        let
+            open Memory
+            val inputLength = size s (* This does not include a terminating NULL *)
+            (* The lengths returned by MultiByteToWideChar are the number of Unicode chars *)
+            val outputLength = MultiByteToWideChar(CP_ACP, 0, s, inputLength, null, 0)
+            val outputBuf = malloc(Word.fromInt outputLength * 0w2)
+            val conv = MultiByteToWideChar(CP_ACP, 0, s, inputLength, outputBuf, outputLength)
+            fun loadByte i = get8(outputBuf, Word.fromInt i)
+        in
+            Word8Vector.tabulate(conv*2, loadByte) before free outputBuf
+        end
     end
 
-end
 end;

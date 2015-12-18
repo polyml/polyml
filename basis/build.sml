@@ -114,8 +114,9 @@ local
         RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
 in
     val () =
-    if getOS = 0 then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
-    else if getOS = 1 then Bootstrap.use "basis/Windows.sml"
+    if getOS = 0
+    then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
+    else if getOS = 1 then (Bootstrap.use "basis/Windows.sml")
     else ()
 end;
 
@@ -129,6 +130,7 @@ val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
 val () = Bootstrap.use "basis/ForeignConstants.sml";
 val () = Bootstrap.use "basis/ForeignMemory.sml";
+(*val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";*)
 val () = Bootstrap.use "basis/Foreign.sml";
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
@@ -160,6 +162,8 @@ PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
 PolyML.Compiler.forgetFunctor "BasicImperativeIO";
+PolyML.Compiler.forgetFunctor "ASN1";
+PolyML.Compiler.forgetSignature "ASN1";
 
 (* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
    these don't automatically look at the -I option. *)

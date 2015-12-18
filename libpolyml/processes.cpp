@@ -438,7 +438,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             // On Windows it is the number of 100ns units since the epoch
             FILETIME tWake;
             if (! isInfinite)
-                getFileTimeFromArb(taskData, DEREFWORDHANDLE(wakeTime), &tWake);
+                getFileTimeFromArb(taskData, wakeTime, &tWake);
 #else
             // Unix style times.
             struct timespec tWake;
@@ -1376,6 +1376,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         crowbarLock.Signal();
         crowbarStopped.Wait(&shutdownLock);
     }
+    shutdownLock.Unlock(); // So it's unlocked when we delete it
     finish(exitResult); // Close everything down and exit.
 }
 

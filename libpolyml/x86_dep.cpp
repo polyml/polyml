@@ -873,10 +873,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &Real_negc);
                 break;
 
-            case POLY_SYS_Repr_real:
-                CallIO1(this, &Real_reprc);
-                break;
-
             case POLY_SYS_conv_real:
                 CallIO1(this, &Real_convc);
                 break;
@@ -1389,7 +1385,7 @@ int X86TaskData::SwitchToPoly()
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(PSP_HR(this) == PSP_SP(this));
-            PSP_SP(this) += 2;
+            PSP_SP(this) += 1;
             PSP_HR(this) = (*(PSP_SP(this)++)).AsStackAddr(); // Restore the previous handler.
             this->callBackResult = this->saveVec.push(PSP_EAX(this)); // Argument to return is in EAX.
             // Restore the registers
@@ -1406,11 +1402,8 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_CALLBACK_EXCEPTION:
             // An ML callback has raised an exception.
-            SetException((poly_exn *)PSP_EAX(this).AsObjPtr());
-            // Raise a C++ exception.  If the foreign function that called this callback
-            // doesn't handle the exception it will be raised in the calling ML function.
-            // But if it is caught we may have a problem ...
-            throw IOException();
+            // It isn't possible to do anything here except abort.
+            Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
 
         default:
             Crash("Unknown return reason code %u", this->memRegisters.returnReason);
@@ -1572,8 +1565,14 @@ bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, 
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
+#if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
+    // CPP defines missing in amd64/signal.h in OpenBSD
+    pc = (byte*)context->sc_rip;
+    sp = (PolyWord*)context->sc_rsp;
+#else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
     pc = (byte*)context->sc_pc;
     sp = (PolyWord*)context->sc_sp;
+#endif
 #else
     // Can't get context.
     return false;
@@ -2382,7 +2381,6 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
     // Set up an exception handler so we will enter callBackException if there is an exception.
     *(--PSP_SP(this)) = PolyWord::FromStackAddr(PSP_HR(this)); // Create a special handler entry
     *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackException);
-    *(--PSP_SP(this)) = TAGGED(0);
     PSP_HR(this) = PSP_SP(this);
     // Push the call to callBackReturn onto the stack as the return address.
     *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackReturn);

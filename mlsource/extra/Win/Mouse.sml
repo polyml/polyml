@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -31,20 +30,20 @@ structure Mouse :
   end =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
         type HWND = HWND and POINT = POINT
 
-        val GetCapture = call0 (user "GetCapture") () HWNDOPT
-        val SetCapture = call1 (user "SetCapture") (HWND) HWNDOPT
-        val ReleaseCapture = call0 (user "ReleaseCapture") () (SUCCESSSTATE "ReleaseCapture")
+        val GetCapture = winCall0 (user "GetCapture") () cHWNDOPT
+        val SetCapture = winCall1 (user "SetCapture") (cHWND) cHWNDOPT
+        val ReleaseCapture = winCall0 (user "ReleaseCapture") () (successState "ReleaseCapture")
         val SetDoubleClickTime =
-            call1 (user "SetDoubleClickTime") (INT) (SUCCESSSTATE "SetDoubleClickTime") o
+            winCall1 (user "SetDoubleClickTime") (cUint) (successState "SetDoubleClickTime") o
                 Time.toMilliseconds
         val GetDoubleClickTime =
-            Time.fromMilliseconds o call0 (user "GetDoubleClickTime") () INT 
-        val SwapMouseButton = call1 (user "SwapMouseButton") (BOOL) BOOL
-        val DragDetect = call2 (user "DragDetect") (HWND, POINT) BOOL
+            Time.fromMilliseconds o winCall0 (user "GetDoubleClickTime") () cUint 
+        val SwapMouseButton = winCall1 (user "SwapMouseButton") (cBool) cBool
+        val DragDetect = winCall2 (user "DragDetect") (cHWND, cPoint) cBool
     end
 end;
 
