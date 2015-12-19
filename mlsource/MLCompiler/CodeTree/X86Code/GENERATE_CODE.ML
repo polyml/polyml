@@ -24,11 +24,11 @@
 
 functor GENERATE_CODE (
     structure CODECONS : CODECONSSIG
-    structure CODEGEN_TABLE : CODEGEN_TABLESIG where type machineWord = Address.machineWord
+(*    structure CODEGEN_TABLE : CODEGEN_TABLESIG where type machineWord = Address.machineWord*)
     structure BACKENDTREE: BackendIntermediateCodeSig
     structure DEBUG: DEBUGSIG
 
-    sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing = BACKENDTREE.Sharing
+    sharing CODECONS.Sharing = BACKENDTREE.Sharing
 ) :  
   
 (*****************************************************************************)
@@ -45,7 +45,7 @@ end =
 (*                  GCODE functor body                                       *)
 (*****************************************************************************)
 struct
-    structure LowerLevelsUsed:
+(*    structure LowerLevelsUsed:
         sig
             type code
             type reg
@@ -308,9 +308,9 @@ struct
         open CODECONS (* Need this afterwards because regHint is just an eqtype in CODEGEN_TABLE *)
         val jumpBack = CODEGEN_TABLE.jumpBack
         and freeRegister = CODEGEN_TABLE.freeRegister
-    end
+    end*)
 
-    open LowerLevelsUsed
+    open CODECONS
 
     (*open Address;*)
     (*open Misc;*) (* after address, so we get Misc.length, not Address.length *)

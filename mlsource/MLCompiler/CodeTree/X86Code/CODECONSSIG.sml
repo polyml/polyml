@@ -1,15 +1,9 @@
 (*
-    Copyright (c) David C.J. Matthews 2009, 2012
-    
-    Derived from original code:
-
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
+    Copyright (c) David C.J. Matthews 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,27 +17,11 @@
 
 signature CODECONSSIG =
 sig
-    type machineWord = Address.machineWord
-    type short = Address.short
-    type address = Address.address
     type code
-    eqtype reg   (* Machine registers *)
-    
-    datatype argType = ArgGeneral | ArgFP
-
-    val sameCode: code * code -> bool
-
-    val regNone:     reg option
+    eqtype reg
     val regClosure:  reg
     val regStackPtr: reg
-
-    (* For vector indexing we provide a numbering for the registers. *)
-    val regs:   int
-    val regN:   int -> reg
-    val nReg:   reg -> int
-
-    val regRepr: reg -> string
-
+    datatype argType = ArgGeneral | ArgFP
     val argRegs: argType list -> reg option list
     val resultReg: argType -> reg
 
@@ -51,27 +29,79 @@ sig
     sig
         eqtype regSet
         val singleton: reg -> regSet
-        val allRegisters: regSet (* All registers: data, address, floating pt. *)
-        val generalRegisters: regSet (* Registers checked by the GC. *)
+        val allRegisters: regSet
+        val generalRegisters: regSet
         val floatingPtRegisters: regSet
         val noRegisters: regSet
-        val isAllRegs: regSet->bool
         val regSetUnion: regSet * regSet -> regSet
-        val regSetIntersect: regSet * regSet -> regSet
-        val listToSet: reg list -> regSet
-        val setToList: regSet -> reg list
-        val regSetMinus: regSet * regSet -> regSet
         val inSet: reg * regSet -> bool
-        val cardinality: regSet -> int
-        val regSetRepr: regSet -> string
-        val oneOf: regSet -> reg
+        val listToSet: reg list -> regSet
     end
-    val getRegisterSet: Word.word -> RegSet.regSet
 
-    type addrs
-    val addrZero: addrs
+    datatype regHint = UseReg of RegSet.regSet | NoHint | NoResult
+    type operation
+    type operations = operation list
+    type forwardLabel
+    type backwardLabel
 
-    (* Operations. *)
+    val activeRegister: reg -> operations
+    val returnFromFunction: int -> operations
+    val resetStack: int -> operations
+    val raiseException: operations
+    val pushRegisterToStack: reg -> operations
+    val pushCurrentHandler: operations
+    val storeToHandler: reg -> operations
+    val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
+    val allocationComplete: operations
+    val backJumpLabel: unit -> operations * backwardLabel
+    val forwardJumpLabel: forwardLabel -> operations
+    val indexedCase:
+            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
+              isArbitrary: bool, isExhaustive: bool } -> operations * forwardLabel list * forwardLabel
+    
+    datatype callKinds =
+        Recursive
+    |   ConstantClosure of Address.machineWord
+    |   ConstantCode of Address.machineWord
+    |   CodeFun of code
+    |   FullCall
+    
+    val callFunction: callKinds -> operations
+    val jumpToFunction: callKinds  -> operations
+
+
+    val codeCreate: bool * string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+    val copyCode: code * operations * int * RegSet.regSet * bool -> Address.address
+
+    (*val codeAddress: code -> address option*)
+    val addCompletionHook: code * (code * Address.machineWord -> unit) -> unit
+
+    type negotiateTests
+    type 'a tests
+    val testNeqW:  'a tests
+    val testEqW:   'a tests
+    val testGeqW:  'a tests
+    val testGtW:   'a tests
+    val testLeqW:  'a tests
+    val testLtW:   'a tests
+    val testNeqA:  'a tests
+    val testEqA:   'a tests
+    val testGeqA:  'a tests
+    val testGtA:   'a tests
+    val testLeqA:  'a tests
+    val testLtA:   'a tests
+    val Short:     'a tests
+    val Long:      'a tests
+    val testNeqFP: 'a tests
+    val testEqFP:  'a tests
+    val testGeqFP: 'a tests
+    val testGtFP:  'a tests
+    val testLeqFP: 'a tests
+    val testLtFP:  'a tests
+    val byteVecEq: 'a tests
+    and byteVecNe: 'a tests
+
+    type negotiation
     type 'a instrs
     val instrVeclen: 'a instrs
     val instrVecflags: 'a instrs
@@ -119,128 +149,128 @@ sig
     and instrMoveBytes: 'a instrs
     and instrMoveWords: 'a instrs
 
-    (* Check whether an operation is implemented and, if appropriate, remove
-       constant values into the instruction part. *)
-    type negotiation
-    val checkAndReduce: 'a instrs * 'a list * ('a -> machineWord option) -> (negotiation * 'a list) option
+    val checkAndReduce: 'a instrs * 'a list * ('a -> Address.machineWord option) -> (negotiation * 'a list) option
 
-    val isPushI: machineWord -> bool
+    val checkAndReduceBranches: 'a tests * 'a list * ('a -> Address.machineWord option) -> (negotiateTests * 'a list) option
 
-    type 'a tests
-    val testNeqW:  'a tests
-    val testEqW:   'a tests
-    val testGeqW:  'a tests
-    val testGtW:   'a tests
-    val testLeqW:  'a tests
-    val testLtW:   'a tests
-    val testNeqA:  'a tests
-    val testEqA:   'a tests
-    val testGeqA:  'a tests
-    val testGtA:   'a tests
-    val testLeqA:  'a tests
-    val testLtA:   'a tests
-    val Short:     'a tests
-    val Long:      'a tests
-    val testNeqFP: 'a tests
-    val testEqFP:  'a tests
-    val testGeqFP: 'a tests
-    val testGtFP:  'a tests
-    val testLeqFP: 'a tests
-    val testLtFP:  'a tests
-    val byteVecEq: 'a tests
-    and byteVecNe: 'a tests
+    type regSet = RegSet.regSet
+    type machineWord = Address.machineWord
+    type ttab
+    type loopPush
 
-    type forwardLabel
-    and  backwardLabel
 
-    (* Compare and branch for fixed and arbitrary precision. *)
-    type negotiateTests
-    val checkAndReduceBranches: 'a tests * 'a list * ('a -> machineWord option) -> (negotiateTests * 'a list) option
+    type addrs
+    type savedState
 
-    datatype callKinds =
-        Recursive
-    |   ConstantClosure of machineWord
-    |   ConstantCode of machineWord
-    |   CodeFun of code
-    |   FullCall
 
-    val procName:   code -> string      (* Name of the procedure. *)
+    val ttabCreate: int * Universal.universal list -> ttab
 
-    type operation
-    type operations = operation list
+    (* Register allocation *)
+    val getRegister:    ttab * reg -> operation list
+    val getRegisterInSet: ttab * regSet -> reg * operation list
+    val freeRegister:   ttab * reg -> operation list
+    val addRegUse:      ttab * reg -> operation list
+    val removeRegistersFromCache: ttab * regSet -> operation list
 
-    val moveRegisterToRegister: reg(*source*) * reg(*dest*) -> operations
-    and moveMemoryToRegister: reg (*base*) * int (*offset*) * reg (*dest*) -> operations
-    and moveConstantToRegister: machineWord * reg -> operations
-    and moveCodeRefToRegister: code * reg -> operations (* The address of another function *)
-    and moveStackAddress: int * reg -> operations (* Offset within the stack. *)
+    (* Stack handling *)
+    eqtype stackIndex
 
-    val pushRegisterToStack: reg -> operations
-    and pushConstantToStack: machineWord -> operations
-    and pushMemoryToStack: reg * int -> operations
-    
-    val storeRegisterToStack: reg * int -> operations
-    and storeConstantToStack: machineWord * int -> operations
+    val noIndex: stackIndex
 
-    val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
-    val allocationComplete: operations
-    val callFunction: callKinds -> operations
-    val jumpToFunction: callKinds  -> operations
-    val returnFromFunction: int -> operations
-    val raiseException: operations
-    val uncondBranch: unit -> operations * forwardLabel
-    val resetStack: int -> operations
-    val backJumpLabel: unit -> operations * backwardLabel
-    val jumpBack: backwardLabel -> operations
-    val interruptCheck: operations
-    val forwardJumpLabel: forwardLabel -> operations
-    val loadHandlerAddress: { handlerLab: addrs ref, output: reg } -> operations
-    val startHandler: { handlerLab: addrs ref } -> operations
-    val indexedCase:
-            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
-              isArbitrary: bool, isExhaustive: bool } -> operations * forwardLabel list * forwardLabel
-    val activeRegister: reg -> operations
-    val freeRegister: reg -> operations
-    val pushToReserveSpace: operations
-    val loadCurrentHandler: reg -> operations
-    val storeToHandler: reg -> operations
-    val pushCurrentHandler: operations
+    (* Push entries *)
+    val pushReg:      ttab * reg  -> stackIndex;
+    val pushStack:    ttab * int  -> stackIndex
+    val pushConst:    ttab * machineWord -> stackIndex
+    val pushCodeRef:  ttab * code -> stackIndex;
+    val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operation list
+    val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operation list
+    val pushSpecificEntry: ttab * stackIndex -> operation list
+    val incsp:        ttab -> stackIndex;
+    val decsp:        ttab*int -> unit;
+    val reserveStackSpace: ttab * int -> stackIndex * operation list
 
-    val printOperation: operation * (string -> unit) -> unit
+    (* Code entries *)
+    val loadEntryToSet:    ttab * stackIndex * regSet * bool -> reg * stackIndex * operation list
+    val loadToSpecificReg: ttab * reg * stackIndex * bool -> stackIndex * operation list
+    val lockRegister:      ttab * reg -> unit
+    val unlockRegister:    ttab * reg -> operation list
+    val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
+    val indirect:          int * stackIndex * ttab -> stackIndex * operation list
+    val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
+    val ensureNoAllocation: ttab * stackIndex -> stackIndex * operation list
 
-    datatype regHint = UseReg of RegSet.regSet | NoHint | NoResult
+    val removeStackEntry: ttab*stackIndex -> operation list
 
-    (* These are almost the same as source values except that a value
-       may be in more than one register. *)
-    datatype actionSource =
-        ActLiteralSource of machineWord
-    |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
-    |   ActBaseOffset of reg * int
-    |   ActCodeRefSource of code (* The address of another function *)
-    |   ActStackAddress of int (* Offset within the stack. *)
+    val resetButReload:   ttab * int -> operation list
+    val pushValueToStack: ttab * stackIndex * int -> stackIndex * operation list
+    val storeInStack:     ttab * stackIndex * int -> stackIndex * operation list
+    val realstackptr:     ttab -> int
+    val maxstack:         ttab -> int
+    val parameterInRegister: reg * int * ttab -> stackIndex
+    val incrUseCount:     ttab * stackIndex * int -> operation list
 
-    datatype argAction =
-        ActionDone of (* The output register if any and the final operation. *)
-            { outReg: reg option, operation: operations }
-    |   ActionLockRegister of (* Lock the register of an argument. *)
-            { argNo: int, reg: reg, willOverwrite: bool, next: nextAction }
-    |   ActionLoadArg of (* Load an argument into a register. *)
-            { argNo: int, regSet: RegSet.regSet, willOverwrite: bool, next: nextAction }
-    |   ActionGetWorkReg of (* Get a work/result register. *)
-            { regSet: RegSet.regSet, setReg: reg -> nextAction }
+    val setLifetime:      ttab * stackIndex * int -> unit
 
-    withtype nextAction = actionSource list -> argAction
+    type stackMark
+    val markStack: ttab -> stackMark
+    val unmarkStack: ttab * stackMark -> unit
 
-    (* Negotiate arguments *)
-    val negotiateArguments: negotiation * regHint -> nextAction
-    val negotiateTestArguments: negotiateTests -> nextAction * forwardLabel
+    type labels;
 
-    val codeCreate: bool * string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
-    (* Code generate operations and construct the final code. *)
-    val copyCode: code * operations * int * RegSet.regSet * bool -> address
+    val noJump: labels
+    val isEmptyLabel: labels -> bool
 
-    val codeAddress: code -> address option
-    val addCompletionHook: code * (code * machineWord -> unit) -> unit
+    datatype mergeResult = NoMerge | MergeIndex of stackIndex;
+
+    val unconditionalBranch: mergeResult * ttab -> labels * operation list
+    val makeLabels: mergeResult * forwardLabel * savedState -> labels
+    val jumpBack: backwardLabel * ttab -> operation list
+
+    val fixup: labels * ttab -> operation list
+    val merge: labels * ttab * mergeResult * stackMark -> mergeResult * operation list
+
+    type handler;
+
+    val pushAddress: ttab * int -> stackIndex * handler * operation list
+    val fixupH:      handler * int * ttab -> operation list
+    val reloadHandler: ttab * stackIndex -> operation list
+
+    val exiting: ttab -> unit
+    val haveExited: ttab -> bool
+
+    val dataOp: stackIndex list * negotiation * ttab * regHint -> stackIndex * operation list
+
+    val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
+
+    val saveState : ttab -> savedState
+    val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
+    val restoreLoopState: ttab * savedState * regSet * loopPush list -> operation list
+
+    (* Temporary checking that the stack has been emptied. *)
+    val checkBlockResult: ttab * mergeResult -> unit
+
+    val chooseRegister : ttab -> reg option
+
+    val getRegisterSetForFunction: machineWord -> regSet
+    val addModifiedRegSet: ttab * regSet -> unit
+
+    val getModifedRegSet: ttab -> regSet
+
+    datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
+    val getLoopDestinations: stackIndex list * ttab -> argdest list * operation list
+
+    val callCode: stackIndex * bool * ttab -> operation list
+    val jumpToCode: stackIndex * bool * ttab -> operation list
+
+    (* Get constants or code refs, which are really constants. *)
+    datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
+
+    val isConstant: stackIndex * ttab -> constEntry
+    val isRegister: stackIndex * ttab -> reg option
+    val isContainer: stackIndex * ttab -> bool
+
+    val createStackClosure: ttab * stackIndex list -> stackIndex * operation list
+    val setRecursiveClosureEntry: stackIndex * stackIndex * int * ttab -> operation list
 
     structure Sharing:
     sig
@@ -253,7 +283,6 @@ sig
         and  addrs          = addrs
         and  operation      = operation
         and  regHint        = regHint
-        and  argAction      = argAction
         and  regSet         = RegSet.regSet
         and  backwardLabel  = backwardLabel
         and  forwardLabel  = forwardLabel

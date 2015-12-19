@@ -1,8 +1,5 @@
 (*
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
-
-    Modified David C. J. Matthews 2010, 2013
+    Copyright David C. J. Matthews 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,8 +18,7 @@
 
 structure X86Code = 
   GENERATE_CODE (
-    structure CODECONS      = CodeCons
-    structure CODEGEN_TABLE = CodeGenTable
+    structure CODECONS     = CodeCons
     structure BACKENDTREE  = BackendIntermediateCode
-    structure DEBUG = Debug
+    structure DEBUG        = Debug
   );
