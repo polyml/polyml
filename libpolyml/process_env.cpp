@@ -61,9 +61,6 @@
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
-#endif
-
-#ifdef HAVE_TCHAR_H
 #include <tchar.h>
 #else
 typedef char TCHAR;

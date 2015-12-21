@@ -70,7 +70,7 @@
 #define ASSERT(x)
 #endif
 
-#ifdef HAVE_TCHAR_H
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <tchar.h>
 #else
 typedef char TCHAR;
@@ -78,10 +78,12 @@ typedef char TCHAR;
 #define _tfopen fopen
 #define _tcscpy strcpy
 #define _tcsdup strdup
-#define lstrcmpi strcasecmp
 #define _tcslen strlen
 #define _fputtc fputc
 #define _fputts fputs
+#ifndef lstrcmpi
+#define lstrcmpi strcasecmp
+#endif
 #endif
 
 
