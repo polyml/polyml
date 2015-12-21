@@ -1101,6 +1101,10 @@ local
                                                    local reference. *)
                                         |   printCode(PTreferences(_, []), rest) = rest
                                         |   printCode(PTprint _, rest) = rest
+                                        |   printCode(PTbreakPoint _, rest) = rest
+                                        |   printCode(PTcompletions _, rest) = rest
+                                        |   printCode(PTdefId _, rest) = rest
+                                        |   printCode(PTrefId _, rest) = rest
                                     in
                                         List.foldl printCode [] tree
                                     end
