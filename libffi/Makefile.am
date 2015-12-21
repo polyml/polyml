@@ -54,7 +54,8 @@ EXTRA_DIST = LICENSE ChangeLog.v1 ChangeLog.libgcj configure.host	\
 	 libffi.xcodeproj/project.pbxproj src/arm/trampoline.S		\
 	 libtool-ldflags
 
-info_TEXINFOS = doc/libffi.texi
+# Poly - don't try to create the tex info.
+#info_TEXINFOS = doc/libffi.texi
 
 ## ################################################################
 
