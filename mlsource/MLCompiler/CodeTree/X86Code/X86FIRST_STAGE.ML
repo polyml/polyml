@@ -201,9 +201,6 @@ struct
     type  forwardLabel = label
     and  backwardLabel = label
 
-    fun negotiateArguments(perform, pref) = perform pref
-    and negotiateTestArguments perform = perform()
-
     (* See if the instruction is implemented but otherwise do nothing else.  Nearly all
        the operations are implemented on this architecture. *)
     fun checkAndReduce(instr, args, f) = instr(args, f)
@@ -4996,13 +4993,13 @@ struct
                         (unlockRegister(table, outReg); noIndex)
                 |   (SOME outReg, _) => (* Want this result. *) pushReg (table, outReg)
         in
-            performActions(negotiateArguments(instr, hint), finalOp, args, table)
+            performActions(instr hint, finalOp, args, table)
         end
 
         (* Comparison and test operations that make a conditional branch. *)
         and compareAndBranch(args, test, table) : labels * operation list =
             let
-                val (startActions, destLabel) = negotiateTestArguments test
+                val (startActions, destLabel) = test()
                 val ((), code) = performActions(startActions, fn _ => (), args, table)
             in
                 (makeLabels(NoMerge, destLabel, saveState table), code)
@@ -5022,7 +5019,7 @@ struct
                         {ent = Literal lit, ...} => SOME lit
                     |   _ => NONE
             in
-                case checkAndReduce(instrStoreW, arguments, mapLiteral) of
+                case instrStoreW(arguments, mapLiteral) of
                     SOME(instr, args) =>
                         let
                             (* Decrement the use counts for entries that we're not using. *)
@@ -5350,7 +5347,7 @@ struct
         moveToVec(vecEntry, valueEntry, offset, table) @ incCode
     end
 
-   structure Sharing =
+  	structure Sharing =
     struct
         type code       = code
         and  negotiation = negotiation
