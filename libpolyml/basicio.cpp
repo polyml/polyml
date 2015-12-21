@@ -99,7 +99,8 @@ DCJM May 2000.
 #include <stdio.h>
 #endif
 
-#ifdef HAVE_TCHAR_H
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <winsock2.h>
 #include <tchar.h>
 #else
 typedef char TCHAR;
@@ -108,10 +109,6 @@ typedef char TCHAR;
 #define _topen open
 #define _tmktemp mktemp
 #define _tcsdup strdup
-#endif
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include <winsock2.h>
 #endif
 
 #if(!defined(MAXPATHLEN) && defined(MAX_PATH))

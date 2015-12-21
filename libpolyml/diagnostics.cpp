@@ -60,7 +60,7 @@
 #include "Console.h"
 #endif
 
-#ifdef HAVE_TCHAR_H
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <tchar.h>
 #endif
 
