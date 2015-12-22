@@ -421,7 +421,7 @@ struct
                     PrettyString valOrCons,
                     PrettyBreak (1, 0),
                     PrettyBlock(0, false, getLocation locations, [PrettyString name]),
-                    PrettyBreak (1, 0),
+                    PrettyBreak (0, 0),
                     PrettyString equOrColon
                 ]
             )
@@ -550,7 +550,7 @@ struct
         else []
        (* end displaySpec *)
     in
-        PrettyBlock (2, true, [],
+        PrettyBlock (0, true, [],
             PrettyString "sig" ::
             (
                 (
@@ -608,7 +608,7 @@ struct
                     PrettyString "structure",
                     PrettyBreak(1, 0),
                     PrettyBlock(0, false, getLocation locations, [PrettyString name]),
-                    PrettyBreak(1, 0),
+                    PrettyBreak(0, 0),
                     PrettyString ":"
                 ]
             ),
@@ -625,54 +625,60 @@ struct
     fun displayFunctors (Functor{ name, locations, arg, result, ...}, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
     else
-        PrettyBlock (0, false, [],
-            PrettyBlock(0, false, [],
-                [
-                    PrettyString "functor",
-                    PrettyBreak(1, 0),
-                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
-                    PrettyBreak(1, 0),
-                    PrettyString "("
-                ]) ::
-            PrettyBreak(0, 2) ::
+    let
+        val arg as 
+             Struct { name = argName, signat as Signatures { tab = argTab, ... }, ...} = arg
+        val argEntries =
+            (if argName <> ""
+            then [ PrettyBlock(0, false, [], [PrettyString argName, PrettyBreak(0, 0), PrettyString ":"]), PrettyBreak(1, 2) ]
+            else []) @
+            [
+                displayNamedSig (signat, depth - 1, 0, nameSpace, NONE),
+                PrettyBreak(0, 0),
+                PrettyString "):",
+                PrettyBreak(1, 0)
+            ]
+        (* Include the argument structure name in the type environment. *)
+        val argEnv =
+            if argName = ""
+            then
             let
-                val arg as 
-                     Struct { name = argName, signat as Signatures { tab = argTab, ... }, ...} = arg
+                val Env { lookupType=lt, lookupStruct=ls, ...} = makeEnv argTab
             in
-                (if argName <> ""
-                then [ PrettyString(argName ^ " :"), PrettyBreak(1, 2) ]
-                else []) @
-                [
-                    displayNamedSig (signat, depth - 1, 0, nameSpace, NONE),
-                    PrettyString ") :",
-                    PrettyBreak(1, 2),
-                    let
-                        (* Include the argument structure name in the type environment. *)
-                        val argEnv =
-                            if argName = ""
-                            then
-                            let
-                                val Env { lookupType=lt, lookupStruct=ls, ...} = makeEnv argTab
-                            in
-                                {
-                                    lookupType =
-                                        fn s => case lt s of NONE => #lookupType nameSpace s | SOME t => SOME(t, NONE),
-                                    lookupStruct =
-                                        fn s => case ls s  of NONE => #lookupStruct nameSpace s | SOME s => SOME(s, NONE)
-                                }
-                            end
-                            else
-                            {
-                                lookupType   = #lookupType nameSpace,
-                                lookupStruct =
-                                    fn s => if s = argName then SOME(arg, NONE) else #lookupStruct nameSpace s
-                            }
-                    in
-                        displayNamedSig (result, depth - 1, 1, argEnv, NONE)
-                    end
-                ]
+                {
+                    lookupType =
+                        fn s => case lt s of NONE => #lookupType nameSpace s | SOME t => SOME(t, NONE),
+                    lookupStruct =
+                        fn s => case ls s  of NONE => #lookupStruct nameSpace s | SOME s => SOME(s, NONE)
+                }
             end
+            else
+            {
+                lookupType   = #lookupType nameSpace,
+                lookupStruct =
+                    fn s => if s = argName then SOME(arg, NONE) else #lookupStruct nameSpace s
+            }
+    in
+        PrettyBlock (0, false, [],
+            [
+                PrettyBlock(0, false, [],
+                [
+                    PrettyBlock(0, false, [],
+                    [
+                        PrettyString "functor",
+                        PrettyBreak(1, 0),
+                        PrettyBlock(0, false, getLocation locations, [PrettyString name]),
+                        PrettyBreak(1, 0),
+                        PrettyString "("
+                    ]),
+                    PrettyBreak(0, 2),
+                    PrettyBlock(0, false, [], argEntries)
+                ]),
+                PrettyBreak(0, 2),
+                displayNamedSig (result, depth - 1, 1, argEnv, NONE)
+            ]
         )
+    end
 
     (* Exported version. *)
     val displayValues = fn (value, depth, nameSpace) => displayValues (value, depth, nameSpace, NONE)

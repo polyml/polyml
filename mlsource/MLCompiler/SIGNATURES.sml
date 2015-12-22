@@ -214,7 +214,7 @@ struct
             PrettyString name
 
         |   SigDec (structList : specs list, _) =>
-            PrettyBlock (1, true, [],
+            PrettyBlock (0, true, [],
                 PrettyString "sig" ::
                 PrettyBreak (1, 0) ::
                 displayList (structList, "", depth) displaySpecs @
