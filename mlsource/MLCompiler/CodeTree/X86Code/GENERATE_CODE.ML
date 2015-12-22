@@ -1326,11 +1326,7 @@ struct
                             (* Finally we can lock this. *)
                             (* Increment the use count before the lock. *)
                             val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-                            val lockInstr =
-                                case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
-                                    SOME(lockInstr, _) => lockInstr
-                                |   NONE => raise InternalError "Lock instruction not implemented"
-                            val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
+                            val lockCode = lockVector(transtable, vector)
                         in
                             codeGenerate(lockCode, cvec)
                         end

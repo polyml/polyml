@@ -651,7 +651,8 @@ struct
             fun genLockSeg([InRegister reg], NONE) = [LockMutableSegment reg]
             |   genLockSeg _ = raise InternalError "genLockSeg"
         in
-            val instrLockSeg: 'a instrs = fn (args, _) => SOME(fn _ => noresultNegotiator genLockSeg, args)
+            fun lockInstr _ = noresultNegotiator genLockSeg (* Used in lockVector *)
+            val instrLockSeg: 'a instrs = fn (args, _) => SOME(lockInstr, args)
         end
 
         local
@@ -5030,6 +5031,10 @@ struct
                         end
                 |   NONE => raise InternalError "moveToVec: Not implemented"
             end
+
+        (* Lock a newly created vector. *)
+        and lockVector(transtable, vecIndex) =
+            #2(dataOp([vecIndex], lockInstr, transtable, NoResult))
     end
 
     (* Tail recursive jump to a function. *)

@@ -69,7 +69,6 @@ sig
     val callFunction: callKinds -> operations
     val jumpToFunction: callKinds  -> operations
 
-
     val codeCreate: bool * string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     val copyCode: code * operations * int * RegSet.regSet * bool -> Address.address
 
@@ -157,11 +156,8 @@ sig
     type machineWord = Address.machineWord
     type ttab
     type loopPush
-
-
     type addrs
     type savedState
-
 
     val ttabCreate: int * Universal.universal list -> ttab
 
@@ -197,6 +193,7 @@ sig
     val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
     val indirect:          int * stackIndex * ttab -> stackIndex * operation list
     val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
+    val lockVector:        ttab * stackIndex -> operation list
     val ensureNoAllocation: ttab * stackIndex -> stackIndex * operation list
 
     val removeStackEntry: ttab*stackIndex -> operation list
