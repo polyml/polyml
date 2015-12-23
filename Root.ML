@@ -21,12 +21,11 @@
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
 use "basis/RuntimeCalls.ML";
-use "mlsource/MLCompiler/Boot/Address.ML";
-use "mlsource/MLCompiler/Boot/Misc.ML";
-use "mlsource/MLCompiler/Boot/HashTable.ML";
-use "mlsource/MLCompiler/Boot/UniversalTable.ML";
-use "mlsource/MLCompiler/Boot/StretchArray.ML";
-use "mlsource/MLCompiler/Boot/ml_bind.ML";
+use "mlsource/MLCompiler/Address.ML";
+use "mlsource/MLCompiler/Misc.ML";
+use "mlsource/MLCompiler/HashTable.ML";
+use "mlsource/MLCompiler/UniversalTable.ML";
+use "mlsource/MLCompiler/StretchArray.ML";
 use "mlsource/MLCompiler/STRUCTVALSIG.sml";
 use "mlsource/MLCompiler/PRETTYSIG.sml";
 use "mlsource/MLCompiler/LEXSIG.sml";
