@@ -878,7 +878,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 if (! triedInterrupt)
                 {
                     triedInterrupt = true;
-                    fprintf(stderr,"Run out of store - interrupting threads\n");
+                    fprintf(polyStderr,"Run out of store - interrupting threads\n");
                     if (debugOptions & DEBUG_THREADS)
                         Log("THREAD: Run out of store, interrupting threads\n");
                     BroadcastInterrupt();
@@ -895,7 +895,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 }
                 else {
                     // That didn't work.  Exit.
-                    fprintf(stderr,"Failed to recover - exiting\n");
+                    fprintf(polyStderr,"Failed to recover - exiting\n");
                     Exit(1); // Begins the shutdown process
                     processes->ThreadExit(taskData); // And terminate this thread.
                 }
@@ -1796,7 +1796,7 @@ void Processes::StartProfiling(void)
     ResetEvent(hStopEvent);
     profilingHd = CreateThread(NULL, 0, ProfilingTimer, NULL, 0, &threadId);
     if (profilingHd == NULL)
-        fputs("Creating ProfilingTimer thread failed.\n", stdout); 
+        fputs("Creating ProfilingTimer thread failed.\n", polyStdout);
     /* Give this a higher than normal priority so it pre-empts the main
        thread.  Without this it will tend only to be run when the main
        thread blocks for some reason. */

@@ -844,9 +844,12 @@ int PolyWinMain(
         fclose(stdout);
         // Set up the new handles.
         int newstdout = _open_osfhandle ((INT_PTR)hWriteToScreen, _O_TEXT);
+        // We need this to be stream 1.  basicio.cpp uses this for TextIO.stdOut
         if (newstdout != 1) _dup2(newstdout, 1);
-        // Open for stdio.
-        _fdopen(1, "wt"); // == stdout
+        // A few RTS modules use stdio for output, primarily objsize and diagnostics.
+        // Previously this next line was sufficient to reopen stdout but that no longer
+        // works in VS 2015.  We have to use polyStdout now.
+        polyStdout = _fdopen(1, "wt"); // == stdout
 
         if (hStdErrHandle == INVALID_HANDLE_VALUE)
         {
@@ -854,7 +857,7 @@ int PolyWinMain(
             SetStdHandle(STD_ERROR_HANDLE, hWriteToScreen);
             fclose(stderr);
             _dup2(newstdout, 2); // Stderr
-            _fdopen(2, "wt"); // == stderr
+            polyStderr = _fdopen(2, "wt"); // == stderr
             // Set stderr to unbuffered so that messages get written correctly.
             // (stdout is explicitly flushed).
             setvbuf(stderr, NULL, _IONBF, 0);

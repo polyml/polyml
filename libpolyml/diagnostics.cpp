@@ -68,6 +68,7 @@
 #include "noreturn.h"
 #include "globals.h"
 #include "diagnostics.h"
+#include "mpoly.h"
 
 unsigned debugOptions = 0; // Debugging options requested on command line.
 
@@ -80,12 +81,12 @@ unsigned debugOptions = 0; // Debugging options requested on command line.
 void Exit(const char *msg, ...)
 {
     va_list vl;
-    printf("\n");
+    fprintf(polyStdout, "\n");
     va_start(vl, msg);
-    vprintf(msg, vl);
+    vfprintf(polyStdout, msg, vl);
     va_end(vl);
-    printf("\n");
-    fflush(stdout);
+    fprintf(polyStdout, "\n");
+    fflush(polyStdout);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
@@ -100,12 +101,12 @@ void Exit(const char *msg, ...)
 void Crash(const char *msg, ...)
 {
     va_list vl;
-    printf("\n");
+    fprintf(polyStdout, "\n");
     va_start(vl, msg);
-    vprintf(msg, vl);
+    vfprintf(polyStdout, msg, vl);
     va_end(vl);
-    printf("\n");
-    fflush(stdout);
+    fprintf(polyStdout, "\n");
+    fflush(polyStdout);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
@@ -126,13 +127,13 @@ void Crash(const char *msg, ...)
 
 void ExitWithError(const char *msg, int err)
 {
-    puts("\n");
-    puts(msg);
+    fputs("\n", polyStdout);
+    fputs(msg, polyStdout);
     const char *errorMsg = stringFromErrorCode(err);
     if (errorMsg != NULL) puts(errorMsg);
 
-    puts("\n");
-    fflush(stdout);
+    fputs("\n", polyStdout);
+    fflush(polyStdout);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
@@ -155,12 +156,12 @@ void SetLogFile(const TCHAR *fileName)
 #if (defined(_WIN32) && defined(UNICODE))
     FILE *stream = _wfopen(fileName, L"w");
     if (stream == NULL)
-        printf("Unable to open debug file %S\n", fileName);
+        fprintf(polyStdout, "Unable to open debug file %S\n", fileName);
     else logStream = stream;
 #else
     FILE *stream = fopen(fileName, "w");
     if (stream == NULL)
-        printf("Unable to open debug file %s\n", fileName);
+        fprintf(polyStdout, "Unable to open debug file %s\n", fileName);
     else logStream = stream;
 #endif
 }

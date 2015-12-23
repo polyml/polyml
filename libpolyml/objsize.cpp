@@ -61,6 +61,7 @@
 #include "save_vec.h"
 #include "bitmap.h"
 #include "memmgr.h"
+#include "mpoly.h"
 
 #define MAX_PROF_LEN 100 // Profile lengths between 1 and this
 
@@ -155,25 +156,25 @@ void ProcessVisitAddresses::ShowBytes(PolyObject *start)
     POLYUNSIGNED bytes = start->Length() * sizeof(PolyWord);
     char *array = (char *) start;
 
-    putc('\n', stdout);
+    putc('\n', polyStdout);
 
-    if (start->IsMutable()) printf("MUTABLE ");
+    if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
 
-    printf("BYTES:%p:%" POLYUFMT "\n", array, bytes);
+    fprintf(polyStdout, "BYTES:%p:%" POLYUFMT "\n", array, bytes);
 
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < bytes; n++)
     {
-        printf("%02x ",array[n] & 0xff);
+        fprintf(polyStdout, "%02x ",array[n] & 0xff);
         i++;
         if (i == 16)
         { 
-            putc('\n', stdout);
+            putc('\n', polyStdout);
             i = 0;
         }
     }
 
-    if (i != 0) putc('\n', stdout);
+    if (i != 0) putc('\n', polyStdout);
 }
 
 #define MAXNAME 500
@@ -182,8 +183,8 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
 {
     POLYUNSIGNED length = start->Length();
 
-    putc('\n', stdout);
-    if (start->IsMutable()) printf("MUTABLE ");
+    putc('\n', polyStdout);
+    if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
 
     char buffer[MAXNAME+1];
     PolyWord *consts = start->ConstPtrForCode();
@@ -194,51 +195,51 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
     else
         (void) Poly_string_to_C(string, buffer, sizeof(buffer));
 
-    printf("CODE:%p:%" POLYUFMT " %s\n", start, length, buffer);
+    fprintf(polyStdout, "CODE:%p:%" POLYUFMT " %s\n", start, length, buffer);
 
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < length; n++)
     {
-        if (i != 0) putc('\t', stdout);
+        if (i != 0) putc('\t', polyStdout);
 
-        printf("%8p ", start->Get(n).AsObjPtr());
+        fprintf(polyStdout, "%8p ", start->Get(n).AsObjPtr());
         i++;
         if (i == 4)
         { 
-            putc('\n', stdout);
+            putc('\n', polyStdout);
             i = 0;
         }
     }
 
-    if (i != 0) putc('\n', stdout);
+    if (i != 0) putc('\n', polyStdout);
 }
 
 void ProcessVisitAddresses::ShowWords(PolyObject *start)
 {
     POLYUNSIGNED length = start->Length();
     
-    putc('\n', stdout);
-    if (start->IsMutable()) printf("MUTABLE ");
+    putc('\n', polyStdout);
+    if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
     
-    printf("WORDS:%p:%" POLYUFMT "\n", start, length);
+    fprintf(polyStdout, "WORDS:%p:%" POLYUFMT "\n", start, length);
     
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < length; n++)
     {
         if (i != 0)
-            putc('\t', stdout);
+            putc('\t', polyStdout);
         
-        printf("%8p ", start->Get(n).AsObjPtr());
+        fprintf(polyStdout, "%8p ", start->Get(n).AsObjPtr());
         i++;
         if (i == 4)
         { 
-            putc('\n', stdout);
+            putc('\n', polyStdout);
             i = 0;
         }
     }
     
     if (i != 0)
-        putc('\n', stdout);
+        putc('\n', polyStdout);
 }
 
 // This is called initially to print the top-level object.
@@ -269,7 +270,7 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     
     if (bm == 0)
     {
-        printf("Bad address " ZERO_X "%p found\n", w.AsObjPtr());
+        fprintf(polyStdout, "Bad address " ZERO_X "%p found\n", w.AsObjPtr());
         return 0;
     }
     
@@ -343,7 +344,7 @@ Handle ShowSize(TaskData *taskData, Handle obj)
 {
     ProcessVisitAddresses process(true);
     process.ScanObjectAddress(obj->WordP());
-    fflush(stdout); /* We need this for Windows at least. */
+    fflush(polyStdout); /* We need this for Windows at least. */
     return Make_arbitrary_precision(taskData, process.total_length);
 }
 
@@ -354,9 +355,9 @@ static void printfprof(unsigned *counts)
         if (counts[i] != 0)
         {
             if (i == MAX_PROF_LEN)
-                printf(">%d\t%u\n", MAX_PROF_LEN, counts[i]);
+                fprintf(polyStdout, ">%d\t%u\n", MAX_PROF_LEN, counts[i]);
             else
-                printf("%d\t%u\n", i, counts[i]);
+                fprintf(polyStdout, "%d\t%u\n", i, counts[i]);
         }
     }
 }
@@ -365,10 +366,10 @@ Handle ObjProfile(TaskData *taskData, Handle obj)
 {
     ProcessVisitAddresses process(false);
     process.ScanObjectAddress(obj->WordP());
-    printf("\nImmutable object sizes and counts\n");
+    fprintf(polyStdout, "\nImmutable object sizes and counts\n");
     printfprof(process.iprofile);
-    printf("\nMutable object sizes and counts\n");
+    fprintf(polyStdout, "\nMutable object sizes and counts\n");
     printfprof(process.mprofile);
-    fflush(stdout); /* We need this for Windows at least. */
+    fflush(polyStdout); /* We need this for Windows at least. */
     return Make_arbitrary_precision(taskData, process.total_length);
 }

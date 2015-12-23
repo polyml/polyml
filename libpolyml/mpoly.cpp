@@ -79,12 +79,15 @@
 #include "pexport.h"
 #include "polystring.h"
 #include "statistics.h"
+#include "noreturn.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 
 static const TCHAR *lpszServiceName = 0; // DDE service name
 #endif
+
+FILE *polyStdout, *polyStderr; // Redirected in the Windows GUI
 
 static void  InitHeaderFromExport(exportDescription *exports);
 NORETURNFN(static void Usage(const char *message, ...));
@@ -211,6 +214,9 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
+
+    if (polyStdout == 0) polyStdout = stdout;
+    if (polyStderr == 0) polyStderr = stderr;
 
     // Get the program name for CommandLine.name.  This is allowed to be a full path or
     // just the last component so we return whatever the system provides.
@@ -444,29 +450,29 @@ void finish (int n)
 void Usage(const char *message, ...)
 {
     va_list vl;
-    printf("\n");
+    fprintf(polyStdout, "\n");
     va_start(vl, message);
-    vprintf(message, vl);
+    vfprintf(polyStdout, message, vl);
     va_end(vl);
 
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
 #if (defined(_WIN32) && defined(UNICODE))
-        printf("%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
+        fprintf(polyStdout, "%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
 #else
-        printf("%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+        fprintf(polyStdout, "%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
 #endif
     }
-    printf("Debug options:\n");
+    fprintf(polyStdout, "Debug options:\n");
     for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
     {
 #if (defined(_WIN32) && defined(UNICODE))
-        printf("%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+        fprintf(polyStdout, "%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
 #else
-        printf("%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+        fprintf(polyStdout, "%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
 #endif
     }
-    fflush(stdout);
+    fflush(polyStdout);
     
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
