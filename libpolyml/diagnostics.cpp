@@ -70,6 +70,8 @@
 #include "diagnostics.h"
 #include "mpoly.h"
 
+extern FILE *polyStdout;
+
 unsigned debugOptions = 0; // Debugging options requested on command line.
 
 /***********************************************************************

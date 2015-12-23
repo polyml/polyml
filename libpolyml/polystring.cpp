@@ -400,6 +400,7 @@ Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
 
 void print_string(PolyWord s)
 {
+    extern FILE *polyStdout;
     if (IS_INT(s))
         putc((char)UNTAGGED(s), polyStdout);
     else {

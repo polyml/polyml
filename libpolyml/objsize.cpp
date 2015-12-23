@@ -63,6 +63,8 @@
 #include "memmgr.h"
 #include "mpoly.h"
 
+extern FILE *polyStdout;
+
 #define MAX_PROF_LEN 100 // Profile lengths between 1 and this
 
 class ProcessVisitAddresses: public ScanAddress

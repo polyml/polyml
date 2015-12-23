@@ -435,6 +435,7 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 {
     Handle listHandle = buildStackList(taskData, sp, finish);
     PolyWord list = listHandle->Word();
+    extern FILE *polyStdout;
 
     while (! (list.IsTagged()))
     {
@@ -1023,6 +1024,7 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     if ((limitSize != 0 && old_len >= limitSize) || ! gMem.GrowOrShrinkStack(taskData, new_len))
     {
         /* Cannot expand the stack any further. */
+        extern FILE *polyStderr;
         fprintf(polyStderr, "Warning - Unable to increase stack - interrupting thread\n");
         if (debugOptions & DEBUG_THREADS)
             Log("THREAD: Unable to grow stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);

@@ -875,6 +875,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             // Try garbage-collecting.  If this failed return 0.
             if (! QuickGC(taskData, words))
             {
+                extern FILE *polyStderr;
                 if (! triedInterrupt)
                 {
                     triedInterrupt = true;
@@ -1791,6 +1792,7 @@ void Processes::StartProfiling(void)
 {
 #ifdef HAVE_WINDOWS_H
     DWORD threadId;
+    extern FILE *polyStdout;
     if (profilingHd)
         return;
     ResetEvent(hStopEvent);

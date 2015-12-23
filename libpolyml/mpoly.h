@@ -54,6 +54,4 @@ extern time_t exportTimeStamp;
 extern int polymain(int argc, TCHAR **argv, exportDescription *exports);
 #endif
 
-extern FILE *polyStdout, *polyStderr;
-
 #endif /* _MPOLY_H_DEFINED */
