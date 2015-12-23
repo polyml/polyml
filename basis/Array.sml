@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Array Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -56,37 +55,30 @@ signature ARRAY =
   end;
 
 local
-    (* This was previously implemented as simply an n-word block of mutable
-       store, length being obtained from the length field.  There was a
-       complication in that equality for arrays is defined as pointer equality
-       even for zero-sized arrays but the run-time system doesn't allow zero-sized
-       objects.  To get round that we used a one-word object with the "negative"
-       bit set in the flags byte.  This meant that the length function was quite
-       complicated which is significant because we need to compute the length
-       to do bounds checking on every "sub" or "update".  This method is the
-       most efficient in storage.  The current version uses the first word
-       to hold the length. *)
     open RuntimeCalls
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
     val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
-    val System_loadw: word*int->word = RunCall.run_call2 POLY_SYS_load_word;
-    val System_setw: word * int * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
-    val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+    val System_loadw: word*word->word = RunCall.run_call2 POLY_SYS_load_word;
+    val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
+    val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg
+    val System_length: word -> word = RunCall.run_call1 POLY_SYS_get_length
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
     val System_move_words_overlap:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words_overlap
 
+    val arrayAsWord: 'a array -> word = RunCall.unsafeCast
+    val intAsWord: int -> word = RunCall.unsafeCast
+
     (* Unsafe subscript and update functions used internally for cases
-       where we've already checked the range. 
-       N.B.  THESE ADD THE ONE WHICH IS NECESSARY TO SKIP THE LENGTH WORD *)
+       where we've already checked the range. *)
     fun unsafeSub(v: 'a array, i: int): 'a =
-        RunCall.unsafeCast(System_loadw (RunCall.unsafeCast v, i+1))
+        RunCall.unsafeCast(System_loadw (arrayAsWord v, intAsWord i))
 
     and unsafeUpdate(v: 'a array, i: int, new: 'a): unit =
-        System_setw (RunCall.unsafeCast v, i+1, RunCall.unsafeCast new);
+        System_setw (arrayAsWord v, intAsWord i, RunCall.unsafeCast new);
 
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
@@ -102,7 +94,7 @@ local
             (* Make a vector initialised to zero. *)
             val new_vec = System_alloc(length, 0wx40, 0w0)
         in
-            System_move_words(RunCall.unsafeCast v, start+1, new_vec, 0, length);
+            System_move_words(RunCall.unsafeCast v, start, new_vec, 0, length);
             System_lock new_vec;
             RunCall.unsafeCast new_vec
         end
@@ -112,41 +104,37 @@ struct
     type 'a array = 'a array
     type 'a vector = 'a Vector.vector
     
-    (* The maximum size of an array is one less than the maximum allocation
-       size to allow for the length word. *)
-    val maxLen = RunCall.unsafeCast(LibrarySupport.maxAllocation - 0w1)
+    val maxLen = RunCall.unsafeCast LibrarySupport.maxAllocation
     
-    (* Internal function: Construct an array initialised to zero. That's probably
-       more efficient than the alternative of setting every word to the length. *)
+    (* Internal function: Construct an array initialised to zero. *)
     fun alloc len =
         let
             val () = if len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len+1, 0wx40, 0w0)
+            val vec = System_alloc(len, 0wx40, 0w0)
         in
-            System_setw(vec, 0, RunCall.unsafeCast len);
             RunCall.unsafeCast vec
         end
      
     fun array(len, a) =
         let
             val () = if len < 0 orelse len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len+1, 0wx40, RunCall.unsafeCast a)
+            val vec = System_alloc(len, 0wx40, RunCall.unsafeCast a)
         in
-            System_setw(vec, 0, RunCall.unsafeCast len);
             RunCall.unsafeCast vec
         end
 
     val listLength = length; (* Pick this up from the prelude. *)
-    fun length (vec: 'a array): int = RunCall.unsafeCast(System_loadw(RunCall.unsafeCast vec, 0))
+    fun length (vec: 'a array): int = wordAsInt(System_length(arrayAsWord vec))
     
-    fun op sub (vec: 'a array as v, i: int): 'a =
-        if i < 0 orelse i >= length vec then raise General.Subscript
-        else RunCall.unsafeCast(System_loadw (RunCall.unsafeCast v, i+1))
- 
-    fun update (vec: 'a array as v, i: int, new: 'a) : unit =
-        if i < 0 orelse i >= length vec
+    fun op sub (vec: 'a array, i: int): 'a =
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)
         then raise General.Subscript
-        else System_setw (RunCall.unsafeCast v, i+1, RunCall.unsafeCast new);
+        else RunCall.unsafeCast(System_loadw (arrayAsWord vec, intAsWord i))
+ 
+    fun update (vec: 'a array, i: int, new: 'a) : unit =
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length(arrayAsWord vec)
+        then raise General.Subscript
+        else System_setw (arrayAsWord vec, intAsWord i, RunCall.unsafeCast new);
 
     (* Create an array from a list. *)
     fun fromList (l : 'a list) : 'a array =
@@ -198,7 +186,7 @@ struct
         in
             if di < 0 orelse di+len > length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast s, 1, RunCall.unsafeCast d, di+1, len)
+            else System_move_words(RunCall.unsafeCast s, 1, RunCall.unsafeCast d, di, len)
         end
 
     (* Copy a vector into an array. *)
@@ -208,7 +196,7 @@ struct
         in
             if di < 0 orelse di+len > length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast src, 0, RunCall.unsafeCast d, di+1, len)
+            else System_move_words(RunCall.unsafeCast src, 0, RunCall.unsafeCast d, di, len)
         end
         
 
@@ -315,7 +303,7 @@ struct
     fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst, di: int} =
         if di < 0 orelse di+srcLen > Array.length dst
         then raise General.Subscript
-        else System_move_words_overlap(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast dst, di+1, srcLen)
+        else System_move_words_overlap(RunCall.unsafeCast s, srcStart, RunCall.unsafeCast dst, di, srcLen)
 
     (* Copy a vector into an array. *)
     fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as d, di: int} =
@@ -324,7 +312,7 @@ struct
         in
             if di < 0 orelse di+len > Array.length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast v, i, RunCall.unsafeCast d, di+1, len)
+            else System_move_words(RunCall.unsafeCast v, i, RunCall.unsafeCast d, di, len)
         end
 
     fun isEmpty(Slice{length, ...}) = length = 0
