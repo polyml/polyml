@@ -29,7 +29,7 @@
 #elif defined(__GNUC__) || defined(__attribute__)
 #define NORETURNFN(x)   x __attribute__((noreturn))
 #else
-#define NORETURNFN(x)
+#define NORETURNFN(x) x
 #endif
 
 
