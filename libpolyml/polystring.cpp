@@ -400,11 +400,12 @@ Handle strconcatc(TaskData *mdTaskData, Handle y, Handle x)
 
 void print_string(PolyWord s)
 {
+    extern FILE *polyStdout;
     if (IS_INT(s))
-        putc((char)UNTAGGED(s), stdout);
+        putc((char)UNTAGGED(s), polyStdout);
     else {
         PolyStringObject * str = (PolyStringObject *)s.AsObjPtr();
-        fwrite(str->chars, 1, str->length, stdout);
+        fwrite(str->chars, 1, str->length, polyStdout);
     }
 }
 

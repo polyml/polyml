@@ -51,7 +51,7 @@ extern char *RTSArgHelp(void);
 extern time_t exportTimeStamp;
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-int polymain(int argc, TCHAR *argv[], exportDescription *exports);
+extern int polymain(int argc, TCHAR **argv, exportDescription *exports);
 #endif
 
 #endif /* _MPOLY_H_DEFINED */
