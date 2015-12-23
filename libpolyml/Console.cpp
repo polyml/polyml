@@ -849,6 +849,7 @@ int PolyWinMain(
         // A few RTS modules use stdio for output, primarily objsize and diagnostics.
         // Previously this next line was sufficient to reopen stdout but that no longer
         // works in VS 2015.  We have to use polyStdout now.
+        extern FILE *polyStdout;
         polyStdout = _fdopen(1, "wt"); // == stdout
 
         if (hStdErrHandle == INVALID_HANDLE_VALUE)
@@ -857,6 +858,7 @@ int PolyWinMain(
             SetStdHandle(STD_ERROR_HANDLE, hWriteToScreen);
             fclose(stderr);
             _dup2(newstdout, 2); // Stderr
+            extern FILE *polyStderr;
             polyStderr = _fdopen(2, "wt"); // == stderr
             // Set stderr to unbuffered so that messages get written correctly.
             // (stdout is explicitly flushed).
