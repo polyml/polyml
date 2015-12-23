@@ -415,16 +415,20 @@ struct
     fun displayValues (Value{name, typeOf, class, access, locations, ...}, depth, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
-        fun valPart (valOrCons, equOrColon) =
+        fun valPart (valOrCons, isColon) =
+        let
+            val (space, equOrColon) = if isColon then (0, ":") else (1, "=")
+        in
             PrettyBlock (0, false, [],
                 [
                     PrettyString valOrCons,
                     PrettyBreak (1, 0),
                     PrettyBlock(0, false, getLocation locations, [PrettyString name]),
-                    PrettyBreak (0, 0),
+                    PrettyBreak (space, 0),
                     PrettyString equOrColon
                 ]
             )
+        end
         val typeEnv = (* Environment to check for type constructors. *)
             { lookupType = #lookupType nameSpace, lookupStruct = #lookupStruct nameSpace}
     in
@@ -444,12 +448,12 @@ struct
                     case value of
                         SOME v =>
                         [
-                            valPart("val", "="),
+                            valPart("val", false),
                             PrettyBreak (1, 0),
                             printValueForType (v, typeOf, depth),
                             PrettyString ":"
                         ]
-                    |   _ => [ valPart("val", ":") ]
+                    |   _ => [ valPart("val", true) ]
             in
                 PrettyBlock (3, false, [],
                     start @ [ PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
@@ -475,11 +479,11 @@ struct
 
         | Constructor _ => (* This can only occur with #lookupVal *)
             PrettyBlock (3, false, [],
-                [ valPart("constructor", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+                [ valPart("constructor", true), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
      
         | PattBound => (* Can this ever occur? *)
             PrettyBlock (3, false, [],
-                [ valPart("val", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+                [ valPart("val", true), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
     end
 
     (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
