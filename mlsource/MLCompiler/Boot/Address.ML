@@ -153,9 +153,8 @@ struct
     val maxAllocation: word = RunCall.run_call2 POLY_SYS_process_env(100, ())
 
     fun alloc(len: word, flags: Word8.word, initial: machineWord): address =
-        (* Zero sized-objects are not allowed.  Check that the size is within
-           the acceptable range. *)
-        if len = 0w0 orelse len >= maxAllocation
+        (* Check that the size is within the acceptable range. *)
+        if len >= maxAllocation
         then raise Size
         else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
   

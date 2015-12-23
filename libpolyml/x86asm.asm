@@ -1409,10 +1409,6 @@ allsts:
     jz      alloc_in_rts            ;# Get the RTS to raise an exception
     MOVL    Reax,Redi
     SHRL    CONST TAGSHIFT,Redi     ;# Remove tag
-    jnz     allst0                  ;# (test for 0) Make zero sized objects 1
-    MOVL    CONST 1,Redi            ;# because they mess up the g.c.
-    jmp     alloc_in_rts
-allst0:
 IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST Max_Length,Redi   ;# Length field must fit in 24 bits
 ELSE
