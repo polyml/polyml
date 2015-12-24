@@ -103,19 +103,8 @@ sig
     type negotiation
     type 'a instrs
 
-    val instrAddW: 'a instrs
-    and instrSubW: 'a instrs
-    and instrMulW: 'a instrs
-    and instrDivW: 'a instrs
-    and instrModW: 'a instrs
-    and instrOrW: 'a instrs
-    and instrAndW: 'a instrs
-    and instrXorW: 'a instrs
-    and instrLoad: 'a instrs
+    val instrLoad: 'a instrs
     and instrLoadB: 'a instrs
-    and instrUpshiftW: 'a instrs    (* logical shift left *)
-    and instrDownshiftW: 'a instrs  (* logical shift right *)
-    and instrDownshiftArithW: 'a instrs  (* arithmetic shift right *)
     and instrAtomicIncr: 'a instrs
     and instrAtomicDecr: 'a instrs
     and instrStoreW: 'a instrs
@@ -277,6 +266,28 @@ sig
     and subtractInteger:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
     and multiplyInteger:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and addWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and subtractWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and andWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and orWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and xorWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and upShiftWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and downShiftWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and downShiftArithmeticWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and multiplyWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and divideWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and modulusWord:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
 
     structure Sharing:

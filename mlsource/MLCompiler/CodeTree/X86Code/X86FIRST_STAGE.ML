@@ -570,11 +570,15 @@ struct
             allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
 
         (* Some cases require arguments in specific registers. *)
-        fun loadToSpecificReg(specReg, overWrite, argNo, whenDone) =
+        fun loadToSpecificRegister(specReg, overWrite, argNo, whenDone) =
             loadToOneOf(singleton specReg, overWrite, argNo, whenDone)
             
     in
         val prefAsSet = prefAsSet
+        and loadToOneOf = loadToOneOf
+        and generateInstruction = generateInstruction
+        and getWorkingRegister = getWorkingRegister
+        and loadToSpecificRegister = loadToSpecificRegister
 
         (* Default if we don't need a result register. *)
         fun noresultNegotiator instr args =
@@ -837,9 +841,9 @@ struct
                         fun allocStoreVarLength flags pref =
                             (* When allocating vectors/arrays we have to initialise the store and the easiest way to
                                 do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-                            loadToSpecificReg(ecx, true, 0,
+                            loadToSpecificRegister(ecx, true, 0,
                                 (* We don't actually need this to be modifiable if we're initialising with words. *)
-                                loadToSpecificReg(eax, true, 1,
+                                loadToSpecificRegister(eax, true, 1,
                                     getResultRegister(singleton edi, pref, generateInstruction(genVarAlloc flags))))
                                         ([NONE, NONE], NONE)
                     in
@@ -1018,313 +1022,6 @@ struct
         end
 
         local
-            (* Shift operations: shifting by a variable amount requires ecx.
-               Some special cases of multiplication can be implemented as shifts. *)
-            (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
-            fun loadShiftArg (instr, pref) opAndResult =
-                loadToSpecificReg(ecx, true, 1, loadResultArg(instr, pref)) opAndResult
-
-            (* Load the first argument into a register we can use for the result. *)
-            and loadResultArg (instr, pref) opAndResult [arg1, _] =
-            (
-                case arg1 of
-                    (ActInRegisterSet{ modifiable, ...}) =>
-                        if regSetIntersect(modifiable, generalRegisters) <> noRegisters
-                        then
-                        let
-                            val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
-                        in
-                            ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
-                                next=finished(instr, aReg)}
-                        end
-                        else (* Can't clobber this register - move the value. *)
-                            ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                next=loadResultArg(instr, pref) opAndResult}
-                |   _ =>
-                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                             next=loadResultArg(instr, pref) opAndResult}
-            )
-            |   loadResultArg _ _ _ = raise InternalError "loadResultArg: bad arguments"
-            
-            and finished (genInstr, resReg) _ =
-                ActionDone{
-                    outReg=SOME resReg,
-                    operation=genInstr([InRegister resReg, InRegister ecx], SOME resReg)
-                    }
-
-            fun shiftNegotiator (instr, pref) = loadShiftArg (instr, pref) ([NONE, NONE], NONE)
-
-            (* We have to consider what happens to the tag.  Shifts are word values so are
-               always non-negative.  N.B. This is the untagged value i.e. 31 or 63. *)
-            val maxShift = Word.fromInt wordSize * 0w8 - 0w1
-
-            fun genConstShift(_, 0w0) _ = [] (* Zero shifts do nothing *)
-
-            |   genConstShift(SLL, shift) (_, SOME reg) =
-                    (* Left shift. Use LEAL for some cases otherwise perform the
-                       shift and then subtract 1 << shift -1.  This removes the existing shifted
-                       tag and sets the bottom bit. *)
-                    if shift > maxShift
-                    then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
-                    else
-                    (
-                        case shift of
-                            0w1 => [LoadAddress{output=reg, base=SOME reg, index=Index1 reg, offset= ~1}]
-                        |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
-                        |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
-                        |   _ =>
-                            if shift < 0w32
-                            then (* Can remove the shifted tag and set the new tag. *)
-                                [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
-                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
-                            else (* 64-bit only.  If the shift is more than 32 bits we remove the
-                                    tag beforehand and put it back afterwards. *)
-                                [ArithRConst{opc=OR, output=reg, source=1 },
-                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift},
-                                 ArithRConst{opc=SUB, output=reg, source=1 }]
-                    )
-
-            |   genConstShift(SRL, shift) (_, SOME reg) = (* Right logical shift. *)
-                    if shift > maxShift
-                    then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
-                    else (* The original tag will have been shifted out but we have to
-                            set the bottom bit as the tag. *)
-                        [ArithRConst{opc=OR, output=reg, source=1 },
-                          ShiftConstant{shiftType=SRL, output=reg, shift=wordToWord8 shift}]
-
-            |   genConstShift(SRA, shift) (_, SOME reg) = (* Right shifts absorb the tag. *)
-                    (* If the shift is more than the word length this returns 0 for positive values
-                       and all ones for negative.  We just limit the shift to 31/63. *)
-                    [ArithRConst{opc=OR, output=reg, source=1 },
-                     ShiftConstant{shiftType=SRA, output=reg,
-                        shift=wordToWord8(Word.min(maxShift, shift))}]
-
-            |   genConstShift _ _ = raise InternalError "genConstShift"
-
-            (* The X86 masks the shift value but the ML basis library requires shift values
-               greater than the word size to set the value to 0/-1 as appropriate.
-               We set the shift to the maximum if it is larger rather than trying to
-               set the result to the appropriate value. The shift value is always in ecx. *)
-            and genVarShift shift ([InRegister r, InRegister shiftR], SOME reg) =
-                let
-                    val _ = r = reg orelse raise InternalError "genVarShift: different regs"
-                    val _ = shiftR = ecx orelse raise InternalError "genVarShift: shift not in ecx"
-                    val (test, lab) = condBranch(JNA, PredictTaken)
-                in
-                    [
-                        MakeSafe ecx, (* ecx may be invalid. *)
-                        ArithRConst{ opc=OR, output=reg, source= 1 }, (* Set dest tag. *)
-                        ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
-                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
-                    ] @ forwardJumpLabel lab @
-                    [ MoveConstR{ source=tag(Word.toInt maxShift), output=ecx } ] @ test @
-                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
-                    ] @
-                    (
-                        (* If this is a left shift we have to remove the tag.  That isn't needed
-                           for right shifts.  Use a subtraction because we may be able to merge
-                           this with preceding operations. *)
-                        case shift of SLL => [ArithRConst{ opc=SUB, output=reg, source= 1}]
-                        |   _ => []
-                    )
-                end
-            |   genVarShift _ _ = raise InternalError "genVarShift"
-
-            fun constantShift(opc, shift) pref = sharedSingleArgNegotiator(genConstShift(opc, shift), pref)
-            and variableShift opc pref = shiftNegotiator(genVarShift opc, pref)
-
-            fun shiftInstr opc (args as [arg1, arg2], mapper) =
-            (
-                case mapper arg2 of
-                    SOME lit => SOME(constantShift(opc, toShort lit), [arg1])
-                |   NONE => SOME(variableShift opc, args)
-            )
-            |   shiftInstr _ _ = raise InternalError "shiftInstr"
-
-            fun getPower2 n =
-            let
-                fun p2 (n, l) =
-                    if n = 0w1 then SOME l
-                    else if Word.andb(n, 0w1) = 0w1 then NONE
-                    else p2(Word.>>(n, 0w1), l+0w1)
-            in
-                if n = 0w0 then NONE else p2(n,0w0)
-            end
-
-            local
-                (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
-                   registers the best arrangement for the arguments is to get the first argument into
-                   eax and the second into edx. *)
-                val eaxSet = singleton eax and edxSet = singleton edx
-
-                fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
-                    if regSetIntersect(modifiable, eaxSet) <> noRegisters
-                    then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
-                    else (* Not in the right register - move it. *)
-                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
-
-                |   loadArg1 instr [_, _] =
-                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
-
-                |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
-            
-                and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
-                    if regSetIntersect(modifiable, edxSet) <> noRegisters
-                    then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
-                    else (* Not in the right register - move it. *)
-                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
-                    
-                |   loadArg2 instr [_, _] =
-                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
-
-                |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
-
-                and finished genInstr _ =
-                    ActionDone{
-                        outReg=SOME eax,
-                        operation=genInstr([InRegister eax, InRegister edx], SOME eax)
-                        }
-            in
-                val multiplyNegotiator = loadArg1
-            end
-
-            fun genMultiplyUnsigned _ = (* The arguments are in eax and edx and result in eax. *)
-            [
-                MakeSafe edx, (* Could just copy eax in here *)
-                (* Add back the tag, but don't shift. *)
-                ArithRConst{opc=ADD, output=eax, source=1},
-                Group3Ops(edx, MUL),
-                (* Shift down the multiplier. *)
-                ShiftConstant{shiftType=SRL, output=edx, shift=0w1 },
-                (* Untag, but don't shift the multiplicand. *)
-                ArithRConst{opc=SUB, output=eax, source=1}
-            ]
-
-            (* The only case we treat specially is multiplication by two because the overflow
-               flag isn't defined for larger shifts. *)
-            fun genAddSelf(_, SOME output) =
-                let
-                    val (skipEmulator, skipEmulatorLab) = uncondBranch()
-                    val (lab1Code, lab1) = condBranch(JE, PredictNotTaken)
-                    val (lab2Code, lab2) = condBranch(JO, PredictNotTaken)
-                    val (backToInstr, backToInstrLab) = backJumpLabel()
-                in
-                    [ArithRConst{opc=SUB, source=1, output=output}] @
-                        forwardJumpLabel skipEmulatorLab @ jumpBackwards backToInstrLab @
-                    [CallRTS memRegArbEmulation] @ forwardJumpLabel lab1 @
-                    forwardJumpLabel lab2 @ skipEmulator @ lab2Code @
-                    [ArithRR{opc=ADD, source=output, output=output}] @ backToInstr @ lab1Code @
-                    [TestTagR output]
-                end
-            |   genAddSelf _ = raise InternalError "genAddSelf"
-
-            fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
-         in
-            fun instrUpshiftW am = shiftInstr SLL am
-            and instrDownshiftW am = shiftInstr SRL am
-            and instrDownshiftArithW am = shiftInstr SRA am
-
-            fun instrMulW(args as [arg1, arg2], mapper) =
-                (
-                   (* This is implemented specially for powers of 2.  It could also
-                      be implemented specially for some other cases as well. *)
-                    case List.map (Option.composePartial(getPower2 o toShort, mapper)) args of
-                        [_, SOME shift] => SOME(constantShift(SLL, shift), [arg1])
-                    |   [SOME shift, _] => SOME(constantShift(SLL, shift), [arg2])
-                    |   _ => SOME(fn _ => multiplyNegotiator genMultiplyUnsigned, args)
-                )
-            |   instrMulW _ = raise InternalError "instrMulW"
-
-            fun instrMulA(args as [arg1, arg2], mapper) =
-            (
-                (* The only special case we recognise is multiplication by 2. *)
-                case List.map mapper args of
-                    [_, SOME lit] =>
-                        if isShort lit andalso toShort lit = 0w2
-                        then SOME(mulAConst2, [arg1])
-                        else NONE(*SOME(InstrMulA, args)*)
-                |   [SOME lit, _] =>
-                        if isShort lit andalso toShort lit = 0w2
-                        then SOME(mulAConst2, [arg2])
-                        else NONE(*SOME(InstrMulA, args)*)
-                |   _ => NONE(*SOME(InstrMulA, args)*)
-            )
-            |   instrMulA _ = raise InternalError "instrMulA"
-
-            local (* Unsigned word div and mod. *)
-                (* Division by a power of two is just a right shift. *)
-                fun shiftDown shift = constantShift(SRL, shift)
-                (* Modulo by a power of two is a mask. *)
-                fun maskBits shift pref =
-                let
-                    fun genMask(_, SOME resReg) =
-                        if shift > maxShift
-                        then []
-                        else (* Because we're going to mask a tagged value we need to add 1 to the shift. *)
-                           [ArithRConst{opc=AND, output=resReg, source=IntInf.<<(1, shift+0w1) -1 }]
-                    |   genMask _ = raise InternalError "genMask"
-                in
-                    sharedSingleArgNegotiator(genMask, pref)
-                end
-
-                (* If the dividend is not a power of two we have to use the DIV instruction.
-                   This takes the divisor in the EDX/EAX pair and the dividend in a separate
-                   register.  We get EDX as a work register and put the divisor in EAX. *)
-                fun genDivMod isDiv ([_, InRegister dividend], _) =
-                    let
-                        val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
-                        (* The instruction to add back the tag to "dividend" was missing and this caused
-                           a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
-                           that dividend cannot be either eax or edx.  This next test to just to make sure. *)
-                        val _ =
-                           if dividend = eax orelse dividend = edx then raise InternalError "genDivMod" else ()
-                    in
-                        (* Because we didn't shift the dividend and the divisor we don't
-                           need to shift the remainder but just add in the tag.  We do have
-                           to shift and tag the quotient.  Either way we have to make the
-                           other register safe. *)
-                        (if isDiv
-                        then [MakeSafe edx, TagValue{source=eax, output=eax}]
-                        else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
-                        [
-                            ArithRConst{opc=ADD, source=1, output=dividend},
-                            (* Clear the high order of the accumulator and do the division. *)
-                            Group3Ops(dividend, DIV),
-                            ArithRR{opc=XOR, source=edx, output=edx},
-                            (* Untag, but don't shift, the divisor and dividend.  At the
-                               same time check for zero and raise an exception if it is. *)
-                            ArithRConst{opc=SUB, source=1, output=eax}
-                        ] @ forwardJumpLabel notZeroLab @ [CallRTS memRegRaiseDiv ] @ notZero @
-                        [ArithRConst{opc=SUB, source=1, output=dividend}]
-                    end
-
-                |   genDivMod _ _ = raise InternalError "genDivMod"
-
-                fun divModCode isDiv _ =
-                    getWorkingRegister(singleton edx,
-                        fn _ => loadToSpecificReg(eax, true, 0,
-                            loadToOneOf(generalRegisters, false, 1,
-                                generateInstruction(genDivMod isDiv)
-                            )
-                        )
-                    ) ([NONE, NONE], SOME(if isDiv then eax else edx))
-
-                fun checkPower2 (p2Code, genCode, args as [arg1, arg2], mapper) =
-                    ( (* Special case where the dividend is a power of two.  We could maybe
-                         take out the special case of zero here and just raise an exception but
-                         that's hardly worth it. *)
-                        case Option.composePartial(getPower2 o toShort, mapper) arg2 of
-                            SOME n => SOME(p2Code n, [arg1])
-                        |   NONE => SOME(genCode, args)
-                    )
-                |   checkPower2 _ = raise InternalError "checkPower2"
-            in
-                fun instrDivW(args, mapper) = checkPower2(shiftDown, divModCode true, args, mapper)
-                and instrModW(args, mapper) = checkPower2(maskBits, divModCode false, args, mapper)
-            end
-        end
-
-        local
             fun atomicOp incr ([InRegister rs], SOME rd) =
                 [
                     (* Since xadd returns the original value we have to add in the value again. *)
@@ -1393,9 +1090,9 @@ struct
                 (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
                    The source and destination offsets can be any registers.  We can't add the offsets in
                    advance because that would create invalid addresses. *)
-                loadToSpecificReg(esi, true, 0,
-                    loadToSpecificReg(edi, true, 2,
-                        loadToSpecificReg(ecx, true, 4,
+                loadToSpecificRegister(esi, true, 0,
+                    loadToSpecificRegister(edi, true, 2,
+                        loadToSpecificRegister(ecx, true, 4,
                             allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
         in
@@ -1664,9 +1361,9 @@ struct
                        The offsets can be in any register. Edi, esi and ecx are marked as modifiable
                        and are left as values that need to be made safe.  Offset values are
                        read-only and need to be restored in case they're reused. *)
-                    loadToSpecificReg(esi, true, 0,
-                        loadToSpecificReg(edi, true, 2,
-                            loadToSpecificReg(ecx, true, 4,
+                    loadToSpecificRegister(esi, true, 0,
+                        loadToSpecificRegister(edi, true, 2,
+                            loadToSpecificRegister(ecx, true, 4,
                                 loadToRegOrLiteral(generalRegisters, 1,
                                     loadToRegOrLiteral(generalRegisters, 3, generateCode)))))
                                         ([NONE, NONE, NONE, NONE, NONE], NONE)
@@ -5122,8 +4819,7 @@ struct
         moveToVec(vecEntry, valueEntry, offset, table) @ incCode
     end
 
-    local
-        (* Load the "self" entry from the thread-specific block. *)
+    local (* Load the "self" entry from the thread-specific block. *)
         fun threadSelfI([], SOME output) =
             [LoadMemR{source=BaseOffset{base=ebp, offset=memRegThreadSelf, index=NoIndex}, output=output}]
         |   threadSelfI _ = raise InternalError "threadSelf"
@@ -5141,9 +4837,8 @@ struct
         end
     end
 
-    local
-        (* Load the length word from a memory cell.  We could reuse the base for the
-           result rather than getting a new register here. *)
+    local (* Load the length word from a memory cell.  We could reuse the base for the
+             result rather than getting a new register here. *)
         val mask = IntInf.<<(1, (Word.fromInt wordSize-0w1)*0w8) - 1
 
         fun vecLen([InRegister base], SOME output) =
@@ -5165,8 +4860,7 @@ struct
         end
     end
     
-    local
-        (* Load the flags byte from a memory segment.  The result must be tagged. *)
+    local (* Load the flags byte from a memory segment.  The result must be tagged. *)
         (* We could reuse the base register for the output. *)
         fun genVecFlags([InRegister baseReg], SOME outReg) =
             [TagValue{source=outReg, output=outReg},
@@ -5191,8 +4885,7 @@ struct
             |   NONE => NONE
     end
 
-    local
-        (* Get the first word of a long integer.  Used when converting to "word". *)
+    local (* Get the first word of a long integer.  Used when converting to "word". *)
         fun genFirstLong([InRegister baseReg], SOME outReg) =
             let
                 val (code, lab) = condBranch(JE, PredictNeutral)
@@ -5263,7 +4956,7 @@ struct
             |   NONE => NONE
     end
 
-    local (* Set the length word of a string. *)
+    local (* Set the length word of a string.  Used when constructing strings in the library. *)
         fun genSetStringLength ([InRegister base, InRegister length], NONE) =
             [
                 TagValue{ source=length, output=length }, (* Retag it *)
@@ -5424,13 +5117,12 @@ struct
 
         val instrAddA = fn (args, mapper) => checkShort(ADD, args, mapper)
         and instrSubA = fn (args, mapper) => checkShort(SUB, args, mapper)
-    in
         val instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
         and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
         and instrOrW  = fn (args, _)  => SOME(wordSelectDest(OR, noTagTest), args)
         and instrAndW = fn (args, _) => SOME(wordSelectDest(AND, noTagTest), args)
         and instrXorW = fn (args, _) => SOME(wordSelectDest(XOR, noTagTest), args)
-
+    in
         fun addInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) =
             case checkAndReduce(instrAddA, [arg1, arg2], checkConst) of
                 SOME(i, args) =>
@@ -5460,10 +5152,377 @@ struct
                     SOME(opCode, result)
                 end
             |   NONE => NONE
+
+        fun addWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrAddW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun subtractWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrSubW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun andWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrAndW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun orWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrOrW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun xorWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrXorW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
     end
 
     local
-    in
+        (* Shift operations: shifting by a variable amount requires ecx.
+           Some special cases of multiplication can be implemented as shifts. *)
+        (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
+        fun loadShiftArg (instr, pref) opAndResult =
+            loadToSpecificRegister(ecx, true, 1, loadResultArg(instr, pref)) opAndResult
+
+        (* Load the first argument into a register we can use for the result. *)
+        and loadResultArg (instr, pref) opAndResult [arg1, _] =
+        (
+            case arg1 of
+                (ActInRegisterSet{ modifiable, ...}) =>
+                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                    in
+                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                            next=finished(instr, aReg)}
+                    end
+                    else (* Can't clobber this register - move the value. *)
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
+                            next=loadResultArg(instr, pref) opAndResult}
+            |   _ =>
+                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
+                         next=loadResultArg(instr, pref) opAndResult}
+        )
+        |   loadResultArg _ _ _ = raise InternalError "loadResultArg: bad arguments"
+        
+        and finished (genInstr, resReg) _ =
+            ActionDone{
+                outReg=SOME resReg,
+                operation=genInstr([InRegister resReg, InRegister ecx], SOME resReg)
+                }
+
+        fun shiftNegotiator (instr, pref) = loadShiftArg (instr, pref) ([NONE, NONE], NONE)
+
+        (* We have to consider what happens to the tag.  Shifts are word values so are
+           always non-negative.  N.B. This is the untagged value i.e. 31 or 63. *)
+        val maxShift = Word.fromInt wordSize * 0w8 - 0w1
+
+        fun genConstShift(_, 0w0) _ = [] (* Zero shifts do nothing *)
+
+        |   genConstShift(SLL, shift) (_, SOME reg) =
+                (* Left shift. Use LEAL for some cases otherwise perform the
+                   shift and then subtract 1 << shift -1.  This removes the existing shifted
+                   tag and sets the bottom bit. *)
+                if shift > maxShift
+                then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
+                else
+                (
+                    case shift of
+                        0w1 => [LoadAddress{output=reg, base=SOME reg, index=Index1 reg, offset= ~1}]
+                    |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
+                    |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
+                    |   _ =>
+                        if shift < 0w32
+                        then (* Can remove the shifted tag and set the new tag. *)
+                            [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
+                             ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                        else (* 64-bit only.  If the shift is more than 32 bits we remove the
+                                tag beforehand and put it back afterwards. *)
+                            [ArithRConst{opc=OR, output=reg, source=1 },
+                             ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift},
+                             ArithRConst{opc=SUB, output=reg, source=1 }]
+                )
+
+        |   genConstShift(SRL, shift) (_, SOME reg) = (* Right logical shift. *)
+                if shift > maxShift
+                then [MoveConstR{source=tag 0, output=reg}](* This is defined to return zero. *)
+                else (* The original tag will have been shifted out but we have to
+                        set the bottom bit as the tag. *)
+                    [ArithRConst{opc=OR, output=reg, source=1 },
+                      ShiftConstant{shiftType=SRL, output=reg, shift=wordToWord8 shift}]
+
+        |   genConstShift(SRA, shift) (_, SOME reg) = (* Right shifts absorb the tag. *)
+                (* If the shift is more than the word length this returns 0 for positive values
+                   and all ones for negative.  We just limit the shift to 31/63. *)
+                [ArithRConst{opc=OR, output=reg, source=1 },
+                 ShiftConstant{shiftType=SRA, output=reg,
+                    shift=wordToWord8(Word.min(maxShift, shift))}]
+
+        |   genConstShift _ _ = raise InternalError "genConstShift"
+
+        (* The X86 masks the shift value but the ML basis library requires shift values
+           greater than the word size to set the value to 0/-1 as appropriate.
+           We set the shift to the maximum if it is larger rather than trying to
+           set the result to the appropriate value. The shift value is always in ecx. *)
+        and genVarShift shift ([InRegister r, InRegister shiftR], SOME reg) =
+            let
+                val _ = r = reg orelse raise InternalError "genVarShift: different regs"
+                val _ = shiftR = ecx orelse raise InternalError "genVarShift: shift not in ecx"
+                val (test, lab) = condBranch(JNA, PredictTaken)
+            in
+                [
+                    MakeSafe ecx, (* ecx may be invalid. *)
+                    ArithRConst{ opc=OR, output=reg, source= 1 }, (* Set dest tag. *)
+                    ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
+                    ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
+                ] @ forwardJumpLabel lab @
+                [ MoveConstR{ source=tag(Word.toInt maxShift), output=ecx } ] @ test @
+                [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
+                ] @
+                (
+                    (* If this is a left shift we have to remove the tag.  That isn't needed
+                       for right shifts.  Use a subtraction because we may be able to merge
+                       this with preceding operations. *)
+                    case shift of SLL => [ArithRConst{ opc=SUB, output=reg, source= 1}]
+                    |   _ => []
+                )
+            end
+        |   genVarShift _ _ = raise InternalError "genVarShift"
+
+        fun constantShift(opc, shift) pref = sharedSingleArgNegotiator(genConstShift(opc, shift), pref)
+        and variableShift opc pref = shiftNegotiator(genVarShift opc, pref)
+
+        fun shiftInstr opc (args as [arg1, arg2], mapper) =
+        (
+            case mapper arg2 of
+                SOME lit => SOME(constantShift(opc, toShort lit), [arg1])
+            |   NONE => SOME(variableShift opc, args)
+        )
+        |   shiftInstr _ _ = raise InternalError "shiftInstr"
+
+        fun getPower2 n =
+        let
+            fun p2 (n, l) =
+                if n = 0w1 then SOME l
+                else if Word.andb(n, 0w1) = 0w1 then NONE
+                else p2(Word.>>(n, 0w1), l+0w1)
+        in
+            if n = 0w0 then NONE else p2(n,0w0)
+        end
+
+        local
+            (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
+               registers the best arrangement for the arguments is to get the first argument into
+               eax and the second into edx. *)
+            val eaxSet = singleton eax and edxSet = singleton edx
+
+            fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
+                if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
+                else (* Not in the right register - move it. *)
+                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+            |   loadArg1 instr [_, _] =
+                    ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+            |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
+        
+            and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
+                if regSetIntersect(modifiable, edxSet) <> noRegisters
+                then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
+                else (* Not in the right register - move it. *)
+                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                
+            |   loadArg2 instr [_, _] =
+                    ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+
+            |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
+
+            and finished genInstr _ =
+                ActionDone{
+                    outReg=SOME eax,
+                    operation=genInstr([InRegister eax, InRegister edx], SOME eax)
+                    }
+        in
+            val multiplyNegotiator = loadArg1
+        end
+
+        fun genMultiplyUnsigned _ = (* The arguments are in eax and edx and result in eax. *)
+        [
+            MakeSafe edx, (* Could just copy eax in here *)
+            (* Add back the tag, but don't shift. *)
+            ArithRConst{opc=ADD, output=eax, source=1},
+            Group3Ops(edx, MUL),
+            (* Shift down the multiplier. *)
+            ShiftConstant{shiftType=SRL, output=edx, shift=0w1 },
+            (* Untag, but don't shift the multiplicand. *)
+            ArithRConst{opc=SUB, output=eax, source=1}
+        ]
+
+        (* The only case we treat specially is multiplication by two because the overflow
+           flag isn't defined for larger shifts. *)
+        fun genAddSelf(_, SOME output) =
+            let
+                val (skipEmulator, skipEmulatorLab) = uncondBranch()
+                val (lab1Code, lab1) = condBranch(JE, PredictNotTaken)
+                val (lab2Code, lab2) = condBranch(JO, PredictNotTaken)
+                val (backToInstr, backToInstrLab) = backJumpLabel()
+            in
+                [ArithRConst{opc=SUB, source=1, output=output}] @
+                    forwardJumpLabel skipEmulatorLab @ jumpBackwards backToInstrLab @
+                [CallRTS memRegArbEmulation] @ forwardJumpLabel lab1 @
+                forwardJumpLabel lab2 @ skipEmulator @ lab2Code @
+                [ArithRR{opc=ADD, source=output, output=output}] @ backToInstr @ lab1Code @
+                [TestTagR output]
+            end
+        |   genAddSelf _ = raise InternalError "genAddSelf"
+
+        fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
+     in
+        fun instrUpshiftW am = shiftInstr SLL am
+        and instrDownshiftW am = shiftInstr SRL am
+        and instrDownshiftArithW am = shiftInstr SRA am
+
+        fun upShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrUpshiftW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun downShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrDownshiftW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun downShiftArithmeticWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrDownshiftArithW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun instrMulW(args as [arg1, arg2], mapper) =
+            (
+               (* This is implemented specially for powers of 2.  It could also
+                  be implemented specially for some other cases as well. *)
+                case List.map (Option.composePartial(getPower2 o toShort, mapper)) args of
+                    [_, SOME shift] => SOME(constantShift(SLL, shift), [arg1])
+                |   [SOME shift, _] => SOME(constantShift(SLL, shift), [arg2])
+                |   _ => SOME(fn _ => multiplyNegotiator genMultiplyUnsigned, args)
+            )
+        |   instrMulW _ = raise InternalError "instrMulW"
+
+        fun multiplyWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+            case checkAndReduce(instrMulW, [arg1, arg2], checkConst) of
+                SOME(i, args) =>
+                let
+                    val argLocns = List.map genToStack args
+                    val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    SOME(opCode, result)
+                end
+            |   NONE => NONE
+
+        fun instrMulA(args as [arg1, arg2], mapper) =
+        (
+            (* The only special case we recognise is multiplication by 2. *)
+            case List.map mapper args of
+                [_, SOME lit] =>
+                    if isShort lit andalso toShort lit = 0w2
+                    then SOME(mulAConst2, [arg1])
+                    else NONE(*SOME(InstrMulA, args)*)
+            |   [SOME lit, _] =>
+                    if isShort lit andalso toShort lit = 0w2
+                    then SOME(mulAConst2, [arg2])
+                    else NONE(*SOME(InstrMulA, args)*)
+            |   _ => NONE(*SOME(InstrMulA, args)*)
+        )
+        |   instrMulA _ = raise InternalError "instrMulA"
+
         fun multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) =
             case checkAndReduce(instrMulA, [arg1, arg2], checkConst) of
                 SOME(i, args) =>
@@ -5478,6 +5537,108 @@ struct
                     SOME(opCode, result)
                 end
             |   NONE => NONE
+
+        local (* Unsigned word div and mod. *)
+            (* Division by a power of two is just a right shift. *)
+            fun shiftDown shift = constantShift(SRL, shift)
+            (* Modulo by a power of two is a mask. *)
+            fun maskBits shift pref =
+            let
+                fun genMask(_, SOME resReg) =
+                    if shift > maxShift
+                    then []
+                    else (* Because we're going to mask a tagged value we need to add 1 to the shift. *)
+                       [ArithRConst{opc=AND, output=resReg, source=IntInf.<<(1, shift+0w1) -1 }]
+                |   genMask _ = raise InternalError "genMask"
+            in
+                sharedSingleArgNegotiator(genMask, pref)
+            end
+
+            (* If the dividend is not a power of two we have to use the DIV instruction.
+               This takes the divisor in the EDX/EAX pair and the dividend in a separate
+               register.  We get EDX as a work register and put the divisor in EAX. *)
+            fun genDivMod isDiv ([_, InRegister dividend], _) =
+                let
+                    val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
+                    (* The instruction to add back the tag to "dividend" was missing and this caused
+                       a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
+                       that dividend cannot be either eax or edx.  This next test to just to make sure. *)
+                    val _ =
+                       if dividend = eax orelse dividend = edx then raise InternalError "genDivMod" else ()
+                in
+                    (* Because we didn't shift the dividend and the divisor we don't
+                       need to shift the remainder but just add in the tag.  We do have
+                       to shift and tag the quotient.  Either way we have to make the
+                       other register safe. *)
+                    (if isDiv
+                    then [MakeSafe edx, TagValue{source=eax, output=eax}]
+                    else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
+                    [
+                        ArithRConst{opc=ADD, source=1, output=dividend},
+                        (* Clear the high order of the accumulator and do the division. *)
+                        Group3Ops(dividend, DIV),
+                        ArithRR{opc=XOR, source=edx, output=edx},
+                        (* Untag, but don't shift, the divisor and dividend.  At the
+                           same time check for zero and raise an exception if it is. *)
+                        ArithRConst{opc=SUB, source=1, output=eax}
+                    ] @ forwardJumpLabel notZeroLab @ [CallRTS memRegRaiseDiv ] @ notZero @
+                    [ArithRConst{opc=SUB, source=1, output=dividend}]
+                end
+
+            |   genDivMod _ _ = raise InternalError "genDivMod"
+
+            fun divModCode isDiv _ =
+                getWorkingRegister(singleton edx,
+                    fn _ => loadToSpecificRegister(eax, true, 0,
+                        loadToOneOf(generalRegisters, false, 1,
+                            generateInstruction(genDivMod isDiv)
+                        )
+                    )
+                ) ([NONE, NONE], SOME(if isDiv then eax else edx))
+
+            fun checkPower2 (p2Code, genCode, args as [arg1, arg2], mapper) =
+                ( (* Special case where the dividend is a power of two.  We could maybe
+                     take out the special case of zero here and just raise an exception but
+                     that's hardly worth it. *)
+                    case Option.composePartial(getPower2 o toShort, mapper) arg2 of
+                        SOME n => SOME(p2Code n, [arg1])
+                    |   NONE => SOME(genCode, args)
+                )
+            |   checkPower2 _ = raise InternalError "checkPower2"
+
+            fun instrDivW(args, mapper) = checkPower2(shiftDown, divModCode true, args, mapper)
+            and instrModW(args, mapper) = checkPower2(maskBits, divModCode false, args, mapper)
+        in
+            fun divideWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+                case checkAndReduce(instrDivW, [arg1, arg2], checkConst) of
+                    SOME(i, args) =>
+                    let
+                        val argLocns = List.map genToStack args
+                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                        val result =
+                            case whereto of
+                                NoResult => NoMerge (* Unused. *)
+                            |   _ => MergeIndex opRes
+                    in
+                        SOME(opCode, result)
+                    end
+                |   NONE => NONE
+
+            fun modulusWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
+                case checkAndReduce(instrModW, [arg1, arg2], checkConst) of
+                    SOME(i, args) =>
+                    let
+                        val argLocns = List.map genToStack args
+                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
+                        val result =
+                            case whereto of
+                                NoResult => NoMerge (* Unused. *)
+                            |   _ => MergeIndex opRes
+                    in
+                        SOME(opCode, result)
+                    end
+                |   NONE => NONE
+        end
     end
 
   	structure Sharing =
