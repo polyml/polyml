@@ -102,15 +102,8 @@ sig
 
     type negotiation
     type 'a instrs
-    val instrVeclen: 'a instrs
-    val instrVecflags: 'a instrs
-    val instrGetFirstLong: 'a instrs
-    val instrStringLength: 'a instrs
 
-    val instrAddA: 'a instrs
-    and instrSubA: 'a instrs
-    and instrMulA: 'a instrs
-    and instrAddW: 'a instrs
+    val instrAddW: 'a instrs
     and instrSubW: 'a instrs
     and instrMulW: 'a instrs
     and instrDivW: 'a instrs
@@ -123,8 +116,6 @@ sig
     and instrUpshiftW: 'a instrs    (* logical shift left *)
     and instrDownshiftW: 'a instrs  (* logical shift right *)
     and instrDownshiftArithW: 'a instrs  (* arithmetic shift right *)
-    and instrSetStringLength: 'a instrs
-    and instrThreadSelf: 'a instrs
     and instrAtomicIncr: 'a instrs
     and instrAtomicDecr: 'a instrs
     and instrStoreW: 'a instrs
@@ -268,6 +259,25 @@ sig
 
     val createStackClosure: ttab * stackIndex list -> stackIndex * operation list
     val setRecursiveClosureEntry: stackIndex * stackIndex * int * ttab -> operation list
+ 
+    val threadSelf: ttab * regHint -> operation list * mergeResult
+
+    val vectorLength: stackIndex * ttab * regHint -> operation list * mergeResult
+    and vectorFlags:
+        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and getFirstLong:
+        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and stringLength:
+        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+
+    val setStringLength:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and addInteger:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and subtractInteger:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and multiplyInteger:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
 
     structure Sharing:
     sig

@@ -2121,12 +2121,14 @@ struct
                 )
             end (* callClosure *)
 
+            fun checkConst(BICConstnt(w, _)) = SOME w | checkConst _ = NONE
+
             fun codeRTSFunction(instr, arguments, whereto) =
-                case checkAndReduce(instr, arguments, fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
+                case checkAndReduce(instr, arguments, checkConst) of
                     SOME(i, args) =>
                     let
                         (* Code generate each argument to the pstack. *)
-                        val argLocns = List.map (fn arg => genToStack (arg)) args
+                        val argLocns = List.map genToStack args
                         val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
                         val () = codeGenerate(opCode, cvec)
                     in
@@ -2136,6 +2138,8 @@ struct
                         |   _ => MergeIndex opRes
                     end
                 |   NONE => (* Have to use a function call *) callClosure (SOME evalFun, true)
+
+            fun cgAndRes(opCode, result) = (codeGenerate(opCode, cvec); result)
 
         in (* body of genEval *)
             case evalFun of
@@ -2148,35 +2152,125 @@ struct
                     then
                     (
                         if wordEq (oper,ioOp POLY_SYS_thread_self)
-                        then codeRTSFunction(instrThreadSelf, args, whereto)
+                        then
+                        (
+                            case args of
+                                [] => cgAndRes(threadSelf(transtable, whereto))
+                            |   _ => raise InternalError "POLY_SYS_thread_self: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_get_length)
-                        then codeRTSFunction(instrVeclen, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg] => cgAndRes(vectorLength(genToStack arg, transtable, whereto))
+                            |   _ => raise InternalError "POLY_SYS_get_length: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_get_flags)
-                        then codeRTSFunction(instrVecflags, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg] =>
+                                (
+                                    case vectorFlags(arg, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_get_flags: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-                        then codeRTSFunction(instrGetFirstLong, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg] =>
+                                (
+                                    case getFirstLong(arg, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_get_first_long_word: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_string_length)
-                        then codeRTSFunction(instrStringLength, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg] =>
+                                (
+                                    case stringLength(arg, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_string_length: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_set_string_length)
-                        then codeRTSFunction(instrSetStringLength, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg1, arg2] =>
+                                (
+                                    case setStringLength(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_set_string_length: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_aplus)
-                        then codeRTSFunction(instrAddA, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg1, arg2] =>
+                                (
+                                    case addInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_aplus: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_aminus)
-                        then codeRTSFunction(instrSubA, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg1, arg2] =>
+                                (
+                                    case subtractInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_aminus: args"
+                        )
 
                         else if wordEq (oper,ioOp POLY_SYS_amul)
-                        then codeRTSFunction(instrMulA, args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg1, arg2] =>
+                                (
+                                    case multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_amul: args"
+                        )
 
                         (* Negation is coded as 0 - X. *)
                         else if wordEq (oper,ioOp POLY_SYS_aneg)
-                        then codeRTSFunction(instrSubA, constntZero :: args, whereto)
+                        then
+                        (
+                            case args of
+                                [arg] =>
+                                (
+                                    case subtractInteger(constntZero, arg, transtable, whereto, checkConst, genToStack) of
+                                        SOME r => cgAndRes r
+                                    |   NONE => callClosure (SOME evalFun, true)
+                                )
+                            |   _ => raise InternalError "POLY_SYS_aneg: args"
+                        )
 
                         (* Boolean "not" is coded as xor with "true" *)
                         else if wordEq (oper,ioOp POLY_SYS_not_bool)
