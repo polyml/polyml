@@ -186,7 +186,7 @@ struct
         in
             if di < 0 orelse di+len > length dst
             then raise General.Subscript
-            else System_move_words(RunCall.unsafeCast s, 1, RunCall.unsafeCast d, di, len)
+            else System_move_words(RunCall.unsafeCast s, 0, RunCall.unsafeCast d, di, len)
         end
 
     (* Copy a vector into an array. *)
