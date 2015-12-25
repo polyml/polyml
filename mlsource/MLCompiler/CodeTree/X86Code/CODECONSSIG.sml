@@ -100,36 +100,6 @@ sig
     val byteVecEq: 'a tests
     and byteVecNe: 'a tests
 
-    type negotiation
-    type 'a instrs
-
-    val instrLoad: 'a instrs
-    and instrLoadB: 'a instrs
-    and instrAtomicIncr: 'a instrs
-    and instrAtomicDecr: 'a instrs
-    and instrStoreW: 'a instrs
-    and instrStoreB: 'a instrs
-    and instrLockSeg: 'a instrs
-    and instrAddFP: 'a instrs
-    and instrSubFP: 'a instrs
-    and instrMulFP: 'a instrs
-    and instrDivFP: 'a instrs
-    and instrAbsFP: 'a instrs
-    and instrNegFP: 'a instrs
-    and instrIntToRealFP: 'a instrs
-    and instrRealToIntFP: 'a instrs
-    and instrSqrtFP: 'a instrs
-    and instrSinFP: 'a instrs
-    and instrCosFP: 'a instrs
-    and instrAtanFP: 'a instrs
-    and instrExpFP: 'a instrs
-    and instrLnFP: 'a instrs
-    and instrAllocStore: 'a instrs
-    and instrMoveBytes: 'a instrs
-    and instrMoveWords: 'a instrs
-
-    val checkAndReduce: 'a instrs * 'a list * ('a -> Address.machineWord option) -> (negotiation * 'a list) option
-
     val checkAndReduceBranches: 'a tests * 'a list * ('a -> Address.machineWord option) -> (negotiateTests * 'a list) option
 
     type regSet = RegSet.regSet
@@ -173,7 +143,6 @@ sig
     val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
     val indirect:          int * stackIndex * ttab -> stackIndex * operation list
     val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
-    val lockVector:        ttab * stackIndex -> operation list
     val ensureNoAllocation: ttab * stackIndex -> stackIndex * operation list
 
     val removeStackEntry: ttab*stackIndex -> operation list
@@ -214,8 +183,6 @@ sig
 
     val exiting: ttab -> unit
     val haveExited: ttab -> bool
-
-    val dataOp: stackIndex list * negotiation * ttab * regHint -> stackIndex * operation list
 
     val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
 
@@ -258,6 +225,18 @@ sig
         'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
     and stringLength:
         'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and atomicIncrement:
+        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and atomicDecrement:
+        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and lockVector: stackIndex * ttab * regHint -> operation list * mergeResult
+    and absoluteReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and squareRootReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and sineReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and cosineReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and arctanReal: stackIndex * ttab * regHint -> operation list * mergeResult
+    and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
     val setStringLength:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
@@ -289,12 +268,30 @@ sig
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
     and modulusWord:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and loadByte:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and loadWord:
+        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and addReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and subtractReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and multiplyReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and divideReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+
+    val allocateStore:
+        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and storeWord:
+        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and storeByte:
+        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+
+    val moveBytes:
+        'a * 'a * 'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and moveWords:
+        'a * 'a * 'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
 
     structure Sharing:
     sig
         type code           = code
-        and  'a instrs      = 'a instrs
-        and  negotiation    = negotiation
         and  negotiateTests = negotiateTests
         and  reg            = reg
         and  'a tests       = 'a tests
