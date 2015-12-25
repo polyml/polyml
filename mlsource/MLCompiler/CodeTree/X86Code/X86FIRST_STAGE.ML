@@ -193,18 +193,12 @@ struct
 
     withtype nextAction = actionSource list -> argAction
 
-    type negotiation = regHint -> nextAction
-    and negotiateTests = unit -> nextAction * label
-    type 'a instrs = 'a list * ('a -> machineWord option) -> (negotiation * 'a list) option
-    and 'a tests = 'a list * ('a -> machineWord option) -> (negotiateTests * 'a list) option
-
     type  forwardLabel = label
     and  backwardLabel = label
 
     (* See if the instruction is implemented but otherwise do nothing else.  Nearly all
        the operations are implemented on this architecture. *)
     fun checkAndReduce(instr, args, f) = instr(args, f)
-    and checkAndReduceBranches(tests, args, f) = tests(args, f)
 
     (* Exported versions of operations datatype *)
     fun callFunction v = [CallFunction v]
@@ -3813,7 +3807,7 @@ struct
                             generateInstruction genStoreWord
                             ))) ([NONE, NONE, NONE], NONE)
         in
-            val instrStoreW: 'a instrs = fn(args, _) => SOME(storeWordNegotiator, args)
+            val instrStoreW = fn(args, _) => SOME(storeWordNegotiator, args)
 
             fun storeWord(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) =
                 case checkAndReduce(instrStoreW, [arg1, arg2, arg3], checkConst) of
@@ -4610,28 +4604,38 @@ struct
                 (testActions: nextAction, destLabel)
             end
 
-            (* If either of the arguments are long constants we don't code-generate and
-               instead fall back to the RTS.  This is likely to be more efficient. *)
-            fun checkShort (opc, test) (args, mapper) =
-                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
-                then NONE
-                else SOME(makeBranch(opc, test), args)
             fun noTagTest (operations, _, _, _, _) = operations (* When we don't need a test. *)
          in
-            fun testNeqW(args, _) = SOME(makeBranch(JNE, noTagTest), args)
-            fun testEqW(args, _)  = SOME(makeBranch(JE, noTagTest), args)
-            fun testGeqW(args, _) = SOME(makeBranch(JNB, noTagTest), args) (* These are unsigned. *)
-            fun testGtW (args, _) = SOME(makeBranch(JA, noTagTest), args)
-            fun testLeqW(args, _) = SOME(makeBranch(JNA, noTagTest), args)
-            fun testLtW(args, _)  = SOME(makeBranch(JB, noTagTest), args)
-            fun testNeqA(args, mapper)   = checkShort(JNE, eqTestTags)(args, mapper)
-            and testEqA(args, mapper)    = checkShort(JE, eqTestTags)(args, mapper)
-            and testGeqA(args, mapper)   = checkShort(JGE, testTagsForComparison)(args, mapper)
-            and testGtA(args, mapper)    = checkShort(JG, testTagsForComparison)(args, mapper)
-            and testLeqA(args, mapper)   = checkShort(JLE, testTagsForComparison)(args, mapper)
-            and testLtA(args, mapper)    = checkShort(JL, testTagsForComparison)(args, mapper)
-            fun Short(args, _)    = SOME(lengthTest JNE, args)
-            fun Long(args, _)     = SOME(lengthTest JE, args)
+            fun notEqualWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JNE, noTagTest), transtable)
+            and equalWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JE, noTagTest), transtable)
+            and greaterOrEqualWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JNB, noTagTest), transtable)
+            and greaterThanWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JA, noTagTest), transtable)
+            and lessOrEqualWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JNA, noTagTest), transtable)
+            and lessThanWord(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JB, noTagTest), transtable)
+
+            fun notEqualInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JNE, eqTestTags), transtable)
+            and equalInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JE, eqTestTags), transtable)
+            and greaterOrEqualInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JGE, testTagsForComparison), transtable)
+            and greaterThanInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JG, testTagsForComparison), transtable)
+            and lessOrEqualInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JLE, testTagsForComparison), transtable)
+            and lessThanInt(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JL, testTagsForComparison), transtable)
+
+            fun testShortInt(arg, transtable) =
+                compareAndBranch ([arg], lengthTest JNE, transtable)
+            and testNotShortInt(arg, transtable) =
+                compareAndBranch ([arg], lengthTest JE, transtable)
         end
 
         local
@@ -4691,8 +4695,10 @@ struct
                 (testActions: nextAction, destLabel)
             end
         in
-            fun byteVecEq(args, _)  = SOME(genByteVec JE, args)
-            and byteVecNe(args, _)  = SOME(genByteVec JNE, args)
+            fun testByteVecEq(arg1, arg2, arg3, arg4, arg5, transtable) =
+                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JE, transtable)
+            and testByteVecNe(arg1, arg2, arg3, arg4, arg5, transtable) =
+                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JNE, transtable)
         end
 
         local
@@ -5014,12 +5020,18 @@ struct
                 end
             end
 
-            fun testNeqFP(args, _)= SOME(fpTests JNE, args)
-            fun testEqFP(args, _) = SOME(fpTests JE, args)
-            fun testGeqFP(args, _)= SOME(fpTests JNB, args)
-            fun testGtFP(args, _) = SOME(fpTests JA, args)
-            fun testLeqFP(args, _)= SOME(fpTests JNA, args)
-            fun testLtFP(args, _) = SOME(fpTests JB, args)
+            fun notEqualReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JNE, transtable)
+            and equalReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JE, transtable)
+            and greaterOrEqualReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JNB, transtable)
+            and greaterThanReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JA, transtable)
+            and lessOrEqualReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JNA, transtable)
+            and lessThanReal(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], fpTests JB, transtable)
         end
 
         local (* Get the length of a string. *)
@@ -5888,9 +5900,7 @@ struct
   	structure Sharing =
     struct
         type code       = code
-        and  negotiation = negotiation
         and  reg        = reg
-        and  negotiateTests = negotiateTests
         and  addrs      = addrs
         and  operation  = operation 
         and  machineWord = machineWord
@@ -5907,8 +5917,6 @@ struct
         and  forwardLabel = forwardLabel
         and  backwardLabel = backwardLabel
         and  constEntry = constEntry
-        and  'a instrs      = 'a instrs
-        and  'a tests       = 'a tests
     end
 
 end;

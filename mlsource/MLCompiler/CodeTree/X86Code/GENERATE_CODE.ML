@@ -71,6 +71,9 @@ struct
     val constntFalse = BICConstnt(False, [])
     val constntZero  = BICConstnt(Zero, [])
 
+    (* Used to allow the next CG phase to check for a constant. *)
+    fun checkConst(BICConstnt(w, _)) = SOME w | checkConst _ = NONE
+
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
     (* Are we at the end of the function. *)
@@ -1394,121 +1397,114 @@ struct
     let (* See if we can generate a conditional instruction. *)
         (* Those we can't deal with specially are evaluated to the stack and tested. *)
         fun genOtherTests () =
-            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, constntFalse],
-                                        fn (BICConstnt (w, _)) => SOME w | _ => NONE) of
-                SOME (tst, args) =>
-                    let
-                        (* We can't use genToStack here because we need primBoolOps to be false. *)
-                        fun cgArg arg = 
-                            case gencde (arg, false (* primBoolOps *), NoHint, NotEnd, NONE) of
-                                MergeIndex index => (index, [])
-                            |   NoMerge => raise InternalError "genTest: no result"
-                        val argsAndCode = List.map cgArg args
-                        val argLocns = List.map #1 argsAndCode
-                        (* Return the code ordered with earlier arguments later in the list. *)
-                        val argCode = List.foldl (fn ((_, argCode), code) => argCode @ code) [] argsAndCode
-                        val (label, testCode) = compareAndBranch (argLocns, tst, transtable)
-                    in
-                        codeGenerate(testCode @ argCode, cvec);
-                        label
-                    end
-                (* Should consider the possibility that checkAndReduceBranches might return two args. *)
-            |   NONE => raise InternalError "compareAndBranch returned failure"
-    in
-      case pt of
-        BICCond (testPart, thenPart, elsePart) =>
         let
-          val mark1 = markStack transtable
-          val mark2 = markStack transtable
-          
-          (* Test the condition part. *)
-          val a : labels = genTest (testPart, false)
+            (* We can't use genToStack here because we need primBoolOps to be false. *)
+            val arg1Locn =
+                case gencde (pt, false (* primBoolOps *), NoHint, NotEnd, NONE) of
+                    MergeIndex index => index
+                |   NoMerge => raise InternalError "genTest: no result"
+            val arg2Locn = pushConst (transtable, False)
+            val (label, testCode) =
+                (if jumpOn then notEqualWord else equalWord) (arg1Locn, arg2Locn, transtable)
+            val () = codeGenerate(testCode, cvec)
         in
-          if isEmptyLabel a
-          then (* The test evaluated to true.  We must only generate
-                  the then-part.  This is more than an optimisation.
-                  "Nojump" does not set the correct state for the
-                  else-part which can cause problems. *)
-             (
-             unmarkStack(transtable, mark2);
-             unmarkStack(transtable, mark1);
-             genTest (thenPart, jumpOn)
-             )
-          else if haveExited transtable
-          then (* Unconditional jump.  Only need the else-part. *)
-             (
-             unmarkStack(transtable, mark2);
-             unmarkStack(transtable, mark1);
-             codeGenerate(fixup (a, transtable), cvec);
-             genTest (elsePart, jumpOn)
-             )
-          else
-          let
-              (* Now the `then-part' *)
-              val b : labels = genTest (thenPart, jumpOn);
-              
-              (* Put in an unconditional jump round the `else-part'.
-                 This will be taken if the `then-part' drops through. *)
-              val (notB, notCode) = unconditionalBranch (NoMerge, transtable)
-              val () = codeGenerate(notCode, cvec)
-              
-              (* Fill in the label for the then-part part. *)
-              val () = codeGenerate(fixup (a, transtable), cvec);
-              
-              (* Now do the `else-part' and jump on the inverse of the condition. *)
-              val notC = genTest (elsePart, not jumpOn);
-              
-              (* i.e. we drop though if the condition is the one we should have
-                 jumped on. Now merge in the first label so we have both cases
-                 when we should jump together, *)
-              val (_, mergeBCode) = merge (b, transtable, NoMerge, mark2)
-              val () = codeGenerate(mergeBCode, cvec)
-              
-              (* and now take the jump. *)
-              val (resultLab, resultCode) = unconditionalBranch (NoMerge, transtable)
-              val () = codeGenerate(resultCode, cvec)
-              
-              (* Come here if we are not jumping. *)
-              val () = codeGenerate(fixup (notB, transtable), cvec);
-              val (_, mergeCCode) = merge (notC, transtable, NoMerge, mark1)
-              val () = codeGenerate(mergeCCode, cvec)
-            in 
-              resultLab
-            end
+            label
         end
+    in
+        case pt of
+            BICCond (testPart, thenPart, elsePart) =>
+            let
+                val mark1 = markStack transtable
+                val mark2 = markStack transtable
+          
+                (* Test the condition part. *)
+                val a : labels = genTest (testPart, false)
+            in
+                if isEmptyLabel a
+                then (* The test evaluated to true.  We must only generate
+                      the then-part.  This is more than an optimisation.
+                      "Nojump" does not set the correct state for the
+                      else-part which can cause problems. *)
+                (
+                    unmarkStack(transtable, mark2);
+                    unmarkStack(transtable, mark1);
+                    genTest (thenPart, jumpOn)
+                )
+                else if haveExited transtable
+                then (* Unconditional jump.  Only need the else-part. *)
+                (
+                    unmarkStack(transtable, mark2);
+                    unmarkStack(transtable, mark1);
+                    codeGenerate(fixup (a, transtable), cvec);
+                    genTest (elsePart, jumpOn)
+                )
+                else
+                let
+                    (* Now the `then-part' *)
+                    val b : labels = genTest (thenPart, jumpOn);
+              
+                    (* Put in an unconditional jump round the `else-part'.
+                       This will be taken if the `then-part' drops through. *)
+                    val (notB, notCode) = unconditionalBranch (NoMerge, transtable)
+                    val () = codeGenerate(notCode, cvec)
+              
+                    (* Fill in the label for the then-part part. *)
+                    val () = codeGenerate(fixup (a, transtable), cvec);
+              
+                    (* Now do the `else-part' and jump on the inverse of the condition. *)
+                    val notC = genTest (elsePart, not jumpOn);
+              
+                    (* i.e. we drop though if the condition is the one we should have
+                       jumped on. Now merge in the first label so we have both cases
+                       when we should jump together, *)
+                    val (_, mergeBCode) = merge (b, transtable, NoMerge, mark2)
+                    val () = codeGenerate(mergeBCode, cvec)
+              
+                    (* and now take the jump. *)
+                    val (resultLab, resultCode) = unconditionalBranch (NoMerge, transtable)
+                    val () = codeGenerate(resultCode, cvec)
+              
+                    (* Come here if we are not jumping. *)
+                    val () = codeGenerate(fixup (notB, transtable), cvec);
+                    val (_, mergeCCode) = merge (notC, transtable, NoMerge, mark1)
+                    val () = codeGenerate(mergeCCode, cvec)
+                in 
+                    resultLab
+                end
+            end
 
-        (* Simple Cases generate better jumping code like this,
-           rather than creating a boolean return value, then testing it
-           and jumping on the result. We could be less special-case here,
-           but this particular case is exceptionally important for
-           handling inlined selector functions. SPF 24/2/1998
-        *)
+            (* Simple Cases generate better jumping code like this,
+               rather than creating a boolean return value, then testing it
+               and jumping on the result. We could be less special-case here,
+               but this particular case is exceptionally important for
+               handling inlined selector functions. SPF 24/2/1998
+            *)
             (* Previously Cases were generated from almost all simple comparisons.
                Now that they are only generated if there are sufficient numbers of
                branches this can probably be removed. *)
-      | BICCase {cases = [(result, tag)], test, default, ...} =>
-        let
-          val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala, [])
-          val arguments = [(test, GeneralType), (BICConstnt (Address.toMachineWord tag, []), GeneralType)]
-          val eqTest    : backendIC = 
-             BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
-        in
-          genTest (BICCond (eqTest, result, default), jumpOn) 
-        end
+        |   BICCase {cases = [(result, tag)], test, default, ...} =>
+            let
+                val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala, [])
+                val arguments = [(test, GeneralType), (BICConstnt (Address.toMachineWord tag, []), GeneralType)]
+                val eqTest    : backendIC = 
+                    BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
+            in
+                genTest (BICCond (eqTest, result, default), jumpOn) 
+            end
 
-      (* Constants - primarily for andalso/orelse. *)
-      | BICConstnt(w, _) =>
-          (* If true and we jump on true or false and jump on false *)
-          (* then put in an unconditional jump. *)
-          if wordEq (w, True) = jumpOn
-          then
+            (* Constants - primarily for andalso/orelse. *)
+        |   BICConstnt(w, _) =>
+            (* If true and we jump on true or false and jump on false *)
+            (* then put in an unconditional jump. *)
+            if wordEq (w, True) = jumpOn
+            then
             let
                 val (lab, code) = unconditionalBranch (NoMerge, transtable)
                 val () = codeGenerate(code, cvec)
             in
                 lab
             end
-          else noJump (* else drop through. *)
+            else noJump (* else drop through. *)
 
         |   BICNewenv(decs, exp) =>
             (
@@ -1528,134 +1524,233 @@ struct
                 genTest(code, jumpOn)
             end
 
-      | BICEval {function = BICConstnt(oper, _), argList = args, ...} =>
-      (* May be an interface operation which can be put in line. *)
-      let
-        (* Generate a compare instruction. *)
-        fun genCompare (args, t, f) =
-        let
-            val test    = if jumpOn then t else f;
-        in
-            (* Check that the instruction is implemented. *)
-            case checkAndReduceBranches(test, args, fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
-                SOME (test, args) =>
-                   let (* Generate the instruction and get the direction. *)
-                        (* Code generate each argument to the pstack. *)
-                        val argLocns =
-                            List.map (fn arg => genToStack (arg)) args
-                        val (label, testCode) = compareAndBranch (argLocns, test, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                   in
-                     label
-                   end
-            |   NONE => genOtherTests () 
-        end (* genCompare *);
+        |   BICEval {function = BICConstnt(oper, _), argList = args, ...} =>
+            (* May be an interface operation which can be put in line. *)
+            let
+                (* Test if an argument is a long constant.  For integer comparisons it's better
+                   to call the RTS if we know we're always going to have to emulate the instruction. *)
+                fun isLongConstant(BICConstnt(w, _)) = not(Address.isShort w) | isLongConstant _ = false
+            in
+                case args of
+                    [] => genOtherTests () (* We don't currently have any nullary special cases *)
 
-      in
-        case args of
-          [] => (* We don't currently have any nullary special cases *)
-             genOtherTests ()
-          
-        | [(arg, _)] =>
-            (* unary special cases *)
-            if wordEq (oper,ioOp POLY_SYS_not_bool)
-              then genTest (arg, not jumpOn)
+                |   [(arg, _)] =>
+                    (* unary special cases *)
+                    if wordEq (oper,ioOp POLY_SYS_not_bool)
+                    then genTest (arg, not jumpOn)
     
-            else if wordEq (oper,ioOp POLY_SYS_is_short)
-            then
-            (
-              case arg of
-                BICConstnt (w, _) =>
-                  if Address.isShort w
-                  then genTest (constntTrue,  jumpOn)
-                  else genTest (constntFalse, jumpOn)
-        
-              | _ =>
-                (
-                    case checkAndReduceBranches(if jumpOn then Short else Long, [arg],
-                                                fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
-                        SOME (testOp, [arg]) =>
-                        let
-                            val locnOfArg1 = genToStack (arg);
-                            val (label, testCode) = compareAndBranch([locnOfArg1], testOp, transtable)
-                            val () = codeGenerate(testCode, cvec)
-                        in
-                            label
-                        end
-                    |   _ => genOtherTests ()
-                )
-            )
-            
-            else (* Non-special unary function.*)
-                  genOtherTests ()
-           
-        | [(arg1, _), (arg2, _)] =>
-            (* binary special cases *)
-            if wordEq (oper,ioOp POLY_SYS_word_eq)
-            then genCompare ([arg1, arg2], testEqW, testNeqW)
+                    else if wordEq (oper,ioOp POLY_SYS_is_short)
+                    then
+                    let
+                        val argLocn = genToStack arg
+                        val (label, testCode) =
+                            (if jumpOn then testShortInt else testNotShortInt) (argLocn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else genOtherTests () (* Non-special unary function.*)
+
+                |   [(arg1, _), (arg2, _)] =>
+                    (* binary special cases *)
+                    if wordEq (oper,ioOp POLY_SYS_word_eq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then equalWord else notEqualWord) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_word_geq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterOrEqualWord else lessThanWord) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_word_leq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessOrEqualWord else greaterThanWord) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_word_gtr)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterThanWord else lessOrEqualWord) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_word_lss)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessThanWord else greaterOrEqualWord) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_equala) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then equalInt else notEqualInt) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_int_geq) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterOrEqualInt else lessThanInt) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_int_leq) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessOrEqualInt else greaterThanInt) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_int_gtr) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterThanInt else lessOrEqualInt) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_int_lss) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessThanInt else greaterOrEqualInt) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+
+                    else if wordEq (oper,ioOp POLY_SYS_Real_eq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then equalReal else notEqualReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
          
-            else if wordEq (oper,ioOp POLY_SYS_word_neq)
-            then genCompare ([arg1, arg2], testNeqW, testEqW)
+                    else if wordEq (oper,ioOp POLY_SYS_Real_neq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then notEqualReal else equalReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
 
-            else if wordEq (oper,ioOp POLY_SYS_equala)
-            then genCompare ([arg1, arg2], testEqA, testNeqA)
+                    else if wordEq (oper,ioOp POLY_SYS_Real_geq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterOrEqualReal else lessThanReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
 
-            else if wordEq (oper,ioOp POLY_SYS_int_geq)
-            then genCompare ([arg1, arg2], testGeqA, testLtA)
+                    else if wordEq (oper,ioOp POLY_SYS_Real_leq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessOrEqualReal else greaterThanReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
 
-            else if wordEq (oper,ioOp POLY_SYS_int_leq)
-            then genCompare ([arg1, arg2], testLeqA, testGtA)
+                    else if wordEq (oper,ioOp POLY_SYS_Real_gtr)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then greaterThanReal else lessOrEqualReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
 
-            else if wordEq (oper,ioOp POLY_SYS_int_gtr)
-            then genCompare ([arg1, arg2], testGtA, testLeqA)
+                    else if wordEq (oper,ioOp POLY_SYS_Real_lss)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
+                        val (label, testCode) =
+                            (if jumpOn then lessThanReal else greaterOrEqualReal) (arg1Locn, arg2Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
 
-            else if wordEq (oper,ioOp POLY_SYS_int_lss)
-            then genCompare ([arg1, arg2], testLtA, testGeqA)
+                    else genOtherTests () (* Non-special binary function. *)
 
-            else if wordEq (oper,ioOp POLY_SYS_word_geq)
-            then genCompare ([arg1, arg2], testGeqW, testLtW)
+                |   [(arg1, _), (arg2, _), (arg3, _), (arg4, _), (arg5, _)] =>
+                    if wordEq (oper,ioOp POLY_SYS_bytevec_eq)
+                    then
+                    let
+                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2 and arg3Locn = genToStack arg3
+                        and arg4Locn = genToStack arg4 and arg5Locn = genToStack arg5
+                        val (label, testCode) =
+                            (if jumpOn then testByteVecEq else testByteVecNe) (arg1Locn, arg2Locn, arg3Locn, arg4Locn, arg5Locn, transtable)
+                        val () = codeGenerate(testCode, cvec)
+                    in
+                        label
+                    end
+                    else genOtherTests () (* Non-special function. *)
 
-            else if wordEq (oper,ioOp POLY_SYS_word_leq)
-            then genCompare ([arg1, arg2], testLeqW, testGtW)
+                | _ => (* Functions with more than 2 arguments. *)
+                    genOtherTests ()
+                end (* constant functions *)
 
-            else if wordEq (oper,ioOp POLY_SYS_word_gtr)
-            then genCompare ([arg1, arg2], testGtW, testLeqW)
-
-            else if wordEq (oper,ioOp POLY_SYS_word_lss)
-            then genCompare ([arg1, arg2], testLtW, testGeqW)
-
-            else if wordEq (oper,ioOp POLY_SYS_Real_eq)
-            then genCompare ([arg1, arg2], testEqFP, testNeqFP)
-         
-            else if wordEq (oper,ioOp POLY_SYS_Real_neq)
-            then genCompare ([arg1, arg2], testNeqFP, testEqFP)
-
-            else if wordEq (oper,ioOp POLY_SYS_Real_geq)
-            then genCompare ([arg1, arg2], testGeqFP, testLtFP)
-
-            else if wordEq (oper,ioOp POLY_SYS_Real_leq)
-            then genCompare ([arg1, arg2], testLeqFP, testGtFP)
-
-            else if wordEq (oper,ioOp POLY_SYS_Real_gtr)
-            then genCompare ([arg1, arg2], testGtFP, testLeqFP)
-
-            else if wordEq (oper,ioOp POLY_SYS_Real_lss)
-            then genCompare ([arg1, arg2], testLtFP, testGeqFP)
-
-            else genOtherTests () (* Non-special binary function. *)
-
-        |   [(arg1, _), (arg2, _), (arg3, _), (arg4, _), (arg5, _)] =>
-            if wordEq (oper,ioOp POLY_SYS_bytevec_eq)
-            then genCompare ([arg1, arg2, arg3, arg4, arg5], byteVecEq, byteVecNe)
-            else genOtherTests () (* Non-special function. *)
-
-        | _ => (* Functions with more than 2 arguments. *)
-            genOtherTests ()
-      end (* constant functions *)
-
-      | _ => (* Anything else *)
-         genOtherTests ()
-
+        |   _ => genOtherTests ()(* Anything else *)
     end
 
     (* if/then/else, cand and cor. NB if/then/else may be translated
@@ -2121,7 +2216,6 @@ struct
                 )
             end (* callClosure *)
 
-            fun checkConst(BICConstnt(w, _)) = SOME w | checkConst _ = NONE
             fun cgAndRes(opCode, result) = (codeGenerate(opCode, cvec); result)
 
         in (* body of genEval *)

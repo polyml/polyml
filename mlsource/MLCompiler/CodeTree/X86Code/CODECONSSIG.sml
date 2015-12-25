@@ -75,33 +75,6 @@ sig
     (*val codeAddress: code -> address option*)
     val addCompletionHook: code * (code * Address.machineWord -> unit) -> unit
 
-    type negotiateTests
-    type 'a tests
-    val testNeqW:  'a tests
-    val testEqW:   'a tests
-    val testGeqW:  'a tests
-    val testGtW:   'a tests
-    val testLeqW:  'a tests
-    val testLtW:   'a tests
-    val testNeqA:  'a tests
-    val testEqA:   'a tests
-    val testGeqA:  'a tests
-    val testGtA:   'a tests
-    val testLeqA:  'a tests
-    val testLtA:   'a tests
-    val Short:     'a tests
-    val Long:      'a tests
-    val testNeqFP: 'a tests
-    val testEqFP:  'a tests
-    val testGeqFP: 'a tests
-    val testGtFP:  'a tests
-    val testLeqFP: 'a tests
-    val testLtFP:  'a tests
-    val byteVecEq: 'a tests
-    and byteVecNe: 'a tests
-
-    val checkAndReduceBranches: 'a tests * 'a list * ('a -> Address.machineWord option) -> (negotiateTests * 'a list) option
-
     type regSet = RegSet.regSet
     type machineWord = Address.machineWord
     type ttab
@@ -183,8 +156,6 @@ sig
 
     val exiting: ttab -> unit
     val haveExited: ttab -> bool
-
-    val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
 
     val saveState : ttab -> savedState
     val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
@@ -289,12 +260,35 @@ sig
     and moveWords:
         'a * 'a * 'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
 
+    val notEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and equalWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterOrEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterThanWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessOrEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessThanWord: stackIndex * stackIndex * ttab -> labels * operation list
+    and notEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and equalInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterOrEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterThanInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessOrEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessThanInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and notEqualReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and equalReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterOrEqualReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterThanReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessOrEqualReal: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessThanReal: stackIndex * stackIndex * ttab -> labels * operation list
+ 
+    val testShortInt: stackIndex * ttab -> labels * operation list
+    and testNotShortInt: stackIndex * ttab -> labels * operation list
+    
+    val testByteVecEq: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab -> labels * operation list
+    and testByteVecNe: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab -> labels * operation list
+
     structure Sharing:
     sig
         type code           = code
-        and  negotiateTests = negotiateTests
         and  reg            = reg
-        and  'a tests       = 'a tests
         and  addrs          = addrs
         and  operation      = operation
         and  regHint        = regHint
