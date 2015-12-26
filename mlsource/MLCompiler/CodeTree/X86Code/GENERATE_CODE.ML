@@ -2770,7 +2770,6 @@ struct
                            avoid that. *)
                         else if primBoolOps andalso
                         (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_word_neq) orelse
                          wordEq (oper,ioOp POLY_SYS_equala)   orelse
                          wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
                          wordEq (oper,ioOp POLY_SYS_int_leq)  orelse

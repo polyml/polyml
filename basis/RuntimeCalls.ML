@@ -46,7 +46,6 @@ struct
   val POLY_SYS_network             = 51 (* DCJM 22/5/00 *)
   val POLY_SYS_os_specific         = 52 (* DCJM 22/5/00 *)
   val POLY_SYS_eq_longword         = 53
-  val POLY_SYS_neq_longword        = 54
   val POLY_SYS_geq_longword        = 55
   val POLY_SYS_leq_longword        = 56
   val POLY_SYS_gt_longword         = 57
@@ -152,7 +151,6 @@ struct
   val POLY_SYS_bytes_per_word      = 214  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_offset_address      = 215
   val POLY_SYS_shift_right_word    = 216
-  val POLY_SYS_word_neq            = 217
   val POLY_SYS_not_bool            = 218
   val POLY_SYS_string_length       = 223
   val POLY_SYS_touch_final         = 228

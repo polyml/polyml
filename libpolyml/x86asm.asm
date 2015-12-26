@@ -2123,12 +2123,6 @@ word_eq:
     jmp     RetFalse
 CALLMACRO   RegMask word_eq,(M_Reax)
 
-word_neq:
-    CMPL    Rebx,Reax
-    jz      RetFalse
-    jmp     RetTrue
-CALLMACRO   RegMask word_neq,(M_Reax)
-
 word_geq:
     CMPL    Rebx,Reax
     jnb     RetTrue
@@ -2615,13 +2609,6 @@ eq_longword:
     jz      RetTrue         ;# True if they are equal.
     jmp     RetFalse
 CALLMACRO   RegMask eq_longword,(M_Reax)
-
-neq_longword:
-    MOVL    [Reax],Reax
-    CMPL    [Rebx],Reax
-    jz      RetFalse
-    jmp     RetTrue
-CALLMACRO   RegMask neq_longword,(M_Reax)
 
 geq_longword:
     MOVL    [Reax],Reax
@@ -3270,7 +3257,7 @@ ENDIF
     DDQ  CallPOLY_SYS_network           ;# 51
     DDQ  CallPOLY_SYS_os_specific       ;# 52
     DDQ  eq_longword                    ;# 53
-    DDQ  neq_longword                   ;# 54
+    DDQ  0								;# 54 is no longer used
     DDQ  geq_longword                   ;# 55
     DDQ  leq_longword                   ;# 56
     DDQ  gt_longword                    ;# 57
@@ -3441,7 +3428,7 @@ ENDIF
     DDQ  bytes_per_word                 ;# 214
     DDQ  offset_address                 ;# 215
     DDQ  shift_right_word               ;# 216
-    DDQ  word_neq                       ;# 217
+    DDQ  0								;# 217 now unused
     DDQ  not_bool                       ;# 218
     DDQ  0                              ;# 219 is unused
     DDQ  0                              ;# 220 is unused
@@ -3549,7 +3536,7 @@ ENDIF
     dd  Mask_all                 ;# 51
     dd  Mask_all                 ;# 52
     dd  Mask_eq_longword         ;# 53
-    dd  Mask_neq_longword        ;# 54
+    dd  Mask_all				 ;# 54 is no longer used
     dd  Mask_geq_longword        ;# 55
     dd  Mask_leq_longword        ;# 56
     dd  Mask_gt_longword         ;# 57
@@ -3720,7 +3707,7 @@ ENDIF
     dd  Mask_bytes_per_word      ;# 214
     dd  Mask_offset_address      ;# 215
     dd  Mask_shift_right_word    ;# 216
-    dd  Mask_word_neq            ;# 217
+    dd  Mask_all				 ;# 217 - no longer used
     dd  Mask_not_bool            ;# 218
     dd  Mask_all                 ;# 219 is unused
     dd  Mask_all                 ;# 220 is unused

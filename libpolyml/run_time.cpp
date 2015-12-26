@@ -731,13 +731,6 @@ Handle word_eq_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
 }
 
-Handle word_neq_c(TaskData *taskData, Handle y, Handle x)
-{
-    POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
-    POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
-}
-
 Handle word_geq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
@@ -843,13 +836,6 @@ Handle eqLongWord(TaskData *taskData, Handle y, Handle x)
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
-}
-
-Handle neqLongWord(TaskData *taskData, Handle y, Handle x)
-{
-    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
-    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
-    return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
 }
 
 Handle geqLongWord(TaskData *taskData, Handle y, Handle x)

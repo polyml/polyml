@@ -939,10 +939,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &shift_right_word_c);
                 break;
     
-            case POLY_SYS_word_neq:
-                CallIO2(this, &word_neq_c);
-                break;
-    
             case POLY_SYS_not_bool:
                 CallIO1(this, &not_bool_c);
                 break;
@@ -1194,10 +1190,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_eq_longword:
                 CallIO2(this, &eqLongWord);
-                break;
-
-            case POLY_SYS_neq_longword:
-                CallIO2(this, &neqLongWord);
                 break;
 
             case POLY_SYS_geq_longword:

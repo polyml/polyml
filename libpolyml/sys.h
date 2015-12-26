@@ -59,7 +59,6 @@
 #define POLY_SYS_network             51 /* DCJM 22/5/00 */
 #define POLY_SYS_os_specific         52 /* DCJM 22/5/00 */
 #define POLY_SYS_eq_longword                    53
-#define POLY_SYS_neq_longword                   54
 #define POLY_SYS_geq_longword                   55
 #define POLY_SYS_leq_longword                   56
 #define POLY_SYS_gt_longword                    57
@@ -167,7 +166,6 @@
 #define POLY_SYS_bytes_per_word      214  /* added 30/3/95 (DCJM) */
 #define POLY_SYS_offset_address      215
 #define POLY_SYS_shift_right_word    216
-#define POLY_SYS_word_neq            217
 #define POLY_SYS_not_bool            218
 #define POLY_SYS_string_length       223
 #define POLY_SYS_touch_final         228

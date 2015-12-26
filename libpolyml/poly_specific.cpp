@@ -109,7 +109,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_network: return 0;
     case POLY_SYS_os_specific: return 0;
     case POLY_SYS_eq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_neq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_geq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_leq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_gt_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -221,7 +220,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_bytes_per_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_offset_address: return 0;
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_word_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;

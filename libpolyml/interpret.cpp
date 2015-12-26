@@ -499,11 +499,6 @@ int IntTaskData::SwitchToPoly()
                        *sp = u == *sp ? True : False;
                        break;
 
-                    case POLY_SYS_word_neq:
-                       u = *sp++;
-                       *sp = u == *sp ? False : True;
-                       break;
-
                     case POLY_SYS_word_geq:
                         u = *sp++; *sp = ((*sp).AsUnsigned() >= u.AsUnsigned())?True:False; break;
 
@@ -1853,10 +1848,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO2(this, &eqLongWord);
                 break;
 
-            case POLY_SYS_neq_longword:
-                CallIO2(this, &neqLongWord);
-                break;
-
             case POLY_SYS_geq_longword:
                 CallIO2(this, &geqLongWord);
                 break;
@@ -2010,7 +2001,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
     add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
     add_word_to_io_area(POLY_SYS_shift_right_word, TAGGED(POLY_SYS_shift_right_word));
-    add_word_to_io_area(POLY_SYS_word_neq, TAGGED(POLY_SYS_word_neq));
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
     add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
@@ -2072,7 +2062,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_move_bytes_overlap,        TAGGED(POLY_SYS_move_bytes_overlap));
     add_word_to_io_area(POLY_SYS_move_words_overlap,        TAGGED(POLY_SYS_move_words_overlap));
     add_word_to_io_area(POLY_SYS_eq_longword,               TAGGED(POLY_SYS_eq_longword));
-    add_word_to_io_area(POLY_SYS_neq_longword,              TAGGED(POLY_SYS_neq_longword));
     add_word_to_io_area(POLY_SYS_geq_longword,              TAGGED(POLY_SYS_geq_longword));
     add_word_to_io_area(POLY_SYS_leq_longword,              TAGGED(POLY_SYS_leq_longword));
     add_word_to_io_area(POLY_SYS_gt_longword,               TAGGED(POLY_SYS_gt_longword));
