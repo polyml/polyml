@@ -2228,571 +2228,341 @@ struct
                     if Address.isIoAddress addr
                     then
                     (
-                        if wordEq (oper,ioOp POLY_SYS_thread_self)
-                        then
-                        (
-                            case args of
-                                [] => cgAndRes(threadSelf(transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_thread_self: args"
-                        )
+                        case args of
+                            [] => (* Nullary *)
+                            if wordEq (oper,ioOp POLY_SYS_thread_self)
+                            then cgAndRes(threadSelf(transtable, whereto))
+                            else callClosure (SOME evalFun, true)
 
-                        else if wordEq (oper,ioOp POLY_SYS_get_length)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(vectorLength(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_get_length: args"
-                        )
+                        |   [arg] => (* Unary *)
+                            if wordEq (oper,ioOp POLY_SYS_get_length)
+                            then cgAndRes(vectorLength(genToStack arg, transtable, whereto))
+                            else if wordEq (oper,ioOp POLY_SYS_get_flags)
+                            then
+                            (
+                                case vectorFlags(arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
+                            then
+                            (
+                                case getFirstLong(arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_string_length)
+                            then
+                            (
+                                case stringLength(arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            (* Negation is coded as 0 - X. *)
+                            else if wordEq (oper,ioOp POLY_SYS_aneg)
+                            then
+                            (
+                                case subtractInteger(constntZero, arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
 
-                        else if wordEq (oper,ioOp POLY_SYS_get_flags)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case vectorFlags(arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_get_flags: args"
-                        )
+                            (* Boolean "not" is coded as xor with "true" *)
+                            else if wordEq (oper,ioOp POLY_SYS_not_bool)
+                            then
+                            (
+                                case xorWord(arg, constntTrue, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
+                            then
+                            (
+                                case atomicIncrement(arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
+                            then
+                            (
+                                case atomicDecrement(arg, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq(oper, ioOp POLY_SYS_lockseg)
+                            then cgAndRes(lockVector(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case getFirstLong(arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_get_first_long_word: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_Abs_real)
+                            then cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_string_length)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case stringLength(arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_string_length: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_Neg_real)
+                            then cgAndRes(negativeReal(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_set_string_length)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case setStringLength(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_set_string_length: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_int_to_real)
+                            then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_aplus)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case addInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_aplus: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
+                            then cgAndRes(squareRootReal(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_aminus)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case subtractInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_aminus: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_sin_real)
+                            then cgAndRes(sineReal(genToStack arg, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_amul)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_amul: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_cos_real)
+                            then cgAndRes(cosineReal(genToStack arg, transtable, whereto))
 
-                        (* Negation is coded as 0 - X. *)
-                        else if wordEq (oper,ioOp POLY_SYS_aneg)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case subtractInteger(constntZero, arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_aneg: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_arctan_real)
+                            then cgAndRes(arctanReal(genToStack arg, transtable, whereto))
 
-                        (* Boolean "not" is coded as xor with "true" *)
-                        else if wordEq (oper,ioOp POLY_SYS_not_bool)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case xorWord(arg, constntTrue, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_not_bool: args"
-                        )
+                            else if primBoolOps andalso wordEq (oper,ioOp POLY_SYS_is_short)
+                            then (* Convert this into "if isShort then true else false" *)
+                                genCond
+                                    (BICEval {function = evalFun, argList = argList, resultType=resultType},
+                                    constntTrue, constntFalse, whereto, tailKind, NONE)
 
-                        else if wordEq (oper,ioOp POLY_SYS_or_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case orWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_or_word: args"
-                        )
+                            else callClosure (SOME evalFun, true)
 
-                        else if wordEq (oper,ioOp POLY_SYS_and_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case andWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_and_word: args"
-                        )
+                        |   [arg1, arg2] => (* Binary *)
+                            if wordEq (oper,ioOp POLY_SYS_set_string_length)
+                            then
+                            (
+                                case setStringLength(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_aplus)
+                            then
+                            (
+                                case addInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_aminus)
+                            then
+                            (
+                                case subtractInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
 
-                        else if wordEq (oper,ioOp POLY_SYS_xor_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case xorWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_xor_word: args"
-                        )
-        
-                        else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case upShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_shift_left_word: args"
-                        )
-   
-                        else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case downShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_shift_right_word: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_amul)
+                            then
+                            (
+                                case multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_or_word)
+                            then
+                            (
+                                case orWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_and_word)
+                            then
+                            (
+                                case andWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_xor_word)
+                            then
+                            (
+                                case xorWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
+                            then
+                            (
+                                case upShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
+                            then
+                            (
+                                case downShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
+                            then
+                            (
+                                case downShiftArithmeticWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_mul_word)
+                            then
+                            (
+                                case multiplyWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_plus_word)
+                            then
+                            (
+                                case addWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_minus_word)
+                            then
+                            (
+                                case subtractWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_div_word)
+                            then
+                            (
+                                case divideWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_mod_word)
+                            then
+                            (
+                                case modulusWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_load_byte)
+                            then
+                            (
+                                case loadByte(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_load_word)
+                            then
+                            (
+                                case loadWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_Add_real)
+                            then cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case downShiftArithmeticWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_shift_right_arith_word: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_Sub_real)
+                            then cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_mul_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case multiplyWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_mul_word: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_Mul_real)
+                            then cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_plus_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case addWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_plus_word: args"
-                        )
-        
-                        else if wordEq (oper,ioOp POLY_SYS_minus_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case subtractWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_plus_word: args"
-                        )
+                            else if wordEq (oper,ioOp POLY_SYS_Div_real)
+                            then cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                        else if wordEq (oper,ioOp POLY_SYS_div_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case divideWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_div_word: args"
-                        )
-        
-                        else if wordEq (oper,ioOp POLY_SYS_mod_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case modulusWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_mod_word: args"
-                        )
+                            (* The point of the following code is to call genCond, which will call genTest
+                               which will hopefully use machine instructions for these operations.
+                               We could avoid this by duplicating most of the body of genTest
+                               (the "jumping" boolean code generator) here, but we would like to
+                               avoid that. *)
+                            else if primBoolOps andalso
+                            (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_equala)   orelse
+                             wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
+                             wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
+                             wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
+                             wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
+                             wordEq (oper,ioOp POLY_SYS_Real_lss))
+                            then genCond
+                                    (BICEval {function = evalFun, argList = argList, resultType=resultType},
+                                     constntTrue, constntFalse, whereto, tailKind, NONE)
 
-                        else if wordEq (oper,ioOp POLY_SYS_load_byte)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case loadByte(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_load_byte: args"
-                        )
+                            else callClosure (SOME evalFun, true)
 
-                        else if wordEq (oper,ioOp POLY_SYS_load_word)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] =>
-                                (
-                                    case loadWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_load_word: args"
-                        )
+                        |   [arg1, arg2, arg3] => (* Trinary *)
+                            if wordEq (oper,ioOp POLY_SYS_alloc_store)
+                            then
+                            let
+                                (* This is used to allocate all memory apart from tuples and
+                                   closures.  We particularly want to be able to profile the
+                                   allocation of refs so we consider them specially. *)
+                                open Address
+                            in
+                                case (arg1, arg2) of
+                                    (BICConstnt(len, _), BICConstnt(flag, _)) =>
+                                        if isShort len andalso toShort len = 0w1
+                                           andalso isShort flag
+                                           andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
+                                        then
+                                        let
+                                            val initLoc = genToStackOrGeneralRegister arg3
+                                            val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
+                                            val () = codeGenerate(vecCode, cvec)
+                                            val moveCode = moveToVec (vec, initLoc, 0, transtable)
+                                            val () = codeGenerate(moveCode, cvec)
+                                            val () = codeGenerate(allocationComplete, cvec)
+                                        in
+                                            case whereto of
+                                                NoResult => NoMerge (* Unused. *)
+                                            |   _ => MergeIndex vec
+                                        end
+                                        else
+                                        (
+                                            case allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
+                                                SOME r => cgAndRes r
+                                            |   NONE => callClosure (SOME evalFun, true)
+                                        )
 
-                        else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case atomicIncrement(arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_atomic_incr: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
-                        then
-                        (
-                            case args of
-                                [arg] =>
-                                (
-                                    case atomicDecrement(arg, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_atomic_decr: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_alloc_store)
-                        then
-                        let
-                            (* This is used to allocate all memory apart from tuples and
-                               closures.  We particularly want to be able to profile the
-                               allocation of refs so we consider them specially. *)
-                            open Address
-                        in
-                            case args of
-                                [arg1 as BICConstnt(len, _), arg2 as BICConstnt(flag, _), arg3 as initValArg] =>
-                                    if isShort len andalso toShort len = 0w1
-                                       andalso isShort flag
-                                       andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
-                                    then
-                                    let
-                                        val initLoc = genToStackOrGeneralRegister initValArg
-                                        val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
-                                        val () = codeGenerate(vecCode, cvec)
-                                        val moveCode = moveToVec (vec, initLoc, 0, transtable)
-                                        val () = codeGenerate(moveCode, cvec)
-                                        val () = codeGenerate(allocationComplete, cvec)
-                                    in
-                                        case whereto of
-                                            NoResult => NoMerge (* Unused. *)
-                                        |   _ => MergeIndex vec
-                                    end
-                                    else
+                                |   _ =>
                                     (
                                         case allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
                                             SOME r => cgAndRes r
                                         |   NONE => callClosure (SOME evalFun, true)
                                     )
+                            end
+                            else if wordEq (oper,ioOp POLY_SYS_assign_word)
+                            then
+                            (
+                                case storeWord(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else if wordEq (oper,ioOp POLY_SYS_assign_byte)
+                            then
+                            (
+                                case storeByte(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
+                                    SOME r => cgAndRes r
+                                |   NONE => callClosure (SOME evalFun, true)
+                            )
+                            else callClosure (SOME evalFun, true)
 
-                            |   [arg1, arg2, arg3] =>
-                                (
-                                    case allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-
-                            |   _ => raise InternalError "POLY_SYS_alloc_store: args"
-                         end
-
-                        else if wordEq (oper,ioOp POLY_SYS_assign_word)
-                        (*then codeRTSFunction(instrStoreW, args, whereto)*)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2, arg3] =>
-                                (
-                                    case storeWord(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_assign_word: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_assign_byte)
-                        (*then codeRTSFunction(instrStoreB, args, whereto)*)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2, arg3] =>
-                                (
-                                    case storeByte(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
-                                        SOME r => cgAndRes r
-                                    |   NONE => callClosure (SOME evalFun, true)
-                                )
-                            |   _ => raise InternalError "POLY_SYS_assign_byte: args"
-                        )
-                    
-                        else if wordEq(oper, ioOp POLY_SYS_lockseg)
-                        (*then codeRTSFunction(instrLockSeg, args, whereto)*)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(lockVector(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_lockseg: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Add_real)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] => cgAndRes(addReal(genToStack arg1, genToStack arg2, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Add_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Sub_real)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] => cgAndRes(subtractReal(genToStack arg1, genToStack arg2, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Sub_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Mul_real)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] => cgAndRes(multiplyReal(genToStack arg1, genToStack arg2, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Mul_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Div_real)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2] => cgAndRes(divideReal(genToStack arg1, genToStack arg2, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Div_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Abs_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(absoluteReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Abs_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_Neg_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(negativeReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_Neg_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_int_to_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(integerToReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_int_to_real: args"
-                        )
-
-                        (*else if wordEq (oper,ioOp POLY_SYS_real_to_int)
-                        then codeRTSFunction(instrRealToIntFP, args, whereto)*)
-
-                        else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(squareRootReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_sqrt_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_sin_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(sineReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_sin_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_cos_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(cosineReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_cos_real: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_arctan_real)
-                        then
-                        (
-                            case args of
-                                [arg] => cgAndRes(arctanReal(genToStack arg, transtable, whereto))
-                            |   _ => raise InternalError "POLY_SYS_arctan_real: args"
-                        )
-
-                        (*else if wordEq (oper,ioOp POLY_SYS_exp_real)
-                        then codeRTSFunction(instrExpFP, args, whereto)
-
-                        else if wordEq (oper,ioOp POLY_SYS_ln_real)
-                        then codeRTSFunction(instrLnFP, args, whereto)*)
-
-                        else if wordEq (oper,ioOp POLY_SYS_move_bytes)
-                        (*then codeRTSFunction(instrMoveBytes, args, whereto)*)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2, arg3, arg4, arg5] =>
+                        |   [arg1, arg2, arg3, arg4, arg5] => (* Five arguments *)
+                            if wordEq (oper,ioOp POLY_SYS_move_bytes)
+                            then
                                 (
                                     case moveBytes(arg1, arg2, arg3, arg4, arg5, transtable, whereto, checkConst, genToStack) of
                                         SOME r => cgAndRes r
                                     |   NONE => callClosure (SOME evalFun, true)
                                 )
-                            |   _ => raise InternalError "POLY_SYS_move_bytes: args"
-                        )
-
-                        else if wordEq (oper,ioOp POLY_SYS_move_words)
-                        (*then codeRTSFunction(instrMoveWords, args, whereto)*)
-                        then
-                        (
-                            case args of
-                                [arg1, arg2, arg3, arg4, arg5] =>
+                            else if wordEq (oper,ioOp POLY_SYS_move_words)
+                            then
                                 (
                                     case moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto, checkConst, genToStack) of
                                         SOME r => cgAndRes r
                                     |   NONE => callClosure (SOME evalFun, true)
                                 )
-                            |   _ => raise InternalError "POLY_SYS_move_bytes: args"
-                        )
+                            else if primBoolOps andalso wordEq (oper,ioOp POLY_SYS_bytevec_eq)
+                            then (* Convert this into "if byteVecEq... then true else false" *)
+                                genCond
+                                    (BICEval {function = evalFun, argList = argList, resultType=resultType},
+                                    constntTrue, constntFalse, whereto, tailKind, NONE)
 
-                        (* The point of the following code is to call genCond, which will call genTest
-                           which will hopefully use machine instructions for these operations.
-                           We could avoid this by duplicating most of the body of genTest
-                           (the "jumping" boolean code generator) here, but we would like to
-                           avoid that. *)
-                        else if primBoolOps andalso
-                        (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_equala)   orelse
-                         wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
-                         wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
-                         wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
-                         wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
-                         wordEq (oper,ioOp POLY_SYS_word_lss) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_geq) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_leq) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_gtr) orelse
-                         wordEq (oper,ioOp POLY_SYS_Real_lss) orelse
-                         wordEq (oper,ioOp POLY_SYS_is_short) orelse
-                         wordEq (oper,ioOp POLY_SYS_bytevec_eq))
-                        then
-                            genCond
-                                (BICEval {function = evalFun, argList = argList, resultType=resultType},
-                                 constntTrue, constntFalse, whereto, tailKind, NONE)
-                        else (* unoptimised I/O call *)
-                            callClosure (SOME evalFun, true)
+                            else callClosure (SOME evalFun, true)
+
+                        |   _ => callClosure (SOME evalFun, true)
                     )
   
                     else (* All other constant functions. *) callClosure (SOME evalFun, true)
