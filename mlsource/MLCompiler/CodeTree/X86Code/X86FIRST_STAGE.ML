@@ -3799,54 +3799,32 @@ struct
 
             fun storeWordNegotiator _ =
                 (* The first argument, the address needs to be in a register even if
-                   it's a constant.  The others may be literals.  Actually the first
-                   argument could be a constant as well if the offset is zero. *)
+                   it's a constant.  The others may be literals. *)
                 loadBaseAddress(NoResult,
                     loadToRegOrLiteral(generalRegisters, 1,
                         loadToRegOrLiteral(generalRegisters, 2,
                             generateInstruction genStoreWord
                             ))) ([NONE, NONE, NONE], NONE)
         in
-            val instrStoreW = fn(args, _) => SOME(storeWordNegotiator, args)
+            fun storeWord(arg1, arg2, arg3, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3], storeWordNegotiator, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun storeWord(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrStoreW, [arg1, arg2, arg3], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
-
-            (* Moves an expression into a newly created vector or into a container.
-               The offset is the number of bytes if this a byte store and the number of
-               words if this is word store. *)
+            (* Moves an expression into a newly created vector or into a container. *)
             fun moveToVec (vecEntry, valueEntry, offset: int, table) : operation list =
             let
                 val freeCode1 = incrUseCount (table, vecEntry, 1) (* This must be kept. *)
                 (* Turn this into an assignment operation. *)
                 val arguments = [vecEntry, pushConst(table, toMachineWord offset), valueEntry]
-                fun mapLiteral ent =
-                    case pstackRealEntry(table, ent) of
-                        {ent = Literal lit, ...} => SOME lit
-                    |   _ => NONE
             in
-                case instrStoreW(arguments, mapLiteral) of
-                    SOME(instr, args) =>
-                        let
-                            (* Decrement the use counts for entries that we're not using. *)
-                            val freeCode2 = List.foldl(fn (a, l) => incrUseCount (table, a, 1) @ l) [] args
-                            val freeCode3 = List.foldl(fn (a, l) => incrUseCount (table, a, ~1) @ l) [] arguments
-                        in
-                            #2(dataOp(args, instr, table, NoResult)) @ freeCode3 @ freeCode2 @ freeCode1
-                        end
-                |   NONE => raise InternalError "moveToVec: Not implemented"
+                #2(dataOp(arguments, storeWordNegotiator, table, NoResult)) @ freeCode1
             end
         end
 
@@ -4049,42 +4027,29 @@ struct
                             generateInstruction(genLoadInstr isWord))
                         )
                     ) ([NONE, NONE], NONE)
-
-            fun instrLoad(args, _) = SOME(genLoadWord true, args)
-            and instrLoadB(args, _) = SOME(genLoadWord false, args)
         in
-            fun loadWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrLoad, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun loadWord(arg1, arg2, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord true, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            and loadByte(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrLoadB, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
-
-
-        end
+            and loadByte(arg1, arg2, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord false, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
+         end
 
         local
             fun makeTest(InRegister reg) = TestTagR reg
@@ -4243,27 +4208,22 @@ struct
 
             (* We store from the low order byte of a register so we want the value in one of
                the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
-            fun storeByte _ =
+            fun storeByteI _ =
                loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
                     loadBaseAddress(NoResult,
                         loadToRegOrLiteral(generalRegisters, 1,
                             generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE)
-            fun instrStoreB(args, _) = SOME(storeByte, args)
         in
-            fun storeByte(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrStoreB, [arg1, arg2, arg3], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun storeByte(arg1, arg2, arg3, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3], storeByteI, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local
@@ -4361,39 +4321,28 @@ struct
                         loadToSpecificRegister(ecx, true, 4,
                             allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
-
-            fun instrMoveBytes(args, _) = SOME(genMemMove byteMemMove, args)
-            and instrMoveWords(args, _) = SOME(genMemMove wordMemMove, args)
         in
-            fun moveBytes(arg1, arg2, arg3, arg4, arg5, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrMoveBytes, [arg1, arg2, arg3, arg4, arg5], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun moveBytes(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove byteMemMove, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            and moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrMoveWords, [arg1, arg2, arg3, arg4, arg5], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            and moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove wordMemMove, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local
@@ -5056,22 +5005,18 @@ struct
                     ShiftConstant{shiftType=SRL, output=length, shift=0w1 } (* Untag it *)
                 ]
             |   genSetStringLength _ = raise InternalError "genSetStringStringLength"
-            fun instrSetStringLength(args, _) = SOME(fn _ => noresultNegotiator genSetStringLength, args)
         in
-            fun setStringLength(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrSetStringLength, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun setStringLength(arg1, arg2, transtable, whereto) =
+            let
+                fun i _ = noresultNegotiator genSetStringLength
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local
@@ -5200,125 +5145,90 @@ struct
 
             |   wordSelectedRight opRes args = wordSelectedLeft opRes (List.rev args)
 
-            (* If either of the arguments are long constants we don't code-generate and
-               instead fall back to the RTS.  This is likely to be more efficient. *)
-            fun checkShort (opc, args, mapper) =
-                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
-                then NONE
-                else SOME(wordSelectDest(opc, testTagsForArithmetic), args)
-
-            val instrAddA = fn (args, mapper) => checkShort(ADD, args, mapper)
-            and instrSubA = fn (args, mapper) => checkShort(SUB, args, mapper)
-            val instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
-            and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
-            and instrOrW  = fn (args, _)  => SOME(wordSelectDest(OR, noTagTest), args)
-            and instrAndW = fn (args, _) => SOME(wordSelectDest(AND, noTagTest), args)
-            and instrXorW = fn (args, _) => SOME(wordSelectDest(XOR, noTagTest), args)
         in
-            fun addInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAddA, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun addInteger(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(ADD, testTagsForArithmetic)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun subtractInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrSubA, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun subtractInteger(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(SUB, testTagsForArithmetic)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun addWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAddW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun addWord(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(ADD, noTagTest)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun subtractWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrSubW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun subtractWord(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(SUB, noTagTest)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun andWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAndW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun andWord(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(AND, noTagTest)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun orWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrOrW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun orWord(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(OR, noTagTest)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun xorWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrXorW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun xorWord(arg1, arg2, transtable, whereto) =
+            let
+                val i = wordSelectDest(XOR, noTagTest)
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local

@@ -204,24 +204,16 @@ sig
     and arctanReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val setStringLength:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and addInteger:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and subtractInteger:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    val setStringLength: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and addInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and subtractInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and multiplyInteger:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and addWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and subtractWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and andWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and orWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and xorWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and addWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and subtractWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and andWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and orWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and xorWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and upShiftWord:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
     and downShiftWord:
@@ -234,10 +226,8 @@ sig
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
     and modulusWord:
         'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and loadByte:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and loadWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and loadByte: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and loadWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and addReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and subtractReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and multiplyReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
@@ -245,16 +235,12 @@ sig
 
     val allocateStore:
         'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and storeWord:
-        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and storeByte:
-        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and storeWord: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and storeByte: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val moveBytes:
-        'a * 'a * 'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and moveWords:
-        'a * 'a * 'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-
+    val moveBytes: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+    and moveWords: stackIndex * stackIndex * stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
+ 
     val notEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
     and equalWord: stackIndex * stackIndex * ttab -> labels * operation list
     and greaterOrEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
