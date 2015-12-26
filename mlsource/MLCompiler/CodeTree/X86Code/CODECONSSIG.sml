@@ -190,16 +190,11 @@ sig
     val threadSelf: ttab * regHint -> operation list * mergeResult
 
     val vectorLength: stackIndex * ttab * regHint -> operation list * mergeResult
-    and vectorFlags:
-        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and getFirstLong:
-        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and stringLength:
-        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and atomicIncrement:
-        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and atomicDecrement:
-        'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and vectorFlags: stackIndex * ttab * regHint -> operation list * mergeResult
+    and getFirstLong: stackIndex * ttab * regHint -> operation list * mergeResult
+    and stringLength: stackIndex * ttab * regHint -> operation list * mergeResult
+    and atomicIncrement: stackIndex * ttab * regHint -> operation list * mergeResult
+    and atomicDecrement: stackIndex * ttab * regHint -> operation list * mergeResult
     and lockVector: stackIndex * ttab * regHint -> operation list * mergeResult
     and absoluteReal: stackIndex * ttab * regHint -> operation list * mergeResult
     and negativeReal: stackIndex * ttab * regHint -> operation list * mergeResult

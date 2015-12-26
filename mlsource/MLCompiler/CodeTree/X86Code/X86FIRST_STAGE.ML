@@ -3917,23 +3917,18 @@ struct
                 [TagValue{source=outReg, output=outReg},
                  LoadByteR{source=BaseOffset{base=baseReg, offset= ~1, index=NoIndex}, output=outReg}]
             |   genVecFlags _ = raise InternalError "genVecFlags"
-
-            fun instrVecflags(args, _) = SOME(fn pref => generalNegotiator(genVecFlags, pref), args)
         in
-            fun vectorFlags(arg, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrVecflags, [arg], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun vectorFlags(arg, transtable, whereto) =
+            let
+                fun i pref = generalNegotiator(genVecFlags, pref)
+                val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local (* Get the first word of a long integer.  Used when converting to "word". *)
@@ -3952,22 +3947,18 @@ struct
                 end
             |   genFirstLong _ = raise InternalError "genFirstLong"
             (* This is another case where we could reuse the argument for the result. *)
-            fun instrGetFirstLong(args, _) = SOME(fn pref => generalNegotiator(genFirstLong, pref), args)
         in
-            fun getFirstLong(arg, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrGetFirstLong, [arg], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun getFirstLong(arg, transtable, whereto) =
+            let
+                fun i pref = generalNegotiator(genFirstLong, pref)
+                val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local
@@ -4284,39 +4275,30 @@ struct
                     MoveConstR{source=semitag incr, output=rd}
                 ]
             |   atomicOp _ _ = raise InternalError "atomicOp"
-
-            fun instrAtomicIncr(args, _) = SOME(fn pref => generalNegotiator(atomicOp 1, pref), args)
-            and instrAtomicDecr(args, _) = SOME(fn pref => generalNegotiator(atomicOp ~1, pref), args)
         in
-            fun atomicIncrement(arg, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAtomicIncr, [arg], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun atomicIncrement(arg, transtable, whereto) =
+            let
+                fun i pref = generalNegotiator(atomicOp 1, pref)
+                val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            and atomicDecrement(arg, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAtomicDecr, [arg], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            and atomicDecrement(arg, transtable, whereto) =
+            let
+                fun i pref = generalNegotiator(atomicOp ~1, pref)
+                val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
         
         local
@@ -5052,23 +5034,18 @@ struct
 
             (* We could use the same register for the result and the argument.  For the
                moment we force it to use different regs. *)
-            fun instrStringLength(args, _) =
-                    SOME(fn pref => generalNegotiator(genStringLength, pref), args)
         in
-            fun stringLength(arg, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrStringLength, [arg], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun stringLength(arg, transtable, whereto) =
+            let
+                fun i pref = generalNegotiator(genStringLength, pref)
+                val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
         end
 
         local (* Set the length word of a string.  Used when constructing strings in the library. *)

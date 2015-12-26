@@ -74,6 +74,10 @@ struct
     (* Used to allow the next CG phase to check for a constant. *)
     fun checkConst(BICConstnt(w, _)) = SOME w | checkConst _ = NONE
 
+    (* Test if an argument is a long constant.  For integer operations it's better
+       to call the RTS if we know we're always going to have to emulate the instruction. *)
+    fun isLongConstant(BICConstnt(w, _)) = not(Address.isShort w) | isLongConstant _ = false
+
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
     (* Are we at the end of the function. *)
@@ -1527,9 +1531,6 @@ struct
         |   BICEval {function = BICConstnt(oper, _), argList = args, ...} =>
             (* May be an interface operation which can be put in line. *)
             let
-                (* Test if an argument is a long constant.  For integer comparisons it's better
-                   to call the RTS if we know we're always going to have to emulate the instruction. *)
-                fun isLongConstant(BICConstnt(w, _)) = not(Address.isShort w) | isLongConstant _ = false
             in
                 case args of
                     [] => genOtherTests () (* We don't currently have any nullary special cases *)
@@ -2237,27 +2238,15 @@ struct
                         |   [arg] => (* Unary *)
                             if wordEq (oper,ioOp POLY_SYS_get_length)
                             then cgAndRes(vectorLength(genToStack arg, transtable, whereto))
+
                             else if wordEq (oper,ioOp POLY_SYS_get_flags)
-                            then
-                            (
-                                case vectorFlags(arg, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            then cgAndRes(vectorFlags(genToStack arg, transtable, whereto))
+
                             else if wordEq (oper,ioOp POLY_SYS_get_first_long_word)
-                            then
-                            (
-                                case getFirstLong(arg, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            then cgAndRes(getFirstLong(genToStack arg, transtable, whereto))
+
                             else if wordEq (oper,ioOp POLY_SYS_string_length)
-                            then
-                            (
-                                case stringLength(arg, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            then cgAndRes(stringLength(genToStack arg, transtable, whereto))
                             (* Negation is coded as 0 - X. *)
                             else if wordEq (oper,ioOp POLY_SYS_aneg)
                             then
@@ -2276,19 +2265,11 @@ struct
                                 |   NONE => callClosure (SOME evalFun, true)
                             )
                             else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
-                            then
-                            (
-                                case atomicIncrement(arg, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            then cgAndRes(atomicIncrement(genToStack arg, transtable, whereto))
+
                             else if wordEq (oper,ioOp POLY_SYS_atomic_decr)
-                            then
-                            (
-                                case atomicDecrement(arg, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            then cgAndRes(atomicDecrement(genToStack arg, transtable, whereto))
+
                             else if wordEq(oper, ioOp POLY_SYS_lockseg)
                             then cgAndRes(lockVector(genToStack arg, transtable, whereto))
 
