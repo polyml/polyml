@@ -401,13 +401,18 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
-# Test the --with-portable option to build the interpreter even if
-# we have a code-generator.
-AC_ARG_WITH([portable],
-            [AS_HELP_STRING([--with-portable],
-              [build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])],
-            [],
-            [with_portable=check])
+# This option enables the native code generator.  More precisely it allows
+# the byte code interpreter to be built on X86.
+
+AC_ARG_ENABLE([native-codegeneration],
+        [AS_HELP_STRING([--disable-native-codegeneration],
+            [disable the native code generator and use the slow byte code interpreter instead.])],
+        [case "${enableval}" in
+           no)  with_portable=yes ;;
+           yes) with_portable=no ;;
+           *) AC_MSG_ERROR([bad value ${enableval} for --enable-native-codegeneration]) ;;
+        esac],
+        [with_portable=check])
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -443,6 +448,10 @@ esac
 
 # If we explicitly asked to use the interpreter set the architecture to interpreted.
 if test "x$with_portable" = "xyes" ; then
+    if test "x$polyarch" != "xinterpret" ; then
+        AC_MSG_WARN(
+            [*******You have disabled native code generation.  Are you really sure you want to do that?*******])
+    fi
     polyarch=interpret
 fi
 
@@ -450,7 +459,7 @@ fi
 if test "x$with_portable" = "xno" ; then
     if test "x$polyarch" = "xinterpret" ; then
         AC_MSG_ERROR(
-            [--without-portable was given but native code is not supported on this platform])
+            [--enable-native-codegeneration was given but native code is not supported on this platform])
     fi
 fi
 

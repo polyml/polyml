@@ -822,7 +822,7 @@ with_x
 with_gmp
 with_system_libffi
 with_threads
-with_portable
+enable_native_codegeneration
 with_moduledir
 '
       ac_precious_vars='build_alias
@@ -1486,6 +1486,9 @@ Optional Features:
                           enable make rules and dependencies not useful (and
                           sometimes confusing) to the casual installer
   --disable-largefile     omit support for large files
+  --disable-native-codegeneration
+                          disable the native code generator and use the slow
+                          byte code interpreter instead.
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -1503,8 +1506,6 @@ Optional Packages:
                           [default=no]
   --with-threads          use the pthread library for multi-threading
                           [default=check]
-  --with-portable         build the portable interpreter version of Poly/ML
-                          instead of native [default=no]
   --with-moduledir=DIR    directory for Poly/ML modules
 
 Some influential environment variables:
@@ -5620,7 +5621,8 @@ else
     ;;
   *)
     lt_cv_sys_max_cmd_len=`(getconf ARG_MAX) 2> /dev/null`
-    if test -n "$lt_cv_sys_max_cmd_len"; then
+    if test -n "$lt_cv_sys_max_cmd_len" && \
+	test undefined != "$lt_cv_sys_max_cmd_len"; then
       lt_cv_sys_max_cmd_len=`expr $lt_cv_sys_max_cmd_len \/ 4`
       lt_cv_sys_max_cmd_len=`expr $lt_cv_sys_max_cmd_len \* 3`
     else
@@ -7135,7 +7137,7 @@ ia64-*-hpux*)
   rm -rf conftest*
   ;;
 
-x86_64-*kfreebsd*-gnu|x86_64-*linux*|ppc*-*linux*|powerpc*-*linux*| \
+x86_64-*kfreebsd*-gnu|x86_64-*linux*|powerpc*-*linux*| \
 s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
   # Find out which ABI we are using.
   echo 'int i;' > conftest.$ac_ext
@@ -7151,9 +7153,19 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
 	    LD="${LD-ld} -m elf_i386_fbsd"
 	    ;;
 	  x86_64-*linux*)
-	    LD="${LD-ld} -m elf_i386"
+	    case `/usr/bin/file conftest.o` in
+	      *x86-64*)
+		LD="${LD-ld} -m elf32_x86_64"
+		;;
+	      *)
+		LD="${LD-ld} -m elf_i386"
+		;;
+	    esac
 	    ;;
-	  ppc64-*linux*|powerpc64-*linux*)
+	  powerpc64le-*)
+	    LD="${LD-ld} -m elf32lppclinux"
+	    ;;
+	  powerpc64-*)
 	    LD="${LD-ld} -m elf32ppclinux"
 	    ;;
 	  s390x-*linux*)
@@ -7172,7 +7184,10 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
 	  x86_64-*linux*)
 	    LD="${LD-ld} -m elf_x86_64"
 	    ;;
-	  ppc*-*linux*|powerpc*-*linux*)
+	  powerpcle-*)
+	    LD="${LD-ld} -m elf64lppc"
+	    ;;
+	  powerpc-*)
 	    LD="${LD-ld} -m elf64ppc"
 	    ;;
 	  s390*-*linux*|s390*-*tpf*)
@@ -21732,12 +21747,16 @@ fi
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
-# Test the --with-portable option to build the interpreter even if
-# we have a code-generator.
+# This option enables the native code generator.  More precisely it allows
+# the byte code interpreter to be built on X86.
 
-# Check whether --with-portable was given.
-if test "${with_portable+set}" = set; then :
-  withval=$with_portable;
+# Check whether --enable-native-codegeneration was given.
+if test "${enable_native_codegeneration+set}" = set; then :
+  enableval=$enable_native_codegeneration; case "${enableval}" in
+           no)  with_portable=yes ;;
+           yes) with_portable=no ;;
+           *) as_fn_error $? "bad value ${enableval} for --enable-native-codegeneration" "$LINENO" 5 ;;
+        esac
 else
   with_portable=check
 fi
@@ -21791,13 +21810,17 @@ esac
 
 # If we explicitly asked to use the interpreter set the architecture to interpreted.
 if test "x$with_portable" = "xyes" ; then
+    if test "x$polyarch" != "xinterpret" ; then
+        { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: *******You have disabled native code generation.  Are you really sure you want to do that?*******" >&5
+$as_echo "$as_me: WARNING: *******You have disabled native code generation.  Are you really sure you want to do that?*******" >&2;}
+    fi
     polyarch=interpret
 fi
 
 # If we asked not to use the interpreter check we have native code support.
 if test "x$with_portable" = "xno" ; then
     if test "x$polyarch" = "xinterpret" ; then
-        as_fn_error $? "--without-portable was given but native code is not supported on this platform" "$LINENO" 5
+        as_fn_error $? "--enable-native-codegeneration was given but native code is not supported on this platform" "$LINENO" 5
     fi
 fi
 
