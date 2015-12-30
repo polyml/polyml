@@ -207,25 +207,21 @@ sig
     val setStringLength: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and addInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and subtractInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and multiplyInteger:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and multiplyIntegerByTwo: stackIndex  * ttab * regHint -> (operation list * mergeResult)
     and addWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and subtractWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and andWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and orWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and xorWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and upShiftWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and downShiftWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and downShiftArithmeticWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and multiplyWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and divideWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
-    and modulusWord:
-        'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    and upShiftWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and upShiftWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and downShiftWordConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and downShiftWordVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and downShiftWordArithmeticConstant: stackIndex * word * ttab * regHint -> (operation list * mergeResult)
+    and downShiftWordArithmeticVariable: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and multiplyWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and divideWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and modulusWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and loadByte: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and loadWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and addReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
@@ -233,8 +229,8 @@ sig
     and multiplyReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and divideReal: stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 
-    val allocateStore:
-        'a * 'a * 'a * ttab * regHint * ('a -> Address.machineWord option) * ('a -> stackIndex)  -> (operation list * mergeResult) option
+    val allocateStoreSmallFixedSize: int * Word8.word * stackIndex * ttab * regHint -> operation list * mergeResult
+    and allocateStoreVariableSize: Word8.word * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and storeWord: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
     and storeByte: stackIndex * stackIndex * stackIndex * ttab * regHint -> operation list * mergeResult
 

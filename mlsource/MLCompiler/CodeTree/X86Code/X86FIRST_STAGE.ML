@@ -196,10 +196,6 @@ struct
     type  forwardLabel = label
     and  backwardLabel = label
 
-    (* See if the instruction is implemented but otherwise do nothing else.  Nearly all
-       the operations are implemented on this architecture. *)
-    fun checkAndReduce(instr, args, f) = instr(args, f)
-
     (* Exported versions of operations datatype *)
     fun callFunction v = [CallFunction v]
     and jumpToFunction v = [JumpToFunction v]
@@ -5347,24 +5343,6 @@ struct
             fun constantShift(opc, shift) pref = sharedSingleArgNegotiator(genConstShift(opc, shift), pref)
             and variableShift opc pref = shiftNegotiator(genVarShift opc, pref)
 
-            fun shiftInstr opc (args as [arg1, arg2], mapper) =
-            (
-                case mapper arg2 of
-                    SOME lit => SOME(constantShift(opc, toShort lit), [arg1])
-                |   NONE => SOME(variableShift opc, args)
-            )
-            |   shiftInstr _ _ = raise InternalError "shiftInstr"
-
-            fun getPower2 n =
-            let
-                fun p2 (n, l) =
-                    if n = 0w1 then SOME l
-                    else if Word.andb(n, 0w1) = 0w1 then NONE
-                    else p2(Word.>>(n, 0w1), l+0w1)
-            in
-                if n = 0w0 then NONE else p2(n,0w0)
-            end
-
             local
                 (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
                    registers the best arrangement for the arguments is to get the first argument into
@@ -5432,130 +5410,100 @@ struct
                 end
             |   genAddSelf _ = raise InternalError "genAddSelf"
 
-            fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
          in
-            fun instrUpshiftW am = shiftInstr SLL am
-            and instrDownshiftW am = shiftInstr SRL am
-            and instrDownshiftArithW am = shiftInstr SRA am
+            fun upShiftWordConstant(arg, shift, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg], constantShift(SLL, shift), transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun upShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrUpshiftW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun upShiftWordVariable(arg1, arg2, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SLL, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun downShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrDownshiftW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun downShiftWordConstant(arg, shift, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg], constantShift(SRL, shift), transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun downShiftArithmeticWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrDownshiftArithW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun downShiftWordVariable(arg1, arg2, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SRL, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun instrMulW(args as [arg1, arg2], mapper) =
-                (
-                   (* This is implemented specially for powers of 2.  It could also
-                      be implemented specially for some other cases as well. *)
-                    case List.map (Option.composePartial(getPower2 o toShort, mapper)) args of
-                        [_, SOME shift] => SOME(constantShift(SLL, shift), [arg1])
-                    |   [SOME shift, _] => SOME(constantShift(SLL, shift), [arg2])
-                    |   _ => SOME(fn _ => multiplyNegotiator genMultiplyUnsigned, args)
-                )
-            |   instrMulW _ = raise InternalError "instrMulW"
+            fun downShiftWordArithmeticConstant(arg, shift, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg], constantShift(SRA, shift), transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun multiplyWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrMulW, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            fun downShiftWordArithmeticVariable(arg1, arg2, transtable, whereto) =
+            let
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SRA, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun instrMulA(args as [arg1, arg2], mapper) =
-            (
-                (* The only special case we recognise is multiplication by 2. *)
-                case List.map mapper args of
-                    [_, SOME lit] =>
-                        if isShort lit andalso toShort lit = 0w2
-                        then SOME(mulAConst2, [arg1])
-                        else NONE(*SOME(InstrMulA, args)*)
-                |   [SOME lit, _] =>
-                        if isShort lit andalso toShort lit = 0w2
-                        then SOME(mulAConst2, [arg2])
-                        else NONE(*SOME(InstrMulA, args)*)
-                |   _ => NONE(*SOME(InstrMulA, args)*)
-            )
-            |   instrMulA _ = raise InternalError "instrMulA"
+            (* General multiplication.  We've already extracted simple shifts *)
+            fun multiplyWord(arg1, arg2, transtable, whereto) =
+            let
+                fun i _ = multiplyNegotiator genMultiplyUnsigned
+                val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
-            fun multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrMulA, [arg1, arg2], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            (* We only support integer multiplication by two.  Everything else is too complicated. *)
+            fun multiplyIntegerByTwo(arg, transtable, whereto) =
+            let
+                fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
+                val (opRes, opCode) = dataOp ([arg], mulAConst2, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
 
             local (* Unsigned word div and mod. *)
-                (* Division by a power of two is just a right shift. *)
-                fun shiftDown shift = constantShift(SRL, shift)
-                (* Modulo by a power of two is a mask. *)
-                fun maskBits shift pref =
-                let
-                    fun genMask(_, SOME resReg) =
-                        if shift > maxShift
-                        then []
-                        else (* Because we're going to mask a tagged value we need to add 1 to the shift. *)
-                           [ArithRConst{opc=AND, output=resReg, source=IntInf.<<(1, shift+0w1) -1 }]
-                    |   genMask _ = raise InternalError "genMask"
-                in
-                    sharedSingleArgNegotiator(genMask, pref)
-                end
-
                 (* If the dividend is not a power of two we have to use the DIV instruction.
                    This takes the divisor in the EDX/EAX pair and the dividend in a separate
                    register.  We get EDX as a work register and put the divisor in EAX. *)
@@ -5597,49 +5545,31 @@ struct
                             )
                         )
                     ) ([NONE, NONE], SOME(if isDiv then eax else edx))
-
-                fun checkPower2 (p2Code, genCode, args as [arg1, arg2], mapper) =
-                    ( (* Special case where the dividend is a power of two.  We could maybe
-                         take out the special case of zero here and just raise an exception but
-                         that's hardly worth it. *)
-                        case Option.composePartial(getPower2 o toShort, mapper) arg2 of
-                            SOME n => SOME(p2Code n, [arg1])
-                        |   NONE => SOME(genCode, args)
-                    )
-                |   checkPower2 _ = raise InternalError "checkPower2"
-
-                fun instrDivW(args, mapper) = checkPower2(shiftDown, divModCode true, args, mapper)
-                and instrModW(args, mapper) = checkPower2(maskBits, divModCode false, args, mapper)
             in
-                fun divideWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                    case checkAndReduce(instrDivW, [arg1, arg2], checkConst) of
-                        SOME(i, args) =>
-                        let
-                            val argLocns = List.map genToStack args
-                            val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                            val result =
-                                case whereto of
-                                    NoResult => NoMerge (* Unused. *)
-                                |   _ => MergeIndex opRes
-                        in
-                            SOME(opCode, result)
-                        end
-                    |   NONE => NONE
+                fun divideWord(arg1, arg2, transtable, whereto) =
+                let
+                    val i = divModCode true
+                    val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    (opCode, result)
+                end
 
-                fun modulusWord(arg1, arg2, transtable, whereto, checkConst, genToStack) =
-                    case checkAndReduce(instrModW, [arg1, arg2], checkConst) of
-                        SOME(i, args) =>
-                        let
-                            val argLocns = List.map genToStack args
-                            val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                            val result =
-                                case whereto of
-                                    NoResult => NoMerge (* Unused. *)
-                                |   _ => MergeIndex opRes
-                        in
-                            SOME(opCode, result)
-                        end
-                    |   NONE => NONE
+                fun modulusWord(arg1, arg2, transtable, whereto) =
+                let
+                    val i = divModCode false
+                    val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
+                    val result =
+                        case whereto of
+                            NoResult => NoMerge (* Unused. *)
+                        |   _ => MergeIndex opRes
+                in
+                    (opCode, result)
+                end
+
             end
         end
 
@@ -5700,63 +5630,45 @@ struct
                     ]
                 end
             |   genVarAlloc _ _ = raise InternalError "genVarAlloc"
+ 
         in
-            (* Decide if we can implement it. *)
-            fun instrAllocStore([lengthArg, flagArg, initValArg], mapper) =
+            (* This is used for small (<5 word) segments of, possibly mutable, words. *)
+            fun allocateStoreSmallFixedSize(length: int, flags: Word8.word, initValArg, transtable, whereto) =
             let
-                (* This is used to allocate memory for refs, arrays, strings etc.  The first
-                   arg is the length, the second the flags byte and the third the initial
-                   value used to initialise each word, for word segments, or byte for
-                   byte segs. *)
-                val len = (* We only use the fixed length version for small segments of words
-                             (possibly with the noOverwrite/weak flag as well). *)
-                    case (mapper lengthArg, mapper flagArg) of
-                        (SOME constLength, SOME constFlags) =>
-                            if toShort constLength < 0w5 andalso
-                                   (wordToWord8(toShort constFlags) andb8 0w3) = F_words
-                            then SOME(toShort constLength)
-                            else NONE
-                    |   _ => NONE
+                fun allocStoreFixedLength prefs =
+                        (* Get a result reg and put the initial value in a reg. *)
+                    generalNegotiator(genFixedAlloc(length, flags), prefs)
+                val (opRes, opCode) =
+                    dataOp ([initValArg], allocStoreFixedLength, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
             in
-                case mapper flagArg of
-                    NONE => NONE (* Non-constant flags: leave it to the RTS. *)
-
-                |   SOME constFlags =>
-                    let
-                        val flags = wordToWord8(toShort constFlags)
-                        fun allocStoreFixedLength(length, flags) prefs =
-                                (* Get a result reg and put the initial value in a reg. *)
-                            generalNegotiator(genFixedAlloc(length, flags), prefs)
-                        fun allocStoreVarLength flags pref =
-                            (* When allocating vectors/arrays we have to initialise the store and the easiest way to
-                                do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-                            loadToSpecificRegister(ecx, true, 0,
-                                (* We don't actually need this to be modifiable if we're initialising with words. *)
-                                loadToSpecificRegister(eax, true, 1,
-                                    getResultRegister(singleton edi, pref, generateInstruction(genVarAlloc flags))))
-                                        ([NONE, NONE], NONE)
-                    in
-                        case len of
-                            SOME len => SOME(allocStoreFixedLength(Word.toInt len, flags), [initValArg])
-                        |   NONE => SOME(allocStoreVarLength flags, [lengthArg, initValArg])
-                    end
+                (opCode, result)
             end
-            |   instrAllocStore _ = raise InternalError "instrAllocStore: Wrong number of args"
 
-            fun allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) =
-                case checkAndReduce(instrAllocStore, [arg1, arg2, arg3], checkConst) of
-                    SOME(i, args) =>
-                    let
-                        val argLocns = List.map genToStack args
-                        val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
-                        val result =
-                            case whereto of
-                                NoResult => NoMerge (* Unused. *)
-                            |   _ => MergeIndex opRes
-                    in
-                        SOME(opCode, result)
-                    end
-                |   NONE => NONE
+            (* This is used where the size isn't a constant or five words or larger. *)
+            and allocateStoreVariableSize(flags: Word8.word, lengthArg, initValArg, transtable, whereto) =
+            let
+                fun allocStoreVarLength pref =
+                    (* When allocating vectors/arrays we have to initialise the store and the easiest way to
+                        do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
+                    loadToSpecificRegister(ecx, true, 0,
+                        (* We don't actually need this to be modifiable if we're initialising with words. *)
+                        loadToSpecificRegister(eax, true, 1,
+                            getResultRegister(singleton edi, pref, generateInstruction(genVarAlloc flags))))
+                                ([NONE, NONE], NONE)
+                val (opRes, opCode) =
+                    dataOp ([lengthArg, initValArg], allocStoreVarLength, transtable, whereto)
+                val result =
+                    case whereto of
+                        NoResult => NoMerge (* Unused. *)
+                    |   _ => MergeIndex opRes
+            in
+                (opCode, result)
+            end
+            
         end
     end
 

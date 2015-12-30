@@ -70,9 +70,6 @@ struct
     val constntTrue  = BICConstnt(True, [])
     val constntFalse = BICConstnt(False, [])
 
-    (* Used to allow the next CG phase to check for a constant. *)
-    fun checkConst(BICConstnt(w, _)) = SOME w | checkConst _ = NONE
-
     (* Test if an argument is a long constant.  For integer operations it's better
        to call the RTS if we know we're always going to have to emulate the instruction. *)
     fun isLongConstant(BICConstnt(w, _)) = not(Address.isShort w) | isLongConstant _ = false
@@ -2224,6 +2221,15 @@ struct
                 let
                     val args = List.map #1 argList
                     val addr = Address.toAddress oper
+                    fun getPower2 n =
+                    let
+                        fun p2 (n, l) =
+                            if n = 0w1 then SOME l
+                            else if Word.andb(n, 0w1) = 0w1 then NONE
+                            else p2(Word.>>(n, 0w1), l+0w1)
+                    in
+                        if n = 0w0 then NONE else p2(n,0w0)
+                    end
                 in
                     if Address.isIoAddress addr
                     then
@@ -2306,11 +2312,25 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_amul)
                             then
-                            (
-                                case multiplyInteger(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
+                            let
+                                open Address
+                                (* We only support multiplication by two.  Everything else has to go through the RTS. *)
+                                val argument =
+                                    case (arg1, arg2) of
+                                        (BICConstnt(lit, _), _) =>
+                                            if isShort lit andalso toShort lit = 0w2
+                                            then SOME arg2
+                                            else NONE (* Assume that if they're both constants we'd have folded it. *)
+                                    |   (_, BICConstnt(lit, _)) =>
+                                            if isShort lit andalso toShort lit = 0w2
+                                            then SOME arg1
+                                            else NONE
+                                    |   _ => NONE
+                            in
+                                case argument of
+                                    SOME arg => cgAndRes(multiplyIntegerByTwo(genToStack arg, transtable, whereto))
                                 |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            end
 
                             else if wordEq (oper,ioOp POLY_SYS_or_word)
                             then cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -2324,31 +2344,46 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_shift_left_word)
                             then
                             (
-                                case upShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
+                                case arg2 of
+                                    BICConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                        cgAndRes(upShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                                |   _ => cgAndRes(upShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
+
                             else if wordEq (oper,ioOp POLY_SYS_shift_right_word)
                             then
                             (
-                                case downShiftWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
+                                case arg2 of
+                                    BICConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                        cgAndRes(downShiftWordConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                                |   _ => cgAndRes(downShiftWordVariable(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
+
                             else if wordEq (oper,ioOp POLY_SYS_shift_right_arith_word)
                             then
                             (
-                                case downShiftArithmeticWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
+                                case arg2 of
+                                    BICConstnt(lit, _) => (* If it's a constant it should be short since it's a word. *)
+                                        cgAndRes(downShiftWordArithmeticConstant(genToStack arg1, Address.toShort lit, transtable, whereto))
+                                |   _ => cgAndRes(downShiftWordArithmeticVariable(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
+
                             else if wordEq (oper,ioOp POLY_SYS_mul_word)
                             then
-                            (
-                                case multiplyWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
-                            )
+                            let
+                                open Address
+                                (* If the value is a power of two we use a shift *)
+                                val useShift =
+                                    case (arg1, arg2) of
+                                        (BICConstnt(lit, _), _) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg2) | NONE => NONE)
+                                    |   (_, BICConstnt(lit, _)) => (case getPower2(toShort lit) of SOME shift => SOME(shift, arg1) | NONE => NONE)
+                                    |   _ => NONE
+                            in
+                                case useShift of
+                                    SOME(shift, arg) => cgAndRes(upShiftWordConstant(genToStack arg, shift, transtable, whereto))
+                                |   _ => cgAndRes(multiplyWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                            end
+
                             else if wordEq (oper,ioOp POLY_SYS_plus_word)
                             then cgAndRes(addWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
@@ -2358,16 +2393,35 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_div_word)
                             then
                             (
-                                case divideWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
+                                (* Use a right shift if it's a power of two. *)
+                                case arg2 of
+                                    BICConstnt(lit, _) =>
+                                    (
+                                        case getPower2(Address.toShort lit) of
+                                            SOME shift => cgAndRes(downShiftWordConstant(genToStack arg1, shift, transtable, whereto))
+                                        |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                                    )
+                                |   _ => cgAndRes(divideWord(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
+
                             else if wordEq (oper,ioOp POLY_SYS_mod_word)
                             then
                             (
-                                case modulusWord(arg1, arg2, transtable, whereto, checkConst, genToStack) of
-                                    SOME r => cgAndRes r
-                                |   NONE => callClosure (SOME evalFun, true)
+                                (* Use a mask if it's a power of two. *)
+                                case arg2 of
+                                    BICConstnt(lit, _) =>
+                                    (
+                                        case getPower2(Address.toShort lit) of
+                                            SOME _ =>
+                                            let
+                                                (* The divisor is a power of two.  The mask is one less. *)
+                                                val mask = Address.toMachineWord(Address.toShort lit - 0w1)
+                                            in
+                                                cgAndRes(andWord(genToStack arg1, pushConst (transtable, mask), transtable, whereto))
+                                            end
+                                        |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
+                                    )
+                                |   _ => cgAndRes(modulusWord(genToStack arg1, genToStack arg2, transtable, whereto))
                             )
                             else if wordEq (oper,ioOp POLY_SYS_load_byte)
                             then cgAndRes(loadByte(genToStack arg1, genToStack arg2, transtable, whereto))
@@ -2424,37 +2478,49 @@ struct
                                    allocation of refs so we consider them specially. *)
                                 open Address
                             in
-                                case (arg1, arg2) of
+                               case (arg1, arg2) of
                                     (BICConstnt(len, _), BICConstnt(flag, _)) =>
-                                        if isShort len andalso toShort len = 0w1
-                                           andalso isShort flag
-                                           andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
+                                        (* Both the length and the flags are constants *)
+                                        if isShort len andalso isShort flag andalso toShort flag <= 0w255
                                         then
                                         let
-                                            val initLoc = genToStackOrGeneralRegister arg3
-                                            val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
-                                            val () = codeGenerate(vecCode, cvec)
-                                            val moveCode = moveToVec (vec, initLoc, 0, transtable)
-                                            val () = codeGenerate(moveCode, cvec)
-                                            val () = codeGenerate(allocationComplete, cvec)
+                                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
+                                            and sLen = toShort len
                                         in
-                                            case whereto of
-                                                NoResult => NoMerge (* Unused. *)
-                                            |   _ => MergeIndex vec
+                                            if sLen = 0w1 andalso sFlag = F_mutable
+                                            then
+                                            let
+                                                val initLoc = genToStackOrGeneralRegister arg3
+                                                val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
+                                                val () = codeGenerate(vecCode, cvec)
+                                                val moveCode = moveToVec (vec, initLoc, 0, transtable)
+                                                val () = codeGenerate(moveCode, cvec)
+                                                val () = codeGenerate(allocationComplete, cvec)
+                                            in
+                                                case whereto of
+                                                    NoResult => NoMerge (* Unused. *)
+                                                |   _ => MergeIndex vec
+                                            end
+                                            else if sLen < 0w5 andalso (Word8.andb(sFlag, 0w3)) = F_words
+                                                (* Small fixed size allocations of words. *)
+                                            then cgAndRes(allocateStoreSmallFixedSize(Word.toInt sLen, sFlag, genToStack arg3, transtable, whereto))
+                                            else cgAndRes(allocateStoreVariableSize(sFlag, genToStack arg1, genToStack arg3, transtable, whereto))
                                         end
-                                        else
-                                        (
-                                            case allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
-                                                SOME r => cgAndRes r
-                                            |   NONE => callClosure (SOME evalFun, true)
-                                        )
+                                        else callClosure (SOME evalFun, true) (* Perhaps always raise Size *)
 
-                                |   _ =>
-                                    (
-                                        case allocateStore(arg1, arg2, arg3, transtable, whereto, checkConst, genToStack) of
-                                            SOME r => cgAndRes r
-                                        |   NONE => callClosure (SOME evalFun, true)
-                                    )
+                                |   (_, BICConstnt(flag, _)) =>
+                                        (* The flags are a constant but the length is a variable. *)
+                                        if isShort flag andalso toShort flag <= 0w255
+                                        then
+                                        let
+                                            val sFlag = Word8.fromLargeWord(Word.toLargeWord(toShort flag))
+                                        in
+                                            cgAndRes(allocateStoreVariableSize(sFlag, genToStack arg1, genToStack arg3, transtable, whereto))
+                                        end
+                                        else callClosure (SOME evalFun, true) (* Perhaps always raise Size *)
+
+                                |   _ => callClosure (SOME evalFun, true)
+
                             end
                             else if wordEq (oper,ioOp POLY_SYS_assign_word)
                             then cgAndRes(storeWord(genToStack arg1, genToStack arg2, genToStack arg3, transtable, whereto))
