@@ -1618,32 +1618,6 @@ struct
 
     fun freeRegister (Ttab{regset, ...}, reg) = free regset reg
 
-    (* Choose a register to be used to hold the result e.g. of a "case". *)
-    fun chooseRegister (Ttab{regset, ...}) : reg option =
-    let
-        fun chooseReg ({vec, ...}:rset) =
-        let
-            val nextReg = 0
-      
-            fun next n = if n = 0 then (vecSize - 1) else (n - 1);
-      
-            fun findFree (i : int) : reg option =
-            if Array.sub (vec, i) = 0 andalso inSet(regN i, generalRegisters)
-            then SOME(regN i)
-            else
-            let
-                val n = next i;
-            in
-                if n = nextReg then (* None free. *) NONE
-                else findFree n
-            end
-        in
-            findFree nextReg
-        end
-    in
-        chooseReg regset
-    end
-
     (* Return the set of modified registers for this function. *)
     fun getModifedRegSet (Ttab{regset={modSet=ref modSet, ...}, ...}) = modSet
 

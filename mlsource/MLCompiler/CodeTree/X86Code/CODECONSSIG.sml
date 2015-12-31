@@ -164,8 +164,6 @@ sig
     (* Temporary checking that the stack has been emptied. *)
     val checkBlockResult: ttab * mergeResult -> unit
 
-    val chooseRegister : ttab -> reg option
-
     val getRegisterSetForFunction: machineWord -> regSet
     val addModifiedRegSet: ttab * regSet -> unit
 
