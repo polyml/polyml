@@ -91,6 +91,176 @@ struct
     val regStackPtr = esp;
  
     datatype argType = ArgGeneral | ArgFP
+ 
+    type stackIndex = int 
+
+    val first: stackIndex = 0
+    val noIndex: stackIndex = ~1 (* An invalid index. *)
+    open DEBUG;
+    open MISC;
+    open Address;
+    structure StretchArray = StretchArray
+
+    open RegSet
+    
+
+    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
+
+    datatype stackUnion = 
+        Register  of reg * int         (* In a register.  The int is the stack offset if
+                                          the value was originally a container. *)
+    |   Literal   of machineWord        (* A constant (was "int") *)
+    |   CodeRef   of code        (* Forward reference to code *)
+    |   Direct    of {base: reg, offset: int}  (* Register/Offset *)
+    |   StackW    of int         (* On the real stack. *)
+        (* Container entries are a group of items on the stack.  They are used
+           for tuples and also for function closures.  A function closure
+           can contain the addresses of other function closures so these
+           must be retained until the last references to the closure
+           that references them.  *)
+    |   Container of { items: stackIndex list, dependencies: stackIndex list}
+
+    datatype stackEntry =
+        NoStackEntry
+    |   StackEntry of 
+        {
+            ent:   stackUnion,
+            cache: regSet,
+            uses:  int,
+            destStack: int option,
+                (* destStack is used to indicate where on the stack this
+                   entry must be placed if it has to be spilled.  A value
+                   of NONE means that we don't care.  The reason for having
+                   this is to ensure that if we split a flow of control
+                   (e.g. the then- and else-parts of an "if") with a value
+                   in a register and have to spill the register in one branch
+                   then we spill it to the same location on the other branch.
+                   This ensures that when we merge the flows of control we don't
+                   have to mess around with the stack.  *)
+            lifeTime: int
+                (* lifeTime is a measure of how long the item will live.
+                   Because these values are derived from a depth first
+                   scan in preCode lower values mean longer life except
+                   that zero means temporary.  The lifeTime is used to
+                   decide which items to spill from registers if we
+                   need to. *)
+        }
+
+    fun forIndDownTo(i, finishInd, perform: stackIndex->unit) =
+        if i >= finishInd
+        then (perform i; forIndDownTo (i - 1, finishInd, perform))
+        else ()
+
+    fun revfoldIndDownTo(f, x, i, finishInd) =
+        if i >= finishInd
+        then revfoldIndDownTo(f, f i x, i - 1, finishInd)
+        else x
+
+  (* The set of available registers. A register is free if its use-count
+     is zero. A register has a reference for each occurence in an entry
+     on the pseudo-stack or cache field (even if the use-count of the
+     stack entry is zero). *)
+  (* Added modification set to indicate if a register has been changed.
+     We assume that if a register is allocated it has been modified.
+     DCJM 26/11/00. *)
+     
+    type rset = {vec: int array, modSet: regSet ref, freeRegs: regSet ref};
+    
+    val vecSize = regs;
+  
+    (* Returns the first free register. *)
+    (* This is a major hotspot in the compiler. *)
+    fun getAcceptableRegister ({vec, modSet, freeRegs}:rset, acceptable: regSet) =
+    let
+        val available = regSetIntersect(!freeRegs, acceptable)
+    in
+        if available = noRegisters
+        then NONE
+        else (* Mark the register as in use. *)
+            let
+                val r = oneOf available
+                val i = nReg r
+            in
+                Array.update (vec, i, 1); (* Set the register use-count to 1 *)
+                modSet := regSetUnion(singleton r, ! modSet); (* Mark as used *)
+                freeRegs := regSetMinus(!freeRegs, singleton r);
+                SOME r
+            end
+    end
+
+    (* Print the allocated registers. *)
+    fun printRegs printStream ({vec, ...}) =
+    let
+        fun printReg i =
+        let
+            val useCount = Array.sub (vec, i)
+        in
+            if useCount > 0
+            then
+            (
+                printStream " "; printStream (regRepr (regN i));
+                printStream "="; printStream(Int.toString useCount)
+            )
+            else ()
+        end (* printReg *);
+    in
+        forLoop printReg 0 (vecSize - 1)
+    end
+  
+    (* This table maps declaration numbers for a particular function
+       into pseudo-stack offsets. The pseudo-stack simulates the real stack and
+       gives the real locations of objects which may be in store, on the real stack
+       or in registers. It maintains use-counts for values and allows the stack
+       to be contracted and registers to be re-used when they are no longer required.              *)
+
+    datatype ttab = Ttab of
+    {
+        regset:       rset,
+        pstack:       stackEntry StretchArray.stretchArray, (* Pseudo-stack *)
+        pstackptr:    stackIndex ref,
+        realstackptr: int ref,     (* The number of items on the real stack. *)
+        maxstack:     int ref,     (* The maximum number of items on the real stack. *)
+        exited:       bool ref,
+        branched:     bool ref,
+        marker:       stackIndex ref,
+        markReal:     int ref,
+        lowestDirect: stackIndex ref,
+        pstackTrace:  bool,
+        printStream:  string->unit
+    }
+
+    fun ttabCreate(localCount, debugSwitches) =
+    let
+        val printStream = PRETTY.getSimplePrinter debugSwitches
+
+        fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
+    in
+        Ttab
+        {
+            regset       = rsetMake(),
+            pstack       = StretchArray.stretchArray ((* Hint *)localCount, NoStackEntry),
+            pstackptr    = ref first,
+            realstackptr = ref 0,
+            maxstack     = ref 1,
+            exited       = ref false,
+            branched     = ref false,
+            marker       = ref first,
+            markReal     = ref 0,
+            lowestDirect = ref first,
+            pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
+            printStream  = printStream
+        }
+    end
+
+    fun pstackEntry (Ttab{pstack, ...}, locn) = StretchArray.sub(pstack, locn)
+    and setPstackEntry(Ttab{pstack, ...}, locn, entry) = StretchArray.update(pstack, locn, entry)
+
+    (* Returns the entry after removing the option type. *)
+    fun pstackRealEntry (ttab, locn) =
+    case pstackEntry(ttab, locn) of
+        StackEntry record => record
+    |   NoStackEntry                    =>
+           raise InternalError ("pstackRealEntry: not entry: " ^ Int.toString(locn))
 
     (* The first two general arguments are passed in eax and ebx (X86/32) or the
        first five arguments (X86/64), with the first three floating point
@@ -178,8 +348,6 @@ struct
         ActLiteralSource of machineWord
     |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
     |   ActBaseOffset of reg * int
-    |   ActCodeRefSource of code (* The address of another function *)
-    |   ActStackAddress of int (* Offset within the stack. *)
 
     datatype argAction =
         ActionDone of (* The output register if any and the final operation. *)
@@ -191,10 +359,58 @@ struct
     |   ActionGetWorkReg of (* Get a work/result register. *)
             { regSet: regSet, setReg: reg -> nextAction }
 
-    withtype nextAction = actionSource list -> argAction
+    withtype nextAction = stackIndex list -> argAction
 
     type  forwardLabel = label
     and  backwardLabel = label
+
+    (* True if this is the last reference to this entry. i.e. the use-count of this entry is 1. *)
+    fun lastReference table entry =
+        case pstackEntry(table, entry) of
+            NoStackEntry => raise InternalError "lastReference: no entry"
+        |   StackEntry {uses, ...} => uses = 1
+
+
+    (* We have to re-evaluate this after each action because we may have
+       had to push values to the stack that were previously in registers. *)
+    fun argAsSource (table as Ttab{realstackptr, ...}) entry =
+    let
+        val {ent = stackEntry, cache, ...} = pstackRealEntry(table, entry);
+        val lastRef = lastReference table entry;
+    in
+        if cache <> noRegisters
+        then
+        (
+            (* This assumes that it is preferable to have the value in a
+               register.  That's generally true but can be wrong if we have
+               pushed a floating point value to the stack, i.e. we've
+               allocated a heap cell and stored the FP value into it
+               then pushed the address of the cell.  In that case we
+               might actually want the heap cell address.
+               ensureNoAllocation has to clear the cache to make
+               sure we use the address. *)
+            if lastRef
+            then ActInRegisterSet{modifiable=cache, readable=cache}
+            else ActInRegisterSet{modifiable=noRegisters, readable=cache}
+        )
+        else case stackEntry of
+            Register(reg, _) =>
+                if lastRef
+                then ActInRegisterSet{modifiable=singleton reg, readable=singleton reg}
+                else ActInRegisterSet{modifiable=noRegisters, readable=singleton reg}
+
+        |   Literal m => ActLiteralSource m
+
+        |   Direct{base, offset} => ActBaseOffset(base, offset)
+
+        |   StackW index =>
+                    ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
+
+        |   Container _ => raise InternalError "argAsSource: Container"
+
+        |   CodeRef _ => raise InternalError "argAsSource: CodeRef"
+
+    end
 
     (* Exported versions of operations datatype *)
     fun callFunction v = [CallFunction v]
@@ -414,122 +630,6 @@ struct
         createCodeSegment(X86OPTIMISE.optimise(cvec, preludeCode @ List.rev operations), registerSet, cvec)
     end
 
-    open DEBUG;
-    open MISC;
-    open Address;
-    structure StretchArray = StretchArray
-
-    open RegSet
-    
-
-    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
- 
-    type stackIndex = int 
-
-    val first: stackIndex = 0
-    val noIndex: stackIndex = ~1 (* An invalid index. *)
-
-    datatype stackUnion = 
-        Register  of reg * int         (* In a register.  The int is the stack offset if
-                                          the value was originally a container. *)
-    |   Literal   of machineWord        (* A constant (was "int") *)
-    |   CodeRef   of code        (* Forward reference to code *)
-    |   Direct    of {base: reg, offset: int}  (* Register/Offset *)
-    |   StackW    of int         (* On the real stack. *)
-        (* Container entries are a group of items on the stack.  They are used
-           for tuples and also for function closures.  A function closure
-           can contain the addresses of other function closures so these
-           must be retained until the last references to the closure
-           that references them.  *)
-    |   Container of { items: stackIndex list, dependencies: stackIndex list}
-
-    datatype stackEntry =
-        NoStackEntry
-    |   StackEntry of 
-        {
-            ent:   stackUnion,
-            cache: regSet,
-            uses:  int,
-            destStack: int option,
-                (* destStack is used to indicate where on the stack this
-                   entry must be placed if it has to be spilled.  A value
-                   of NONE means that we don't care.  The reason for having
-                   this is to ensure that if we split a flow of control
-                   (e.g. the then- and else-parts of an "if") with a value
-                   in a register and have to spill the register in one branch
-                   then we spill it to the same location on the other branch.
-                   This ensures that when we merge the flows of control we don't
-                   have to mess around with the stack.  *)
-            lifeTime: int
-                (* lifeTime is a measure of how long the item will live.
-                   Because these values are derived from a depth first
-                   scan in preCode lower values mean longer life except
-                   that zero means temporary.  The lifeTime is used to
-                   decide which items to spill from registers if we
-                   need to. *)
-        }
-
-    fun forIndDownTo(i, finishInd, perform: stackIndex->unit) =
-        if i >= finishInd
-        then (perform i; forIndDownTo (i - 1, finishInd, perform))
-        else ()
-
-    fun revfoldIndDownTo(f, x, i, finishInd) =
-        if i >= finishInd
-        then revfoldIndDownTo(f, f i x, i - 1, finishInd)
-        else x
-
-  (* The set of available registers. A register is free if its use-count
-     is zero. A register has a reference for each occurence in an entry
-     on the pseudo-stack or cache field (even if the use-count of the
-     stack entry is zero). *)
-  (* Added modification set to indicate if a register has been changed.
-     We assume that if a register is allocated it has been modified.
-     DCJM 26/11/00. *)
-     
-    type rset = {vec: int array, modSet: regSet ref, freeRegs: regSet ref};
-    
-    val vecSize = regs;
-  
-    (* Returns the first free register. *)
-    (* This is a major hotspot in the compiler. *)
-    fun getAcceptableRegister ({vec, modSet, freeRegs}:rset, acceptable: regSet) =
-    let
-        val available = regSetIntersect(!freeRegs, acceptable)
-    in
-        if available = noRegisters
-        then NONE
-        else (* Mark the register as in use. *)
-            let
-                val r = oneOf available
-                val i = nReg r
-            in
-                Array.update (vec, i, 1); (* Set the register use-count to 1 *)
-                modSet := regSetUnion(singleton r, ! modSet); (* Mark as used *)
-                freeRegs := regSetMinus(!freeRegs, singleton r);
-                SOME r
-            end
-    end
-
-    (* Print the allocated registers. *)
-    fun printRegs printStream ({vec, ...}) =
-    let
-        fun printReg i =
-        let
-            val useCount = Array.sub (vec, i)
-        in
-            if useCount > 0
-            then
-            (
-                printStream " "; printStream (regRepr (regN i));
-                printStream "="; printStream(Int.toString useCount)
-            )
-            else ()
-        end (* printReg *);
-    in
-        forLoop printReg 0 (vecSize - 1)
-    end
-
     fun free ({freeRegs, vec, ...}) reg =
     let
         val r = nReg reg
@@ -571,60 +671,7 @@ struct
 
     fun lastRegRef({vec, ...}, reg) = Array.sub (vec, nReg reg) = 1
 
-    fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
-  
-    (* This table maps declaration numbers for a particular function
-       into pseudo-stack offsets. The pseudo-stack simulates the real stack and
-       gives the real locations of objects which may be in store, on the real stack
-       or in registers. It maintains use-counts for values and allows the stack
-       to be contracted and registers to be re-used when they are no longer required.              *)
 
-    datatype ttab = Ttab of
-    {
-        regset:       rset,
-        pstack:       stackEntry StretchArray.stretchArray, (* Pseudo-stack *)
-        pstackptr:    stackIndex ref,
-        realstackptr: int ref,     (* The number of items on the real stack. *)
-        maxstack:     int ref,     (* The maximum number of items on the real stack. *)
-        exited:       bool ref,
-        branched:     bool ref,
-        marker:       stackIndex ref,
-        markReal:     int ref,
-        lowestDirect: stackIndex ref,
-        pstackTrace:  bool,
-        printStream:  string->unit
-    }
-     
-    fun ttabCreate(localCount, debugSwitches) =
-    let
-        val printStream = PRETTY.getSimplePrinter debugSwitches
-    in
-        Ttab
-        {
-            regset       = rsetMake(),
-            pstack       = StretchArray.stretchArray ((* Hint *)localCount, NoStackEntry),
-            pstackptr    = ref first,
-            realstackptr = ref 0,
-            maxstack     = ref 1,
-            exited       = ref false,
-            branched     = ref false,
-            marker       = ref first,
-            markReal     = ref 0,
-            lowestDirect = ref first,
-            pstackTrace  = DEBUG.getParameter DEBUG.pstackTraceTag debugSwitches,
-            printStream  = printStream
-        }
-    end
-
-    fun pstackEntry (Ttab{pstack, ...}, locn) = StretchArray.sub(pstack, locn)
-    and setPstackEntry(Ttab{pstack, ...}, locn, entry) = StretchArray.update(pstack, locn, entry)
-
-    (* Returns the entry after removing the option type. *)
-    fun pstackRealEntry (ttab, locn) =
-    case pstackEntry(ttab, locn) of
-        StackEntry record => record
-    |   NoStackEntry                    =>
-           raise InternalError ("pstackRealEntry: not entry: " ^ Int.toString(locn))
 
     fun printStackUnion printStream stackun =
       case stackun of
@@ -847,16 +894,6 @@ struct
                 setPstackEntry (table, entry,
                     StackEntry {ent=ent, cache=cache, uses=uses, destStack=destStack, lifeTime=life})
                 
-
-  (* True if this is the last reference to this entry. i.e. the use-count *)
-  (* of this entry is 1. *)
-  fun lastReference table entry =
-    case pstackEntry(table, entry) of
-      NoStackEntry => raise InternalError "lastReference: no entry"
-      
-    | StackEntry {uses, ...} => uses = 1
-
-
     (* Push a value on the stack and return its location. *)
     fun pushPstack (table as Ttab{pstackTrace, pstackptr, ...}, entry, name, ops) =
     let
@@ -898,7 +935,7 @@ struct
     fun pushConst (table, v : machineWord) = pushPstack(table, Literal v, "pushConst", [])
 
 
-    (* The top of the pseudo-stack is a forward reference to a procedure. *)
+    (* The top of the pseudo-stack is a forward reference to a function. *)
     fun pushCodeRef (table, rf : code) = pushPstack(table, CodeRef rf, "pushCodeRef", [])
 
     fun addRegUse (Ttab{regset, ...}, reg) = incr regset reg
@@ -3088,58 +3125,6 @@ struct
        but the machine-dependent code-generator will have requirements depending on the available
        instructions e.g. some or all the arguments may have to be in registers.  *)
     local
-        (* We have to re-evaluate this after each action because we may have
-           had to push values to the stack that were previously in registers. *)
-        fun argsAsSources(table as Ttab{realstackptr, ...}, args) =
-        let
-            fun argAsSource entry =
-            let
-                val {ent = stackEntry, cache, ...} = pstackRealEntry(table, entry);
-                val lastRef = lastReference table entry;
-            in
-                if cache <> noRegisters
-                then
-                (
-                    (* This assumes that it is preferable to have the value in a
-                       register.  That's generally true but can be wrong if we have
-                       pushed a floating point value to the stack, i.e. we've
-                       allocated a heap cell and stored the FP value into it
-                       then pushed the address of the cell.  In that case we
-                       might actually want the heap cell address.
-                       ensureNoAllocation has to clear the cache to make
-                       sure we use the address. *)
-                    if lastRef
-                    then ActInRegisterSet{modifiable=cache, readable=cache}
-                    else ActInRegisterSet{modifiable=noRegisters, readable=cache}
-                )
-                else case stackEntry of
-                    Register(reg, _) =>
-                        if lastRef
-                        then ActInRegisterSet{modifiable=singleton reg, readable=singleton reg}
-                        else ActInRegisterSet{modifiable=noRegisters, readable=singleton reg}
-
-                |   Literal m => ActLiteralSource m
-
-                |   Direct{base, offset} => ActBaseOffset(base, offset)
-
-                |   StackW index =>
-                            ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
-
-                |   Container{items, ...} =>
-                    (
-                        case pstackRealEntry(table, hd items) of
-                            {ent = StackW index, ...} =>
-                                 ActStackAddress((! realstackptr - index -1) * wordSize)
-                        |   _ => raise InternalError "argAsSource: container entry is not on stack"
-                    )
-
-                |   CodeRef code => ActCodeRefSource code
-
-            end
-        in
-            List.map argAsSource args
-        end
-
         fun performActions(start, finish, args, table as Ttab{pstackTrace, ...}) =
         let
             (* Process each action and then get the next action until we are finally finished. *)
@@ -3167,7 +3152,7 @@ struct
                         then removeRegistersFromCache(table, listToSet [reg])
                         else []
                 in
-                    untilDone(next(argsAsSources(table, args)), args, clear @ loadOps, reg :: lockedRegs)
+                    untilDone(next args, args, clear @ loadOps, reg :: lockedRegs)
                 end
 
             |   untilDone(ActionLoadArg{argNo, regSet, willOverwrite, next}, args, loadOps, lockedRegs) =
@@ -3177,17 +3162,17 @@ struct
                     (* Replace the argument by the location that refers to the register. *)
                     val repArgs = List.take(args, argNo) @ [regLoc] @ List.drop(args, argNo+1)
                 in
-                    untilDone(next(argsAsSources(table, repArgs)), repArgs, loadCode @ loadOps, lockedRegs)
+                    untilDone(next repArgs, repArgs, loadCode @ loadOps, lockedRegs)
                 end
 
             |   untilDone(ActionGetWorkReg{regSet, setReg}, args, loadOps, lockedRegs) =
                 let
                     val (reg, regCode) = getRegisterInSet(table, regSet)
                 in
-                    untilDone(setReg reg (argsAsSources(table, args)), args, regCode @ loadOps, reg :: lockedRegs)
+                    untilDone(setReg reg args, args, regCode @ loadOps, reg :: lockedRegs)
                 end
         in
-            untilDone(start (argsAsSources(table, args)), args, [], [])
+            untilDone(start args, args, [], [])
         end
     in
         (* Data operations that return a result in a register. *)
@@ -3517,7 +3502,7 @@ struct
         |   LiteralSource of machineWord
         |   BaseOffsetSource of { base: reg, offset: int }
 
-        fun getArg(instr, regSet, outputReg, operands) args =
+        fun getArg(table, instr, regSet, outputReg, operands) args =
         let
             (* Take each NONE in the operand list and replace it with the appropriate operand. *)
             fun nextArg([], [], _) =
@@ -3528,7 +3513,7 @@ struct
                     }
             |   nextArg(NONE :: otherOps, arg :: _, argNo) =
                 (
-                    case arg of (* Look at the next argument *)
+                    case argAsSource table arg of (* Look at the next argument *)
                         (ActInRegisterSet{ readable, ...}) =>
                         if regSetIntersect(readable, regSet) <> noRegisters
                         then
@@ -3537,19 +3522,19 @@ struct
                         in
                             (* It's in a register.  Lock it, record it and go on to the next arg. *)
                             ActionLockRegister{argNo=argNo, reg=aReg, willOverwrite=false,
-                                next=getArg(instr, regSet, outputReg,
+                                next=getArg(table, instr, regSet, outputReg,
                                         List.take(operands, argNo) @ (SOME(InRegister aReg) :: otherOps))}
                         end
                         else ActionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=false,
                                 (* Load into a register - won't modify it afterwards.  Next action is
                                    to look at this again after it's been loaded. *)
-                                next=getArg(instr, regSet, outputReg, operands)}
+                                next=getArg(table, instr, regSet, outputReg, operands)}
                     |   _ => (* If the value is not in a register we need to load it first to a
                                 general register even if the eventual destination is a floating pt reg. *)
                             ActionLoadArg{argNo=argNo, regSet=generalRegisters, willOverwrite=false,
                                 (* Load into a register - won't modify it afterwards.  Next action is
                                    to look at this again after it's been loaded. *)
-                                next=getArg(instr, regSet, outputReg, operands)}
+                                next=getArg(table, instr, regSet, outputReg, operands)}
                 )
             |   nextArg(SOME _ :: otherOps, _ :: otherArgs, argNo) =
                     nextArg(otherOps, otherArgs, argNo+1)
@@ -3592,8 +3577,8 @@ struct
             ActionGetWorkReg{regSet=regSet, setReg = fn reg => whenDone reg opAndResults}
 
         (* Load the argument to one of a set of possible registers. *)
-        fun loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults args =
-            case List.nth(args, argNo) of
+        fun loadToOneOf(table, regSet, overWrite, argNo, whenDone) opAndResults args =
+            case argAsSource table (List.nth(args, argNo)) of
                 (ActInRegisterSet{ modifiable, readable, ...}) =>
                     let
                         val chooseFrom = if overWrite then modifiable else readable
@@ -3608,7 +3593,7 @@ struct
                         end
                         else (* Not in the right register - move it. *)
                                 ActionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=overWrite,
-                                    next=loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults}
+                                    next=loadToOneOf(table, regSet, overWrite, argNo, whenDone) opAndResults}
                     end
                 |   _=>
                     let
@@ -3623,34 +3608,37 @@ struct
                             then (regSet, overWrite) else (generalRegisters, false)
                     in
                         ActionLoadArg{argNo=argNo, regSet=loadSet, willOverwrite=write,
-                             next=loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults}
+                             next=loadToOneOf(table, regSet, overWrite, argNo, whenDone) opAndResults}
                     end
 
         (* Load to a register (read-only) or, if it's a literal leave it.  In
            64-bit mode we load anything that won't fit in 32-bits when tagged. *)
-        fun loadToRegOrLiteral(regSet, argNo, whenDone) opAndResults args =
-            case List.nth(args, argNo) of
+        fun loadToRegOrLiteral(table, regSet, argNo, whenDone) opAndResults args =
+            case argAsSource table (List.nth(args, argNo)) of
                 ActLiteralSource lit => 
                     if not isX64 orelse is31bitSigned lit
                     then whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
-                    else loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
-            |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
+                    else loadToOneOf(table, regSet, false, argNo, whenDone) opAndResults args
+            |   _ => loadToOneOf(table, regSet, false, argNo, whenDone) opAndResults args
 
         (* Load a base address for a load or store operation. We can use a constant source but
            only if the index is zero.  The base address is the first argument and the index is the
            second.  We can't use a constant base address in 64-bit mode because inline addresses
            aren't possible (the equivalent code means PC-relative). *)
-        fun loadBaseAddress (pref, whenDone) (opAndResults as (_, resReg))
-                    (args as (ActLiteralSource base :: ActLiteralSource index :: _)) =
-            if isShort index andalso toShort index = 0w0 andalso not isX64
-            then whenDone (replaceOperand(0, LiteralSource base) opAndResults) args
-            else ActionLoadArg{argNo=0, regSet=generalRegisters,
-                        willOverwrite=
-                            case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
-                        next=loadBaseAddress(pref, whenDone) opAndResults}
+        fun loadBaseAddress (table, pref, whenDone) (opAndResults as (ops, resReg)) args =
+        let
+            val mappedArgs = map (argAsSource table) args
+        in
+            case mappedArgs of
+                ActLiteralSource base :: ActLiteralSource index :: _ =>
+                    if isShort index andalso toShort index = 0w0 andalso not isX64
+                    then whenDone (replaceOperand(0, LiteralSource base) opAndResults) args
+                    else ActionLoadArg{argNo=0, regSet=generalRegisters,
+                                willOverwrite=
+                                    case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
+                                next=loadBaseAddress(table, pref, whenDone) opAndResults}
 
-        |   loadBaseAddress (pref, whenDone) (opAndResults as (ops, resReg))
-                    (ActInRegisterSet{modifiable, readable} :: _) =
+            |   ActInRegisterSet{modifiable, readable} :: _ =>
                 if modifiable ** generalRegisters <> noRegisters
                 then
                 let
@@ -3674,14 +3662,15 @@ struct
                         next=whenDone (replaceOperand(0, InRegister reg) opAndResults) }
                 end
                 else ActionLoadArg { argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                next=loadBaseAddress (pref, whenDone) opAndResults }
+                                next=loadBaseAddress (table, pref, whenDone) opAndResults }
 
-        |   loadBaseAddress (pref, whenDone) (opAndResults as (_, resReg)) _ =
+            |   _ =>
                 (* It's not a literal or in a register - load it. *)
                 ActionLoadArg{argNo=0, regSet=generalRegisters,
                              willOverwrite=
                                 case (pref, resReg) of (NoResult, _) => false | (_, SOME _) => false | _ => true,
-                             next=loadBaseAddress(pref, whenDone) opAndResults}
+                             next=loadBaseAddress(table, pref, whenDone) opAndResults}
+        end
 
         (* Process all the remaining arguments i.e. those with NONE in the argument list. *)
         fun allArgs (eachArg, whenDone) (operands as (opers, _)) =
@@ -3697,43 +3686,47 @@ struct
 
         (* This deals with any remaining operands and puts them into registers.  It is the fall-back
            in a lot of cases. *)
-        fun allInRegisters (regSet, whenDone) =
-            allArgs(fn (argNo, whenDone) => loadToOneOf(regSet, false, argNo, whenDone), whenDone)
+        fun allInRegisters (table, regSet, whenDone) =
+            allArgs(fn (argNo, whenDone) => loadToOneOf(table, regSet, false, argNo, whenDone), whenDone)
 
-        fun allInRegsOrLiterals (regSet, whenDone) =
-            allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
+        fun allInRegsOrLiterals (table, regSet, whenDone) =
+            allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(table, regSet, argNo, whenDone), whenDone)
 
         (* Some cases require arguments in specific registers. *)
-        fun loadToSpecificRegister(specReg, overWrite, argNo, whenDone) =
-            loadToOneOf(singleton specReg, overWrite, argNo, whenDone)
+        fun loadToSpecificRegister(table, specReg, overWrite, argNo, whenDone) =
+            loadToOneOf(table, singleton specReg, overWrite, argNo, whenDone)
             
     in
         (* Default if we don't need a result register. *)
-        fun noresultNegotiator instr args =
-            allInRegisters(generalRegisters, generateInstruction instr) (List.map(fn _ => NONE) args, NONE) args
+        fun noresultNegotiator(table, instr) args =
+            allInRegisters(table, generalRegisters, generateInstruction instr) (List.map(fn _ => NONE) args, NONE) args
 
         (* Default if we need a result which is different from the argument registers. *)
-        fun generalNegotiator(instr, pref) args =
+        fun generalNegotiator(table, instr, pref) args =
             getResultRegister(generalRegisters, pref,
-                allInRegisters(generalRegisters, generateInstruction instr)
+                allInRegisters(table, generalRegisters, generateInstruction instr)
                 ) (List.map(fn _ => NONE) args, NONE) args
 
 
         local (* Single argument case *)
-            fun loadDestArg(instr, pref) [ActInRegisterSet{ modifiable, ...}] =
-                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters
-                    then
-                    let
-                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
-                    in
-                        ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
-                                       next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg)])}
-                    end
-                    else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
-                                  next=loadDestArg(instr, pref)}
-            |   loadDestArg(instr, pref) [_] = (* Not in a register. *)
-                    ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
-                                  next=loadDestArg(instr, pref)}
+            fun loadDestArg(table, instr, pref) [arg] =
+            (
+                case argAsSource table arg of
+                    ActInRegisterSet{ modifiable, ...} =>
+                        if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                        then
+                        let
+                            val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                        in
+                            ActionLockRegister{argNo=0, reg=aReg, willOverwrite=true,
+                                           next=getArg(table, instr, generalRegisters, SOME aReg, [SOME(InRegister aReg)])}
+                        end
+                        else ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
+                                      next=loadDestArg(table, instr, pref)}
+                |   _ => (* Not in a register. *)
+                        ActionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
+                                      next=loadDestArg(table, instr, pref)}
+            )
             |   loadDestArg _ _ = raise InternalError "loadDestArg: not a single argument"
         in
             val sharedSingleArgNegotiator = loadDestArg
@@ -3767,18 +3760,18 @@ struct
             end
             | genStoreWord _ = raise InternalError "genStoreWord"
 
-            fun storeWordNegotiator _ =
+            fun storeWordNegotiator table _ =
                 (* The first argument, the address needs to be in a register even if
                    it's a constant.  The others may be literals. *)
-                loadBaseAddress(NoResult,
-                    loadToRegOrLiteral(generalRegisters, 1,
-                        loadToRegOrLiteral(generalRegisters, 2,
+                loadBaseAddress(table, NoResult,
+                    loadToRegOrLiteral(table, generalRegisters, 1,
+                        loadToRegOrLiteral(table, generalRegisters, 2,
                             generateInstruction genStoreWord
                             ))) ([NONE, NONE, NONE], NONE)
         in
             fun storeWord(arg1, arg2, arg3, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2, arg3], storeWordNegotiator, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3], storeWordNegotiator transtable, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -3794,7 +3787,7 @@ struct
                 (* Turn this into an assignment operation. *)
                 val arguments = [vecEntry, pushConst(table, toMachineWord offset), valueEntry]
             in
-                #2(dataOp(arguments, storeWordNegotiator, table, NoResult)) @ freeCode1
+                #2(dataOp(arguments, storeWordNegotiator table, table, NoResult)) @ freeCode1
             end
         end
 
@@ -3803,11 +3796,10 @@ struct
             fun genLockSeg([InRegister reg], NONE) = [LockMutableSegment reg]
             |   genLockSeg _ = raise InternalError "genLockSeg"
         in
-            fun lockInstr _ = noresultNegotiator genLockSeg
-
             (* Lock a newly created vector. *)
             fun lockVector(vecIndex, transtable, whereto) =
             let
+                fun lockInstr _ = noresultNegotiator(transtable, genLockSeg)
                 val (opRes, opCode) = dataOp([vecIndex], lockInstr, transtable, whereto)
                 val result = 
                     case whereto of
@@ -3825,7 +3817,7 @@ struct
         in
             fun threadSelf(transtable, whereto) =
             let
-                fun i prefs = generalNegotiator(threadSelfI, prefs)
+                fun i prefs = generalNegotiator(transtable, threadSelfI, prefs)
                 val (opRes, opCode) = dataOp([], i, transtable, whereto)
                 val result = 
                     case whereto of
@@ -3848,7 +3840,7 @@ struct
         in
             fun vectorLength(argLocn, transtable, whereto) =
             let
-                fun i prefs = generalNegotiator(vecLen, prefs)
+                fun i prefs = generalNegotiator(transtable, vecLen, prefs)
                 val (opRes, opCode) = dataOp ([argLocn], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -3868,7 +3860,7 @@ struct
         in
             fun vectorFlags(arg, transtable, whereto) =
             let
-                fun i pref = generalNegotiator(genVecFlags, pref)
+                fun i pref = generalNegotiator(transtable, genVecFlags, pref)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -3898,7 +3890,7 @@ struct
         in
             fun getFirstLong(arg, transtable, whereto) =
             let
-                fun i pref = generalNegotiator(genFirstLong, pref)
+                fun i pref = generalNegotiator(transtable, genFirstLong, pref)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -3913,40 +3905,41 @@ struct
             (* Load word or load byte.  Load word with a constant offset is very common since it's used
                for refs.  Load byte is more likely to be with an index and since we have to untag the
                index it's better to reuse it for the result if we can. *)
-            fun loadIndex (pref, isWord, whenDone) (opAndResults as (ops, resReg))
-                    (_ :: ActInRegisterSet{modifiable, readable} ::_) =
-                if modifiable ** generalRegisters <> noRegisters
-                then (* It's in a modifiable register. *)
-                let
-                    val reg = oneOf(prefAsSet(pref, modifiable ** generalRegisters, ops))
-                    (* We can use this for the result if we don't already have one. *)
-                    val outReg = case resReg of NONE => SOME reg | resReg => resReg
-                in
-                    ActionLockRegister { argNo=1, reg=reg, willOverwrite=true,
-                        next=whenDone (replaceOperand(1, InRegister reg) (ops, outReg)) }
-                end
-                else if isWord andalso readable ** generalRegisters <> noRegisters
-                    (* We don't have a writable index register. If this is a word operation we
-                        can use a readable one but if it's a byte operation we need to use a
-                        writable one. *)
-                then
-                let
-                    val reg = oneOf(readable ** generalRegisters)
-                in
-                    ActionLockRegister { argNo=1, reg=reg, willOverwrite=false,
-                        next=whenDone (replaceOperand(1, InRegister reg) opAndResults) }
-                end
-                else ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
-                                    next=loadIndex (pref, isWord, whenDone) opAndResults }
+            fun loadIndex (table, pref, isWord, whenDone) (opAndResults as (ops, resReg)) args =
+                case map (argAsSource table) args of
+                    (_ :: ActInRegisterSet{modifiable, readable} ::_) =>
+                    if modifiable ** generalRegisters <> noRegisters
+                    then (* It's in a modifiable register. *)
+                    let
+                        val reg = oneOf(prefAsSet(pref, modifiable ** generalRegisters, ops))
+                        (* We can use this for the result if we don't already have one. *)
+                        val outReg = case resReg of NONE => SOME reg | resReg => resReg
+                    in
+                        ActionLockRegister { argNo=1, reg=reg, willOverwrite=true,
+                            next=whenDone (replaceOperand(1, InRegister reg) (ops, outReg)) }
+                    end
+                    else if isWord andalso readable ** generalRegisters <> noRegisters
+                        (* We don't have a writable index register. If this is a word operation we
+                            can use a readable one but if it's a byte operation we need to use a
+                            writable one. *)
+                    then
+                    let
+                        val reg = oneOf(readable ** generalRegisters)
+                    in
+                        ActionLockRegister { argNo=1, reg=reg, willOverwrite=false,
+                            next=whenDone (replaceOperand(1, InRegister reg) opAndResults) }
+                    end
+                    else ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
+                                        next=loadIndex (table, pref, isWord, whenDone) opAndResults }
 
-            |   loadIndex (_, _, whenDone) opAndResults (args as [_, ActLiteralSource offset]) =
-                    (* Constant index - record it and go on to the base register *)
-                    whenDone (replaceOperand(1, LiteralSource offset) opAndResults) args
+                |   ([_, ActLiteralSource offset]) =>
+                        (* Constant index - record it and go on to the base register *)
+                        whenDone (replaceOperand(1, LiteralSource offset) opAndResults) args
 
-            |   loadIndex (pref, isWord, whenDone) opAndResults _ =
-                    (* Not in a register or a literal.  Load it. *)
-                    ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
-                                    next=loadIndex (pref, isWord, whenDone) opAndResults }
+                |   _ =>
+                        (* Not in a register or a literal.  Load it. *)
+                        ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
+                                        next=loadIndex (table, pref, isWord, whenDone) opAndResults }
 
             fun genLoadInstr isWord ([LiteralSource base, LiteralSource offset], SOME destReg) =
                     if isShort offset andalso toShort offset = 0w0 andalso not isX64
@@ -3990,9 +3983,9 @@ struct
 
             |   genLoadInstr _ _ = raise InternalError "genLoadInstr"
 
-            fun genLoadWord isWord pref =
-                loadIndex(pref, isWord,
-                    loadBaseAddress(pref,
+            fun genLoadWord table isWord pref =
+                loadIndex(table, pref, isWord,
+                    loadBaseAddress(table, pref,
                         getResultRegister(generalRegisters, pref,
                             generateInstruction(genLoadInstr isWord))
                         )
@@ -4000,7 +3993,7 @@ struct
         in
             fun loadWord(arg1, arg2, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord true, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord transtable true, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -4011,7 +4004,7 @@ struct
 
             and loadByte(arg1, arg2, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord false, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2], genLoadWord transtable false, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -4176,16 +4169,16 @@ struct
                 end
             |   genStoreByte _ = raise InternalError "genStoreByte"
 
-            (* We store from the low order byte of a register so we want the value in one of
-               the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
-            fun storeByteI _ =
-               loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
-                    loadBaseAddress(NoResult,
-                        loadToRegOrLiteral(generalRegisters, 1,
-                            generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE)
         in
             fun storeByte(arg1, arg2, arg3, transtable, whereto) =
             let
+                (* We store from the low order byte of a register so we want the value in one of
+                   the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
+                fun storeByteI _ =
+                   loadToRegOrLiteral(transtable, listToSet[eax, ebx, ecx, edx], 2,
+                        loadBaseAddress(transtable, NoResult,
+                            loadToRegOrLiteral(transtable, generalRegisters, 1,
+                                generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE)
                 val (opRes, opCode) = dataOp ([arg1, arg2, arg3], storeByteI, transtable, whereto)
                 val result =
                     case whereto of
@@ -4208,7 +4201,7 @@ struct
         in
             fun atomicIncrement(arg, transtable, whereto) =
             let
-                fun i pref = generalNegotiator(atomicOp 1, pref)
+                fun i pref = generalNegotiator(transtable, atomicOp 1, pref)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4220,7 +4213,7 @@ struct
 
             and atomicDecrement(arg, transtable, whereto) =
             let
-                fun i pref = generalNegotiator(atomicOp ~1, pref)
+                fun i pref = generalNegotiator(transtable, atomicOp ~1, pref)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4282,19 +4275,19 @@ struct
                 end
             |   wordMemMove _ = raise InternalError "byteMemMove"
 
-            fun genMemMove memMove _ =
+            fun genMemMove table memMove _ =
                 (* Memory moves: The source must be in esi, the destination in edi and the count in ecx.
                    The source and destination offsets can be any registers.  We can't add the offsets in
                    advance because that would create invalid addresses. *)
-                loadToSpecificRegister(esi, true, 0,
-                    loadToSpecificRegister(edi, true, 2,
-                        loadToSpecificRegister(ecx, true, 4,
-                            allInRegsOrLiterals(generalRegisters, generateInstruction memMove)
+                loadToSpecificRegister(table, esi, true, 0,
+                    loadToSpecificRegister(table, edi, true, 2,
+                        loadToSpecificRegister(table, ecx, true, 4,
+                            allInRegsOrLiterals(table, generalRegisters, generateInstruction memMove)
                             ))) ([NONE, NONE, NONE, NONE, NONE], NONE)
         in
             fun moveBytes(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove byteMemMove, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove transtable byteMemMove, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -4305,7 +4298,7 @@ struct
 
             and moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove wordMemMove, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2, arg3, arg4, arg5], genMemMove transtable wordMemMove, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -4332,174 +4325,182 @@ struct
                such as tag tests and pointer comparisons.  The x86 allows most combinations
                of registers, memory and constants. *)
 
-            fun testActions (testType, destLabel, tagTest) ([ActBaseOffset _, ActBaseOffset _]) =
-                    (* Both in memory: Load one. *)
-                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
+            fun testActions (table, testType, destLabel, tagTest) [arg1, arg2] =
+            (
+                case (argAsSource table arg1, argAsSource table arg2) of
+                    (ActBaseOffset _, ActBaseOffset _) =>
+                        (* Both in memory: Load one. *)
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                      next=testActions(table, testType, destLabel, tagTest)}
 
-            |   testActions (testType, destLabel, tagTest) ([ActLiteralSource _, ActLiteralSource _]) =
-                    (* Both constants: Should have been optimised. *)
-                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
+                |   (ActLiteralSource _, ActLiteralSource _) =>
+                        (* Both constants: Should have been optimised. *)
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                      next=testActions(table, testType, destLabel, tagTest)}
                     
-            |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActInRegisterSet s2]) =
-                let
-                    val reg1 = chooseGenReg s1 and reg2 = chooseGenReg s2
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral }::
-                                           tagTest([ArithRR{opc=CMP, output=reg1, source=reg2}],
-                                                   InRegister reg1, InRegister reg2, testType, destLabel) }
-                end
+                |   (ActInRegisterSet s1, ActInRegisterSet s2) =>
+                    let
+                        val reg1 = chooseGenReg s1 and reg2 = chooseGenReg s2
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral }::
+                                               tagTest([ArithRR{opc=CMP, output=reg1, source=reg2}],
+                                                       InRegister reg1, InRegister reg2, testType, destLabel) }
+                    end
 
-            |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActLiteralSource constnt]) =
-                let
-                    val reg1 = chooseGenReg s1
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                    tagTest(
-                                           [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                                           if isShort constnt
-                                           then ArithRConst{opc=CMP, output=reg1,
-                                                            source=tag(Word.toIntX(toShort constnt))}
-                                           else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
-                                           InRegister reg1, LiteralSource constnt, testType, destLabel) }
-                end
+                |   (ActInRegisterSet s1, ActLiteralSource constnt) =>
+                    let
+                        val reg1 = chooseGenReg s1
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                        tagTest(
+                                               [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
+                                               if isShort constnt
+                                               then ArithRConst{opc=CMP, output=reg1,
+                                                                source=tag(Word.toIntX(toShort constnt))}
+                                               else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
+                                               InRegister reg1, LiteralSource constnt, testType, destLabel) }
+                    end
 
-            |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActInRegisterSet s2]) =
-                let
-                    val reg2 = chooseGenReg s2
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                    val revTest = reverseTestOp testType
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                    tagTest(
-                                           [ConditionalBranch
-                                                { test=revTest, label=destLabel, predict=PredictNeutral },
-                                           if isShort constnt
-                                           then ArithRConst{opc=CMP, output=reg2,
-                                                            source=tag(Word.toIntX(toShort constnt))}
-                                           else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
-                                           InRegister reg2, LiteralSource constnt, revTest, destLabel) }
-                end
+                |   (ActLiteralSource constnt, ActInRegisterSet s2) =>
+                    let
+                        val reg2 = chooseGenReg s2
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                        val revTest = reverseTestOp testType
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                        tagTest(
+                                               [ConditionalBranch
+                                                    { test=revTest, label=destLabel, predict=PredictNeutral },
+                                               if isShort constnt
+                                               then ArithRConst{opc=CMP, output=reg2,
+                                                                source=tag(Word.toIntX(toShort constnt))}
+                                               else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
+                                               InRegister reg2, LiteralSource constnt, revTest, destLabel) }
+                    end
 
-            |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActBaseOffset(base, offset)]) =
-                let
-                    val reg1 = chooseGenReg s1
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                    tagTest([ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                                             ArithRMem{opc=CMP, output=reg1, base=base, offset=offset}],
-                                           InRegister reg1, BaseOffsetSource{base=base, offset=offset},
-                                           testType, destLabel)}
-                end
+                |   (ActInRegisterSet s1, ActBaseOffset(base, offset)) =>
+                    let
+                        val reg1 = chooseGenReg s1
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                        tagTest([ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
+                                                 ArithRMem{opc=CMP, output=reg1, base=base, offset=offset}],
+                                               InRegister reg1, BaseOffsetSource{base=base, offset=offset},
+                                               testType, destLabel)}
+                    end
 
-            |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActInRegisterSet s2]) =
-                let
-                    val reg2 = chooseGenReg s2
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                    val revTest = reverseTestOp testType
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                    tagTest([ConditionalBranch
-                                                { test=revTest, label=destLabel, predict=PredictNeutral },
-                                             ArithRMem{opc=CMP, output=reg2, base=base, offset=offset}],
-                                           InRegister reg2, BaseOffsetSource{base=base, offset=offset},
-                                           revTest, destLabel)}
-                end
+                |   (ActBaseOffset(base, offset), ActInRegisterSet s2) =>
+                    let
+                        val reg2 = chooseGenReg s2
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                        val revTest = reverseTestOp testType
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                        tagTest([ConditionalBranch
+                                                    { test=revTest, label=destLabel, predict=PredictNeutral },
+                                                 ArithRMem{opc=CMP, output=reg2, base=base, offset=offset}],
+                                               InRegister reg2, BaseOffsetSource{base=base, offset=offset},
+                                               revTest, destLabel)}
+                    end
 
-            |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
-                if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
-                then (* In 32-bit mode we can put all constants inline but in 64-bit mode anything
-                        that won't fit in 32-bits as well as all addresses need to go in the
-                        constant area.  That requires memory addressing and we don't have
-                        memory-memory comparison operations. *)
-                let
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                    tagTest(
-                                           [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
-                                           if isShort constnt
-                                           then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                              source=tag(Word.toIntX(toShort constnt))}
-                                           else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
-                                           testType, destLabel)}
-                end
-                else (* If it won't fit in 32-bits we have to load one of the args. *)
-                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
+                |   (ActBaseOffset(base, offset), ActLiteralSource constnt) =>
+                    if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
+                    then (* In 32-bit mode we can put all constants inline but in 64-bit mode anything
+                            that won't fit in 32-bits as well as all addresses need to go in the
+                            constant area.  That requires memory addressing and we don't have
+                            memory-memory comparison operations. *)
+                    let
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                        tagTest(
+                                               [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
+                                               if isShort constnt
+                                               then ArithMemConst{opc=CMP, base=base, offset=offset,
+                                                                  source=tag(Word.toIntX(toShort constnt))}
+                                               else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
+                                               BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
+                                               testType, destLabel)}
+                    end
+                    else (* If it won't fit in 32-bits we have to load one of the args. *)
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                      next=testActions(table, testType, destLabel, tagTest)}
 
-            |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
-                if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
-                then
-                let
-                    val Labels{uses, ...} = destLabel
-                    val () = uses := !uses+1
-                    val revTest = reverseTestOp testType
-                in
-                    ActionDone{ outReg=NONE,
-                                operation=
-                                      tagTest(
-                                           [ConditionalBranch
-                                                { test=revTest, label=destLabel, predict=PredictNeutral },
-                                           if isShort constnt
-                                           then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                              source=tag(Word.toIntX(toShort constnt))}
-                                           else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
-                                           revTest, destLabel) }
-                end
-                else (* If it won't fit in 32-bits we have to load one of the args. *)
-                    ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
+                |   (ActLiteralSource constnt, ActBaseOffset(base, offset)) =>
+                    if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
+                    then
+                    let
+                        val Labels{uses, ...} = destLabel
+                        val () = uses := !uses+1
+                        val revTest = reverseTestOp testType
+                    in
+                        ActionDone{ outReg=NONE,
+                                    operation=
+                                          tagTest(
+                                               [ConditionalBranch
+                                                    { test=revTest, label=destLabel, predict=PredictNeutral },
+                                               if isShort constnt
+                                               then ArithMemConst{opc=CMP, base=base, offset=offset,
+                                                                  source=tag(Word.toIntX(toShort constnt))}
+                                               else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
+                                               BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
+                                               revTest, destLabel) }
+                    end
+                    else (* If it won't fit in 32-bits we have to load one of the args. *)
+                        ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
+                                      next=testActions(table, testType, destLabel, tagTest)}
+                )
 
-            |   testActions _ _  = raise InternalError "testActions"
+                |   testActions _ _  = raise InternalError "testActions"
                 
 
-            fun makeBranch (testType, tagTest) () =
+            fun makeBranch (table, testType, tagTest) () =
             let
                 val destLabel = mkLabel()
             in
-                (testActions(testType, destLabel, tagTest), destLabel)
+                (testActions(table, testType, destLabel, tagTest), destLabel)
             end
 
-            fun lengthTest test () =
+            fun lengthTest table test () =
             let
                 val destLabel as Labels{uses, ...} = mkLabel()
-                fun testActions ([ActInRegisterSet regs]) =
-                    (
-                        uses := !uses+1;
-                        ActionDone { outReg=NONE,
-                            operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
-                                       TestTagR(chooseGenReg regs)]}
-                    )
-                |   testActions([ActBaseOffset(base, offset)]) =
-                    (
-                        uses := !uses+1;
-                        ActionDone { outReg=NONE,
-                            operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
-                                       TestByteMem{base=base, offset=offset, bits=0w1}]}
-                    )
-                |   testActions([ActLiteralSource _]) =
-                        (* This should have been optimised away. *)
-                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                      next=testActions}
+                fun testActions [arg] =
+                (
+                    case argAsSource table arg of
+                        ActInRegisterSet regs =>
+                        (
+                            uses := !uses+1;
+                            ActionDone { outReg=NONE,
+                                operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
+                                           TestTagR(chooseGenReg regs)]}
+                        )
+                    |   ActBaseOffset(base, offset) =>
+                        (
+                            uses := !uses+1;
+                            ActionDone { outReg=NONE,
+                                operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
+                                           TestByteMem{base=base, offset=offset, bits=0w1}]}
+                        )
+                    |   ActLiteralSource _ =>
+                            (* This should have been optimised away. *)
+                            ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                          next=testActions}
+                 )
                 |   testActions _ = raise InternalError "lengthTestActions"
             in
                 (testActions: nextAction, destLabel)
@@ -4508,39 +4509,39 @@ struct
             fun noTagTest (operations, _, _, _, _) = operations (* When we don't need a test. *)
          in
             fun notEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JNE, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNE, noTagTest), transtable)
             and equalWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JE, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JE, noTagTest), transtable)
             and greaterOrEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JNB, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNB, noTagTest), transtable)
             and greaterThanWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JA, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JA, noTagTest), transtable)
             and lessOrEqualWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JNA, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNA, noTagTest), transtable)
             and lessThanWord(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JB, noTagTest), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JB, noTagTest), transtable)
 
             fun notEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JNE, eqTestTags), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JNE, eqTestTags), transtable)
             and equalInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JE, eqTestTags), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JE, eqTestTags), transtable)
             and greaterOrEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JGE, testTagsForComparison), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JGE, testTagsForComparison), transtable)
             and greaterThanInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JG, testTagsForComparison), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JG, testTagsForComparison), transtable)
             and lessOrEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JLE, testTagsForComparison), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JLE, testTagsForComparison), transtable)
             and lessThanInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JL, testTagsForComparison), transtable)
+                compareAndBranch ([arg1, arg2], makeBranch(transtable, JL, testTagsForComparison), transtable)
 
             fun testShortInt(arg, transtable) =
-                compareAndBranch ([arg], lengthTest JNE, transtable)
+                compareAndBranch ([arg], lengthTest transtable JNE, transtable)
             and testNotShortInt(arg, transtable) =
-                compareAndBranch ([arg], lengthTest JE, transtable)
+                compareAndBranch ([arg], lengthTest transtable JE, transtable)
         end
 
         local
-            fun genByteVec test () =
+            fun genByteVec transtable test () =
             let
                 val destLabel as Labels{uses, ...} = mkLabel()
 
@@ -4586,47 +4587,49 @@ struct
                        The offsets can be in any register. Edi, esi and ecx are marked as modifiable
                        and are left as values that need to be made safe.  Offset values are
                        read-only and need to be restored in case they're reused. *)
-                    loadToSpecificRegister(esi, true, 0,
-                        loadToSpecificRegister(edi, true, 2,
-                            loadToSpecificRegister(ecx, true, 4,
-                                loadToRegOrLiteral(generalRegisters, 1,
-                                    loadToRegOrLiteral(generalRegisters, 3, generateCode)))))
+                    loadToSpecificRegister(transtable, esi, true, 0,
+                        loadToSpecificRegister(transtable, edi, true, 2,
+                            loadToSpecificRegister(transtable, ecx, true, 4,
+                                loadToRegOrLiteral(transtable, generalRegisters, 1,
+                                    loadToRegOrLiteral(transtable, generalRegisters, 3, generateCode)))))
                                         ([NONE, NONE, NONE, NONE, NONE], NONE)
             in
                 (testActions: nextAction, destLabel)
             end
         in
             fun testByteVecEq(arg1, arg2, arg3, arg4, arg5, transtable) =
-                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JE, transtable)
+                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec transtable JE, transtable)
             and testByteVecNe(arg1, arg2, arg3, arg4, arg5, transtable) =
-                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec JNE, transtable)
+                compareAndBranch ([arg1, arg2, arg3, arg4, arg5], genByteVec transtable JNE, transtable)
         end
 
         local
-            fun loadBaseOffsets genInstr ops (ActBaseOffset _ :: _) = (* Unary or binary case. *)
-                (* Base-offset values need to be loaded into a general register because we
-                   don't have a doubly indirect load, at least on X86/32. *)
-                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                  next=loadBaseOffsets genInstr ops}
-            |   loadBaseOffsets genInstr ops [_, ActBaseOffset _] =
-                    ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
-                                  next=loadBaseOffsets genInstr ops}
-            |   loadBaseOffsets genInstr (_, outputReg) args =
-                let
-                    fun argToSource(ActInRegisterSet { readable, modifiable }) =
-                        (* Choose the best register.  First choice is a modifiable FP reg,
-                           then a non-modifiable FP reg, then a general register. *)
-                        if regSetIntersect(modifiable, floatingPtRegisters) <> noRegisters
-                        then InRegister(oneOf(regSetIntersect(modifiable, floatingPtRegisters)))
-                        else if regSetIntersect(readable, floatingPtRegisters) <> noRegisters
-                        then InRegister(oneOf(regSetIntersect(readable, floatingPtRegisters)))
-                        else InRegister(oneOf readable)
-                    |   argToSource(ActLiteralSource m) = LiteralSource m
-                    |   argToSource _ = raise InternalError "negotiateFP: not reg or literal"
-                    val ops = map argToSource args
-                in
-                    ActionDone{ outReg=outputReg, operation=genInstr(ops, outputReg) }
-                end
+            fun loadBaseOffsets table genInstr (ops as (_, outputReg)) args =
+                case map (argAsSource table) args of
+                    (ActBaseOffset _ :: _) => (* Unary or binary case. *)
+                    (* Base-offset values need to be loaded into a general register because we
+                       don't have a doubly indirect load, at least on X86/32. *)
+                        ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                      next=loadBaseOffsets table genInstr ops}
+                |   [_, ActBaseOffset _] =>
+                        ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
+                                      next=loadBaseOffsets table genInstr ops}
+                |   mappedArgs =>
+                    let
+                        fun argToSource(ActInRegisterSet { readable, modifiable }) =
+                            (* Choose the best register.  First choice is a modifiable FP reg,
+                               then a non-modifiable FP reg, then a general register. *)
+                            if regSetIntersect(modifiable, floatingPtRegisters) <> noRegisters
+                            then InRegister(oneOf(regSetIntersect(modifiable, floatingPtRegisters)))
+                            else if regSetIntersect(readable, floatingPtRegisters) <> noRegisters
+                            then InRegister(oneOf(regSetIntersect(readable, floatingPtRegisters)))
+                            else InRegister(oneOf readable)
+                        |   argToSource(ActLiteralSource m) = LiteralSource m
+                        |   argToSource _ = raise InternalError "negotiateFP: not reg or literal"
+                        val ops = map argToSource mappedArgs
+                    in
+                        ActionDone{ outReg=outputReg, operation=genInstr(ops, outputReg) }
+                    end
 
             fun genTest(opc, destLabel as Labels{uses, ...}) ([arg1, arg2], _) =
                 let
@@ -4688,20 +4691,20 @@ struct
                 end
             | genTest _ _ = raise InternalError "genTest"
 
-            fun fpTests opc () =
+            fun fpTests table opc () =
             let
                 val destLabel = mkLabel()
             in
                 (* We need eax as a work register. *)
                 (fn _ => ActionGetWorkReg{regSet=singleton eax,
-                            setReg = fn _ => loadBaseOffsets (genTest(opc, destLabel)) ([NONE, NONE], NONE)}, destLabel)
+                            setReg = fn _ => loadBaseOffsets table (genTest(opc, destLabel)) ([NONE, NONE], NONE)}, destLabel)
             end
             
-            fun getFP genInstr pref =
-                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets genInstr)
+            fun getFP table genInstr pref =
+                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets table genInstr)
                     ([NONE, NONE], NONE)
-            and getUnaryFP genInstr pref =
-                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets genInstr)
+            and getUnaryFP table genInstr pref =
+                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets table genInstr)
                     ([NONE], NONE)
 
             fun genBinaryFP(forward, reverse) ([op1, op2], SOME output) =
@@ -4766,7 +4769,7 @@ struct
         in
             fun addReal(arg1, arg2, transtable, whereto) =
             let
-                val i = getFP(genBinaryFP(FADD, FADD))
+                val i = getFP transtable (genBinaryFP(FADD, FADD))
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4777,7 +4780,7 @@ struct
             end
             and subtractReal(arg1, arg2, transtable, whereto) =
             let
-                val i = getFP(genBinaryFP(FSUB, FSUBR))
+                val i = getFP transtable (genBinaryFP(FSUB, FSUBR))
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4788,7 +4791,7 @@ struct
             end
             and multiplyReal(arg1, arg2, transtable, whereto) =
             let
-                val i = getFP(genBinaryFP(FMUL, FMUL))
+                val i = getFP transtable (genBinaryFP(FMUL, FMUL))
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4799,7 +4802,7 @@ struct
             end
             and divideReal(arg1, arg2, transtable, whereto) =
             let
-                val i = getFP(genBinaryFP(FDIV, FDIVR))
+                val i = getFP transtable (genBinaryFP(FDIV, FDIVR))
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4811,7 +4814,7 @@ struct
 
             fun absoluteReal(arg, transtable, whereto) =
             let
-                val i = getUnaryFP(genUnaryFP FABS)
+                val i = getUnaryFP transtable (genUnaryFP FABS)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4823,7 +4826,7 @@ struct
 
             and negativeReal(arg, transtable, whereto) =
             let
-                val i = getUnaryFP(genUnaryFP FCHS)
+                val i = getUnaryFP transtable (genUnaryFP FCHS)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4835,7 +4838,7 @@ struct
 
             and squareRootReal(arg, transtable, whereto) =
             let
-                val i = getUnaryFP(genUnaryFP FSQRT)
+                val i = getUnaryFP transtable (genUnaryFP FSQRT)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4847,7 +4850,7 @@ struct
 
             and sineReal(arg, transtable, whereto) =
             let
-                val i = getUnaryFP(genUnaryFP FSIN)
+                val i = getUnaryFP transtable (genUnaryFP FSIN)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4859,7 +4862,7 @@ struct
 
             and cosineReal(arg, transtable, whereto) =
             let
-                val i = getUnaryFP(genUnaryFP FCOS)
+                val i = getUnaryFP transtable (genUnaryFP FCOS)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4875,7 +4878,7 @@ struct
                     (* Arctan requires two items on the stack.  The effect is to overwrite fp6 *)
                     getWorkingRegister(singleton fp6,
                             fn _ =>
-                                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets (genUnaryFP FPATAN))
+                                getResultRegister(floatingPtRegisters, pref, loadBaseOffsets transtable (genUnaryFP FPATAN))
                                 ) ([NONE], NONE)
                 val (opRes, opCode) = dataOp ([arg], getArctanFP, transtable, whereto)
                 val result =
@@ -4902,15 +4905,15 @@ struct
                         test @ [TestTagR source, PushR source (* Push and test tag. *) ]
                     end
                 |   genIntToFPInstr _ = raise InternalError "genIntToFPInstr"
-                fun genIntToFP pref =
+                fun genIntToFP table pref =
                     (* Real.fromInt generates its result in a FP reg but takes its arg in a general reg. *)
                     getResultRegister(floatingPtRegisters, pref,
-                        loadToOneOf(generalRegisters, true (* Will modify *), 0, generateInstruction genIntToFPInstr)
+                        loadToOneOf(table, generalRegisters, true (* Will modify *), 0, generateInstruction genIntToFPInstr)
                         ) ([NONE], NONE)
             in
                 fun integerToReal(arg, transtable, whereto) =
                 let
-                    val i = genIntToFP
+                    val i = genIntToFP transtable
                     val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                     val result =
                         case whereto of
@@ -4922,17 +4925,17 @@ struct
             end
 
             fun notEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNE, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JNE, transtable)
             and equalReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JE, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JE, transtable)
             and greaterOrEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNB, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JNB, transtable)
             and greaterThanReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JA, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JA, transtable)
             and lessOrEqualReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JNA, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JNA, transtable)
             and lessThanReal(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], fpTests JB, transtable)
+                compareAndBranch ([arg1, arg2], fpTests transtable JB, transtable)
         end
 
         local (* Get the length of a string. *)
@@ -4956,7 +4959,7 @@ struct
         in
             fun stringLength(arg, transtable, whereto) =
             let
-                fun i pref = generalNegotiator(genStringLength, pref)
+                fun i pref = generalNegotiator(transtable, genStringLength, pref)
                 val (opRes, opCode) = dataOp ([arg], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -4978,7 +4981,7 @@ struct
         in
             fun setStringLength(arg1, arg2, transtable, whereto) =
             let
-                fun i _ = noresultNegotiator genSetStringLength
+                fun i _ = noresultNegotiator(transtable, genSetStringLength)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5007,118 +5010,124 @@ struct
 
             (* First select an output register.  Unless this is a SUB instruction we can choose
                a modifiable register from either argument. *)
-            fun wordSelectDest (opT as (opcode, _)) pref [ActInRegisterSet{ modifiable=mod1, ... },
-                                            ActInRegisterSet{ modifiable=mod2, ...}] =
-                let
-                    (* Assume that these are in general registers because of the type.
-                       If this is subtraction we can only use a register from the
-                       first argument. *)
-                    val options = case opcode of SUB => mod1 | _ => mod1 ++ mod2
-                in
-                    if options = noRegisters (* No suitable modifiable register is available. *)
+            fun wordSelectDest table (opT as (opcode, _)) pref args =
+                case (opcode, map (argAsSource table) args) of
+                    (_, [ActInRegisterSet{ modifiable=mod1, ... },
+                                            ActInRegisterSet{ modifiable=mod2, ...}]) =>
+                    let
+                        (* Assume that these are in general registers because of the type.
+                           If this is subtraction we can only use a register from the
+                           first argument. *)
+                        val options = case opcode of SUB => mod1 | _ => mod1 ++ mod2
+                    in
+                        if options = noRegisters (* No suitable modifiable register is available. *)
+                        then ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
+                                            next = wordSelectDest table opT pref }
+                        else (* There is one available. Pick a prefered reg is possible otherwise any. *)
+                        let
+                            val choice = oneOf(prefAsSet(pref, options, []))
+                        in
+                            if choice ins mod1
+                            then ActionLockRegister { argNo=0, reg=choice, willOverwrite=true,
+                                    next=wordSelectedLeft table (opT, choice) }
+                            else ActionLockRegister { argNo=1, reg=choice, willOverwrite=true,
+                                    next=wordSelectedRight table (opT, choice) }
+                        end
+                    end
+
+                |   (_, [ActInRegisterSet{ modifiable, ... }, _]) =>
+                    if modifiable = noRegisters (* No suitable modifiable register is available. *)
                     then ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                        next = wordSelectDest opT pref }
+                                        next = wordSelectDest table opT pref }
                     else (* There is one available. Pick a prefered reg is possible otherwise any. *)
                     let
-                        val choice = oneOf(prefAsSet(pref, options, []))
+                        val choice = oneOf(prefAsSet(pref, modifiable, []))
                     in
-                        if choice ins mod1
-                        then ActionLockRegister { argNo=0, reg=choice, willOverwrite=true,
-                                next=wordSelectedLeft (opT, choice) }
-                        else ActionLockRegister { argNo=1, reg=choice, willOverwrite=true,
-                                next=wordSelectedRight (opT, choice) }
+                        ActionLockRegister { argNo=0, reg=choice, willOverwrite=true,
+                                next=wordSelectedLeft table (opT, choice) }
                     end
-                end
 
-            |   wordSelectDest opT pref [ActInRegisterSet{ modifiable, ... }, _] =
-                if modifiable = noRegisters (* No suitable modifiable register is available. *)
-                then ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                    next = wordSelectDest opT pref }
-                else (* There is one available. Pick a prefered reg is possible otherwise any. *)
-                let
-                    val choice = oneOf(prefAsSet(pref, modifiable, []))
-                in
-                    ActionLockRegister { argNo=0, reg=choice, willOverwrite=true,
-                            next=wordSelectedLeft(opT, choice) }
-                end
+                |   (SUB, _) => (* Not reversible - load first arg. *)
+                        ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
+                                       next = wordSelectDest table opT pref }
 
-            |   wordSelectDest (opT as (SUB, _)) pref _ = (* Not reversible - load first arg. *)
-                    ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                   next = wordSelectDest opT pref }
+                |   (_, [_, ActInRegisterSet{ modifiable, ... }]) =>
+                    if modifiable = noRegisters (* No suitable modifiable register is available. *)
+                    then ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
+                                        next = wordSelectDest table opT pref }
+                    else (* There is one available. Pick a prefered reg is possible otherwise any. *)
+                    let
+                        val choice = oneOf(prefAsSet(pref, modifiable, []))
+                    in
+                        ActionLockRegister { argNo=1, reg=choice, willOverwrite=true,
+                                next=wordSelectedRight table (opT, choice) }
+                    end
 
-            |   wordSelectDest opT pref [_, ActInRegisterSet{ modifiable, ... }] =
-                if modifiable = noRegisters (* No suitable modifiable register is available. *)
-                then ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                    next = wordSelectDest opT pref }
-                else (* There is one available. Pick a prefered reg is possible otherwise any. *)
-                let
-                    val choice = oneOf(prefAsSet(pref, modifiable, []))
-                in
-                    ActionLockRegister { argNo=1, reg=choice, willOverwrite=true,
-                            next=wordSelectedRight(opT, choice) }
-                end
-
-            |   wordSelectDest opT pref _ = (* Neither in reg - load first arg. *)
-                    ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                   next = wordSelectDest opT pref }
+                |   _ => (* Neither in reg - load first arg. *)
+                        ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=true,
+                                       next = wordSelectDest table opT pref }
 
             (* We have selected a result register.  Get the other argument. *)
-            and wordSelectedLeft ((opcode, tagTest), result) [_, ActInRegisterSet{ readable, ...}] =
-                let
-                    val argReg = oneOf readable
-                in
-                    ActionDone{ outReg=SOME result,
+            and wordSelectedLeft table (opRes as ((opcode, tagTest), result)) args =
+                case map (argAsSource table) args of
+                    [_, ActInRegisterSet{ readable, ...}] =>
+                    let
+                        val argReg = oneOf readable
+                    in
+                        ActionDone{ outReg=SOME result,
+                                    operation=postTagAdjust(opcode, result) @
+                                        tagTest(ArithRR{opc=opcode, source=argReg, output=result} ::
+                                                     preTagAdjust(opcode, result),
+                                                InRegister result, InRegister argReg)}
+                    end
+
+                |   [_, ActLiteralSource lit] =>
+                    if isShort lit
+                    then
+                    let
+                        val intArg = Word.toIntX(toShort lit)
+                        val source =
+                            case opcode of
+                                ADD => semitag intArg (* Shift but don't tag. *)
+                            |   SUB => semitag intArg
+                            |   OR  => tag intArg (* Could use either tag or semitag *)
+                            |   AND => tag intArg (* Must include the tag bit *)
+                            |   XOR => semitag intArg (* Leave the tag bit unchanged. *)
+                            |   _ => raise InternalError "addWordArg: opcode"
+                    in
+                        ActionDone{ outReg=SOME result,
+                                    operation=if intArg = 0 andalso opcode <> AND then [] (* Discard *)
+                                              else tagTest([ArithRConst{opc=opcode, source=source, output=result}],
+                                                      InRegister result, LiteralSource lit)}
+                    end
+                    else (* Long literal - put it into a register. We'd have been better not code-generating
+                            this at all. *)
+                        ActionLoadArg{ argNo=1, regSet=generalRegisters, willOverwrite=false,
+                                       next = wordSelectedLeft table opRes }
+
+                |   [_, ActBaseOffset(base, offset)] =>
+                        ActionDone{ outReg=SOME result,
                                 operation=postTagAdjust(opcode, result) @
-                                    tagTest(ArithRR{opc=opcode, source=argReg, output=result} ::
-                                                 preTagAdjust(opcode, result),
-                                            InRegister result, InRegister argReg)}
-                end
+                                          tagTest(ArithRMem{opc=opcode, base=base, offset=offset, output=result} ::
+                                                       preTagAdjust(opcode, result),
+                                                  InRegister result, BaseOffsetSource{base=base, offset=offset})}
 
-            |   wordSelectedLeft (opRes as ((opcode, tagTest), result)) [_, ActLiteralSource lit] =
-                if isShort lit
-                then
-                let
-                    val intArg = Word.toIntX(toShort lit)
-                    val source =
-                        case opcode of
-                            ADD => semitag intArg (* Shift but don't tag. *)
-                        |   SUB => semitag intArg
-                        |   OR  => tag intArg (* Could use either tag or semitag *)
-                        |   AND => tag intArg (* Must include the tag bit *)
-                        |   XOR => semitag intArg (* Leave the tag bit unchanged. *)
-                        |   _ => raise InternalError "addWordArg: opcode"
-                in
-                    ActionDone{ outReg=SOME result,
-                                operation=if intArg = 0 andalso opcode <> AND then [] (* Discard *)
-                                          else tagTest([ArithRConst{opc=opcode, source=source, output=result}],
-                                                  InRegister result, LiteralSource lit)}
-                end
-                else (* Long literal - put it into a register. We'd have been better not code-generating
-                        this at all. *)
-                    ActionLoadArg{ argNo=1, regSet=generalRegisters, willOverwrite=false,
-                                   next = wordSelectedLeft opRes }
+                |   _  => raise InternalError "addWordArg"
 
-            |   wordSelectedLeft ((opcode, tagTest), result) [_, ActBaseOffset(base, offset)] =
-                    ActionDone{ outReg=SOME result,
-                            operation=postTagAdjust(opcode, result) @
-                                      tagTest(ArithRMem{opc=opcode, base=base, offset=offset, output=result} ::
-                                                   preTagAdjust(opcode, result),
-                                              InRegister result, BaseOffsetSource{base=base, offset=offset})}
+            and wordSelectedRight table opRes args =
+                case map (argAsSource table) args of
+                    [ActLiteralSource lit, _] =>
+                    if isShort lit then wordSelectedLeft table opRes (List.rev args)
+                    else (* Long literal - put it into a register. *)
+                        ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                       next = wordSelectedRight table opRes }
 
-            |   wordSelectedLeft _ _  = raise InternalError "addWordArg"
-
-            and wordSelectedRight opRes (args as [ActLiteralSource lit, _]) =
-                if isShort lit then wordSelectedLeft opRes (List.rev args)
-                else (* Long literal - put it into a register. *)
-                    ActionLoadArg{ argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                   next = wordSelectedRight opRes }
-
-            |   wordSelectedRight opRes args = wordSelectedLeft opRes (List.rev args)
+                |   _ => wordSelectedLeft table opRes (List.rev args)
 
         in
             fun addInteger(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(ADD, testTagsForArithmetic)
+                val i = wordSelectDest transtable (ADD, testTagsForArithmetic)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5130,7 +5139,7 @@ struct
 
             fun subtractInteger(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(SUB, testTagsForArithmetic)
+                val i = wordSelectDest transtable (SUB, testTagsForArithmetic)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5142,7 +5151,7 @@ struct
 
             fun addWord(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(ADD, noTagTest)
+                val i = wordSelectDest transtable (ADD, noTagTest)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5154,7 +5163,7 @@ struct
 
             fun subtractWord(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(SUB, noTagTest)
+                val i = wordSelectDest transtable (SUB, noTagTest)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5166,7 +5175,7 @@ struct
 
             fun andWord(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(AND, noTagTest)
+                val i = wordSelectDest transtable (AND, noTagTest)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5178,7 +5187,7 @@ struct
 
             fun orWord(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(OR, noTagTest)
+                val i = wordSelectDest transtable (OR, noTagTest)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5190,7 +5199,7 @@ struct
 
             fun xorWord(arg1, arg2, transtable, whereto) =
             let
-                val i = wordSelectDest(XOR, noTagTest)
+                val i = wordSelectDest transtable (XOR, noTagTest)
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5205,13 +5214,13 @@ struct
             (* Shift operations: shifting by a variable amount requires ecx.
                Some special cases of multiplication can be implemented as shifts. *)
             (* Variable shifts always use the cl register i.e. the low order byte of ecx. *)
-            fun loadShiftArg (instr, pref) opAndResult =
-                loadToSpecificRegister(ecx, true, 1, loadResultArg(instr, pref)) opAndResult
+            fun loadShiftArg (table, instr, pref) opAndResult =
+                loadToSpecificRegister(table, ecx, true, 1, loadResultArg(table, instr, pref)) opAndResult
 
             (* Load the first argument into a register we can use for the result. *)
-            and loadResultArg (instr, pref) opAndResult [arg1, _] =
+            and loadResultArg (table, instr, pref) opAndResult [arg1, _] =
             (
-                case arg1 of
+                case argAsSource table arg1 of
                     (ActInRegisterSet{ modifiable, ...}) =>
                         if regSetIntersect(modifiable, generalRegisters) <> noRegisters
                         then
@@ -5223,10 +5232,10 @@ struct
                         end
                         else (* Can't clobber this register - move the value. *)
                             ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                                next=loadResultArg(instr, pref) opAndResult}
+                                next=loadResultArg(table, instr, pref) opAndResult}
                 |   _ =>
                         ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=true,
-                             next=loadResultArg(instr, pref) opAndResult}
+                             next=loadResultArg(table, instr, pref) opAndResult}
             )
             |   loadResultArg _ _ _ = raise InternalError "loadResultArg: bad arguments"
         
@@ -5236,7 +5245,7 @@ struct
                     operation=genInstr([InRegister resReg, InRegister ecx], SOME resReg)
                     }
 
-            fun shiftNegotiator (instr, pref) = loadShiftArg (instr, pref) ([NONE, NONE], NONE)
+            fun shiftNegotiator (table, instr, pref) = loadShiftArg (table, instr, pref) ([NONE, NONE], NONE)
 
             (* We have to consider what happens to the tag.  Shifts are word values so are
                always non-negative.  N.B. This is the untagged value i.e. 31 or 63. *)
@@ -5314,8 +5323,8 @@ struct
                 end
             |   genVarShift _ _ = raise InternalError "genVarShift"
 
-            fun constantShift(opc, shift) pref = sharedSingleArgNegotiator(genConstShift(opc, shift), pref)
-            and variableShift opc pref = shiftNegotiator(genVarShift opc, pref)
+            fun constantShift table (opc, shift) pref = sharedSingleArgNegotiator(table, genConstShift(opc, shift), pref)
+            and variableShift table opc pref = shiftNegotiator(table, genVarShift opc, pref)
 
             local
                 (* Multiply always places the result in EDX:EAX.  Since we're going to modify those
@@ -5323,27 +5332,31 @@ struct
                    eax and the second into edx. *)
                 val eaxSet = singleton eax and edxSet = singleton edx
 
-                fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
-                    if regSetIntersect(modifiable, eaxSet) <> noRegisters
-                    then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
-                    else (* Not in the right register - move it. *)
-                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+                fun loadArg1 table instr args =
+                    case map (argAsSource table) args of
+                        [(ActInRegisterSet{ modifiable, ...}), _] =>
+                        if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                        then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 table instr}
+                        else (* Not in the right register - move it. *)
+                            ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 table instr}
 
-                |   loadArg1 instr [_, _] =
-                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+                    |   [_, _] =>
+                            ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 table instr}
 
-                |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
+                    |   _ => raise InternalError "loadArg1: bad arguments"
         
-                and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
-                    if regSetIntersect(modifiable, edxSet) <> noRegisters
-                    then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
-                    else (* Not in the right register - move it. *)
-                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                and loadArg2 table instr args =
+                    case  map (argAsSource table) args of
+                        [_, (ActInRegisterSet{ modifiable, ...})] =>
+                        if regSetIntersect(modifiable, edxSet) <> noRegisters
+                        then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
+                        else (* Not in the right register - move it. *)
+                            ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 table instr}
                 
-                |   loadArg2 instr [_, _] =
-                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                    |   [_, _] =>
+                            ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 table instr}
 
-                |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
+                    |   _ => raise InternalError "loadArg2: bad arguments"
 
                 and finished genInstr _ =
                     ActionDone{
@@ -5387,7 +5400,7 @@ struct
          in
             fun upShiftWordConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg], constantShift(SLL, shift), transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg], constantShift transtable (SLL, shift), transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5398,7 +5411,7 @@ struct
 
             fun upShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SLL, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift transtable SLL, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5409,7 +5422,7 @@ struct
 
             fun downShiftWordConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg], constantShift(SRL, shift), transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg], constantShift transtable (SRL, shift), transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5420,7 +5433,7 @@ struct
 
             fun downShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SRL, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift transtable SRL, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5431,7 +5444,7 @@ struct
 
             fun downShiftWordArithmeticConstant(arg, shift, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg], constantShift(SRA, shift), transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg], constantShift transtable (SRA, shift), transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5442,7 +5455,7 @@ struct
 
             fun downShiftWordArithmeticVariable(arg1, arg2, transtable, whereto) =
             let
-                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift SRA, transtable, whereto)
+                val (opRes, opCode) = dataOp ([arg1, arg2], variableShift transtable SRA, transtable, whereto)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
@@ -5454,7 +5467,7 @@ struct
             (* General multiplication.  We've already extracted simple shifts *)
             fun multiplyWord(arg1, arg2, transtable, whereto) =
             let
-                fun i _ = multiplyNegotiator genMultiplyUnsigned
+                fun i _ = multiplyNegotiator transtable genMultiplyUnsigned
                 val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                 val result =
                     case whereto of
@@ -5467,7 +5480,7 @@ struct
             (* We only support integer multiplication by two.  Everything else is too complicated. *)
             fun multiplyIntegerByTwo(arg, transtable, whereto) =
             let
-                fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
+                fun mulAConst2 pref = sharedSingleArgNegotiator(transtable, genAddSelf, pref)
                 val (opRes, opCode) = dataOp ([arg], mulAConst2, transtable, whereto)
                 val result =
                     case whereto of
@@ -5511,10 +5524,10 @@ struct
 
                 |   genDivMod _ _ = raise InternalError "genDivMod"
 
-                fun divModCode isDiv _ =
+                fun divModCode table isDiv _ =
                     getWorkingRegister(singleton edx,
-                        fn _ => loadToSpecificRegister(eax, true, 0,
-                            loadToOneOf(generalRegisters, false, 1,
+                        fn _ => loadToSpecificRegister(table, eax, true, 0,
+                            loadToOneOf(table, generalRegisters, false, 1,
                                 generateInstruction(genDivMod isDiv)
                             )
                         )
@@ -5522,7 +5535,7 @@ struct
             in
                 fun divideWord(arg1, arg2, transtable, whereto) =
                 let
-                    val i = divModCode true
+                    val i = divModCode transtable true
                     val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                     val result =
                         case whereto of
@@ -5534,7 +5547,7 @@ struct
 
                 fun modulusWord(arg1, arg2, transtable, whereto) =
                 let
-                    val i = divModCode false
+                    val i = divModCode transtable false
                     val (opRes, opCode) = dataOp ([arg1, arg2], i, transtable, whereto)
                     val result =
                         case whereto of
@@ -5611,7 +5624,7 @@ struct
             let
                 fun allocStoreFixedLength prefs =
                         (* Get a result reg and put the initial value in a reg. *)
-                    generalNegotiator(genFixedAlloc(length, flags), prefs)
+                    generalNegotiator(transtable, genFixedAlloc(length, flags), prefs)
                 val (opRes, opCode) =
                     dataOp ([initValArg], allocStoreFixedLength, transtable, whereto)
                 val result =
@@ -5628,9 +5641,9 @@ struct
                 fun allocStoreVarLength pref =
                     (* When allocating vectors/arrays we have to initialise the store and the easiest way to
                         do that is to put the length in ecx, the initialiser in eax and get the result in edi. *)
-                    loadToSpecificRegister(ecx, true, 0,
+                    loadToSpecificRegister(transtable, ecx, true, 0,
                         (* We don't actually need this to be modifiable if we're initialising with words. *)
-                        loadToSpecificRegister(eax, true, 1,
+                        loadToSpecificRegister(transtable, eax, true, 1,
                             getResultRegister(singleton edi, pref, generateInstruction(genVarAlloc flags))))
                                 ([NONE, NONE], NONE)
                 val (opRes, opCode) =
