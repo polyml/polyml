@@ -348,6 +348,7 @@ struct
         ActLiteralSource of machineWord
     |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
     |   ActBaseOffset of reg * int
+    |   ActOther (* Containers and CodeRefs. *)
 
     datatype argAction =
         ActionDone of (* The output register if any and the final operation. *)
@@ -361,6 +362,11 @@ struct
 
     withtype nextAction = stackIndex list -> argAction
 
+    type argAction =
+        { table: ttab, args: stackIndex list, loadOps: operation list, lockedRegs: reg list, finish: reg option -> stackIndex }
+            -> stackIndex * operation list
+    (*type nextAction = stackIndex list -> argAction*)
+
     type  forwardLabel = label
     and  backwardLabel = label
 
@@ -372,7 +378,8 @@ struct
 
 
     (* We have to re-evaluate this after each action because we may have
-       had to push values to the stack that were previously in registers. *)
+       had to push values to the stack that were previously in registers.
+       That can affect the registers but also the value of realstackptr. *)
     fun argAsSource (table as Ttab{realstackptr, ...}) entry =
     let
         val {ent = stackEntry, cache, ...} = pstackRealEntry(table, entry);
@@ -404,12 +411,11 @@ struct
         |   Direct{base, offset} => ActBaseOffset(base, offset)
 
         |   StackW index =>
-                    ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
+                ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
 
-        |   Container _ => raise InternalError "argAsSource: Container"
+        |   Container _ => ActOther (* This can be used as the address in a moveToVec *)
 
-        |   CodeRef _ => raise InternalError "argAsSource: CodeRef"
-
+        |   CodeRef _ => ((*raise InternalError "CodeRef"; *)ActOther) (* Can this occur as a source in moveToVec??? *)
     end
 
     (* Exported versions of operations datatype *)
@@ -3124,83 +3130,115 @@ struct
        code-generator. This module knows where the arguments are as a result of previous operations
        but the machine-dependent code-generator will have requirements depending on the available
        instructions e.g. some or all the arguments may have to be in registers.  *)
+    fun actionDone {outReg, operation} (table as Ttab{pstackTrace, ...}, args, whereto) =
+    let
+        (* Finished.  Unlock the registers, push the result and return. *)
+        (* Match up the result that the instruction has provided with what we
+           need for the context.  Generally these will match already but we
+           have to consider the case where a result is being discarded or
+           where we want the unit result from an assignment function. *)
+        val result: stackIndex = 
+            case (outReg, whereto) of
+                (NONE, NoResult) => noIndex
+            |   (NONE, _) => (* Want a unit result. *) pushConst (table, toMachineWord 0)
+            |   (SOME _, NoResult) => (* Discard *) noIndex
+            |   (SOME outReg, _) => (* Want this result. *)
+                    (
+                        lockRegister(table, outReg);
+                        pushReg (table, outReg)
+                    )
+        val freeEntries = List.foldl (fn(arg, l) => incrUseCount (table, arg, ~1) @ l) [] args
+        val () = if pstackTrace then printStack(table, "performActions", operation) else ()
+    in
+        (result, freeEntries @ operation)
+    end
+
+    fun actionLockRegister{argNo=_, reg, willOverwrite, next} (table, args, whereto) =
+    let (* Lock a register that's currently being used for an argument so that it won't
+           be reused for a different argument. *)
+        (* We only use ActionLockRegister if the entry has been detected as being in a
+           register but this may be because the entry is a Register or a cache entry. *)
+        val () = lockRegister (table, reg)
+        val clear =
+            if willOverwrite
+            then removeRegistersFromCache(table, listToSet [reg])
+            else []
+        val (result, resultOps) = next args (table, args, whereto)
+    in
+        (result, unlockRegister(table, reg) @ resultOps @ clear)
+    end
+
     local
-        fun performActions(start, finish, args, table as Ttab{pstackTrace, ...}) =
-        let
-            (* Process each action and then get the next action until we are finally finished. *)
-            fun untilDone(ActionDone{outReg, operation}, args, loadOps, lockedRegs) =
-                let
-                    (* Finished.  Unlock the registers, push the result and return. *)
-                    (* If we have an output register increment its use-count first. *)
-                    val () = case outReg of SOME reg => lockRegister(table, reg) | NONE => ()
-                    val result = finish outReg (* Set the result. *)
-                    val freeLock = List.foldl (fn(reg, l) => unlockRegister(table, reg) @ l) [] lockedRegs
-                    val freeEntries = List.foldl (fn(arg, l) => incrUseCount (table, arg, ~1) @ l) [] args
-                    val () = if pstackTrace then printStack(table, "performActions", operation @ loadOps) else ()
-                in
-                    (result, freeEntries @ freeLock @ operation @ loadOps)
-                end
+        (* Process each action and then get the next action until we are finally finished. *)
+        (* N.B.  The list of operations is in reverse: the first item in the list is done last *)
+        fun untilDone(table as Ttab{pstackTrace, ...}, ActionDone{outReg, operation}, args, whereto) =
+            let
+                (* Finished.  Unlock the registers, push the result and return. *)
+                (* Match up the result that the instruction has provided with what we
+                   need for the context.  Generally these will match already but we
+                   have to consider the case where a result is being discarded or
+                   where we want the unit result from an assignment function. *)
+                val result: stackIndex = 
+                    case (outReg, whereto) of
+                        (NONE, NoResult) => noIndex
+                    |   (NONE, _) => (* Want a unit result. *) pushConst (table, toMachineWord 0)
+                    |   (SOME _, NoResult) => (* Discard *) noIndex
+                    |   (SOME outReg, _) => (* Want this result. *)
+                            (
+                                lockRegister(table, outReg);
+                                pushReg (table, outReg)
+                            )
+                val freeEntries = List.foldl (fn(arg, l) => incrUseCount (table, arg, ~1) @ l) [] args
+                val () = if pstackTrace then printStack(table, "performActions", operation) else ()
+            in
+                (result, freeEntries @ operation)
+            end
 
-            |   untilDone(ActionLockRegister{argNo=_, reg, willOverwrite, next}, args, loadOps, lockedRegs) =
-                let (* Lock a register that's currently being used for an argument so that it won't
-                       be reused for a different argument. *)
-                    (* We only use ActionLockRegister if the entry has been detected as being in a
-                       register but this may be because the entry is a Register or a cache entry. *)
-                    val () = lockRegister (table, reg)
-                    val clear =
-                        if willOverwrite
-                        then removeRegistersFromCache(table, listToSet [reg])
-                        else []
-                in
-                    untilDone(next args, args, clear @ loadOps, reg :: lockedRegs)
-                end
+        |   untilDone(table, ActionLockRegister{argNo=_, reg, willOverwrite, next}, args, whereto) =
+            let (* Lock a register that's currently being used for an argument so that it won't
+                   be reused for a different argument. *)
+                (* We only use ActionLockRegister if the entry has been detected as being in a
+                   register but this may be because the entry is a Register or a cache entry. *)
+                val () = lockRegister (table, reg)
+                val clear =
+                    if willOverwrite
+                    then removeRegistersFromCache(table, listToSet [reg])
+                    else []
+                val (result, resultOps) = untilDone(table, next args, args, whereto)
+            in
+                (result, unlockRegister(table, reg) @ resultOps @ clear)
+            end
 
-            |   untilDone(ActionLoadArg{argNo, regSet, willOverwrite, next}, args, loadOps, lockedRegs) =
-                let
-                    val arg = List.nth(args, argNo)
-                    val (_, regLoc, loadCode) = loadEntryToSet (table, arg, regSet, willOverwrite)
-                    (* Replace the argument by the location that refers to the register. *)
-                    val repArgs = List.take(args, argNo) @ [regLoc] @ List.drop(args, argNo+1)
-                in
-                    untilDone(next repArgs, repArgs, loadCode @ loadOps, lockedRegs)
-                end
+        |   untilDone(table, ActionLoadArg{argNo, regSet, willOverwrite, next}, args, whereto) =
+            let
+                val arg = List.nth(args, argNo)
+                val (_, regLoc, loadCode) = loadEntryToSet (table, arg, regSet, willOverwrite)
+                (* Replace the argument by the location that refers to the register. *)
+                val repArgs = List.take(args, argNo) @ [regLoc] @ List.drop(args, argNo+1)
+                val (result, resultOps) = untilDone(table, next repArgs, repArgs, whereto)
+            in
+                (result, resultOps @ loadCode)
+            end
 
-            |   untilDone(ActionGetWorkReg{regSet, setReg}, args, loadOps, lockedRegs) =
-                let
-                    val (reg, regCode) = getRegisterInSet(table, regSet)
-                in
-                    untilDone(setReg reg args, args, regCode @ loadOps, reg :: lockedRegs)
-                end
-        in
-            untilDone(start args, args, [], [])
-        end
+        |   untilDone(table, ActionGetWorkReg{regSet, setReg}, args, whereto) =
+            let
+                val (reg, regCode) = getRegisterInSet(table, regSet)
+                val (result, resultOps) = untilDone(table, setReg reg args, args, whereto)
+            in
+                (result, unlockRegister(table, reg) @ resultOps @ regCode)
+            end
     in
         (* Data operations that return a result in a register. *)
-        fun dataOp (args, instr, table, hint) =
-        let
-            (* Match up the result that the instruction has provided with what we
-               need for the context.  Generally these will match already but we
-               have to consider the case where a result is being discarded or
-               where we want the unit result from an assignment function. *)
-            fun finalOp outReg =
-                case (outReg, hint) of
-                    (NONE, NoResult) => noIndex
-                |   (NONE, _) => (* Want a unit result. *) pushConst (table, toMachineWord 0)
-                |   (SOME outReg, NoResult) => (* Discard *)
-                        (unlockRegister(table, outReg); noIndex)
-                |   (SOME outReg, _) => (* Want this result. *) pushReg (table, outReg)
-        in
-            performActions(instr hint, finalOp, args, table)
-        end
+        fun dataOp (args, instr, table, hint) = untilDone(table, instr hint args, args, hint)
 
         (* Comparison and test operations that make a conditional branch. *)
         and compareAndBranch(args, test, table) : labels * operation list =
-            let
-                val (startActions, destLabel) = test()
-                val ((), code) = performActions(startActions, fn _ => (), args, table)
-            in
-                (makeLabels(NoMerge, destLabel, saveState table), code)
-            end
+        let
+            val (startActions, destLabel) = test()
+            val (_, code) = untilDone(table, startActions args, args, NoResult)
+        in
+            (makeLabels(NoMerge, destLabel, saveState table), code)
+        end
     end
 
     (* Tail recursive jump to a function. *)
@@ -3579,7 +3617,7 @@ struct
         (* Load the argument to one of a set of possible registers. *)
         fun loadToOneOf(table, regSet, overWrite, argNo, whenDone) opAndResults args =
             case argAsSource table (List.nth(args, argNo)) of
-                (ActInRegisterSet{ modifiable, readable, ...}) =>
+                (ActInRegisterSet{ modifiable, readable, ...}) => (* It's in a register but maybe not the right one. *)
                     let
                         val chooseFrom = if overWrite then modifiable else readable
                     in
@@ -3595,7 +3633,7 @@ struct
                                 ActionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=overWrite,
                                     next=loadToOneOf(table, regSet, overWrite, argNo, whenDone) opAndResults}
                     end
-                |   _=>
+                |   _=> (* It's not in a register. Try to load it into the one we want if we can. *)
                     let
                         (* We can't load directly into a floating point register so if the set
                            does not include any general registers we first need to load the
@@ -4464,6 +4502,8 @@ struct
                     else (* If it won't fit in 32-bits we have to load one of the args. *)
                         ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
                                       next=testActions(table, testType, destLabel, tagTest)}
+
+                |   _ => raise InternalError "testActions"
                 )
 
                 |   testActions _ _  = raise InternalError "testActions"
@@ -4500,6 +4540,7 @@ struct
                             (* This should have been optimised away. *)
                             ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                                           next=testActions}
+                    |   _ => raise InternalError "lengthTestActions"
                  )
                 |   testActions _ = raise InternalError "lengthTestActions"
             in
