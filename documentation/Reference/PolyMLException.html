@@ -1,0 +1,56 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML.Exception structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="PolyMLCompiler.html">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.Exception structure</font></STRONG></H2>
+<p>The <span class="identifier">Exception</span> sub-structure contains functions 
+that assist in tracing exceptions.</p>
+<pre class="mainsig">structure Exception :
+sig
+    val exceptionLocation : exn -&gt; location option
+    val raiseWithLocation : exn * location -&gt; 'a
+    val reraise : exn -&gt; 'a
+
+    val traceException : (unit -&gt; 'a) * (string list * exn -&gt; 'a) -&gt; 'a
+	 val exception_trace : (unit -&gt; 'a) -&gt; 'a
+end
+</pre>
+<p>Exception packets in Poly/ML normally contain information about the location, 
+  typically the file name and line number, where the exception was raised. The 
+  <span class="identifier">exceptionLocation</span> function extracts this information 
+  if it is available. <span class="identifier">raiseWithLocation</span> can be 
+  used to provide an explicit location and override the default. <span class="identifier">reraise</span> 
+  is written in terms of <span class="identifier">exceptionLocation</span> and 
+  <span class="identifier">raiseWithLocation</span>. It is typically used where 
+  a function needs to catch an exception and wishes to raise it again after doing 
+  some clean-up. Using the <span class="identifier">raise</span> instruction of 
+  ML would set the location to be the clean-up code whereas <span class="identifier">reraise</span> 
+  will retain the original location.</p>
+<p><span class="identifier">exception_trace</span> and <span class="identifier">traceException</span> 
+  can be used to produce information about the stack when an exception is raised. 
+  They both take an argument that is a function to be executed and if an exception 
+  is raised within the function that is not caught they produce information from 
+  the stack. <span class="identifier">exception_trace</span> prints this to standard-output 
+  whereas <span class="identifier">traceException</span> uses the second argument, 
+  a function, and calls that with the list of function names and the exception 
+  packet. Note that if the function being traced handles any exceptions the trace 
+  will only show the stack from that point down.</p>
+<p>&nbsp; </p>
+<ul class="nav">
+	<li><a href="PolyMLCompiler.html">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+
+</body>
+</html>

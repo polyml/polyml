@@ -11,8 +11,8 @@
 <body bgcolor="#FFFFFF">
 <ul class="nav">
 	<li><a href="PolyMLStructure.html">Previous</a></li>
-	<li><a href="../Doc.html">Up</a></li>
-	<li><a href="Threads.html">Next</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="SingleAssignment.html">Next</a></li>
 </ul>
 
 <h2><font face="Arial"><strong>Signal structure</strong></font></h2>
@@ -22,13 +22,13 @@ which send signals to a process there is no standard method of handling signals.
 <tt>Signal</tt> structure has been added to Poly/ML to allow signals to be blocked or
 handled.</p>
 
-<p><tt>Signal:<br>
-&nbsp;&nbsp;&nbsp; sig<br>
-&nbsp;&nbsp;&nbsp; datatype sig_handle =<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SIG_DFL | SIG_IGN | SIG_HANDLE of int -&gt;
-unit<br>
-&nbsp;&nbsp;&nbsp; val signal = fn : int * sig_handle -&gt; sig_handle<br>
-&nbsp;&nbsp;&nbsp; end</tt></p>
+<pre class="mainsig">
+structure Signal:
+  sig
+     datatype sig_handle = SIG_DFL | SIG_IGN | SIG_HANDLE of int -&gt; unit
+	  val signal = fn : int * sig_handle -&gt; sig_handle
+  end
+</pre>
 
 <p>The <tt>Signal.signal</tt> function takes as its arguments a signal number and an
 action and returns the previous action.&nbsp; The action may be <tt>SIG_DFL</tt>,
@@ -63,8 +63,8 @@ expires as though the signal had been delivered.&nbsp; </p>
   console interrupt signal (2) has effect.</p>
 <ul class="nav">
 	<li><a href="PolyMLStructure.html">Previous</a></li>
-	<li><a href="../Doc.html">Up</a></li>
-	<li><a href="Threads.html">Next</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="SingleAssignment.html">Next</a></li>
 </ul>
 </body>
 </html>

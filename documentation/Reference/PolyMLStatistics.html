@@ -9,7 +9,7 @@
 
 <body>
 <ul class="nav">
-	<li><a href="Statistics.html">Previous</a></li>
+	<li><a href="PolyMLStatistics.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
 	<li><a href="#">Next</a></li>
 </ul>
@@ -18,7 +18,7 @@
   about the run-time system. As well as getting information about the local Poly/ML 
   process it is also possible to get information about another Poly/ML process 
   being run by the same user.</p>
-<PRE><STRONG>structure</STRONG> Statistics:
+<PRE class="mainsig"><STRONG>structure</STRONG> Statistics:
   <strong>sig</strong>
     <strong>val</strong> getLocalStats : unit ->
        {sizeHeap: int,
@@ -64,35 +64,37 @@
     <strong>val</strong> numUserCounters : unit -> int
 <strong>end</strong></PRE>
 <p>There are two functions that return information..</p>
-<PRE><STRONG>val</STRONG> getLocalStats : unit -&gt; { ... }</PRE>
-<BLOCKQUOTE STYLE="margin-bottom: 0cm"> Returns information about the Poly/ML 
-  process that has called this function.</BLOCKQUOTE>
-<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> getRemoteStats : int -&gt; { ... }</PRE>
-<BLOCKQUOTE STYLE="margin-bottom: 0cm"> 
+<div class="entryBlock"><PRE class="entrycode"><STRONG>val</STRONG> getLocalStats : unit -&gt; { ... }</PRE>
+<div class="entrytext"> Returns information about the Poly/ML 
+  process that has called this function.</div>
+</div>
+<div class="entryBlock"><PRE class="entrycode"><STRONG>val</STRONG> getRemoteStats : int -&gt; { ... }</PRE>
+<div class="entrytext"> 
   <p>Returns information about another Poly/ML process. The argument is the process 
     id (pid) of the Poly/ML process for which information is requested. Raises 
     the Fail exception if this is not a currently running Poly/ML process or the 
     calling user does not have permission to read the statistics. The statistics 
     are held in shared memory and on Unix systems these are memory-mapped files 
     in the user's .polyml directory.</p>
-</BLOCKQUOTE>
-<p>The actual information returned is still being determined and may well change.</p>
+</div>
+</div><p>The actual information returned is still being determined and may well change.</p>
 <p>In addition to information about the run-time system the statistics mechanism 
   provides a small array of values that can be set by the ML code. This allows 
   an ML program to set values that can be read in another process.</p>
-<PRE><STRONG>val</STRONG> numUserCounters : unit -&gt; int</PRE>
-<BLOCKQUOTE STYLE="margin-bottom: 0cm"> Returns the number of counters available. 
-  Currently this is eight.</BLOCKQUOTE>
-<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> setUserCounter : int * int -> unit</PRE>
-<BLOCKQUOTE> 
+<div class="entryBlock"><PRE class="entrycode"><STRONG>val</STRONG> numUserCounters : unit -&gt; int</PRE>
+<div class="entrytext"> <p>Returns the number of counters available. 
+  Currently this is eight.</p></div>
+</div>
+<div class="entryBlock">
+<PRE class="entrycode"><STRONG>val</STRONG> setUserCounter : int * int -> unit</PRE>
+<div class="entrytext"> 
   <p>setUserCounter(n, m) stores the value m in the n-th counter.</p>
-</BLOCKQUOTE>
-<p>Writing to the counters is potentially an expensive operation. If the information 
+</div>
+</div><p>Writing to the counters is potentially an expensive operation. If the information 
   is likely to change rapidly it will usually be best to use a separate thread 
   to poll the information periodically and update the counter.</p>
-<PRE><STRONG></STRONG></PRE>
 <ul class="nav">
-	<li><a href="Statistics.html">Previous</a></li>
+	<li><a href="PolyMLStatistics.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
 	<li><a href="#">Next</a></li>
 </ul>

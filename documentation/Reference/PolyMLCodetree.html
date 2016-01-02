@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML.Codetree structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="PolyMLCompiler.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.Codetree structure</font></STRONG></H2>
+<p> The <span class="identifier">CodeTree</span> sub-structure contains functions 
+  that construct and operate on the intermediate code structure of the Poly/ML 
+  compiler. It is intended for compilers for languages other than Standard ML 
+  to target the back-end. </p>
+<p>The intermediate code-tree is untyped and almost no checking is performed on 
+  it. It is very easy to cause the compiler or garbage-collector to crash and 
+  a failure could occur at some random point.</p>
+<pre class="mainsig">
+structure CodeTree :
+  sig
+
+    type codeBinding
+    type codetree
+    type machineWord
+
+
+    val mkConstant: machineWord -> codetree
+    val mkLoadArgument: int -> codetree
+    val mkLoadClosure: int -> codetree
+    val mkLoadLocal: int -> codetree
+
+    val mkEnv: codeBinding list * codetree -> codetree
+
+    val mkFunction: codetree * int * string * codetree list * int -> codetree
+    val mkInlineFunction: codetree * int * string * codetree list * int -> codetree
+    val mkCall: codetree * codetree list -> codetree
+
+    val mkTuple: codetree list -> codetree
+    val mkInd: int * codetree -> codetree
+
+    val mkIf: codetree * codetree * codetree -> codetree
+
+    val mkBeginLoop: codetree * (int * codetree) list -> codetree
+    val mkLoop: codetree list -> codetree
+    val mkWhile: codetree * codetree -> codetree
+
+    val mkRaise: codetree -> codetree
+    val mkHandle: codetree * codetree -> codetree
+    val Ldexc: codetree
+
+    val mkDec: int * codetree -> codeBinding
+    val mkMutualDecs: (int * codetree) list -> codeBinding
+    val mkNullDec: codetree -> codeBinding
+
+    val rtsFunction: int -> codetree
+
+    val <a href="#pretty">pretty</a>: codetree -> pretty
+
+    val <a href="#genCode">genCode</a>: codetree * int -> unit -> codetree
+    val <a href="#evalue">evalue</a>: codetree -> machineWord option
+
+    val <a href="#encodeBinary">encodeBinary</a>: codetree -> Word8Vector.vector
+    val <a href="#decodeBinary">decodeBinary</a>: Word8Vector.vector -> codetree
+
+    val <a href="#unsafeMakeFunctor">unsafeMakeFunctor</a>:
+       string * NameSpace.signatureVal * NameSpace.signatureVal * codetree -> NameSpace.functorVal
+  end
+</pre>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="encodeBinary" id="encodeBinary"></a>val encodeBinary : codetree -> Word8Vector.vector
+</pre>
+  <div class="entrytext"> 
+    <p>This encodes the code-tree as a byte vector. It is intended to allow compiled 
+      code to be exported and subsequently imported by <a href="#decodeBinary"><span class="identifier">decodeBinary</span></a>. 
+      There are a number of restrictions on the code-tree to allow it to be exported, 
+      primarily that it is fully self-contained. It is really only suitable for 
+      use with the code of a functor.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="decodeBinary" id="decodeBinary"></a>val decodeBinary : Word8Vector.vector -> codetree</pre>
+  <div class="entrytext"> 
+    <p>This function imports a code-tree that has been encoded with <a href="#encodeBinary"><span class="identifier">encodeBinary</span></a>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="unsafeMakeFunctor" id="unsafeMakeFunctor"></a>val unsafeMakeFunctor:
+       string * NameSpace.signatureVal * NameSpace.signatureVal * codetree -> NameSpace.functorVal</pre>
+  <div class="entrytext"> 
+    <p>This function can be used to create a functor from code and signature information.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="genCode" id="genCode"></a>val genCode: codetree * int -> unit -> codetree</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">genCode</span> function compiles code and 
+      returns a function that, when called, will execute the compiled code. <span class="identifier">genCode(c, 
+      nBindings) </span>takes the <span class="identifier">codetree c</span> and 
+      an integer <span class="identifier">nBindings</span> which is the number 
+      of binding addresses used in the top-level tree, or more specifically at 
+      least one more than the maximum binding address used. Binding addresses 
+      used within functions are not included in this; they are counted within 
+      their respective function. The result is a function of type <span class="identifier">unit 
+      -> codetree</span> which when called executes the code. The result is a 
+      codetree. Currently this will always be a <span class="identifier">Constant</span> 
+      node whose value can be extracted by <span class="identifier"><a href="#evalue">evalue</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="evalue" id="evalue"></a>val evalue : codetree -> machineWord option</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">evalue</span> function extracts the value 
+      from a <span class="identifier">Constant</span> node. If the argument is 
+      not a <span class="identifier">Constant</span> node the result will be <span class="identifier">NONE</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="pretty" id="pretty"></a>val pretty: codetree -> pretty
+</pre>
+  <div class="entrytext"> 
+    <p>This function formats the code-tree as a <span class="identifier"><a href="PolyMLStructure.html#pretty">pretty</a></span> 
+      data structure. It can then be printed using <span class="identifier"><a href="PolyMLStructure.html#prettyPrint">PolyML.prettyPrint</a></span> 
+      or incorporated into another <span class="identifier">pretty</span> structure.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="ZZZ"></a>val ZZZ: int ref</pre>
+  <div class="entrytext"> 
+    <p>This function does ZZZ</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="ZZZ"></a>val ZZZ: int ref</pre>
+  <div class="entrytext"> 
+    <p>This function does ZZZ</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="ZZZ"></a>val ZZZ: int ref</pre>
+  <div class="entrytext"> 
+    <p>This function does ZZZ</p>
+  </div>
+</div>
+
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="PolyMLCompiler.html">Next</a></li>
+</ul>
+
+</body>
+</html>

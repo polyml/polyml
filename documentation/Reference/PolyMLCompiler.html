@@ -8,104 +8,531 @@
 
 <body>
 <ul class="nav">
-	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLCodetree.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
-	<li><a href="#">Next</a></li>
+	<li><a href="PolyMLDebug.html">Next</a></li>
 </ul>
 <H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.Compiler 
   structure</font></STRONG></H2>
-<p>
-The PolyML.Compiler structure contains functions associated with the compiler.</p>
-<pre>
+<p> The <span class="identifier">PolyML.Compiler</span> structure contains functions 
+  associated with the compiler. For historical reasons it also contains functions 
+  and values associated with the Poly/ML top-level. Many of the values are associated 
+  with debugging the compiler itself and are not of general usefulness.</p>
+<pre class="mainsig">
 structure Compiler :
   sig
-    val allocationProfiling : int ref
-    val assemblyCode : bool ref
-    val codetree : bool ref
-    val codetreeAfterOpt : bool ref
-    datatype compilerParameters =
-      CPAllocationProfiling of int
-    | CPCompilerResultFun of
-        parseTree option *
-    (
-    unit ->
-      {fixes: (string * NameSpace.fixityVal) list,
-      functors: (string * NameSpace.functorVal) list,
-      signatures: (string * NameSpace.signatureVal) list,
-      structures: (string * NameSpace.structureVal) list,
-      types: (string * NameSpace.typeVal) list,
-      values: (string * NameSpace.valueVal) list}) option -> unit -> unit
-    | CPDebug of bool
-    | CPDebuggerFunction of
-        int * NameSpace.valueVal * int * string * string * nameSpace -> unit
-    | CPErrorDepth of int
-    | CPErrorMessageProc of
-        {context: pretty option,
-      hard: bool, location: location, message: pretty} -> unit
-    | CPFileName of string
-    | CPLineLength of int
-    | CPLineNo of unit -> int
-    | CPLineOffset of unit -> int
-    | CPNameSpace of nameSpace
-    | CPOutStream of string -> unit
-    | CPPrintDepth of unit -> int
-    | CPPrintInAlphabeticalOrder of bool
-    | CPPrintStream of string -> unit
-    | CPProfiling of int
-    | CPResultFun of
-        {fixes: (string * NameSpace.fixityVal) list,
-      functors: (string * NameSpace.functorVal) list,
-      signatures: (string * NameSpace.signatureVal) list,
-      structures: (string * NameSpace.structureVal) list,
-      types: (string * NameSpace.typeVal) list,
-      values: (string * NameSpace.valueVal) list} -> unit
-    | CPRootTree of
-        {next: (unit -> parseTree) option,
-      parent: (unit -> parseTree) option,
-      previous: (unit -> parseTree) option}
-    | CPTiming of bool
-    val compilerVersion : string
-    val compilerVersionNumber : int
-    val createPrintFunctions : bool ref
-    val debug : bool ref
-    val errorDepth : int ref
-    val fixityNames : unit -> string list
-    val forgetFixity : string -> unit
-    val forgetFunctor : string -> unit
-    val forgetSignature : string -> unit
-    val forgetStructure : string -> unit
-    val forgetType : string -> unit
-    val forgetValue : string -> unit
-    val functorNames : unit -> string list
-    val inlineFunctors : bool ref
-    val lineLength : int ref
-    val lowlevelOptimise : bool ref
-    val maxInlineSize : int ref
-    val narrowOverloadFlexRecord : bool ref
-    val parsetree : bool ref
-    val printDepth : int ref
-    val printInAlphabeticalOrder : bool ref
-    val profiling : int ref
-    val prompt1 : string ref
-    val prompt2 : string ref
-    val pstackTrace : bool ref
-    val reportExhaustiveHandlers : bool ref
-    val reportUnreferencedIds : bool ref
-    val signatureNames : unit -> string list
-    val structureNames : unit -> string list
-    val timing : bool ref
-    val traceCompiler : bool ref
-    val typeNames : unit -> string list
-    val valueNames : unit -> string list
+    datatype <a href="#compilerParameters">compilerParameters</a> =
+        <a href="#CPOutStream">CPOutStream</a> of string-&gt;unit
+    |   <a href="#CPNameSpace">CPNameSpace</a> of <a href="PolyMLNameSpace.html#nameSpace">PolyML.NameSpace.nameSpace</a>
+    |   <a href="#CPErrorMessageProc">CPErrorMessageProc</a> of
+	            { message: PolyML.pretty, hard: bool, location: PolyML.location, context: PolyML.pretty option } -&gt; unit
+    |   <a href="#CPLineNo">CPLineNo</a> of unit -&gt; int
+    |   <a href="#CPLineOffset">CPLineOffset</a> of unit -&gt; int
+    |   <a href="#CPFileName">CPFileName</a> of string
+	    |   <a href="#CPPrintInAlphabeticalOrder">CPPrintInAlphabeticalOrder</a> of bool
+    |   <a href="#CPResultFun">CPResultFun</a> of {
+            fixes: (string * fixityVal) list, values: (string * valueVal) list,
+            structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+			 functors: (string * functorVal) list, types: (string * typeVal) list
+            } -&gt; unit
+	|   <a href="#CPCompilerResultFun">CPCompilerResultFun</a> of
+	         PolyML.parseTree option *
+			 ( unit -&gt; {
+			        fixes: (string * fixityVal) list, values: (string * valueVal) list,
+					structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+					functors: (string * functorVal) list, types: (string * typeVal) list}
+            ) option
+            -&gt; unit -&gt; unit
+	|   <a href="#CPProfiling">CPProfiling</a> of int
+	|   <a href="#CPTiming">CPTiming</a> of bool
+	|   <a href="#CPDebug">CPDebug</a> of bool
+	|   <a href="#CPPrintDepth">CPPrintDepth</a> of unit-&gt;int
+	|   <a href="#CPPrintStream">CPPrintStream</a> of string-&gt;unit
+	|   <a href="#CPErrorDepth">CPErrorDepth</a> of int
+	|   <a href="#CPLineLength">CPLineLength</a> of int
+	|   <a href="#CPRootTree">CPRootTree</a> of
+	     {
+		    parent: (unit -&gt; PolyML.parseTree) option,
+			next: (unit -&gt; PolyML.parseTree) option,
+			previous: (unit -&gt; PolyML.parseTree) option
+		 }
+	|   <a href="#CPAllocationProfiling">CPAllocationProfiling</a> of int
+	|   <a href="#CPDebuggerFunction">CPDebuggerFunction</a> of int * valueVal * int * string * string * nameSpace -&gt; unit
+
+    val <a href="#compilerVersion">compilerVersion</a> : string
+    val <a href="#compilerVersionNumber">compilerVersionNumber</a> : int
+
+    val <a href="#printDepth">printDepth</a> : int ref
+    val <a href="#errorDepth">errorDepth</a> : int ref
+    val <a href="#lineLength">lineLength</a> : int ref
+
+    val <a href="#printInAlphabeticalOrder">printInAlphabeticalOrder</a> : bool ref
+
+    val <a href="#prompt1">prompt1</a>: string ref
+    val <a href="#prompt2">prompt2</a>: string ref
+
+    val <a href="#reportExhaustiveHandlers">reportExhaustiveHandlers</a>: bool ref
+    val <a href="#reportUnreferencedIds">reportUnreferencedIds</a>: bool ref
+
+    val <a href="#debug">debug</a>: bool ref
+    val <a href="#timing">timing</a>: bool ref
+    val <a href="#profiling">profiling</a>: int ref
+    val <a href="#allocationProfiling">allocationProfiling</a>: int ref
+
+    val <a href="#lowlevelOptimise">lowlevelOptimise</a>: bool ref
+    val <a href="#inlineFunctors">inlineFunctors</a>: bool ref
+    val <a href="#createPrintFunctions">createPrintFunctions</a>: bool ref
+    val <a href="#maxInlineSize">maxInlineSize</a>: int ref
+    val <a href="#narrowOverloadFlexRecord">narrowOverloadFlexRecord</a>: bool ref
+    val <a href="#traceCompiler">traceCompiler</a>: bool ref
+
+    val <a href="#parsetree">parsetree</a>: bool ref
+    val <a href="#codetree">codetree</a>: bool ref
+    val <a href="#codetreeAfterOpt">codetreeAfterOpt</a>: bool ref
+    val <a href="#assemblyCode">assemblyCode</a>: bool ref
+    val <a href="#pstackTrace">pstackTrace</a>: bool ref
+
+    val <a href="#fixityNames">fixityNames</a> : unit -> string list
+    val <a href="#functorNames">functorNames</a> : unit -> string list
+    val <a href="#signatureNames">signatureNames</a>: unit -> string list
+    val <a href="#structureNames">structureNames</a>: unit -> string list
+    val <a href="#typeNames">typeNames</a>: unit -> string list
+    val <a href="#valueNames">valueNames</a>: unit -> string list
+
+    val <a href="#forgetFixity">forgetFixity</a> : string -> unit
+    val <a href="#forgetFunctor">forgetFunctor</a> : string -> unit
+    val <a href="#forgetSignature">forgetSignature</a> : string -> unit
+    val <a href="#forgetStructure">forgetStructure</a> : string -> unit
+    val <a href="#forgetType">forgetType</a> : string -> unit
+    val <a href="#forgetValue">forgetValue</a> : string -> unit
   end
 </pre>
-<p>
-The PolyML.Compiler structure is </p>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="compilerParameters" id="compilerParameters"></a>datatype compilerParameters</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">compilerParameters</span> datatype is used 
+      to construct a list of options for the <a href="PolyMLStructure.html#compiler"><span class="identifier">PolyML.compiler</span></a> 
+      function. These options control various aspects of the compilation. The 
+      options are arranged so that only those options that are actually required 
+      need to be included. If the option is not included in the list the compiler 
+      uses a default value. In each case the default value is listed.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPOutStream" id="CPOutStream"></a>CPOutStream of string-&gt;unit</pre>
+  <div class="entrytext"> 
+    <p>Provide an output stream for output from the compiler. It is also used 
+      for printing the results unless <span class="identifier">CPPrintStream</span> 
+      is provided. Default use <span class="identifier">TextIO.print</span> to 
+      print to <span class="identifier">TextIO.stdOut</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPNameSpace" id="CPNameSpace"></a>CPNameSpace of <a href="PolyMLNameSpace.html#nameSpace">PolyML.NameSpace.nameSpace</a></pre>
+  <div class="entrytext"> 
+    <p>Name space to look up and enter results. Identifiers not defined locally 
+      within the code are looked up in this name space. When the compiled code 
+      is executed the results are added to this name space by calling the appropriate 
+      enter function. Default: <a href="PolyMLNameSpace.html#globalNameSpace"><span class="identifier">PolyML.globalNameSpace</span></a></p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPErrorMessageProc" id="CPErrorMessageProc"></a>CPErrorMessageProc of<br>       { message: PolyML.pretty, hard: bool, location: PolyML.location, context: PolyML.pretty option } -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>Called by the compiler to generate error and warning messages. <span class="identifier">message</span> 
+      is the message as a pretty-print data structure. <span class="identifier">isHard</span> 
+      indicates whether this is a fatal error or a warning; it is <span class="identifier">true</span> 
+      if this is an error, <span class="identifier">false</span> if a warning. 
+      <span class="identifier">location</span> is the file-name, line number and 
+      position. <span class="identifier">context</span> is an optional extra piece 
+      of information showing the part of the parse tree where the error was detected 
+      if that is appropriate. Default: print a message to the stream provided 
+      by th <span class="identifier"><a href="#CPOutStream">CPOutStream</a></span> 
+      option or <span class="identifier">TextIO.stdOut</span> if that is not provided.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPLineNo" id="CPLineNo"></a>CPLineNo of unit -&gt; int
+  <a name="CPLineOffset" id="CPLineOffset"></a>CPLineOffset of unit -&gt; int
+  <a name="CPFileName" id="CPFileName"></a>CPFileName of string</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">CPLineNo</span>, <span class="identifier">CPLineOffset</span> 
+      and <span class="identifier">CPFileName</span> can be used to provide information 
+      that go to form values of the <a href="PolyMLStructure.html#location"><span class="identifier">location</span></a> 
+      type. These values appear in many different situations when the compiler 
+      is reporting information; examples include <a href="#CPErrorMessageProc">error 
+      messages</a>, the <a href="PolyMLDebuggerInterface.html#debugLocation">debugger</a> 
+      and <a href="PolyMLStructure.html#ptProperties">parse-trees</a>. The compiler 
+      itself makes no interpretation of the values, simply recording the information 
+      and associating it with the start and end of lexical and parsed items. This 
+      allows user code that calls <span class="identifier">compiler</span> to 
+      make its own interpretation. However, various ML functions, such as <span class="identifier">use</span> 
+      and <span class="identifier">make</span> and the<a href="PolyMLDebug.html"> 
+      interactive debugger</a>, assume that <span class="identifier">CPFileName</span> 
+      is the name of the source file and <span class="identifier">CPLineNo</span> 
+      the number of the line. <span class="identifier">CPFileName</span> is fixed 
+      for a particular call to <span class="identifier">compiler</span> whereas 
+      the compiler calls <span class="identifier">CPLineNo</span> and <span class="identifier">CPLineOffset</span> 
+      for each lexical item. The default values are the empty string for <span class="identifier">CPFileName</span> 
+      and functions that return zero for <span class="identifier">CPLineNo</span> 
+      and <span class="identifier">CPLineOffset</span>.</p>
+    </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPPrintInAlphabeticalOrder" id="CPPrintInAlphabeticalOrder"></a>CPPrintInAlphabeticalOrder of bool</pre>
+  <div class="entrytext"> 
+    <p>This controls whether the default result function should sort the results 
+      by alphabetical order before printing them. If an alternative result function 
+      has been set using <span class="identifier"><a href="#CPResultFun">CPResultFun</a></span> 
+      or <span class="identifier"><a href="#CPCompilerResultFun">CPCompilerResultFun</a></span> 
+      this option is ignored. Default: value of <span class="identifier"><a href="#printInAlphabeticalOrder">printInAlphabeticalOrder</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPResultFun" id="CPResultFun"></a>CPResultFun of {<br>            fixes: (string * fixityVal) list, values: (string * valueVal) list,<br>            structures: (string * structureVal) list, signatures: (string * signatureVal) list,<br>            functors: (string * functorVal) list, types: (string * typeVal) list} -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>Provides a function to be included in the resulting code of the compiler 
+      to apply to the results of bindings. It is only called when the top-level 
+      code has been executed and has not raised an exception. Default: print and 
+      enter the values into the name-space provided by <span class="identifier"><a href="#CPNameSpace">CPNameSpace</a></span> 
+      or <a href="PolyMLNameSpace.html#globalNameSpace"><span class="identifier">PolyML.globalNameSpace</span></a>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPCompilerResultFun" id="CPCompilerResultFun"></a>CPCompilerResultFun of<br>            <a href="PolyMLStructure.html#parseTree">PolyML.parseTree</a> option *<br>            ( unit -&gt; {<br>                fixes: (string * fixityVal) list, values: (string * valueVal) list,<br>                structures: (string * structureVal) list, signatures: (string * signatureVal) list,<br>                functors: (string * functorVal) list, types: (string * typeVal) list}) option -&gt; unit -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p> Function to process the result of compilation. This can be used to capture 
+      the parse tree even if type-checking fails. Default: Execute the code and 
+      call the result function if the compilation succeeds. Raise an exception 
+      if the compilation failed.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPProfiling" id="CPProfiling"></a>CPProfiling of int</pre>
+  <div class="entrytext"> 
+    <p>Control profiling. 0 is no profiling, 1 is time etc. Default is value of 
+      <a href="PolyMLStructure.html#profiling"> <span class="identifier">PolyML.profiling</span></a>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPTiming" id="CPTiming"></a>CPTiming of bool</pre>
+  <div class="entrytext"> 
+    <p>Control whether the compiler should time various phases of the compilation 
+      and also the run time. Default : Get the current value of <span class="identifier"><a href="#timing">timing</a></span> 
+      i.e. the value set by <span class="identifier"><a href="PolyMLStructure.html#timing">PolyML.timing</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPDebug" id="CPDebug"></a>CPDebug of bool</pre>
+  <div class="entrytext"> 
+    <p>Control whether calls to the debugger should be inserted into the compiled 
+      code. This allows breakpoints to be set, values to be examined and printed<br>
+      and functions to be traced at the cost of a significant run-time overhead. 
+      Default: value of <span class="identifier"><a href="#debug">debug</a>.</span></p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPPrintDepth" id="CPPrintDepth"></a>CPPrintDepth of unit-&gt;int</pre>
+  <div class="entrytext"> 
+    <p>This controls the depth of printing if the default <span class="identifier">CPResultFun</span> 
+      is used. It is also bound into any use of <span class="identifier"><a href="PolyMLStructure.html#print">PolyML.print</a></span> 
+      in the compiled code and will<br>
+      be called to get the print depth whenever that code is executed. Default: 
+      Get the current value of <span class="identifier"><a href="#printDepth">printDepth</a></span> 
+      i.e. the value set by <span class="identifier"><a href="PolyMLStructure.html#print_depth">PolyML.print_depth</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPPrintStream" id="CPPrintStream"></a>CPPrintStream of string-&gt;unit</pre>
+  <div class="entrytext"> 
+    <p>This is bound into any occurrence of <span class="identifier"><a href="PolyMLStructure.html#print">PolyML.print</a></span> 
+      and is used to produce the outut. Default: the value of <a href="#CPOutStream"><span class="identifier">CPOutStream</span></a> 
+      or <span class="identifier">TextIO.print</span> if it is not provided.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPErrorDepth" id="CPErrorDepth"></a>CPErrorDepth of int</pre>
+  <div class="entrytext"> 
+    <p>Controls the depth of context to produce in error messages. Default : Get 
+      the current value of <span class="identifier"><a href="#errorDepth">errorDepth</a></span> 
+      i.e. the value set by <span class="identifier"><a href="PolyMLStructure.html#error_depth">PolyML.error_depth</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPLineLength" id="CPLineLength"></a>CPLineLength of int</pre>
+  <div class="entrytext"> 
+    <p>Bound into any occurrences of <span class="identifier">PolyML.print</span>. 
+      This is the length of a line used in the pretty printer. Default: Get the 
+      current value of <span class="identifier"><a href="#lineLength">lineLength</a></span> 
+      i.e. the value set by <span class="identifier"><a href="PolyMLStructure.html#line_length">PolyML.line_length</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPRootTree" id="CPRootTree"></a>CPRootTree of<br>        {<br>            parent: (unit -&gt; PolyML.parseTree) option,<br>            next: (unit -&gt; PolyML.parseTree) option,<br>            previous: (unit -&gt; PolyML.parseTree) option<br>        }</pre>
+  <div class="entrytext"> 
+    <p>This can be used to provide a parent for parse trees created by the compiler. 
+      This appears as a <span class="identifier"><a href="PolyMLStructure.html#PTparent">PTparent</a></span> 
+      property in the tree. The default is <span class="identifier">NONE</span> 
+      which does not to provide a parent.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPAllocationProfiling" id="CPAllocationProfiling"></a>CPAllocationProfiling of int</pre>
+  <div class="entrytext"> 
+    <p>Controls whether to add profiling information to each allocation. Currently 
+      zero means no profiling and one means add the allocating function.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="CPDebuggerFunction" id="CPDebuggerFunction"></a>CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p>This is no longer used and is just left for backwards compatibility.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="printDepth" id="printDepth"></a>val printDepth : int ref</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">printDepth</span> controls the depth of output 
+      to produce when printing output either in the result or in <span class="identifier"><a href="PolyMLStructure.html#print">PolyML.print</a></span>. 
+      Its value is also set by <span class="identifier"><a href="PolyMLStructure.html#print_depth">PolyML.print_depth</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="errorDepth" id="errorDepth"></a>val errorDepth : int ref</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">errorDepth</span> controls the depth of output 
+      to produce when printing error messages<span class="identifier"><a href="PolyMLStructure.html#print"></a></span>. 
+      Its value is also set by <span class="identifier"><a href="PolyMLStructure.html#error_depth">PolyML.error_depth</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="lineLength" id="lineLength"></a>val lineLength : int ref</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">lineLength</span> controls the length of a line 
+      when printing output either in the result or in <span class="identifier"><a href="PolyMLStructure.html#print">PolyML.print</a></span>. 
+      Its value is also set by <span class="identifier"><a href="PolyMLStructure.html#line_length">PolyML.line_length</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="parsetree" id="parsetree"></a>val parsetree: bool ref
+<a name="codetree"></a>val codetree: bool ref
+<a name="codetreeAfterOpt"></a>val codetreeAfterOpt: bool ref
+<a name="assemblyCode"></a>val assemblyCode: bool ref
+<a name="pstackTrace"></a>val pstackTrace: bool ref</pre>
+  <div class="entrytext"> 
+    <p>These switches control whether the compiler should produce debugging output. 
+      The default is false for each. <span class="identifier">parsetree</span> 
+      controls printing of the parsed ML source, <span class="identifier">codetree</span> 
+      controls printing of the intermediate code, <span class="identifier">codetreeAfterOpt</span> 
+      controls printing that code after the optimiser, <span class="identifier">assemblyCode</span> 
+      controls printing the low-level machine code and <span class="identifier">pstackTrace</span> 
+      the printing of the low-level pseudo-stack.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="compilerVersion" id="compilerVersion"></a>val compilerVersion: string
+<a name="compilerVersionNumber"></a>val compilerVersionNumber: int
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">compilerVersion</span> and <span class="identifier">compilerVersionNumber</span> 
+      contain information about the version of the compiler. For version 5.5.2 
+      these contain <span class="identifier">&quot;5.5.2 Release&quot;</span> 
+      and <span class="identifier">552</span> respectively. </p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="prompt1" id="prompt1"></a>val prompt1: string ref
+<a name="prompt2"></a>val prompt2: string ref
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">prompt1</span> and <span class="identifier">prompt2</span> 
+      contain the prompts for input used by the default Poly/ML top-level read-eval-print 
+      loop, <span class="identifier"><a href="PolyMLStructure.html#shell">PolyML.shell</a></span>. 
+      prompt1 contains <span class="identifier">&quot;&gt; &quot;</span> and prompt2 
+      contains <span class="identifier">&quot;# &quot;</span> by default. They 
+      are included in the <span class="identifier">Compiler</span> structure for 
+      historical reasons.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="reportExhaustiveHandlers" id="reportExhaustiveHandlers"></a>val reportExhaustiveHandlers: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>The Poly/ML compiler produce a warning message if it is given a pattern 
+      match sequence which is not exhaustive, that is there are values that are 
+      not matched by any of the patterns. This warning message is not produced 
+      in the case of a handler where unhandled values are simply reraised.</p>
+    <p>There are circumstances where it is important that certain exceptions must 
+      not be caught, or if they are caught the handler must be reraise them in 
+      order to ensure that they return control to the outer level. This reference 
+      controls whether the compiler should produce a warning if an exception handler 
+      matches all exceptions rather than only specific exceptions. It may also 
+      be helpful to check for the situation where an exception handler is intended 
+      to match a single exception but because the exception identifier has been 
+      mistyped it is treated as a variable matching all exceptions. It defaults 
+      to <span class="identifier">false</span>.</p>
+    </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="reportUnreferencedIds" id="reportUnreferencedIds"></a>val reportUnreferencedIds: bool ref</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should produce a warning for 
+      identifiers that are declared but never used. Currently it is restricted 
+      to value bindings. It defaults to <span class="identifier">false</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="printInAlphabeticalOrder" id="printInAlphabeticalOrder"></a>val printInAlphabeticalOrder: bool ref</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the default result function for the compiler 
+      should sort the bindings being produced into alphabetical order. It provides 
+      the default value if the <span class="identifier"><a href="#CPPrintInAlphabeticalOrder">CPPrintInAlphabeticalOrder</a></span> 
+      is not provided. It defaults to <span class="identifier">true</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="lowlevelOptimise" id="lowlevelOptimise"></a>val lowlevelOptimise: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should perform low-level optimisations. 
+      This defaults to <span class="identifier">true</span> and should not normally 
+      need to be changed.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="inlineFunctors" id="inlineFunctors"></a>val inlineFunctors: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should treat ML functors as 
+      inline functions. All type checking is performed when the functor is declared 
+      but code-generation is deferred until the functor is applied to its argument 
+      structures. This defaults to <span class="identifier">true</span> and should 
+      not normally need to be changed.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="createPrintFunctions" id="createPrintFunctions"></a>val createPrintFunctions: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should generate default print 
+      functions for datatypes. This defaults to <span class="identifier">true</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="maxInlineSize" id="maxInlineSize"></a>val maxInlineSize: int ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls how the compiler chooses to implement functions. 
+      If a function is <em>small</em> it is treated as an inline function and 
+      its code is expanded wherever it is used. If it is <em>large</em> it is 
+      compiled into a separate function and a call is made to it when it is used. 
+      Certain functions, such as recursive functions that are not tail-recursive 
+      or functions that are being passed as arguments or returned as results, 
+      cannot be treated as inline. The value represents the maximum size of a 
+      <em>small</em> function in some notional size units. It defaults to 80. 
+      Increasing the value will make the compiler treat more functions as inline.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="narrowOverloadFlexRecord" id="narrowOverloadFlexRecord"></a>val narrowOverloadFlexRecord: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls the way the Poly/ML compiler treats flexible records, 
+      i.e. record patterns containing <span class="identifier">&quot;...&quot;</span>, 
+      and overloading. The ML Definition says that these are resolved by the context 
+      but does not define exactly what that context should be, allowing different 
+      compilers to interpret this differently. With this reference set to <span class="identifier">false</span>, 
+      the default, the Poly/ML compiler uses the whole of the <em>topdec</em> 
+      as the context to find a suitable fixed record type or to find the type 
+      of an overloaded function. When it is set to true the compiler uses the 
+      immediate <span class="identifier">val</span> or <span class="identifier">fun</span> 
+      binding as the context. The effect of this is that it may produce an error 
+      message unless appropriate type constraints have been included. However, 
+      that may ensure that the code is portable to compilers which take a more 
+      restrictive view than Poly/ML.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="traceCompiler" id="traceCompiler"></a>val traceCompiler: bool ref</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should produce an exception 
+      trace if an exception occurs within the compiler. This defaults to <span class="identifier">false</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="fixityNames" id="fixityNames"></a>val fixityNames : unit -> string list
+<a name="functorNames"></a>val functorNames : unit -> string list
+<a name="signatureNames"></a>val signatureNames: unit -> string list
+<a name="structureNames"></a>val structureNames: unit -> string list
+<a name="typeNames"></a>val typeNames: unit -> string list
+<a name="valueNames"></a>val valueNames: unit -> string list</pre>
+  <div class="entrytext"> 
+    <p>These functions return the appropriate list from <span class="identifier"><a href="PolyMLStructure.html#globalNameSpace">PolyML.globalNameSpace</a>.</span> 
+      They can all be written in terms of functions in the <a href="PolyMLNameSpace.html"><span class="identifier">NameSpace</span></a> 
+      structure and are included in the <span class="identifier">Compiler</span> 
+      structure for backwards compatibility only.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="forgetFixity" id="forgetFixity"></a>val forgetFixity: string -> unit
+<a name="forgetFunctor"></a>val forgetFunctor: string -> unit
+<a name="forgetSignature"></a>val forgetSignature: string -> unit
+<a name="forgetStructure"></a>val forgetStructure: string -> unit
+<a name="forgetType"></a>val forgetType: string -> unit
+<a name="forgetValue"></a>val forgetValue: string -> unit
+</pre>
+  <div class="entrytext"> 
+    <p>These functions delete entries from <span class="identifier"><a href="PolyMLStructure.html#globalNameSpace">PolyML.globalNameSpace</a>.</span> 
+      They are included in the <span class="identifier">Compiler</span> structure 
+      for historical reasons.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="debug" id="debug"></a>val debug: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether debugging information is included in the 
+      compiled code. The value of this reference is used unless the <span class="identifier"><a href="#CPDebug">CPDebug</a></span> 
+      option is provided. Setting this to <span class="identifier">true</span> 
+      increases the run-time by many factors.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="timing" id="timing"></a>val timing: bool ref
+</pre>
+  <div class="entrytext"> 
+    <p>Setting this reference to true causes the compiler to include timing information 
+      in the output after each topdec. The timing information includes information 
+      about various passes of the compiler and also the execution time of the 
+      topdec. It is used unless the <a href="#CPTiming"><span class="identifier">CPTiming</span></a> 
+      option is included. Its value is also set by the <span class="identifier"><a href="PolyMLStructure.html#timing">PolyML.timing</a></span> 
+      function. </p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="profiling" id="profiling"></a>val profiling: int ref
+</pre>
+  <div class="entrytext"> 
+    <p>If this reference is set to a non-zero value the compiler will switch on 
+      profiling during execution of the compiled code. Exactly what is profiled 
+      is controlled by the argument. It is used unless the <a href="#CPProfiling"><span class="identifier">CPProfiling</span></a> 
+      option is included. Its value is also set by the <span class="identifier"><a href="PolyMLStructure.html#profiling">PolyML.profiling</a></span> 
+      function. </p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="allocationProfiling" id="allocationProfiling"></a>val allocationProfiling: int ref</pre>
+  <div class="entrytext"> 
+    <p>This reference controls whether the compiler should add profiling information 
+      to track the allocation of memory. . It is used unless the <a href="#CPAllocationProfiling"><span class="identifier">CPAllocationProfiling</span></a> 
+      option is included.</p>
+  </div>
+</div>
 <ul class="nav">
-	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLCodetree.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
-	<li><a href="#">Next</a></li>
+	<li><a href="PolyMLDebug.html">Next</a></li>
 </ul>
-
 </body>
 </html>
