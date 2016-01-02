@@ -1,0 +1,98 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML>
+<HEAD>
+	<TITLE>The SingleAssignment structure</TITLE>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</HEAD>
+<BODY BGCOLOR="#ffffff">
+<ul class="nav">
+	<li><a href="Signal.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Threads.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">SingleAssignment structure</font></STRONG></H2>
+<p>The <span class="identifier">SingleAssignment</span> structure provides a reference 
+  that can be assigned a value only once.</p>
+<pre class="mainsig">structure SingleAssignment:
+  sig
+    type 'a saref
+    val saref: unit -&gt; 'a saref
+
+    exception Locked
+    val saset: 'a saref * 'a -&gt; unit
+    val savalue: 'a saref -&gt; 'a option
+  end</pre>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="saref_type" id="saref_type"></a>type 'a saref</pre>
+  <div class="entrytext">
+    <p>The type of a single-assignment reference. It is similar to the standard 
+      <span class="identifier">ref</span> type constructor.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="saref"></a>val saref: unit -&gt; 'a saref</pre>
+  <div class="entrytext">
+    <p>Construct a single-assignment reference.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="Locked"></a>exception Locked</pre>
+  <div class="entrytext">
+    <p>This exception is raised if an attempt is made to assign a value twice 
+      to the same reference.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="saset" id="saset"></a>val saset: 'a saref * 'a -&gt; unit</pre>
+  <div class="entrytext">
+    <p>Assign a value to the reference. If it has already been assigned a value 
+      this will raise Locked. Note that this function is not thread-safe. A <a href="Threads.html#mutex_type"><span class="identifier">mutex</span></a> 
+      must be associated with reference if there is the possibility that two different 
+      threads may attempt to assign to the same reference.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="savalue" id="savalue"></a>val savalue: 'a saref -&gt; 'a option</pre>
+  <div class="entrytext">
+    <p>Extract the current value of the reference. If it has not yet been assigned 
+      a value it will return <span class="identifier">NONE</span>. If it has, 
+      it will return <span class="identifier">SOME v</span> where <span class="identifier">v</span> 
+      is the value that was assigned.</p>
+  </div>
+</div>
+<p>The reason behind the <span class="identifier">SingleAssignment</span> structure 
+  has to do with the way the Poly/ML storage management system deals with <em>mutable</em> 
+  and <em>immutable</em> data. Immutable memory cells are given a value when they 
+  are created and once created never change. They are used for lists, tuples, 
+  vectors and other datatypes. In contrast, refs and arrays are mutable data. 
+  They are given a value when they are created in the same way as immutable data 
+  but their contents can change by assignment. In addition Standard ML also distinguishes 
+  between mutable and immutable data in the treatment of equality. Immutable data 
+  structures are considered equal if their contents are the same, mutable cells 
+  are considered equal only if they are the pointers to the same cell.</p>
+<p>Because of these differences mutable data has to be handled separately from 
+  immutable data by the garbage collector. Using mutable cells imposes an extra 
+  cost on each collection when compared with immutable data. In addition it is 
+  possible to reduce the heap size by merging immutable cells that have the same 
+  contents. In some circumstances the garbage collector may do this automatically; 
+  more often it is done explicitly using <a href="PolyMLStructure.html#shareCommonData"><span class="identifier">PolyML.shareCommonData</span></a>. 
+</p>
+<p>The <span class="identifier">SingleAssignment</span> structure allows for a 
+  combination of mutable and immutable data. A value of type <span class="identifier">saref</span> 
+  is initially mutable but once it has been assigned a value it is marked as immutable. 
+  This allows the garbage-collector and sharing code to treat it as purely immutable 
+  once it has been locked.</p>
+<p>A typical use for a single-assignment reference is when a data structure is 
+  being built by multiple threads. A <span class="identifier">saref</span> can 
+  be used within the data structure to represent a portion of the structure to 
+  be built and a thread created to build it. When the thread completes it assigns 
+  the <span class="identifier">saref</span> with the results of its work. The 
+  full structure is now immutable with all the advantages of immutable data.</p>
+<ul class="nav">
+	<li><a href="Signal.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Threads.html">Next</a></li>
+</ul>
+</BODY>
+</HTML>
