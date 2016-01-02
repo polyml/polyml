@@ -350,7 +350,7 @@ struct
     |   ActBaseOffset of reg * int
     |   ActOther (* Containers and CodeRefs. *)
 
-    type argAction = ttab * stackIndex list * regHint -> stackIndex * operation list
+    type argAction = ttab * stackIndex list * regHint -> reg option * operation list
     type nextAction = argAction
 
     type  forwardLabel = label
@@ -3116,27 +3116,17 @@ struct
        code-generator. This module knows where the arguments are as a result of previous operations
        but the machine-dependent code-generator will have requirements depending on the available
        instructions e.g. some or all the arguments may have to be in registers.  *)
-    fun actionDone {outReg, operation} (table as Ttab{pstackTrace, ...}, args, whereto) =
+    fun actionDone {outReg, operation} (table as Ttab{pstackTrace, ...}, args, _) =
     let
         (* Finished.  Unlock the registers, push the result and return. *)
         (* Match up the result that the instruction has provided with what we
            need for the context.  Generally these will match already but we
            have to consider the case where a result is being discarded or
            where we want the unit result from an assignment function. *)
-        val result: stackIndex = 
-            case (outReg, whereto) of
-                (NONE, NoResult) => noIndex
-            |   (NONE, _) => (* Want a unit result. *) pushConst (table, toMachineWord 0)
-            |   (SOME _, NoResult) => (* Discard *) noIndex
-            |   (SOME outReg, _) => (* Want this result. *)
-                    (
-                        lockRegister(table, outReg);
-                        pushReg (table, outReg)
-                    )
         val freeEntries = List.foldl (fn(arg, l) => incrUseCount (table, arg, ~1) @ l) [] args
         val () = if pstackTrace then printStack(table, "performActions", operation) else ()
     in
-        (result, freeEntries @ operation)
+        (outReg, freeEntries @ operation)
     end
 
     fun actionLockRegister{reg, willOverwrite, next: nextAction} (table, args, whereto) =
@@ -3750,11 +3740,13 @@ struct
         in
             fun storeWord(arg1, arg2, arg3, transtable, whereto) =
             let
-                val (opRes, opCode) = storeWordNegotiator (transtable, [arg1, arg2, arg3], whereto)
+                (* We don't want to reserve a register for a result but we may need to push a
+                   value to represent the unit result. *)
+                val (_, opCode) = storeWordNegotiator (transtable, [arg1, arg2, arg3], NoResult)
                 val result =
                     case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
+                        NoResult => NoMerge
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
             in
                 (opCode, result)
             end
@@ -3774,18 +3766,25 @@ struct
             end
         end
 
+        (* Match up the result that the instruction has provided with what we
+           need for the context.  Generally these will match already but we
+           have to consider the case where a result is being discarded or
+           where we want the unit result from an assignment function. *)
+        fun matchResult(_, _, NoResult) = (* No result wanted - discard any result *)
+                NoMerge
+        |   matchResult(table, SOME outReg, _) = (* Want this result. *)
+                ( lockRegister(table, outReg); MergeIndex(pushReg (table, outReg)) )
+        |   matchResult(table, NONE, _) = (* Want a unit result. *)
+                MergeIndex(pushConst (table, toMachineWord 0))
+
         (* Lock a newly created vector. *)
         fun lockVector(vecIndex, transtable, whereto) =
         let
             fun genLockSeg([InRegister reg], NONE) = [LockMutableSegment reg]
             |   genLockSeg _ = raise InternalError "genLockSeg"
             val (opRes, opCode) = noresultNegotiator genLockSeg (transtable, [vecIndex], whereto)
-            val result = 
-                case whereto of
-                    NoResult => NoMerge (* Unused. *)
-                |   _ => MergeIndex opRes
         in
-            (opCode, result)
+            (opCode, matchResult(transtable, opRes, whereto))
         end
 
         local (* Load the "self" entry from the thread-specific block. *)
@@ -3796,12 +3795,8 @@ struct
             fun threadSelf(transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator threadSelfI (transtable, [], whereto)
-                val result = 
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -3818,12 +3813,8 @@ struct
             fun vectorLength(argLocn, transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator vecLen (transtable, [argLocn], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
     
@@ -3837,12 +3828,8 @@ struct
             fun vectorFlags(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator  genVecFlags (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -3867,12 +3854,8 @@ struct
             let
 
                 val (opRes, opCode) = generalNegotiator genFirstLong (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -3969,23 +3952,15 @@ struct
             fun loadWord(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = genLoadWord true (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and loadByte(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = genLoadWord false (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
          end
 
@@ -4149,15 +4124,17 @@ struct
             let
                 (* We store from the low order byte of a register so we want the value in one of
                    the registers that has a low-byte form i.e. AL. BL, CL, DL. *)
-                val (opRes, opCode) =
+                (* As with storeWord, we don't want to reserve a result reg but may still need a
+                   unit result. *)
+                val (_, opCode) =
                    loadToRegOrLiteral(listToSet[eax, ebx, ecx, edx], 2,
                         loadBaseAddress(
                             loadToRegOrLiteral(generalRegisters, 1,
-                                generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE) (transtable, [arg1, arg2, arg3], whereto)
+                                generateInstruction genStoreByte))) ([NONE, NONE, NONE], NONE) (transtable, [arg1, arg2, arg3], NoResult)
                 val result =
                     case whereto of
                         NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
+                    |   _ => MergeIndex(pushConst (transtable, toMachineWord 0))
             in
                 (opCode, result)
             end
@@ -4176,23 +4153,15 @@ struct
             fun atomicIncrement(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator(atomicOp 1) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and atomicDecrement(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator(atomicOp ~1) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
         
@@ -4261,24 +4230,16 @@ struct
             let
                 val args = [arg1, arg2, arg3, arg4, arg5]
                 val (opRes, opCode) = genMemMove byteMemMove (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and moveWords(arg1, arg2, arg3, arg4, arg5, transtable, whereto) =
             let
                 val args = [arg1, arg2, arg3, arg4, arg5]
                 val (opRes, opCode) = genMemMove wordMemMove (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -4756,97 +4717,61 @@ struct
             fun addReal(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = getFP (genBinaryFP(FADD, FADD)) (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
             and subtractReal(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = getFP (genBinaryFP(FSUB, FSUBR)) (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
             and multiplyReal(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = getFP (genBinaryFP(FMUL, FMUL)) (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
             and divideReal(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = getFP (genBinaryFP(FDIV, FDIVR)) (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun absoluteReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FABS) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and negativeReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FCHS) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and squareRootReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FSQRT) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and sineReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FSIN) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and cosineReal(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = getUnaryFP (genUnaryFP FCOS) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             and arctanReal(arg, transtable, whereto) =
@@ -4857,12 +4782,8 @@ struct
                             fn _ =>
                                 getResultRegister(floatingPtRegisters, loadBaseOffsets (genUnaryFP FPATAN))
                                 ) ([NONE], NONE) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             local
@@ -4889,12 +4810,8 @@ struct
                         getResultRegister(floatingPtRegisters,
                             loadToOneOf(generalRegisters, true (* Will modify *), 0, generateInstruction genIntToFPInstr)
                             ) ([NONE], NONE)(transtable, [arg], whereto)
-                    val result =
-                        case whereto of
-                            NoResult => NoMerge (* Unused. *)
-                        |   _ => MergeIndex opRes
                 in
-                    (opCode, result)
+                    (opCode, matchResult(transtable, opRes, whereto))
                 end
             end
 
@@ -4934,12 +4851,8 @@ struct
             fun stringLength(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = generalNegotiator genStringLength (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -4955,12 +4868,8 @@ struct
             fun setStringLength(arg1, arg2, transtable, whereto) =
             let
                 val (opRes, opCode) = noresultNegotiator genSetStringLength (transtable, [arg1, arg2], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -5101,84 +5010,56 @@ struct
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (ADD, testTagsForArithmetic) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun subtractInteger(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (SUB, testTagsForArithmetic) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun addWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (ADD, noTagTest) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun subtractWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (SUB, noTagTest) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun andWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (AND, noTagTest) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun orWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (OR, noTagTest) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun xorWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (XOR, noTagTest) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
         end
 
@@ -5373,70 +5254,46 @@ struct
             fun upShiftWordConstant(arg, shift, transtable, whereto) =
             let
                 val (opRes, opCode) = constantShift (SLL, shift) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun upShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = variableShift SLL (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordConstant(arg, shift, transtable, whereto) =
             let
                 val (opRes, opCode) = constantShift (SRL, shift) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = variableShift SRL (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordArithmeticConstant(arg, shift, transtable, whereto) =
             let
                 val (opRes, opCode) = constantShift (SRA, shift) (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             fun downShiftWordArithmeticVariable(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = variableShift SRA (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             (* General multiplication.  We've already extracted simple shifts *)
@@ -5444,24 +5301,16 @@ struct
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = multiplyNegotiator genMultiplyUnsigned (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             (* We only support integer multiplication by two.  Everything else is too complicated. *)
             fun multiplyIntegerByTwo(arg, transtable, whereto) =
             let
                 val (opRes, opCode) = sharedSingleArgNegotiator genAddSelf (transtable, [arg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             local (* Unsigned word div and mod. *)
@@ -5511,24 +5360,16 @@ struct
                 let
                     val args = [arg1, arg2]
                     val (opRes, opCode) = divModCode true (transtable, args, whereto)
-                    val result =
-                        case whereto of
-                            NoResult => NoMerge (* Unused. *)
-                        |   _ => MergeIndex opRes
                 in
-                    (opCode, result)
+                    (opCode, matchResult(transtable, opRes, whereto))
                 end
 
                 fun modulusWord(arg1, arg2, transtable, whereto) =
                 let
                     val args = [arg1, arg2]
                     val (opRes, opCode) = divModCode false (transtable, args, whereto)
-                    val result =
-                        case whereto of
-                            NoResult => NoMerge (* Unused. *)
-                        |   _ => MergeIndex opRes
                 in
-                    (opCode, result)
+                    (opCode, matchResult(transtable, opRes, whereto))
                 end
 
             end
@@ -5598,12 +5439,8 @@ struct
             let
                 val (opRes, opCode) = (* Get a result reg and put the initial value in a reg. *)
                     generalNegotiator(genFixedAlloc(length, flags)) (transtable, [initValArg], whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
 
             (* This is used where the size isn't a constant or five words or larger. *)
@@ -5618,12 +5455,8 @@ struct
                         loadToSpecificRegister(eax, true, 1,
                             getResultRegister(singleton edi, generateInstruction(genVarAlloc flags))))
                                 ([NONE, NONE], NONE) (transtable, args, whereto)
-                val result =
-                    case whereto of
-                        NoResult => NoMerge (* Unused. *)
-                    |   _ => MergeIndex opRes
             in
-                (opCode, result)
+                (opCode, matchResult(transtable, opRes, whereto))
             end
             
         end
