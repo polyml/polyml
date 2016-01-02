@@ -200,7 +200,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* Although the offset is in seconds it is since 1601. */
             FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftSeconds); /* May raise exception. */
+            getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
             ULARGE_INTEGER   liTime;
             liTime.HighPart = ftSeconds.dwHighDateTime;
             liTime.LowPart = ftSeconds.dwLowDateTime;
@@ -249,7 +249,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             time_t theTime;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftSeconds); /* May raise exception. */
+            getFileTimeFromArb(taskData, args, &ftSeconds); /* May raise exception. */
             ULARGE_INTEGER   liTime;
             liTime.HighPart = ftSeconds.dwHighDateTime;
             liTime.LowPart = ftSeconds.dwLowDateTime;

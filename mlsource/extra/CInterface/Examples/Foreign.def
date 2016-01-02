@@ -1,7 +1,6 @@
 ; Exports file for DLL
 
 LIBRARY      "Foreign"
-DESCRIPTION  'ForeignTest Dynamic Link Library'
 
 EXPORTS
 	DupNString
@@ -12,3 +11,5 @@ EXPORTS
 	MakeCallback3
 	AllocateIt
 	FreeIt
+    UpdateArg
+    ReturnFn

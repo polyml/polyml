@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -101,17 +100,12 @@
 typedef int socklen_t;
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <winsock2.h>
+#endif
+
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
-#endif
-
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
-#include <winsock2.h>
-#else
-#include <winsock.h>
-#endif
 #endif
 
 #include "globals.h"
@@ -291,8 +285,6 @@ struct sk_tab_struct {
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
 static Handle makeServEntry(TaskData *taskData, struct servent *proto);
-static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(TaskData *, void*, char*));
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
@@ -711,7 +703,7 @@ TryAgain: // Used for various retries.
             if (getpeername(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getpeername failed", GETERROR);
             /* Addresses are treated as strings. */
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 38: /* Get socket name. */
@@ -722,7 +714,7 @@ TryAgain: // Used for various retries.
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (getsockname(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getsockname failed", GETERROR);
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 39: /* Return the address family from an address. */
@@ -741,7 +733,7 @@ TryAgain: // Used for various retries.
             sockaddr.sin_port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
             sockaddr.sin_addr.s_addr =
                 htonl(get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)));
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
         }
 
     case 41: /* Return port number from an internet socket address.
@@ -847,7 +839,7 @@ TryAgain: // Used for various retries.
                     }
                 }
 
-                addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
+                addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                 newStrm = &basic_io_vector[stream_no];
                 newStrm->device.sock = result;
                 newStrm->ioBits =
@@ -1163,7 +1155,7 @@ TryAgain: // Used for various retries.
                     Handle addrHandle, lengthHandle, pair;
                     if (recvd > (int)length) recvd = length;
                     lengthHandle = Make_arbitrary_precision(taskData, recvd);
-                    addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
+                    addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                     pair = ALLOC(2);
                     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(lengthHandle));
                     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
@@ -1258,7 +1250,7 @@ TryAgain: // Used for various retries.
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), addr.sun_path, sizeof(addr.sun_path));
             if (length > (int)sizeof(addr.sun_path))
                 raise_syscall(taskData, "Address too long", ENAMETOOLONG);
-            return SAVE(Buffer_to_Poly(taskData, (char*)&addr, sizeof(addr)));
+            return SAVE(C_string_to_Poly(taskData, (char*)&addr, sizeof(addr)));
         }
 #endif
 
@@ -1292,31 +1284,6 @@ TryAgain: // Used for various retries.
             return 0;
         }
     }
-}
-
-/* "Polymorphic" function to generate a list. */
-static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(TaskData *, void*, char*))
-{
-    Handle saved = taskData->saveVec.mark();
-    Handle list = SAVE(ListNull);
-    /* Start from the end of the list. */
-    p += count*size;
-    while (count > 0)
-    {
-        Handle value, next;
-        p -= size; /* Back up to the last entry. */
-        value = mkEntry(taskData, arg, p);
-        next  = ALLOC(SIZEOF(ML_Cons_Cell));
-
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
-
-        taskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
-        count--;
-    }
-    return list;
 }
 
 static Handle mkAddr(TaskData *taskData, void *arg, char *p)
@@ -1564,7 +1531,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             Handle hSave = taskData->saveVec.mark();
             FILETIME ftTime, ftNow;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(3), &ftTime);
+            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(3)), &ftTime);
             GetSystemTimeAsFileTime(&ftNow);
             taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
@@ -1627,13 +1594,8 @@ static Networking networkingModule;
 void Networking::Init(void)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
 #define WINSOCK_MAJOR_VERSION   2
 #define WINSOCK_MINOR_VERSION   2
-#else
-#define WINSOCK_MAJOR_VERSION   1
-#define WINSOCK_MINOR_VERSION   1
-#endif
     WSADATA wsaData;
     WORD wVersion = MAKEWORD(WINSOCK_MINOR_VERSION, WINSOCK_MAJOR_VERSION);
     /* Initialise the system and check that the version it supplied

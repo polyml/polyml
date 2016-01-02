@@ -83,7 +83,7 @@ let
             |   SOME fileName =>
                 let
                     local
-                        val baseName = joinDirFile { dir = saveDirPath, file = fileName }
+                        val baseName = concat(saveDirPath, fileName)
                     in
                         val saveFile =
                             mkCanonical (joinBaseExt{ base = baseName, ext = SOME "save"})

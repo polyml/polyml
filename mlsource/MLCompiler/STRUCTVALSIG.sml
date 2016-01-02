@@ -4,17 +4,17 @@
 
     Modified David C. J. Matthews 2009, 2015.
 
-    This library is free software you can redistribute it and/or
+    This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY without even the implied warranty of
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
     
     You should have received a copy of the GNU Lesser General Public
-    License along with this library if not, write to the Free Software
+    License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
@@ -47,11 +47,12 @@ sig
     val makeRef: unit -> references
 
     datatype typeId =
-        TypeId of { access: valAccess, description: typeIdDescription,
-                    typeFn: typeVarForm list * types, idKind: typeIdKind }
+        TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
+
     and typeIdKind =
-        Free of { uid: uniqueId, allowUpdate: bool  }
-    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
+        Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
+    |   TypeFn of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -86,8 +87,6 @@ sig
         TypeConstrs of
         {
             name:       string,
-            arity:      int,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -121,7 +120,7 @@ sig
             typeIdMap:          int -> typeId,
             firstBoundIndex:    int,
             boundIds:           typeId list,
-            declaredAt:         location
+            locations:          locationProp list
         }
  
     and functors =
@@ -131,7 +130,7 @@ sig
             arg:        structVals,
             result:     signatures,
             access:     valAccess,
-            declaredAt: location
+            locations:  locationProp list
         }
 
     (* Values. *)
@@ -139,7 +138,6 @@ sig
         Print
     |   GetPretty
     |   MakeString
-    |   InstallPP
     |   AddPretty
     |   Equal
     |   NotEqual
@@ -171,6 +169,7 @@ sig
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
+    |   SequenceNo of int
 
     withtype labelledRec =
     {
@@ -183,9 +182,6 @@ sig
 
 
     (* type identifiers. *)
-    val isFreeId:     typeId -> bool
-    val isBoundId:    typeId -> bool
-    val isTypeFunction: typeId -> bool
     val isEquality:   typeId -> bool
     val offsetId:     typeId -> int
     val idAccess:     typeId -> valAccess
@@ -193,10 +189,10 @@ sig
     val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
-    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId
-    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId
-    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeFreeId: int * valAccess * bool * typeIdDescription -> typeId
+    val makeFreeIdEqUpdate: int * valAccess * bool * typeIdDescription -> typeId
+    val makeBoundId: int * valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeBoundIdWithEqUpdate: int * valAccess * int * bool * bool * typeIdDescription -> typeId
     val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId
     
     (* Types *)
@@ -211,8 +207,6 @@ sig
 
     val tcName:            typeConstrs -> string
     val tcArity:           typeConstrs -> int
-    val tcTypeVars:        typeConstrs -> typeVarForm list
-    val tcEquivalent:      typeConstrs -> types
     val tcEquality:        typeConstrs -> bool
     val tcSetEquality:     typeConstrs * bool -> unit
     val tcIdentifier:      typeConstrs -> typeId
@@ -220,7 +214,7 @@ sig
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeTypeConstructor:
-        string * typeVarForm list * typeId * locationProp list -> typeConstrs
+        string * typeId * locationProp list -> typeConstrs
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
@@ -267,11 +261,11 @@ sig
     val makeSelectedStruct: structVals * structVals * locationProp list -> structVals
 
     (* Functors *)
-    val makeFunctor: string * structVals * signatures * valAccess * location -> functors
+    val makeFunctor: string * structVals * signatures * valAccess * locationProp list -> functors
 
     (* Signatures *)
     val makeSignatureTable: unit -> univTable
-    val makeSignature: string * univTable * int * location * (int -> typeId) * typeId list -> signatures
+    val makeSignature: string * univTable * int * locationProp list * (int -> typeId) * typeId list -> signatures
 
     (* Values. *)
     val valName: values -> string
@@ -285,10 +279,12 @@ sig
     val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values
 
     (* Infix status *)
-    datatype fixStatus = 
+    datatype infixity = 
         Infix of int
     |   InfixR of int
     |   Nonfix
+
+    datatype fixStatus = FixStatus of string * infixity
 
     datatype env =
         Env of
@@ -332,6 +328,7 @@ sig
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm

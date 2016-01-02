@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -36,53 +35,69 @@ structure Shape:
   end =
 struct
     local
-        open CInterface Base
-        val WIDTH = INT: int Conversion
-        val HEIGHT = INT: int Conversion
+        open Foreign Base
     in
         type HDC = HDC and HBRUSH = HBRUSH
         type RECT = RECT and POINT = POINT
         (* FILLED SHAPES *)
         (* Strangely, some of these are in user32 and some in gdi32. *)
-        val FillRect             = call3 (user "FillRect") (HDC,POINTERTO RECT,HBRUSH) (SUCCESSSTATE "FillRect")
-        val FrameRect            = call3 (user "FrameRect") (HDC,POINTERTO RECT,HBRUSH) (SUCCESSSTATE "FrameRect")
-        val InvertRect           = call2 (user "InvertRect")  (HDC,POINTERTO RECT) (SUCCESSSTATE "InvertRect")
+        val FillRect             = winCall3 (user "FillRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FillRect")
+        val FrameRect            = winCall3 (user "FrameRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FrameRect")
+        val InvertRect           = winCall2 (user "InvertRect")  (cHDC,cConstStar cRect) (successState "InvertRect")
         
-        fun Chord (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
-           call9 (gdi "Chord")
-                 (HDC,LONG,LONG,LONG,LONG,LONG,LONG,LONG,LONG) (SUCCESSSTATE "Chord")
-                 (h,left,top,right,bottom,x1,y1,x2,y2)
-        
-        fun Ellipse (h,{left,top,right,bottom}: RECT) =
-            call5 (gdi "Ellipse")
-                 (HDC,LONG,LONG,LONG,LONG) (SUCCESSSTATE "Ellipse")
-                 (h,left,top,right,bottom)
-        
-        fun Pie (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
-           call9 (gdi "Pie")
-                 (HDC,LONG,LONG,LONG,LONG,LONG,LONG,LONG,LONG) (SUCCESSSTATE "Pie")
-                 (h,left,top,right,bottom,x1,y1,x2,y2)
-        
-        fun Polygon (h,pts: POINT list) = 
-        let val count = List.length pts
-            val (fromPt, toPt, ptStruct) = breakConversion POINT
-            val ptarr = alloc count ptStruct
-            fun setItem(pt, n) =
-                (assign ptStruct (offset n ptStruct ptarr) (toPt pt); n+1)
-            val _: int = List.foldl setItem 0 pts
+        local
+            val chord =
+                winCall9 (gdi "Chord") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Chord")
         in
-           call3 (gdi "Polygon") (HDC,POINTER,INT) (SUCCESSSTATE "Polygon") (h,address ptarr,count)
+            fun Chord (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
+                chord (h,left,top,right,bottom,x1,y1,x2,y2)
         end
         
-        fun Rectangle(h,{left,top,right,bottom}: RECT) =
-            call5 (gdi "Rectangle")
-                  (HDC,LONG,LONG,LONG,LONG) (SUCCESSSTATE "Rectangle")
-                  (h,left,top,right,bottom)
+        local
+            val ellipse =
+                winCall5 (gdi "Ellipse") (cHDC,cInt,cInt,cInt,cInt) (successState "Ellipse")
+        in
+            fun Ellipse (h,{left,top,right,bottom}: RECT) =
+                ellipse(h,left,top,right,bottom)
+        end
         
-        fun RoundRect(h,{left,top,right,bottom}: RECT,w,ht) =
-            call7 (gdi "RoundRect")
-                  (HDC,LONG,LONG,LONG,LONG,WIDTH,HEIGHT) (SUCCESSSTATE "RoundRect")
-                  (h,left,top,right,bottom,w,ht)
+        local
+            val pie =
+                winCall9 (gdi "Pie")
+                    (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Pie")
+        in
+            fun Pie (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
+                pie(h,left,top,right,bottom,x1,y1,x2,y2)
+        end
+        
+        local
+            val polygon = winCall3 (gdi "Polygon") (cHDC,cPointer,cInt) (successState "Polygon")
+            val ptList = list2Vector cPoint
+        in
+            fun Polygon (h,pts: POINT list) = 
+            let
+                val (ptarr, count) = ptList pts
+            in
+                polygon (h, ptarr, count) handle ex => (Memory.free ptarr; raise ex);
+                Memory.free ptarr
+            end
+        end
+        
+        local
+            val rectangle =
+                winCall5 (gdi "Rectangle") (cHDC,cInt,cInt,cInt,cInt) (successState "Rectangle")
+        in
+            fun Rectangle(h,{left,top,right,bottom}: RECT) =
+                rectangle(h,left,top,right,bottom)
+        end
+        
+        local
+            val roundRect =
+                winCall7 (gdi "RoundRect") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt) (successState "RoundRect")
+        in
+            fun RoundRect(h,{left,top,right,bottom}: RECT,w,ht) =
+                roundRect(h,left,top,right,bottom,w,ht)
+        end
  
         (*
         Other Filled shape functions:

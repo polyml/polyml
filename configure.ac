@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML],[5.5.2],[polyml AT polyml DOT org],[polyml])
+AC_INIT([Poly/ML],[5.6],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
 AC_PREREQ(2.65)
 # libtoolize recommends this line.
@@ -36,6 +36,8 @@ poly_native_windows=no
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
+# When building native Windows set the flag to build the Unicode version and
+# the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 case "${host_os}" in
     darwin*)
@@ -45,7 +47,7 @@ case "${host_os}" in
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
     *mingw*)
-        AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
@@ -56,7 +58,7 @@ case "${host_os}" in
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
                 CXXFLAGS="$CXXFLAGS -mthreads"
@@ -65,7 +67,20 @@ case "${host_os}" in
         ;;
 esac
 
- # libpolyml can be a DLL but libpolymain can't.
+# Enable/Disable the GUI in Windows.  Should this only be present if
+# building on mingw?
+AC_ARG_ENABLE([windows-gui],
+        [AS_HELP_STRING([--enable-windows-gui],
+            [create a GUI in Windows. If this is disabled use a Windows console. @<:@default=yes@:>@])],
+        [case "${enableval}" in
+           yes) enablegui=true ;;
+           no)  enablegui=false ;;
+           *) AC_MSG_ERROR([bad value ${enableval} for --enable-windows-gui]) ;;
+        esac],
+        [enablegui=true])
+AM_CONDITIONAL([WINDOWSGUI], [test x$enablegui = xtrue])
+
+# libpolyml can be a DLL but libpolymain can't.
 # Disable shared libraries by default.  It complicates installation to "non-standard" places.
 LT_INIT([win32-dll disable-shared])
 AM_MAINTAINER_MODE
@@ -104,7 +119,7 @@ AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
 
 # The next two are only used with mingw
-AC_CHECK_LIB(wsock32, main)
+AC_CHECK_LIB(ws2_32, main)
 AC_CHECK_LIB(gdi32, main)
 
 ## External names on Win64.  They have no leading underscores as per
@@ -291,7 +306,10 @@ AC_CHECK_TYPES([IMAGE_FILE_HEADER],
             [polyexport=elf],
               [AC_CHECK_HEADER([mach-o/reloc.h],
                   [AC_DEFINE([HAVE_MACH_O_RELOC_H], [], [Define to 1 if you have the <mach-o/reloc.h> header file.])]
-                          [polyexport=macho]
+                          [polyexport=macho],
+                      [AC_CHECK_HEADERS([elf_abi.h machine/reloc.h],
+                          [AC_DEFINE([HAVE_ELF_ABI_H], [], [Define to 1 if you have <elf_abi.h> and <machine/reloc.h> header files.])]
+                              [polyexport=elf] )]
                 )]
     )],
     [#include <windows.h>]
@@ -383,13 +401,18 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
-# Test the --with-portable option to build the interpreter even if
-# we have a code-generator.
-AC_ARG_WITH([portable],
-            [AS_HELP_STRING([--with-portable],
-              [Build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])],
-            [],
-            [with_portable=check])
+# This option enables the native code generator.  More precisely it allows
+# the byte code interpreter to be built on X86.
+
+AC_ARG_ENABLE([native-codegeneration],
+        [AS_HELP_STRING([--disable-native-codegeneration],
+            [disable the native code generator and use the slow byte code interpreter instead.])],
+        [case "${enableval}" in
+           no)  with_portable=yes ;;
+           yes) with_portable=no ;;
+           *) AC_MSG_ERROR([bad value ${enableval} for --enable-native-codegeneration]) ;;
+        esac],
+        [with_portable=check])
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -412,6 +435,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
             polyarch=interpret
             ;;
+      aarch64*)
+            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64 bit)])
+            polyarch=interpret
+            ;;
       ia64*)
             AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
             polyarch=interpret
@@ -421,6 +448,10 @@ esac
 
 # If we explicitly asked to use the interpreter set the architecture to interpreted.
 if test "x$with_portable" = "xyes" ; then
+    if test "x$polyarch" != "xinterpret" ; then
+        AC_MSG_WARN(
+            [*******You have disabled native code generation.  Are you really sure you want to do that?*******])
+    fi
     polyarch=interpret
 fi
 
@@ -428,7 +459,7 @@ fi
 if test "x$with_portable" = "xno" ; then
     if test "x$polyarch" = "xinterpret" ; then
         AC_MSG_ERROR(
-            [--without-portable was given but native code is not supported on this platform])
+            [--enable-native-codegeneration was given but native code is not supported on this platform])
     fi
 fi
 
@@ -463,6 +494,20 @@ AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_size
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
+
+# Test whether this is a git directory and set the version if possible
+AC_CHECK_PROG([gitinstalled], [git], [yes], [no])
+if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
+    GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
+    AC_SUBST(GIT_VERSION)
+fi
+
+# Modules directory
+AC_ARG_WITH([moduledir],
+  [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
+  [moduledir=$withval],
+  [moduledir="\${libdir}/polyml/modules"])
+AC_SUBST([moduledir], [$moduledir])
 
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.

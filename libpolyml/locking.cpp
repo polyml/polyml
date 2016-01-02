@@ -151,8 +151,7 @@ PCondVar::PCondVar()
 #ifdef HAVE_PTHREAD
     pthread_cond_init(&cond, NULL);
 #elif defined(HAVE_WINDOWS_H)
-    // Create a manually set event initially set.
-    cond = CreateEvent(NULL, TRUE, TRUE, NULL);
+    InitializeConditionVariable(&cond);
 #endif
 }
 
@@ -160,8 +159,6 @@ PCondVar::~PCondVar()
 {
 #ifdef HAVE_PTHREAD
     pthread_cond_destroy(&cond);
-#elif defined(HAVE_WINDOWS_H)
-    CloseHandle(cond);
 #endif
 }
 
@@ -171,19 +168,7 @@ void PCondVar::Wait(PLock *pLock)
 #ifdef HAVE_PTHREAD
     pthread_cond_wait(&cond, &pLock->lock);
 #elif defined(HAVE_WINDOWS_H)
-    // This code will NOT work as a general implementation of a
-    // condition variable.  It works provided we use it carefully.
-    // We only use this in the situation where all the threads
-    // that can wait on this condvar have waited before we then
-    // release all of them. 
-    ResetEvent(cond); // Do this with the lock held.
-    // Can now release the lock.  It doesn't matter that releasing
-    // the lock and waiting isn't atomic because the event is manually
-    // reset.  If another thread sets the event before we call WFSO we'll
-    // simply return immediately.
-    LeaveCriticalSection(&pLock->lock);
-    WaitForSingleObject(cond, INFINITE);
-    EnterCriticalSection(&pLock->lock);
+    SleepConditionVariableCS(&cond, &pLock->lock, INFINITE);
 #endif
 }
 
@@ -223,6 +208,8 @@ void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
 #endif
 
 // Wait for a number of milliseconds.  Used within the RTS.  Drops the lock and reaquires it.
+// Returns true if the return was because the condition variable had been signalled.
+// Returns false if the timeout expired or there was an error.
 bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
 {
 #ifdef HAVE_PTHREAD
@@ -239,11 +226,8 @@ bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
     }
     return pthread_cond_timedwait(&cond, &pLock->lock, &waitTime) == 0;
 #elif defined(HAVE_WINDOWS_H)
-    ResetEvent(cond); // Do this with the lock held.
-    LeaveCriticalSection(&pLock->lock);
-    DWORD dwResult = WaitForSingleObject(cond, milliseconds);
-    EnterCriticalSection(&pLock->lock);
-    return dwResult == WAIT_OBJECT_0;
+    // SleepConditionVariableCS returns zero on error or timeout.
+    return SleepConditionVariableCS(&cond, &pLock->lock, milliseconds) != 0;
 #else
     return true; // Single-threaded.  Return immediately.
 #endif
@@ -255,9 +239,7 @@ void PCondVar::Signal(void)
 #ifdef HAVE_PTHREAD
     pthread_cond_broadcast(&cond);
 #elif defined(HAVE_WINDOWS_H)
-    // N.B.  This assumes that we have the same lock that is used
-    // in Wait and WaitFor otherwise we set the event before the reset.
-    SetEvent(cond);
+    WakeAllConditionVariable(&cond);
 #endif
 }
 

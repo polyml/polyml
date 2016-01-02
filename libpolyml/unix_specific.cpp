@@ -1443,7 +1443,7 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
     cfHandle = Make_arbitrary_precision(taskData, tios.c_cflag);
     lfHandle = Make_arbitrary_precision(taskData, tios.c_lflag);
     /* The cc vector is treated as a string. */
-    ccHandle = SAVE(Buffer_to_Poly(taskData, (const char *)tios.c_cc, NCCS));
+    ccHandle = SAVE(C_string_to_Poly(taskData, (const char *)tios.c_cc, NCCS));
     isHandle = Make_arbitrary_precision(taskData, ispeed);
     osHandle = Make_arbitrary_precision(taskData, ospeed);
     /* We can now create the result tuple. */

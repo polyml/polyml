@@ -1,12 +1,11 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7 David C.J. Matthews
+    Copyright (c) 2006-7, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -51,6 +50,15 @@
 #include <stdlib.h>
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <tchar.h>
+#else
+#define _T(x) x
+#define _tcslen strlen
+#define _tcscmp strcmp
+#define _tcscat strcat
+#endif
+
 #include "exporter.h"
 #include "save_vec.h"
 #include "polystring.h"
@@ -68,7 +76,7 @@
 
 #ifdef HAVE_PECOFF
 #include "pecoffexport.h"
-#elif defined(HAVE_ELF_H)
+#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
 #include "elfexport.h"
 #elif defined(HAVE_MACH_O_RELOC_H)
 #include "machoexport.h"
@@ -346,6 +354,14 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
+// We clear the data in weak byte ref cells when they are exported
+// to an object file and also when they are read from a saved state.
+void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+{
+    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
+        memset(base, 0, base->Length() * sizeof(PolyWord));
+}
+
 #define MAX_EXTENSION   4 // The longest extension we may need to add is ".obj"
 
 // Convert the forwarding pointers in a region back into length words.
@@ -398,18 +414,22 @@ public:
     Exporter *exporter;
 };
 
-static void exporter(TaskData *taskData, Handle args, const char *extension, Exporter *exports)
+static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Exporter *exports)
 {
-    char fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
+    TCHAR fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
 
     // Does it already have the extension?  If not add it on.
-    if (length < strlen(extension) || strcmp(fileNameBuff + length - strlen(extension), extension) != 0)
-        strcat(fileNameBuff, extension);
+    if (length < _tcslen(extension) || _tcscmp(fileNameBuff + length - _tcslen(extension), extension) != 0)
+        _tcscat(fileNameBuff, extension);
+#if (defined(_WIN32) && defined(UNICODE))
+    exports->exportFile = _wfopen(fileNameBuff, L"wb");
+#else
     exports->exportFile = fopen(fileNameBuff, "wb");
+#endif
     if (exports->exportFile == NULL)
         raise_syscall(taskData, "Cannot open export file", errno);
 
@@ -430,7 +450,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan;
+    CopyScan copyScan(hierarchy);
 
     try {
         copyScan.initialise();
@@ -467,8 +487,12 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Copy the areas into the export object.
-    exports->memTable = new memoryTableEntry[gMem.neSpaces+1];
+    unsigned tableEntries = gMem.neSpaces, memEntry = 0;
+    if (hierarchy != 0) tableEntries += gMem.npSpaces;
+    tableEntries++; // One extra for the IO area
+    exports->memTable = new memoryTableEntry[tableEntries];
     exports->ioMemEntry = 0;
+
     // The IO vector.  Should we actually create a blank area?  This needs to be
     // writable by the RTS but not normally by ML.
     MemSpace *ioSpace = gMem.IoSpace();
@@ -476,14 +500,34 @@ void Exporter::RunExport(PolyObject *rootFunction)
     exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
     exports->memTable[0].mtFlags = MTF_WRITEABLE; // Needs to be written during initialisation.
     exports->memTable[0].mtIndex = 0;
+    memEntry = 1;
+
+    // If we're constructing a module we need to include the global spaces.
+    if (hierarchy != 0)
+    {
+        // Permanent spaces from the executable.
+        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        {
+            PermanentMemSpace *space = gMem.pSpaces[i];
+            if (space->hierarchy < hierarchy)
+            {
+                memoryTableEntry *entry = &exports->memTable[memEntry++];
+                entry->mtAddr = space->bottom;
+                entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
+                entry->mtIndex = space->index;
+                entry->mtFlags = space->isMutable ? MTF_WRITEABLE : 0; 
+            }
+        }
+        newAreas = memEntry;
+    }
 
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
-        memoryTableEntry *entry = &exports->memTable[i+1];
+        memoryTableEntry *entry = &exports->memTable[memEntry++];
         PermanentMemSpace *space = gMem.eSpaces[i];
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = i+1;
+        entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
         if (space->isMutable)
         {
             entry->mtFlags = MTF_WRITEABLE;
@@ -492,9 +536,15 @@ void Exporter::RunExport(PolyObject *rootFunction)
         else
             entry->mtFlags = MTF_EXECUTABLE;
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
+        if (space->isMutable && space->byteOnly)
+        {
+            ClearWeakByteRef cwbr;
+            cwbr.ScanAddressesInRegion(space->bottom, space->topPointer);
+        }
     }
 
-    exports->memTableEntries = gMem.neSpaces+1;
+    ASSERT(memEntry == tableEntries);
+    exports->memTableEntries = memEntry;
 
     exports->ioSpacing = IO_SPACING;
     exports->rootFunction = copiedRoot;
@@ -509,13 +559,13 @@ Handle exportNative(TaskData *taskData, Handle args)
 #ifdef HAVE_PECOFF
     // Windows including Cygwin
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    const char *extension = ".obj"; // Windows
+    const TCHAR *extension = _T(".obj"); // Windows
 #else
     const char *extension = ".o"; // Cygwin
 #endif
     PECOFFExport exports;
     exporter(taskData, args, extension, &exports);
-#elif defined(HAVE_ELF_H)
+#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
     // Most Unix including Linux, FreeBSD and Solaris.
     const char *extension = ".o";
     ELFExport exports;
@@ -534,14 +584,14 @@ Handle exportNative(TaskData *taskData, Handle args)
 Handle exportPortable(TaskData *taskData, Handle args)
 {
     PExport exports;
-    exporter(taskData, args, ".txt", &exports);
+    exporter(taskData, args, _T(".txt"), &exports);
     return taskData->saveVec.push(TAGGED(0));
 }
 
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0)
+Exporter::Exporter(unsigned int h): exportFile(NULL), errorMessage(0), hierarchy(h), memTable(0), newAreas(0)
 {
 }
 

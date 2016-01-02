@@ -1,15 +1,14 @@
 (*
-    Title:  PolyML structure before compiling the rest of the basis.
+    Title:  Extend the PolyML structure.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008
+    Modified David C.J. Matthews 2008, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,11 +20,12 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* We need to use onEntry in the IO library so this has to be compiled
-   first.  However we also want "make" in the PolyML structure so we have
-   to complete the compilation later. *)
+(* Extend the PolyML structure.  In particular this adds onEntry which needs to
+   be used further on in the basis library.  We also add a few more items at
+   this point. *)
+
 local
-    open RuntimeCalls;
+    open RuntimeCalls
 in
 
     structure PolyML =
@@ -33,166 +33,67 @@ in
        will be given polymorphic types and will only produce "?" *)
 
     struct
-    (* The type-specific functions e.g. PolyML.print must be extracted by using open.
-       They appear to be polymorphic but we have to be careful that they are
-       recognised by the compiler as type-specific and not as normal polymorphic
-       functions. *)
-    open PolyML;
+        open PolyML
 
-    local
-        (* Initialise the list with the existing start-up function *)
-        val onEntryList: (unit->unit) list ref = ref[]
-        (* Run the list in reverse order. *)
-        fun runOnEntry [] = ()
-          | runOnEntry (f :: b) = (runOnEntry b; f() handle _ => ());
-
-        (* If the installed function returns without calling OS.Process.exit
-           we have to run the installed "atExit" functions as though it had.
-           Unfortunately we have to duplicate code from OS.Process here. *)
         local
-            val doExit =
-                RunCall.run_call1 RuntimeCalls.POLY_SYS_exit
-            val doCall: int*unit -> (unit->unit) =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+            (* Initialise the list with the existing start-up function. *)
+            val onEntryList: (unit->unit) list ref = ref[]
+            and onEntryMutex = Thread.Mutex.mutex()
+
+            (* Run the list in reverse order. *)
+            fun runOnEntry [] = ()
+              | runOnEntry (f :: b) = (runOnEntry b; f() handle _ => ());
+
+            (* This wraps the function provided to PolyML.export and PolyML.exportPortable
+               so that the library is initialised at start-up and finalised at close-down. *)
+            fun runFunction f () =
+            let
+                val () = runOnEntry(! onEntryList); (* Perform start-up operations. *)
+                (* Run the main program.  If it doesn't explicitly call OS.Process.exit then
+                   use "success" as the normal result and "failure" if it raises an exception. *)
+                val result = (f(); OS.Process.success) handle _ => OS.Process.failure (* Run the main function. *)
+            in
+                OS.Process.exit result (* Perform close-down actions. *)
+            end
         in
-            fun exit () =
-            let
-                val exitFun =
-                    (* If we get an empty list here we've finished. *)
-                    doCall(19, ()) handle _ => doExit 0
-            in
-                (* Run the function and then repeat. *)
-                exitFun() handle _ => ();
-                exit()
-            end
+            (* The equivalent of atExit except that functions are added to
+               the list persistently and of course the functions are executed
+               at start-up rather than close-down. *)
+            (* Protect this with a mutex in case two threads try to add entries at the
+               same time.  Very unlikely since this is really only called when building
+               the basis library. *)
+            fun onEntry (f: unit->unit) : unit =
+                ThreadLib.protect onEntryMutex (fn () => onEntryList := f :: !onEntryList) ()
+        
+            (* Export functions - write out the function and everything reachable from it. *)
+            fun export(filename: string, f: unit->unit): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, runFunction f))
+            fun exportPortable(filename: string, f: unit->unit): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, runFunction f))
         end
-    in
-        (* The equivalent of atExit except that functions are added to
-           the list persistently and of course the functions are executed
-           at start-up rather than close-down. *)
-        (* TODO: There ought to be a mutex here. *)
-        fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
-
-        fun runFunction f () =
-        (
-            runOnEntry(! onEntryList); (* Perform start-up operations. *)
-            f(); (* Run the main function. *)
-            exit() (* Perform close-down actions. *)
-        )
         
-        (* Export functions - write out the function and everything reachable from it. *)
-        fun export(filename: string, f: unit->unit): unit =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, runFunction f))
-        fun exportPortable(filename: string, f: unit->unit): unit =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, runFunction f))
-    end
-        
-    fun shareCommonData(root: 'a): unit =
-        RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
+        fun shareCommonData(root: 'a): unit =
+            RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
 
-
-    (* The first two used to be in the System structure but that is no longer included. *)
-    fun objSize(x:'a): int    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
-    and showSize(x:'a): int   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
-    and objProfile(x:'a): int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
+        fun objSize(x:'a): int    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
+        and showSize(x:'a): int   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
+        and objProfile(x:'a): int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
     
-    val fullGC: unit -> unit = 
-        RunCall.run_call0 POLY_SYS_full_gc;
+        val fullGC: unit -> unit = 
+            RunCall.run_call0 POLY_SYS_full_gc;
     
-    val stackTrace: unit -> unit = 
-        RunCall.run_call0 POLY_SYS_stack_trace;
+        val stackTrace: unit -> unit = 
+            RunCall.run_call0 POLY_SYS_stack_trace;
       
-    local
-        val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
-    in
-        fun pointerEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
-    end
+        local
+            val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
+        in
+            fun pointerEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
+        end
     
-    fun rtsVersion () : int = RunCall.run_call2 POLY_SYS_process_env(104, ())
-    fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
-    fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
-
-
-    (* Saving and loading state. *)
-    structure SaveState = 
-        struct
-            fun saveChild(f: string, depth: int): unit =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
-            fun saveState f = saveChild (f, 0);
-            fun showHierarchy(): string list =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
-            fun renameParent{ child: string, newParent: string }: unit =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
-            fun showParent(child: string): string option =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
-
-            fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
-        end
-
-        structure Exception =
-        struct
-            fun traceException(f: unit->'a, h: string list * exn -> 'a): 'a =
-                RunCall.run_call1 POLY_SYS_exception_trace_fn f
-                    handle RunCall.ExTrace(s, e) => h(s, e)
-
-            fun exceptionLocation(exn: exn): location option =
-            let
-                open RuntimeCalls
-                datatype RuntimeLocation =
-                    NoLocation
-                |   SomeLocation of
-                        (* file: *) string * 
-                        (*startLine:*) int *  (*startPosition:*) int *
-                        (*endLine:*) int * (*endPosition:*) int
-            in
-                (* If we get an exception in the compiler it may be code that was built using the
-                   old exception packet format that didn't include a loction so we need to check the
-                   length of the packet first.  This won't be needed once we can be sure we're using
-                   5.3. *)
-                if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
-                then NONE
-                else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
-                    NoLocation => NONE
-                |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
-                        SOME { file=file, startLine=startLine, startPosition=startPosition,
-                               endLine=endLine, endPosition=endPosition }
-            end
-
-            (* Raise an exception using a given location rather than the value in the packet. *)
-            fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
-            let
-                open RunCall RuntimeCalls
-                fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
-                (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
-                   location in an exception packet.  It includes the possibility that the location
-                   information may be missing. *)
-                datatype RuntimeLocation =
-                    NoLocation
-                |   SomeLocation of
-                        (* file: *) string * 
-                        (*startLine:*) int *  (*startPosition:*) int *
-                        (*endLine:*) int * (*endPosition:*) int
-               val packet =
-                (getEntry 0, getEntry 1, getEntry 2,
-                        SomeLocation(file, startLine, startPosition, endLine, endPosition))
-            in
-                run_call1 POLY_SYS_raisex packet
-            end
-
-            (* Re-raise an exception that has been handled preserving the location. *)
-            (* This is in LibrarySupport but is probably generally useful. *)
-            fun reraise exn =
-                case exceptionLocation exn of
-                    NONE => raise exn
-                |   SOME location => raiseWithLocation (exn, location)
-        end
-
-        (* For backwards compatibility include these in the PolyML structure. *)
-        val exceptionLocation = Exception.exceptionLocation
-        and raiseWithLocation = Exception.raiseWithLocation
-
-        exception XWindows = RunCall.XWindows
-        and       Foreign  = RunCall.Foreign
+        fun rtsVersion () : int = RunCall.run_call2 POLY_SYS_process_env(104, ())
+        fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
+        fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
 
         structure IntInf =
         struct

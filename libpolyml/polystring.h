@@ -1,12 +1,11 @@
 /*
     Title:  polystring.h - String functions and types
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License  version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -37,35 +36,78 @@ public:
     char chars[1];
 };
 
-//typedef PolyStringObject STRING, *pstring;
+inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return IS_INT(ps) ? 1 : ((PolyStringObject*)ps.AsObjPtr())->length; }
+
+// We often want to be able to allocate a temporary C string from a Poly string
+// and have it automatically deallocated when the context has been exited.
 
 extern PolyWord EmptyString(void);
 
 /* PolyStringObject functions */
-extern PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, size_t length);
-extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer);
+extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen = -1);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen);
 extern char *Poly_string_to_C_alloc(PolyWord ps);
 
-#ifdef UNICODE
+extern Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
+
+// Dynamically allocated strings with automatic freeing.
+// These are mainly used for file-names.
+class TempCString
+{
+public:
+    TempCString(char *p = 0):  m_value(p) {}
+    TempCString(PolyWord ps): m_value(Poly_string_to_C_alloc(ps)) {}
+    ~TempCString();
+
+    operator char*() { return m_value; }
+    char* operator = (char* p)  { return (m_value = p); }
+
+private:
+    char *m_value;
+};
+
+#if (defined(_WIN32) && defined(UNICODE))
+
+extern unsigned int codePage;
+
+extern bool setWindowsCodePage(const TCHAR *codePageArg);
 
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>
 #else
 #define WCHAR short
+#define TCHAR char
 #endif
 
-extern PolyWord C_string_to_Poly(const WCHAR *buffer);
+extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buffLen = -1);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen);
 extern WCHAR *Poly_string_to_U_alloc(PolyWord ps);
 
+extern Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings);
+
 // Poly_string_to_T_alloc returns a Unicode string in Unicode and char string otherwise.
 #define Poly_string_to_T_alloc  Poly_string_to_U_alloc
+
+// Unicode on Windows, character strings elsewhere.
+class TempString
+{
+public:
+    TempString(TCHAR *p = 0): m_value(p) {}
+    TempString(PolyWord ps): m_value(Poly_string_to_T_alloc(ps)) {}
+    ~TempString();
+
+    operator TCHAR*() { return m_value; }
+    TCHAR* operator = (TCHAR* p)  { return (m_value = p); }
+
+private:
+    TCHAR *m_value;
+};
+
 #else
 #define Poly_string_to_T_alloc  Poly_string_to_C_alloc
+#define TempString TempCString
 #endif
 
-Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
 extern char **stringListToVector(Handle list);
 extern void freeStringVector(char **vec);
 extern void print_string(PolyWord s);
@@ -84,7 +126,5 @@ extern Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x);
-
-
 
 #endif /* POLYSTRING_H */

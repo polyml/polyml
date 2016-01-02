@@ -4,12 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011
+    Further development copyright (c) David C.J. Matthews 2011, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -30,8 +29,12 @@
 #error "No configuration file"
 #endif
 
-#ifdef HAVE_STDIO_H
-#include <stdio.h>
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -41,55 +44,8 @@
 #define ASSERT(x) 0
 #endif
 
-#ifdef HAVE_SYS_PARAM_H
-#include <sys/param.h>
-#endif
-
-#ifdef HAVE_SYS_TIME_H
-#include <sys/time.h>
-#endif
-
-#ifdef HAVE_SIGNAL_H
-#include <signal.h>
-#endif
-
-#ifdef HAVE_ERRNO_H
-#include <errno.h>
-#endif
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
-#ifdef HAVE_STDLIB_H
-#include <stdlib.h>
-#endif
-
-#ifdef HAVE_STRING_H
-#include <string.h>
-#endif
-
-#ifdef HAVE_LIMITS_H
-#include <limits.h>
-#endif
-
-
-/************************************************************************
- *
- * Include runtime headers
- *
- ************************************************************************/
-
 #include "globals.h"
-#include "sighandler.h"
 #include "arb.h"
-#include "machine_dep.h"
-#include "foreign.h"
-#include "diagnostics.h"
 #include "processes.h"
 #include "polystring.h"
 #include "profiling.h"
@@ -98,14 +54,11 @@
 #include "memmgr.h"
 #include "scanaddrs.h"
 #include "locking.h"
+#include "run_time.h"
+#include "sys.h"
 
-/******************************************************************************/
-/*                                                                            */
-/*      PROFILING SHARED DATA                                                 */
-/*                                                                            */
-/******************************************************************************/
 static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
-static const char* mainThreadText[MTP_MAXENTRY] =
+static const char* const mainThreadText[MTP_MAXENTRY] =
 {
     "UNKNOWN",
     "GARBAGE COLLECTION (sharing phase)",
@@ -119,7 +72,9 @@ static const char* mainThreadText[MTP_MAXENTRY] =
     "Loading saved state",
     "Profiling",
     "Setting signal handler",
-    "Cygwin spawn"
+    "Cygwin spawn",
+    "Storing module",
+    "Loading module"
 };
 
 // Entries for store profiling
@@ -134,7 +89,7 @@ enum _extraStore {
 };
 
 static POLYUNSIGNED extraStoreCounts[EST_MAX_ENTRY];
-static const char * extraStoreText[EST_MAX_ENTRY] =
+static const char * const extraStoreText[EST_MAX_ENTRY] =
 {
     "Function code",
     "Strings",
@@ -144,44 +99,54 @@ static const char * extraStoreText[EST_MAX_ENTRY] =
     "Mutable byte data (profiling counts)"
 };
 
-static POLYUNSIGNED total_count = 0;
-
-/* This type is coercible to PolyString *. We can use static "pstrings"
-   since we are not going to garbage collect while we are printing out
-   the profiling information. */
-static struct {
-    POLYUNSIGNED length; char chars[40];
-} psStrings[MTP_MAXENTRY+EST_MAX_ENTRY], psGCTotal;
+// Poly strings for "standard" counts.  These are generated from the C strings
+// above the first time profiling is activated.
+static PolyWord psRTSString[MTP_MAXENTRY], psExtraStrings[EST_MAX_ENTRY], psGCTotal;
 
 ProfileMode profileMode;
 // If we are just profiling a single thread, this is the thread data.
 static TaskData *singleThreadProfile = 0;
 
-/******************************************************************************/
-/*                                                                            */
-/*      PROFILING FUNCTIONS                                                   */
-/*                                                                            */
-/******************************************************************************/
-typedef struct
+typedef struct _PROFENTRY
 {
     POLYUNSIGNED count;
     PolyWord functionName;
+    struct _PROFENTRY *nextEntry;
 } PROFENTRY, *PPROFENTRY;
 
-/* Initial vector size. */
-#define INITSIZE 40
-
-/* This structure is used to retain count information.
-   Whenever counting is turned off we go through the store
-   checking for non-zero counts and build a table of the count
-   with the name of the function.  That is then sorted and printed. */
-static struct
+class ProfileRequest: public MainThreadRequest
 {
-  POLYUNSIGNED   total;
-  PPROFENTRY pTab;
-  int size;
-  int used;
-} P;
+public:
+    ProfileRequest(unsigned prof, TaskData *pTask):
+        MainThreadRequest(MTP_PROFILING), mode(prof), pCallingThread(pTask), pTab(0), errorMessage(0) {}
+    ~ProfileRequest();
+    virtual void Perform();
+    Handle extractAsList(TaskData *taskData);
+
+private:
+    void getResults(void);
+    void getProfileResults(PolyWord *bottom, PolyWord *top);
+    PPROFENTRY newProfileEntry(void);
+
+private:
+    unsigned mode;
+    TaskData *pCallingThread;
+    PPROFENTRY pTab;
+
+public:
+    const char *errorMessage;
+};
+
+ProfileRequest::~ProfileRequest()
+{
+    PPROFENTRY p = pTab;
+    while (p != 0)
+    {
+        PPROFENTRY toFree = p;
+        p = p->nextEntry;
+        free(toFree); 
+    }
+}
 
 // Lock to serialise updates of counts. Only used during update.
 // Not required when we print the counts since there's only one thread
@@ -232,7 +197,6 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
                 PLocker locker(&countLock);
                 if (profObject)
                     profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-                total_count += incr;
                 return;
             }
             /* else just fall through and try next candidate address */
@@ -245,7 +209,6 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
         {
             PLocker locker(&countLock);
             mainThreadCounts[MTP_USER_CODE] += incr;
-            total_count += incr;
             return;
         }
     } /* loop "forever" */
@@ -253,85 +216,21 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
 }
 
 
-/* newProfileEntry - return the address of an entry in the profile table,
-   extending it if necessary. */
-static PPROFENTRY newProfileEntry(void)
+// newProfileEntry - Make a new entry in the list
+PPROFENTRY ProfileRequest::newProfileEntry(void)
 {
-    if (P.used == P.size)
-    {
-        if (P.size == 0) P.size = INITSIZE;
-        else P.size += P.size/2;
-        P.pTab = (PPROFENTRY)realloc(P.pTab, P.size*sizeof(PROFENTRY));
-    }
-    return &P.pTab[P.used++];
-}
-
-/* qsortTab - sort the profiling results by count.  It could use the
-   name as a secondary sort but that's probably unnecessary.  I'm not
-   sure that Quicksort is the best way of sorting the table since
-   the values tend to be very unevenly spread, with a few large
-   values and large numbers of very small values.  */
-static void qsortTab(int nStart, int nEnd)
-{
-    int startPos, endPos;
-    if (nEnd - nStart <= 1) return;
-    if (nEnd - nStart == 2)
-    {
-        if (P.pTab[nStart].count > P.pTab[nStart+1].count)
-        {
-            /* Swap entries. */
-            PROFENTRY saved = P.pTab[nStart];
-            P.pTab[nStart] = P.pTab[nStart+1];
-            P.pTab[nStart+1] = saved;
-        }
-        return;
-    }
-    /* Three or more entries. */
-    startPos = nStart;
-    endPos = nEnd-1;
-    PROFENTRY median = P.pTab[startPos]; /* Use the first entry as the median. */
-    while (1)
-    {
-        while (endPos > startPos && P.pTab[endPos].count > median.count) endPos--;
-        if (endPos == startPos) break;
-        P.pTab[startPos++] = P.pTab[endPos];
-        if (endPos == startPos) break;
-        while (endPos > startPos && P.pTab[startPos].count <= median.count) startPos++;
-        if (endPos == startPos) break;
-        P.pTab[endPos--] = P.pTab[startPos];
-        if (endPos == startPos) break;
-    }
-    P.pTab[startPos] = median;
-    qsortTab(nStart, startPos);
-    qsortTab(startPos+1, nEnd);
-}
-
-/* writeProfileResults - print out the saved results. */
-static void writeProfileResults(void)
-{
-    if (P.used != 0)
-    {
-        int i;
-        /* Sort the table.  */
-        qsortTab(0, P.used);
-        /* Print it out. */
-        for (i = 0; i < P.used; i++)
-        {
-            PPROFENTRY pEnt = &P.pTab[i];
-            fprintf(stdout, "%10" POLYUFMT " ", pEnt->count);
-            print_string(pEnt->functionName);
-            putc ('\n', stdout);
-        }
-    }
-    free(P.pTab);
-    P.pTab = 0;
-    P.size = 0;
-    P.used = 0;
+    PPROFENTRY newEntry = (PPROFENTRY)malloc(sizeof(PROFENTRY));
+    if (newEntry == 0) { errorMessage = "Insufficient memory"; return 0; }
+    newEntry->nextEntry = pTab;
+    pTab = newEntry;
+    return newEntry;
 }
 
 // We don't use ScanAddress here because we're only interested in the
 // objects themselves not the addresses in them.
-static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
+// We have to build the list of results in C memory rather than directly in
+// ML memory because we can't allocate in ML memory in the root thread.
+void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 {
     PolyWord *ptr = bottom;
 
@@ -365,12 +264,12 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
                         if (name != TAGGED(0))
                         {
                             PPROFENTRY pEnt = newProfileEntry();
+                            if (pEnt == 0) return;
                             pEnt->count = count;
                             pEnt->functionName = name;
                         }
                     
                         profCount->Set(0, PolyWord::FromUnsigned(0));
-                        P.total += count;
                     }
                 }
             } /* code object */
@@ -379,35 +278,22 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
     } /* while */
 }
 
-void printprofile(void)
-/* Print profiling information and reset profile counts.    */
-/* Profile counts are also reset by commit so that objects  */
-/* written to the persistent store always have zero counts. */
+void ProfileRequest::getResults(void)
+// Print profiling information and reset profile counts.
 {
-    PPROFENTRY pEnt;
-    /* flush old user output before printing profile SPF 30/9/94 */
-    fflush (stdout); 
-    
-    P.total = 0;
-    P.used = 0;
-
-    if (total_count != 0)
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
-        unsigned j;
-        for (j = 0; j < gMem.npSpaces; j++)
-        {
-            MemSpace *space = gMem.pSpaces[j];
-            // Permanent areas are filled with objects from the bottom.
-            PrintProfileCounts(space->bottom, space->top); // Bottom to top
-        }
-        for (j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[j];
-            // Local areas only have objects from the allocation pointer to the top.
-            PrintProfileCounts(space->bottom, space->lowerAllocPtr);
-            PrintProfileCounts(space->upperAllocPtr, space->top);
-        }
-    } // else if we haven't actually had an interrupt avoid expensive scan of memory.
+        MemSpace *space = gMem.pSpaces[j];
+        // Permanent areas are filled with objects from the bottom.
+        getProfileResults(space->bottom, space->top); // Bottom to top
+    }
+    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        // Local areas only have objects from the allocation pointer to the top.
+        getProfileResults(space->bottom, space->lowerAllocPtr);
+        getProfileResults(space->upperAllocPtr, space->top);
+    }
 
     {
         POLYUNSIGNED gc_count =
@@ -418,11 +304,10 @@ void printprofile(void)
             mainThreadCounts[MTP_GCQUICK];
         if (gc_count)
         {
-            pEnt = newProfileEntry();
-            strcpy(psGCTotal.chars, "GARBAGE COLLECTION (total)");
-            psGCTotal.length = strlen(psGCTotal.chars);
+            PPROFENTRY pEnt = newProfileEntry();
+            if (pEnt == 0) return; // Report insufficient memory?
             pEnt->count = gc_count;
-            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psGCTotal);
+            pEnt->functionName = psGCTotal;
         }
     }
 
@@ -430,13 +315,10 @@ void printprofile(void)
     {
         if (mainThreadCounts[k])
         {
-            P.total     += mainThreadCounts[k];
-            total_count += mainThreadCounts[k];
-            pEnt = newProfileEntry();
-            strcpy(psStrings[k].chars, mainThreadText[k]);
-            psStrings[k].length = strlen(psStrings[k].chars);
+            PPROFENTRY pEnt = newProfileEntry();
+            if (pEnt == 0) return; // Report insufficient memory?
             pEnt->count = mainThreadCounts[k];
-            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psStrings[k]);
+            pEnt->functionName = psRTSString[k];
             mainThreadCounts[k] = 0;
         }
     }
@@ -445,31 +327,36 @@ void printprofile(void)
     {
         if (extraStoreCounts[l])
         {
-            P.total     += extraStoreCounts[l];
-            total_count += extraStoreCounts[l];
-            pEnt = newProfileEntry();
-            strcpy(psStrings[MTP_MAXENTRY+l].chars, extraStoreText[l]);
-            psStrings[MTP_MAXENTRY+l].length = strlen(psStrings[MTP_MAXENTRY+l].chars);
+            PPROFENTRY pEnt = newProfileEntry();
+            if (pEnt == 0) return; // Report insufficient memory?
             pEnt->count = extraStoreCounts[l];
-            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psStrings[MTP_MAXENTRY+l]);
+            pEnt->functionName = psExtraStrings[l];
             extraStoreCounts[l] = 0;
         }
     }
+}
 
-    writeProfileResults();
-    
-    if (total_count)
+// Extract the accumulated results as an ML list of pairs of the count and the string.
+Handle ProfileRequest::extractAsList(TaskData *taskData)
+{
+    Handle saved = taskData->saveVec.mark();
+    Handle list = taskData->saveVec.push(ListNull);
+
+    for (PPROFENTRY p = pTab; p != 0; p = p->nextEntry)
     {
-        
-        printf("\nTotal: %" POLYUFMT "; Counted: %" POLYUFMT "; Uncounted: %" POLYUFMT,
-            total_count, P.total, total_count - P.total);
-        
-        total_count = 0;
-        putc('\n', stdout);
+        Handle pair = alloc_and_save(taskData, 2);
+        Handle countValue = Make_arbitrary_precision(taskData, p->count);
+        pair->WordP()->Set(0, countValue->Word());
+        pair->WordP()->Set(1, p->functionName);
+        Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
+        DEREFLISTHANDLE(next)->h = pair->Word();
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+
+        taskData->saveVec.reset(saved);
+        list = taskData->saveVec.push(next->Word());
     }
-    
-    /* flush profile before printing next user output SPF 30/9/94 */
-    fflush (stdout); 
+
+    return list;
 }
 
 void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
@@ -512,7 +399,6 @@ void AddObjectProfile(PolyObject *obj)
         PolyObject *profObject = profWord.AsObjPtr();
         ASSERT(profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1);
         profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + length + 1));
-        total_count += length+1;
     }
     // If it doesn't have a profile pointer add it to the appropriate count.
     else if (obj->IsMutable())
@@ -548,21 +434,6 @@ void AddObjectProfile(PolyObject *obj)
     else extraStoreCounts[EST_WORD] += length+1;
 }
 
-
-class ProfileRequest: public MainThreadRequest
-{
-public:
-    ProfileRequest(unsigned prof): MainThreadRequest(MTP_PROFILING), mode(prof) {}
-
-    virtual void Perform();
-    unsigned mode;
-};
-
-// To speed up testing whether profiling is off already we
-// maintain a variable that contains the global state.
-static unsigned profile_mode = 0;
-static PLock profLock;
-
 // Called from ML to control profiling.
 Handle profilerc(TaskData *taskData, Handle mode_handle)
 /* Profiler - generates statistical profiles of the code.
@@ -576,44 +447,61 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
 {
     unsigned mode = get_C_unsigned(taskData, DEREFWORDHANDLE(mode_handle));
     {
-        PLocker locker(&profLock);
-        if (mode == profile_mode) // No change in mode = no-op
-            return taskData->saveVec.push(TAGGED(0));
-
-        if (mode == kProfileTimeThread)
+        // Create any strings we need.  We only need to do this once but
+        // it must be done by a non-root thread since it needs a taskData object.
+        // Don't bother locking.  At worst we'll create some garbage.
+        for (unsigned k = 0; k < MTP_MAXENTRY; k++)
         {
-            mode = kProfileTime;
-            singleThreadProfile = taskData;
+            if (psRTSString[k] == TAGGED(0))
+                psRTSString[k] = C_string_to_Poly(taskData, mainThreadText[k]);
         }
-        else singleThreadProfile = 0;
-    
-        profile_mode = mode;
+        for (unsigned k = 0; k < EST_MAX_ENTRY; k++)
+        {
+            if (psExtraStrings[k] == TAGGED(0))
+                psExtraStrings[k] = C_string_to_Poly(taskData, extraStoreText[k]);
+        }
+        if (psGCTotal == TAGGED(0))
+            psGCTotal = C_string_to_Poly(taskData, "GARBAGE COLLECTION (total)");
     }
     // All these actions are performed by the root thread.  Only profile
     // printing needs to be performed with all the threads stopped but it's
     // simpler to serialise all requests.
-    ProfileRequest request(mode);
+    ProfileRequest request(mode, taskData);
     processes->MakeRootRequest(taskData, &request);
-    return taskData->saveVec.push(TAGGED(0));
+    if (request.errorMessage != 0) raise_exception_string(taskData, EXC_Fail, request.errorMessage);
+    return request.extractAsList(taskData);
 }
 
 // This is called from the root thread when all the ML threads have been paused.
 void ProfileRequest::Perform()
 {
+    if (mode != kProfileOff && profileMode != kProfileOff)
+    {
+        // Profiling must be stopped first.
+        errorMessage = "Profiling is currently active";
+        return;
+    }
+
+    singleThreadProfile = 0; // Unless kProfileTimeThread is given this should be 0
+
     switch (mode)
     {
     case kProfileOff:
         // Turn off old profiling mechanism and print out accumulated results 
         profileMode = kProfileOff;
         processes->StopProfiling();
-        printprofile();
+        getResults();
         break;
-       
+
+    case kProfileTimeThread:
+        singleThreadProfile = pCallingThread;
+        // And drop through to kProfileTime
+      
     case kProfileTime:
         profileMode = kProfileTime;
         processes->StartProfiling();
         break;
-        
+
     case kProfileStoreAllocation:
         profileMode = kProfileStoreAllocation;
         break;
@@ -641,6 +529,7 @@ class Profiling: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual void GarbageCollect(ScanAddress *process);
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -651,5 +540,14 @@ void Profiling::Init(void)
     // Reset profiling counts.
     profileMode = kProfileOff;
     for (unsigned k = 0; k < MTP_MAXENTRY; k++) mainThreadCounts[k] = 0;
-    total_count = 0;
+}
+
+void Profiling::GarbageCollect(ScanAddress *process)
+{
+    // Process any strings in the table.
+    for (unsigned k = 0; k < MTP_MAXENTRY; k++)
+        process->ScanRuntimeWord(&psRTSString[k]);
+    for (unsigned k = 0; k < EST_MAX_ENTRY; k++)
+        process->ScanRuntimeWord(&psExtraStrings[k]);
+    process->ScanRuntimeWord(&psGCTotal);
 }

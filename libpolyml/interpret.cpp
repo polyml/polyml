@@ -4,11 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
+    Further development Copyright David C.J. Matthews 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -68,8 +68,7 @@
 #include "memmgr.h"
 #include "poly_specific.h"
 #include "scanaddrs.h"
-
-#define VERSION_NUMBER  POLY_version_number
+#include "polyffi.h"
 
 #define arg1    (pc[0] + pc[1]*256)
 #define arg2    (pc[2] + pc[3]*256)
@@ -128,8 +127,10 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
-    virtual Handle CallBackResult();
-    virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
+    // These aren't implemented in the interpreted version.
+    virtual Handle EnterCallbackFunction(Handle func, Handle args) { ASSERT(0); return 0; }
+
+    virtual int GetIOFunctionRegisterMask(int ioCall) { return 0; }
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -492,10 +493,6 @@ int IntTaskData::SwitchToPoly()
                             goto CALL_CLOSURE;
                         }
  
-                    case POLY_SYS_int_eq: u = *sp++; *sp = (u == *sp)?True:False; break;
-
-                    case POLY_SYS_int_neq: u = *sp++; *sp = (u != *sp)?True:False; break;
-
                     case POLY_SYS_word_eq: 
                        u = *sp++;
                        *sp = u == *sp ? True : False;
@@ -531,7 +528,11 @@ int IntTaskData::SwitchToPoly()
                            single character. */
                         if (IS_INT(*sp)) *sp = TAGGED(1);
                         else *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
-                        break; 
+                        break;
+
+                    case POLY_SYS_touch_final:
+                        *sp = TAGGED(0);
+                        break;
 
                     case POLY_SYS_set_string_length: 
                         {
@@ -1172,7 +1173,7 @@ int IntTaskData::SwitchToPoly()
                 break;
                 }
 
-        case INSTR_io_vec_229: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_eq); break;
+
         case INSTR_io_vec_233: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_gtr); break;
         case INSTR_io_vec_236: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_or_word); break;
         case INSTR_io_vec_251: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_word_eq); break;
@@ -1389,7 +1390,6 @@ static void CallIO3(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-/*
 static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
@@ -1400,7 +1400,7 @@ static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_sp += 4;
     *(taskData->p_sp) = DEREFWORD(result);
     taskData->p_lastInstr = 256;
-} */
+}
 
 static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
@@ -1450,7 +1450,7 @@ Handle IntTaskData::EnterPolyCode()
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult();
+                ASSERT(0); // Callbacks aren't implemented
 
             case POLY_SYS_exit:
                 CallIO1(this, &finishc);
@@ -1596,10 +1596,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &Real_negc);
                 break;
 
-            case POLY_SYS_Repr_real:
-                CallIO1(this, &Real_reprc);
-                break;
-
             case POLY_SYS_conv_real:
                 CallIO1(this, &Real_convc);
                 break;
@@ -1702,6 +1698,10 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO2(this, &foreign_dispatch_c);
                 break;
 
+            case POLY_SYS_ffi:
+                CallIO2(this, &poly_ffi);
+                break;
+
             case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
             case POLY_SYS_shrink_stack:
@@ -1728,6 +1728,56 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_bytevec_eq:
                 CallIO5(this, &testBytesEqual);
+                break;
+
+            case POLY_SYS_cmem_load_8:
+                CallIO3(this, &cmem_load_8);
+                break;
+
+            case POLY_SYS_cmem_load_16:
+                CallIO3(this, &cmem_load_16);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+#if (SIZEOF_VOIDP == 8)
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+#endif
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
                 break;
 
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
@@ -1858,19 +1908,13 @@ Handle IntTaskData::EnterPolyCode()
     }
 }
 
-// Return the callback result.  The current ML process (thread) terminates.
-Handle IntTaskData::CallBackResult()
-{
-    return this->saveVec.push(this->p_sp[1]);
-}
-
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
+    add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
     add_word_to_io_area(POLY_SYS_alloc_uninit, TAGGED(POLY_SYS_alloc_uninit));
     add_word_to_io_area(POLY_SYS_raisex, TAGGED(POLY_SYS_raisex));
-    add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));
     add_word_to_io_area(POLY_SYS_get_flags, TAGGED(POLY_SYS_get_flags));
     add_word_to_io_area(POLY_SYS_str_compare, TAGGED(POLY_SYS_str_compare));
@@ -1880,18 +1924,52 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_teststrleq, TAGGED(POLY_SYS_teststrleq));
     add_word_to_io_area(POLY_SYS_exception_trace_fn, TAGGED(POLY_SYS_exception_trace_fn));
     add_word_to_io_area(POLY_SYS_lockseg, TAGGED(POLY_SYS_lockseg));
+    add_word_to_io_area(POLY_SYS_network, TAGGED(POLY_SYS_network));
+    add_word_to_io_area(POLY_SYS_os_specific, TAGGED(POLY_SYS_os_specific));
+    add_word_to_io_area(POLY_SYS_eq_longword, TAGGED(POLY_SYS_eq_longword));
+    add_word_to_io_area(POLY_SYS_neq_longword, TAGGED(POLY_SYS_neq_longword));
+    add_word_to_io_area(POLY_SYS_geq_longword, TAGGED(POLY_SYS_geq_longword));
+    add_word_to_io_area(POLY_SYS_leq_longword, TAGGED(POLY_SYS_leq_longword));
+    add_word_to_io_area(POLY_SYS_gt_longword, TAGGED(POLY_SYS_gt_longword));
+    add_word_to_io_area(POLY_SYS_lt_longword, TAGGED(POLY_SYS_lt_longword));
+    add_word_to_io_area(POLY_SYS_io_dispatch, TAGGED(POLY_SYS_io_dispatch));
+    add_word_to_io_area(POLY_SYS_signal_handler, TAGGED(POLY_SYS_signal_handler));
+    add_word_to_io_area(POLY_SYS_atomic_reset, TAGGED(POLY_SYS_atomic_reset));
+    add_word_to_io_area(POLY_SYS_atomic_incr, TAGGED(POLY_SYS_atomic_incr));
+    add_word_to_io_area(POLY_SYS_atomic_decr, TAGGED(POLY_SYS_atomic_decr));
+    add_word_to_io_area(POLY_SYS_thread_self, TAGGED(POLY_SYS_thread_self));
+    add_word_to_io_area(POLY_SYS_thread_dispatch, TAGGED(POLY_SYS_thread_dispatch));
+    add_word_to_io_area(POLY_SYS_plus_longword, TAGGED(POLY_SYS_plus_longword));
+    add_word_to_io_area(POLY_SYS_minus_longword, TAGGED(POLY_SYS_minus_longword));
+    add_word_to_io_area(POLY_SYS_mul_longword, TAGGED(POLY_SYS_mul_longword));
+    add_word_to_io_area(POLY_SYS_div_longword, TAGGED(POLY_SYS_div_longword));
+    add_word_to_io_area(POLY_SYS_mod_longword, TAGGED(POLY_SYS_mod_longword));
+    add_word_to_io_area(POLY_SYS_andb_longword, TAGGED(POLY_SYS_andb_longword));
+    add_word_to_io_area(POLY_SYS_orb_longword, TAGGED(POLY_SYS_orb_longword));
+    add_word_to_io_area(POLY_SYS_xorb_longword, TAGGED(POLY_SYS_xorb_longword));
+    add_word_to_io_area(POLY_SYS_kill_self, TAGGED(POLY_SYS_kill_self));
+    add_word_to_io_area(POLY_SYS_shift_left_longword, TAGGED(POLY_SYS_shift_left_longword));
+    add_word_to_io_area(POLY_SYS_shift_right_longword, TAGGED(POLY_SYS_shift_right_longword));
+    add_word_to_io_area(POLY_SYS_shift_right_arith_longword, TAGGED(POLY_SYS_shift_right_arith_longword));
     add_word_to_io_area(POLY_SYS_profiler, TAGGED(POLY_SYS_profiler));
-    add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
-//    add_word_to_io_area(POLY_SYS_raiseexception, TAGGED(POLY_SYS_raiseexception));
+    add_word_to_io_area(POLY_SYS_longword_to_tagged, TAGGED(POLY_SYS_longword_to_tagged));
+    add_word_to_io_area(POLY_SYS_signed_to_longword, TAGGED(POLY_SYS_signed_to_longword));
+    add_word_to_io_area(POLY_SYS_unsigned_to_longword, TAGGED(POLY_SYS_unsigned_to_longword));
+    add_word_to_io_area(POLY_SYS_full_gc, TAGGED(POLY_SYS_full_gc));
+    add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
+    add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
+    add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
+    add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
     add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
+    add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
     add_word_to_io_area(POLY_SYS_aplus, TAGGED(POLY_SYS_aplus));
     add_word_to_io_area(POLY_SYS_aminus, TAGGED(POLY_SYS_aminus));
     add_word_to_io_area(POLY_SYS_amul, TAGGED(POLY_SYS_amul));
     add_word_to_io_area(POLY_SYS_adiv, TAGGED(POLY_SYS_adiv));
     add_word_to_io_area(POLY_SYS_amod, TAGGED(POLY_SYS_amod));
     add_word_to_io_area(POLY_SYS_aneg, TAGGED(POLY_SYS_aneg));
-
     add_word_to_io_area(POLY_SYS_xora, TAGGED(POLY_SYS_xora));
+    add_word_to_io_area(POLY_SYS_equala, TAGGED(POLY_SYS_equala));
     add_word_to_io_area(POLY_SYS_ora, TAGGED(POLY_SYS_ora));
     add_word_to_io_area(POLY_SYS_anda, TAGGED(POLY_SYS_anda));
     add_word_to_io_area(POLY_SYS_Real_str, TAGGED(POLY_SYS_Real_str));
@@ -1902,15 +1980,12 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_Real_eq, TAGGED(POLY_SYS_Real_eq));
     add_word_to_io_area(POLY_SYS_Real_neq, TAGGED(POLY_SYS_Real_neq));
     add_word_to_io_area(POLY_SYS_Real_Dispatch, TAGGED(POLY_SYS_Real_Dispatch));
-
-    add_word_to_io_area(POLY_SYS_equala, TAGGED(POLY_SYS_equala));
     add_word_to_io_area(POLY_SYS_Add_real, TAGGED(POLY_SYS_Add_real));
     add_word_to_io_area(POLY_SYS_Sub_real, TAGGED(POLY_SYS_Sub_real));
     add_word_to_io_area(POLY_SYS_Mul_real, TAGGED(POLY_SYS_Mul_real));
     add_word_to_io_area(POLY_SYS_Div_real, TAGGED(POLY_SYS_Div_real));
     add_word_to_io_area(POLY_SYS_Abs_real, TAGGED(POLY_SYS_Abs_real));
     add_word_to_io_area(POLY_SYS_Neg_real, TAGGED(POLY_SYS_Neg_real));
-    add_word_to_io_area(POLY_SYS_Repr_real, TAGGED(POLY_SYS_Repr_real));
     add_word_to_io_area(POLY_SYS_conv_real, TAGGED(POLY_SYS_conv_real));
     add_word_to_io_area(POLY_SYS_real_to_int, TAGGED(POLY_SYS_real_to_int));
     add_word_to_io_area(POLY_SYS_int_to_real, TAGGED(POLY_SYS_int_to_real));
@@ -1920,27 +1995,51 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_arctan_real, TAGGED(POLY_SYS_arctan_real));
     add_word_to_io_area(POLY_SYS_exp_real, TAGGED(POLY_SYS_exp_real));
     add_word_to_io_area(POLY_SYS_ln_real, TAGGED(POLY_SYS_ln_real));
+    add_word_to_io_area(POLY_SYS_process_env, TAGGED(POLY_SYS_process_env));
+    add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
+    add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
+    add_word_to_io_area(POLY_SYS_poly_specific, TAGGED(POLY_SYS_poly_specific));
+    add_word_to_io_area(POLY_SYS_bytevec_eq, TAGGED(POLY_SYS_bytevec_eq));
+    add_word_to_io_area(POLY_SYS_cmem_load_8, TAGGED(POLY_SYS_cmem_load_8));
+    add_word_to_io_area(POLY_SYS_cmem_load_16, TAGGED(POLY_SYS_cmem_load_16));
+    add_word_to_io_area(POLY_SYS_cmem_load_32, TAGGED(POLY_SYS_cmem_load_32));
+    add_word_to_io_area(POLY_SYS_cmem_load_64, TAGGED(POLY_SYS_cmem_load_64));
+    add_word_to_io_area(POLY_SYS_cmem_load_float, TAGGED(POLY_SYS_cmem_load_float));
+    add_word_to_io_area(POLY_SYS_cmem_load_double, TAGGED(POLY_SYS_cmem_load_double));
+    add_word_to_io_area(POLY_SYS_cmem_store_8, TAGGED(POLY_SYS_cmem_store_8));
+    add_word_to_io_area(POLY_SYS_cmem_store_16, TAGGED(POLY_SYS_cmem_store_16));
+    add_word_to_io_area(POLY_SYS_cmem_store_32, TAGGED(POLY_SYS_cmem_store_32));
+    add_word_to_io_area(POLY_SYS_cmem_store_64, TAGGED(POLY_SYS_cmem_store_64));
+    add_word_to_io_area(POLY_SYS_cmem_store_float, TAGGED(POLY_SYS_cmem_store_float));
+    add_word_to_io_area(POLY_SYS_cmem_store_double, TAGGED(POLY_SYS_cmem_store_double));
     add_word_to_io_area(POLY_SYS_io_operation, TAGGED(POLY_SYS_io_operation));
-    add_word_to_io_area(POLY_SYS_atomic_reset, TAGGED(POLY_SYS_atomic_reset));
-    add_word_to_io_area(POLY_SYS_atomic_incr, TAGGED(POLY_SYS_atomic_incr));
-    add_word_to_io_area(POLY_SYS_atomic_decr, TAGGED(POLY_SYS_atomic_decr));
-    add_word_to_io_area(POLY_SYS_thread_self, TAGGED(POLY_SYS_thread_self));
-    add_word_to_io_area(POLY_SYS_thread_dispatch, TAGGED(POLY_SYS_thread_dispatch));
+    add_word_to_io_area(POLY_SYS_ffi, TAGGED(POLY_SYS_ffi));
+    add_word_to_io_area(POLY_SYS_move_words_overlap, TAGGED(POLY_SYS_move_words_overlap));
+    add_word_to_io_area(POLY_SYS_set_code_constant, TAGGED(POLY_SYS_set_code_constant));
+    add_word_to_io_area(POLY_SYS_move_words, TAGGED(POLY_SYS_move_words));
+    add_word_to_io_area(POLY_SYS_shift_right_arith_word, TAGGED(POLY_SYS_shift_right_arith_word));
+    add_word_to_io_area(POLY_SYS_int_to_word, TAGGED(POLY_SYS_int_to_word));
+    add_word_to_io_area(POLY_SYS_move_bytes, TAGGED(POLY_SYS_move_bytes));
+    add_word_to_io_area(POLY_SYS_move_bytes_overlap, TAGGED(POLY_SYS_move_bytes_overlap));
+    add_word_to_io_area(POLY_SYS_code_flags, TAGGED(POLY_SYS_code_flags));
+    add_word_to_io_area(POLY_SYS_shrink_stack, TAGGED(POLY_SYS_shrink_stack));
+    add_word_to_io_area(POLY_SYS_callcode_tupled, TAGGED(POLY_SYS_callcode_tupled));
+    add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));
+    add_word_to_io_area(POLY_SYS_XWindows, TAGGED(POLY_SYS_XWindows));
     add_word_to_io_area(POLY_SYS_is_big_endian, TAGGED(POLY_SYS_is_big_endian));
     add_word_to_io_area(POLY_SYS_bytes_per_word, TAGGED(POLY_SYS_bytes_per_word));
     add_word_to_io_area(POLY_SYS_offset_address, TAGGED(POLY_SYS_offset_address));
-    add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
-    add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
     add_word_to_io_area(POLY_SYS_shift_right_word, TAGGED(POLY_SYS_shift_right_word));
     add_word_to_io_area(POLY_SYS_word_neq, TAGGED(POLY_SYS_word_neq));
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
-    add_word_to_io_area(POLY_SYS_int_eq, TAGGED(POLY_SYS_int_eq));
-    add_word_to_io_area(POLY_SYS_int_neq, TAGGED(POLY_SYS_int_neq));
+    add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
     add_word_to_io_area(POLY_SYS_int_geq, TAGGED(POLY_SYS_int_geq));
     add_word_to_io_area(POLY_SYS_int_leq, TAGGED(POLY_SYS_int_leq));
     add_word_to_io_area(POLY_SYS_int_gtr, TAGGED(POLY_SYS_int_gtr));
     add_word_to_io_area(POLY_SYS_int_lss, TAGGED(POLY_SYS_int_lss));
+    add_word_to_io_area(POLY_SYS_load_byte_immut, TAGGED(POLY_SYS_load_byte_immut));
+    add_word_to_io_area(POLY_SYS_load_word_immut, TAGGED(POLY_SYS_load_word_immut));
     add_word_to_io_area(POLY_SYS_mul_word, TAGGED(POLY_SYS_mul_word));
     add_word_to_io_area(POLY_SYS_plus_word, TAGGED(POLY_SYS_plus_word));
     add_word_to_io_area(POLY_SYS_minus_word, TAGGED(POLY_SYS_minus_word));
@@ -1956,56 +2055,9 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_word_lss, TAGGED(POLY_SYS_word_lss));
     add_word_to_io_area(POLY_SYS_word_eq, TAGGED(POLY_SYS_word_eq));
     add_word_to_io_area(POLY_SYS_load_byte, TAGGED(POLY_SYS_load_byte));
-    add_word_to_io_area(POLY_SYS_load_byte_immut, TAGGED(POLY_SYS_load_byte_immut));
     add_word_to_io_area(POLY_SYS_load_word, TAGGED(POLY_SYS_load_word));
-    add_word_to_io_area(POLY_SYS_load_word_immut, TAGGED(POLY_SYS_load_word_immut));
     add_word_to_io_area(POLY_SYS_assign_byte, TAGGED(POLY_SYS_assign_byte));
     add_word_to_io_area(POLY_SYS_assign_word, TAGGED(POLY_SYS_assign_word));
-    add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
-    add_word_to_io_area(POLY_SYS_XWindows, TAGGED(POLY_SYS_XWindows));
-    add_word_to_io_area(POLY_SYS_full_gc,     TAGGED(POLY_SYS_full_gc));
-    add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
-    add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));
-    add_word_to_io_area(POLY_SYS_callcode_tupled,  TAGGED(POLY_SYS_callcode_tupled));
-    add_word_to_io_area(POLY_SYS_process_env,      TAGGED(POLY_SYS_process_env));
-    add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
-    add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
-    add_word_to_io_area(POLY_SYS_poly_specific, TAGGED(POLY_SYS_poly_specific));
-    add_word_to_io_area(POLY_SYS_bytevec_eq, TAGGED(POLY_SYS_bytevec_eq));
-    add_word_to_io_area(POLY_SYS_shrink_stack,     TAGGED(POLY_SYS_shrink_stack));
-    add_word_to_io_area(POLY_SYS_code_flags,        TAGGED(POLY_SYS_code_flags));
-    add_word_to_io_area(POLY_SYS_shift_right_arith_word, TAGGED(POLY_SYS_shift_right_arith_word));
-    add_word_to_io_area(POLY_SYS_int_to_word,      TAGGED(POLY_SYS_int_to_word));
-    add_word_to_io_area(POLY_SYS_set_code_constant,TAGGED(POLY_SYS_set_code_constant));
-    add_word_to_io_area(POLY_SYS_move_bytes,       TAGGED(POLY_SYS_move_bytes));
-    add_word_to_io_area(POLY_SYS_move_words,       TAGGED(POLY_SYS_move_words));
-    add_word_to_io_area(POLY_SYS_move_bytes_overlap,        TAGGED(POLY_SYS_move_bytes_overlap));
-    add_word_to_io_area(POLY_SYS_move_words_overlap,        TAGGED(POLY_SYS_move_words_overlap));
-    add_word_to_io_area(POLY_SYS_eq_longword,               TAGGED(POLY_SYS_eq_longword));
-    add_word_to_io_area(POLY_SYS_neq_longword,              TAGGED(POLY_SYS_neq_longword));
-    add_word_to_io_area(POLY_SYS_geq_longword,              TAGGED(POLY_SYS_geq_longword));
-    add_word_to_io_area(POLY_SYS_leq_longword,              TAGGED(POLY_SYS_leq_longword));
-    add_word_to_io_area(POLY_SYS_gt_longword,               TAGGED(POLY_SYS_gt_longword));
-    add_word_to_io_area(POLY_SYS_lt_longword,               TAGGED(POLY_SYS_lt_longword));
-    add_word_to_io_area(POLY_SYS_plus_longword,             TAGGED(POLY_SYS_plus_longword));
-    add_word_to_io_area(POLY_SYS_minus_longword,            TAGGED(POLY_SYS_minus_longword));
-    add_word_to_io_area(POLY_SYS_mul_longword,              TAGGED(POLY_SYS_mul_longword));
-    add_word_to_io_area(POLY_SYS_div_longword,              TAGGED(POLY_SYS_div_longword));
-    add_word_to_io_area(POLY_SYS_mod_longword,              TAGGED(POLY_SYS_mod_longword));
-    add_word_to_io_area(POLY_SYS_andb_longword,             TAGGED(POLY_SYS_andb_longword));
-    add_word_to_io_area(POLY_SYS_orb_longword,              TAGGED(POLY_SYS_orb_longword));
-    add_word_to_io_area(POLY_SYS_xorb_longword,             TAGGED(POLY_SYS_xorb_longword));
-    add_word_to_io_area(POLY_SYS_shift_left_longword,       TAGGED(POLY_SYS_shift_left_longword));
-    add_word_to_io_area(POLY_SYS_shift_right_longword,      TAGGED(POLY_SYS_shift_right_longword));
-    add_word_to_io_area(POLY_SYS_shift_right_arith_longword,TAGGED(POLY_SYS_shift_right_arith_longword));
-    add_word_to_io_area(POLY_SYS_longword_to_tagged,        TAGGED(POLY_SYS_longword_to_tagged));
-    add_word_to_io_area(POLY_SYS_signed_to_longword,        TAGGED(POLY_SYS_signed_to_longword));
-    add_word_to_io_area(POLY_SYS_unsigned_to_longword,      TAGGED(POLY_SYS_unsigned_to_longword));
-
-    add_word_to_io_area(POLY_SYS_io_dispatch, TAGGED(POLY_SYS_io_dispatch));
-    add_word_to_io_area(POLY_SYS_network, TAGGED(POLY_SYS_network));
-    add_word_to_io_area(POLY_SYS_os_specific, TAGGED(POLY_SYS_os_specific));
-    add_word_to_io_area(POLY_SYS_signal_handler, TAGGED(POLY_SYS_signal_handler));
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so

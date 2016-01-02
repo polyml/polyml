@@ -48,17 +48,25 @@ EXTRALDFLAGS=
 
 if NATIVE_WINDOWS
 if ARCHINTERPRET64
-EXTRALDFLAGS += -mwindows -Wl,-u,WinMain
+EXTRALDFLAGS += -Wl,-u,WinMain
 else
 if ARCHX86_64
-EXTRALDFLAGS += -mwindows -Wl,-u,WinMain
+EXTRALDFLAGS += -Wl,-u,WinMain
 else
-EXTRALDFLAGS += -mwindows -Wl,-u,_WinMain@16 -Wl,--large-address-aware
+EXTRALDFLAGS += -Wl,-u,_WinMain@16 -Wl,--large-address-aware
 endif
 endif
 
-poly_LDFLAGS += $(EXTRALDFLAGS)
+if WINDOWSGUI
+EXTRALDFLAGS += -mwindows
 polyimport_LDFLAGS += -mwindows
+else
+EXTRALDFLAGS += -mconsole
+polyimport_LDFLAGS += -mconsole
+endif
+
+poly_LDFLAGS += $(EXTRALDFLAGS)
+
 POLYOBJECTFILE = polyexport.obj
 POLYRESOURCES += polyresource.o
 OBJECTSUFFIX=obj

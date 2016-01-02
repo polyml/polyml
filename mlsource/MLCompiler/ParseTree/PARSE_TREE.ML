@@ -491,7 +491,7 @@ struct
         and  typeConstrs= typeConstrs
         and  typeVarForm=typeVarForm
         and  env        = env
-        and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  structureIdentForm = structureIdentForm
         and  typeParsetree = typeParsetree
         and  parsetree  = parsetree

@@ -2,10 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Updated David C.J. Matthews 2015
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -29,7 +30,7 @@ struct
         val () = Initialise.initGlobalEnv globalTable;
     in
         (* "use" is used only during testing to enable the basis to be compiled in. *)
-        val use  = Make.useIntoEnv globalTable;
+        val use  = Make.useIntoEnv globalTable [];
         
         (* This is exported when building the normal distribution. *)
         val shell = mainShell

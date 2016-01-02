@@ -59,6 +59,10 @@ extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned fl
 
 extern Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle);
 
+extern Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
+                       Handle (mkEntry)(TaskData *, void*, char*));
+
+
 /* exceptions and interrupts */
 NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
 NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));

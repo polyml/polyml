@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001-7
+    Copyright (c) 2001-7, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,7 +20,7 @@
 structure WinBase =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
 
         structure Style :>
@@ -173,28 +172,28 @@ struct
             |   SWP_NOSIZE
             |   SWP_NOZORDER
             |   SWP_SHOWWINDOW
-            |   SWP_OTHER of int
+            |   SWP_OTHER of Word32.word
 
         local
             val tab = [
-            (SWP_NOSIZE,          0x0001),
-            (SWP_NOMOVE,          0x0002),
-            (SWP_NOZORDER,        0x0004),
-            (SWP_NOREDRAW,        0x0008),
-            (SWP_NOACTIVATE,      0x0010),
-            (SWP_FRAMECHANGED,    0x0020),  (* The frame changed: send WM_NCCALCSIZE *)
-            (SWP_SHOWWINDOW,      0x0040),
-            (SWP_HIDEWINDOW,      0x0080),
-            (SWP_NOCOPYBITS,      0x0100),
-            (SWP_NOOWNERZORDER,   0x0200),  (* Don't do owner Z ordering *)
-            (SWP_NOSENDCHANGING,  0x0400),  (* Don't send WM_WINDOWPOSCHANGING *)
-            (SWP_DEFERERASE,      0x2000),
-            (SWP_ASYNCWINDOWPOS,  0x4000)]
+            (SWP_NOSIZE,          0wx0001),
+            (SWP_NOMOVE,          0wx0002),
+            (SWP_NOZORDER,        0wx0004),
+            (SWP_NOREDRAW,        0wx0008),
+            (SWP_NOACTIVATE,      0wx0010),
+            (SWP_FRAMECHANGED,    0wx0020),  (* The frame changed: send WM_NCCALCSIZE *)
+            (SWP_SHOWWINDOW,      0wx0040),
+            (SWP_HIDEWINDOW,      0wx0080),
+            (SWP_NOCOPYBITS,      0wx0100),
+            (SWP_NOOWNERZORDER,   0wx0200),  (* Don't do owner Z ordering *)
+            (SWP_NOSENDCHANGING,  0wx0400),  (* Don't send WM_WINDOWPOSCHANGING *)
+            (SWP_DEFERERASE,      0wx2000),
+            (SWP_ASYNCWINDOWPOS,  0wx4000)]
 
             (* It seems that some other bits are set although they're not defined. *)
-            fun toInt (SWP_OTHER i) = i | toInt _ = raise Match
+            fun toWord (SWP_OTHER i) = i | toWord _ = raise Match
         in
-            val WINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toInt))
+            val cWINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toWord))
         end
         
         (* In C the parent and menu arguments are combined in a rather odd way. *)
@@ -213,11 +212,11 @@ struct
             fun unpackWindowRelation(relation: ParentType, style) =
                 case relation of
                     PopupWithClassMenu =>
-                        (hwndNull, 0, toWord(clear(WS_CHILD, style)))
+                        (hwndNull, Memory.null, toWord(clear(WS_CHILD, style)))
                 |   PopupWindow hm =>
-                        (hwndNull, intOfHandle hm, toWord(clear(WS_CHILD, style)))
+                        (hwndNull, voidStarOfHandle hm, toWord(clear(WS_CHILD, style)))
                 |   ChildWindow{parent, id} =>
-                        (parent, id, toWord(flags[WS_CHILD, style]))
+                        (parent, Memory.sysWord2VoidStar(SysWord.fromInt id), toWord(flags[WS_CHILD, style]))
         end
     
     end

@@ -101,20 +101,20 @@ struct
      functors and while compiling structures.  Type functions arise from
      type bindings (type abbreviations) or from "where type" definitions
      in signatures.
-     Type functions are now included as either Free or Bound Ids but with
-     the typeFn as other than ([], EmptyType)
      The type identifier also contains the equality attribute.
      In ML97 only types have these identifiers.  In ML90 these were also
      needed for structures.
      Free and Bound IDs contain information to find the equality and
      value-printing functions. *)
     type typeIdDescription = { location: location, name: string, description: string }
+
     datatype typeId =
-        TypeId of { access: valAccess, description: typeIdDescription,
-                    typeFn: typeVarForm list * types, idKind: typeIdKind }
+        TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
+
     and typeIdKind =
-        Free of { uid: uniqueId, allowUpdate: bool  }
-    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
+        Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
+    |   TypeFn of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
     and types = 
@@ -149,8 +149,6 @@ struct
         TypeConstrs of
         {
             name:       string,
-            arity:      int,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -212,7 +210,7 @@ struct
             typeIdMap:          int -> typeId,
             firstBoundIndex:    int,
             boundIds:           typeId list,
-            declaredAt:         location
+            locations:          locationProp list
         }
 
     and functors =
@@ -222,7 +220,7 @@ struct
             arg:        structVals,
             result:     signatures,
             access:     valAccess,
-            declaredAt: location
+            locations:  locationProp list
         }
 
     (* Values. *)
@@ -233,7 +231,6 @@ struct
         Print
     |   GetPretty
     |   MakeString
-    |   InstallPP
     |   AddPretty
     |   Equal
     |   NotEqual
@@ -268,6 +265,7 @@ struct
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
+    |   SequenceNo of int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
@@ -308,35 +306,29 @@ struct
     }
 
     (* Identifiers *)
-    fun makeFreeId(access, eq, desc) =
-        TypeId { access=access, description = desc, typeFn=([], EmptyType),
-            idKind = Free {uid = ref eq, allowUpdate=false}};
+    fun makeFreeId(arity, access, eq, desc) =
+        TypeId { access=access, description = desc,
+            idKind = Free {uid = ref eq, allowUpdate=false, arity=arity}}
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq, desc) =
-        TypeId { access=access, description = desc, typeFn=([], EmptyType),
-            idKind = Free {uid = ref eq, allowUpdate=true}};
+    fun makeFreeIdEqUpdate(arity, access, eq, desc) =
+        TypeId { access=access, description = desc,
+            idKind = Free {uid = ref eq, allowUpdate=true, arity=arity}}
 
-    fun makeBoundId (access, n, eq, isdt, desc) =
-        TypeId { access=access, description = desc, typeFn=([], EmptyType),
-            idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt}};
+    fun makeBoundId (arity, access, n, eq, isdt, desc) =
+        TypeId { access=access, description = desc,
+            idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt, arity=arity}}
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc) =
-        TypeId { access=access, description = desc, typeFn=([], EmptyType),
-            idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt}}
+    fun makeBoundIdWithEqUpdate (arity, access, n, eq, isdt, desc) =
+        TypeId { access=access, description = desc,
+            idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, arity=arity}}
 
     (* Type functions currently always have Free ids. *)
     fun makeTypeFunction(desc, typeFn) =
-        TypeId { access=Global CodeZero, description = desc, typeFn=typeFn,
-            idKind = Free {uid = ref false, allowUpdate=false}};
+        TypeId { access=Global CodeZero, description = desc, idKind = TypeFn typeFn};
             
-    (* Unset variable. *)
-    fun isFreeId     (TypeId { idKind = Free _, typeFn=([], EmptyType), ...}) = true | isFreeId _ = false;
-    fun isBoundId    (TypeId { idKind = Bound _, typeFn=([], EmptyType), ...}) = true | isBoundId _ = false;
-    fun isTypeFunction(TypeId {typeFn=([], EmptyType), ...}) = false | isTypeFunction _ = true
-
     (* Find the number - assuming it is bound. *)
     fun offsetId (TypeId{idKind=Bound {offset, ...}, ...}) = offset
     |   offsetId _       = raise InternalError "offsetId: not a Bound";
@@ -350,6 +342,7 @@ struct
 
     fun isEquality (TypeId { idKind = Free{uid = ref eq, ...}, ...}) = eq
     |   isEquality (TypeId { idKind = Bound{eqType, ...}, ...}) = pling eqType
+    |   isEquality (TypeId { idKind = TypeFn _, ...}) = raise InternalError "isEquality: TypeFn"
 
     (* Set the equality property.   Currently, free IDs are used for abstypes and
        datatypes that are local to a function as well as the usual case of using them
@@ -365,13 +358,13 @@ struct
     val makeSignatureTable = makeUnivTable
 
     (* Make a signature, freezing the table. *)
-    fun makeSignature (name, table, fbi, location, typeIdMap, boundIds) =
+    fun makeSignature (name, table, fbi, locations, typeIdMap, boundIds) =
         Signatures { name = name,
                tab        = univFreeze table,
                typeIdMap  = typeIdMap,
                firstBoundIndex   = fbi,
                boundIds   = boundIds,
-               declaredAt = location  };
+               locations = locations  }
     
   (* Types. *)
 
@@ -464,32 +457,29 @@ struct
      of type variables which are used in the "equivalent" type. ``equality'' is a 
      flag indicating if the values can be tested for equality. *)
       
-    fun tcName       (TypeConstrs {name,...} : typeConstrs)       = name;
-    fun tcArity      (TypeConstrs {arity,...} : typeConstrs)      = arity;
-    fun tcTypeVars   (TypeConstrs {typeVars,...} : typeConstrs)   = typeVars;
-    fun tcIdentifier (TypeConstrs {identifier,...} : typeConstrs) = identifier;
+    fun tcName       (TypeConstrs {name,...})       = name
+    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
     (* Is this a type function?  N.B. It is possible, though unlikely, that it
        is a datatype as well i.e. has value constructors. *)
-    fun tcIsAbbreviation (TypeConstrs {identifier,...}) = isTypeFunction identifier
+    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
+    |   tcIsAbbreviation _ = false
+
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn(args, _),...}, ...}) = length args
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
     (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
-    (* This definition of tcEquivalent is a hack but it should simplify conversion. *)
-    fun tcEquivalent tycons =
-        case tcIdentifier tycons of
-            TypeId({typeFn=(_, result), ...}) => result
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 
     (* Construct a type constructor. *)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
+    fun makeTypeConstructor (name, uid, locations) =
         TypeConstrs
         {
             name       = name,
-            arity      = length typeVars,
-            typeVars   = typeVars,
             identifier = uid,
             locations = locations
         }
@@ -500,13 +490,15 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
     fun basisDescription name = { location = inBasis, description = "In Basis", name = name }
-    (* Infix status. *) 
- 
-    datatype fixStatus = 
+
+
+    (* Infix status. *)
+    datatype infixity = 
         Infix of int
     |   InfixR of int
-    |   Nonfix;
-  
+    |   Nonfix
+
+    datatype fixStatus = FixStatus of string * infixity
       
     fun isGlobal   (Global   _) = true | isGlobal   _ = false;
     fun isLocal    (Local    _) = true | isLocal    _ = false;
@@ -541,8 +533,8 @@ struct
                    typeIdMap  = fn _ => raise Subscript,
                    firstBoundIndex   = 0, 
                    boundIds   = [],
-                   declaredAt = inBasis  },
-            makeGlobal CodeZero, [DeclaredAt inBasis]);
+                   locations =  [DeclaredAt inBasis] },
+            makeGlobal CodeZero, [DeclaredAt inBasis])
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -583,14 +575,14 @@ struct
 
 
     (* Functor value. *)
-    fun makeFunctor (name, arg, result, access, location) = 
+    fun makeFunctor (name, arg, result, access, locations) = 
         Functor 
         {
             name = name,
             arg = arg,
             result = result,
             access = access,
-            declaredAt = location
+            locations = locations
         }
 
     val valueVar:      values      tag = tag();
@@ -654,6 +646,7 @@ struct
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm

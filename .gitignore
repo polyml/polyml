@@ -18,6 +18,7 @@ Debug64/
 *.tlog
 *.suo
 *.sdf
+*.opensdf
 
 # Temporaries
 x86asmtemp.S
@@ -27,6 +28,7 @@ polytemp.txt
 poly
 polyc
 polyimport
+!PolyImport/
 
 # Autoconf generated
 Makefile

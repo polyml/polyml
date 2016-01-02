@@ -52,8 +52,33 @@
 #define ASSERT(x)
 #endif
 
-// If we haven't got elf.h we shouldn't be building this.
+#ifdef HAVE_ELF_H
 #include <elf.h>
+#elif defined(HAVE_ELF_ABI_H)
+#include <elf_abi.h>
+#include <machine/reloc.h>
+
+#ifndef EM_X86_64
+#define EM_X86_64 EM_AMD64
+#endif
+
+#if defined(HOSTARCHITECTURE_X86_64)
+
+#ifndef R_386_PC32
+#define R_386_PC32 R_X86_64_PC32
+#endif
+
+#ifndef R_386_32
+#define R_386_32 R_X86_64_32
+#endif
+
+#ifndef R_X86_64_64
+#define R_X86_64_64 R_X86_64_64
+#endif
+
+#endif /* HOSTARCHITECTURE_X86_64 */
+
+#endif
 
 // Solaris seems to put processor-specific constants in separate files
 #ifdef HAVE_SYS_ELF_SPARC_H
@@ -180,6 +205,11 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
         }
         break;
 #if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
+#ifdef HOSTARCHITECTURE_X86
+#define R_PC_RELATIVE R_386_PC32
+#else
+#define R_PC_RELATIVE R_X86_64_PC32
+#endif
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             if (useRela)
@@ -188,7 +218,7 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 setRelocationAddress(addr, &reloc.r_offset);
                 // We seem to need to subtract 4 bytes to get the correct offset in ELF
                 offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
                 reloc.r_addend = offset;
                 // Clear the field.  Even though it's not supposed to be used with Rela the
                 // Linux linker at least seems to add the value in here sometimes.
@@ -201,7 +231,7 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 setRelocationAddress(addr, &reloc.r_offset);
                  // We seem to need to subtract 4 bytes to get the correct offset in ELF
                 offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
                 for (unsigned i = 0; i < 4; i++)
                 {
                     addr[i] = (byte)(offset & 0xff);
@@ -343,6 +373,10 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_IA_64;
     directReloc = R_IA64_DIR64LSB;
     fhdr.e_flags = EF_IA_64_ABI64;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_AARCH64)
+    fhdr.e_machine = EM_AARCH64;
+    directReloc = R_AARCH64_ABS64;
     useRela = true;
 #else
 #error "No support for exporting on this architecture"

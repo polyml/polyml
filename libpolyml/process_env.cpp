@@ -60,11 +60,11 @@
 
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
 #include <winsock2.h>
+#include <tchar.h>
 #else
-#include <winsock.h>
-#endif
+typedef char TCHAR;
+#define _tgetenv getenv
 #endif
 
 
@@ -89,10 +89,6 @@
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(mdTaskData, n)
-
-#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
-#define MAXPATHLEN MAX_PATH
-#endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
@@ -160,17 +156,14 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 14: /* Return a string from the environment. */
         {
-            char buff[MAXPATHLEN], *res;
-            /* Get the string. */
-            POLYUNSIGNED length =
-                Poly_string_to_C(DEREFWORDHANDLE(args), buff, sizeof(buff));
-            if (length >= sizeof(buff)) raise_syscall(mdTaskData, "Not Found", 0);
-            res = getenv(buff);
+            TempString buff(args->Word());
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            TCHAR *res = _tgetenv(buff);
             if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
             else return SAVE(C_string_to_Poly(mdTaskData, res));
         }
 
-    case 21: /* Return the whole environment. */
+    case 21: // Return the whole environment.  Only available in Posix.ProcEnv.
         {
             /* Count the environment strings */
             int env_count = 0;
@@ -186,29 +179,21 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 17: /* Run command. */
         {
-            char buff[MAXPATHLEN];
-            /* Get the string. */
+            TempString buff(args->Word());
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
             int res = -1;
-            POLYUNSIGNED length =
-                Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
-            if (length >= sizeof(buff))
-                raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows.
-            char *argv[4];
-            argv[0] = getenv("COMSPEC"); // Default CLI.
-            if (argv[0] == 0)
-            {
-                if (GetVersion() & 0x80000000) argv[0] = (char*)"command.com"; // Win 95 etc.
-                else argv[0] = (char*)"cmd.exe"; // Win NT etc.
-            }
-            argv[1] = (char*)"/c";
+            TCHAR *argv[4];
+            argv[0] = _tgetenv(_T("COMSPEC")); // Default CLI.
+            if (argv[0] == 0) argv[0] = (TCHAR*)_T("cmd.exe"); // Win NT etc.
+            argv[1] = (TCHAR*)_T("/c");
             argv[2] = buff;
             argv[3] = NULL;
             // If _P_NOWAIT is given the result is the process handle.
             // spawnvp does any necessary path searching if argv[0]
             // does not contain a full path.
-            intptr_t pid = spawnvp(_P_NOWAIT, argv[0], argv);
+            intptr_t pid = _tspawnvp(_P_NOWAIT, argv[0], argv);
             if (pid == -1)
                 raise_syscall(mdTaskData, "Function system failed", errno);
 #else
@@ -425,13 +410,14 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         return Make_arbitrary_precision(mdTaskData, 1);
 #endif
 
+        // These are no longer used.  The code is handled entirely in ML.
     case 10: /* Are empty arcs redundant? */
         /* Unix and Windows - yes. */
         return Make_arbitrary_precision(mdTaskData, 1);
 
     case 11: /* Match the volume name part of a path. */
         {
-            const char *volName = NULL;
+            const TCHAR *volName = NULL;
             int  isAbs = 0;
             int  toRemove = 0;
             PolyWord path = DEREFHANDLE(args);
@@ -445,9 +431,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                currently selected directory on the volume A.
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            char buff[MAXPATHLEN];
-            POLYUNSIGNED length = Poly_string_to_C(path, buff, MAXPATHLEN);
-            /* Ignore the case where the whole path is too long. */
+            TempString buff(path);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            size_t length = _tcslen(buff);
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */
                 if (length >= 3 && ISPATHSEPARATOR(buff[2]))
@@ -482,7 +468,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 /* \a\b strictly speaking is relative to the
                    current drive.  It's much easier to treat it
                    as absolute. */
-                { toRemove = 1; isAbs = 1; volName = ""; }
+                { toRemove = 1; isAbs = 1; volName = _T(""); }
 #else
             /* Unix - much simpler. */
             char toTest = 0;
@@ -521,19 +507,11 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 13: /* Is the string a valid file name? */
         {
-            /* Should we check for special names such as aux, con, prn ?? */
             PolyWord volName = DEREFWORD(args);
+            // First check for NULL.  This is not allowed in either Unix or Windows.
             if (IS_INT(volName))
             {
-                char ch = (char)UNTAGGED(volName);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-                if (ch == '<' || ch == '>' || ch == '|' ||
-                    ch == '"' || ch < ' ')
-#else
-                /* Basically, everything is allowed in Unix
-                   except NULL. */
-                if (ch == '\0')
-#endif
+                if (volName == TAGGED(0))
                     return Make_arbitrary_precision(mdTaskData, 0);
             }
             else
@@ -541,17 +519,35 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 PolyStringObject * volume = (PolyStringObject *)(volName.AsObjPtr());
                 for (POLYUNSIGNED i = 0; i < volume->length; i++)
                 {
-                    char ch = volume->chars[i];
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-                    if (ch == '<' || ch == '>' || ch == '|' ||
-                        ch == '"' || ch < ' ')
-#else
-                    if (ch == '\0')
-#endif
+                    if (volume->chars[i] == '\0')
                         return Make_arbitrary_precision(mdTaskData, 0);
                 }
             }
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            // We need to look for certain invalid characters but only after
+            // we've converted it to Unicode if necessary.
+            TempString name(volName);
+            for (const TCHAR *p = name; *p != 0; p++)
+            {
+                switch (*p)
+                {
+                case '<': case '>': case ':': case '"': 
+                case '\\': case '|': case '?': case '*': case '\0':
+#if (0)
+                // This currently breaks the build.
+                case '/':
+#endif
+                    return Make_arbitrary_precision(mdTaskData, 0);
+                }
+                if (*p >= 0 && *p <= 31) return Make_arbitrary_precision(mdTaskData, 0);
+            }
+            // Should we check for special names such as aux, con, prn ??
             return Make_arbitrary_precision(mdTaskData, 1);
+#else
+            // That's all we need for Unix.
+            // TODO: Check for /.  It's invalid in a file name arc.
+            return Make_arbitrary_precision(mdTaskData, 1);
+#endif
         }
 
         // A group of calls have now been moved to poly_specific.

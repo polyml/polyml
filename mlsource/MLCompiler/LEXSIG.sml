@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews
+    Copyright (c) 2009, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -55,6 +54,8 @@ sig
     (* To save passing an extra argument to many functions we include the
        debug/control parameters here. *)
     val debugParams: lexan -> Universal.universal list
+    (* This is also not really part of the lexical analyser. *)
+    val newBindingId: lexan -> int
 
     val errorDepth: lexan -> int
 

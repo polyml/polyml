@@ -58,7 +58,7 @@ static void CheckAddress(PolyWord *pt)
     POLYUNSIGNED length = obj->Length();
     if (pt+length > space->top)
     {
-        Log("Check: Bad pointer %p (space %p) length %"POLYUFMT"\n", pt, space, length);
+        Log("Check: Bad pointer %p (space %p) length %" POLYUFMT "\n", pt, space, length);
         ASSERT(pt+length <= space->top);
     }
     if (space->spaceType == ST_LOCAL)
@@ -67,7 +67,7 @@ static void CheckAddress(PolyWord *pt)
         if (!((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
             (pt > lSpace->upperAllocPtr && pt+length <= space->top)))
         {
-            Log("Check: Bad pointer %p (space %p) length %"POLYUFMT" outside allocated area\n", pt, space, length);
+            Log("Check: Bad pointer %p (space %p) length %" POLYUFMT " outside allocated area\n", pt, space, length);
             ASSERT((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
                 (pt > lSpace->upperAllocPtr && pt+length <= space->top));
         }

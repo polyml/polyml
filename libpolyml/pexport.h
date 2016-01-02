@@ -2,13 +2,12 @@
     Title:     Export memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2015 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,6 +21,12 @@
 
 #ifndef PEXPORT_H_INCLUDED
 #define PEXPORT_H_INCLUDED
+
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#endif
 
 #include "scanaddrs.h" // For base class
 #include "exporter.h"
@@ -58,6 +63,6 @@ private:
 };
 
 // Import a file in the portable format and return a pointer to the root object.
-PolyObject *ImportPortable(const char *fileName);
+PolyObject *ImportPortable(const TCHAR *fileName);
 
 #endif

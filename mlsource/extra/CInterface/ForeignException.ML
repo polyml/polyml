@@ -19,5 +19,5 @@
 
 structure ForeignException : ForeignExceptionSig =
     struct
-        exception Foreign = PolyML.Foreign
+        exception Foreign = RunCall.Foreign
     end;

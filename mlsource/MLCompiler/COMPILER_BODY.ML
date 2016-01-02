@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008.
+    Modified David C.J. Matthews 2008, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -59,16 +58,7 @@ sig
     { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
 end;
 
-structure DEBUG :
-sig
-    val parsetreeTag   : bool Universal.tag
-    val timingTag      : bool Universal.tag
-    val profilingTag   : int Universal.tag
-    val traceCompilerTag : bool Universal.tag
-
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
+structure DEBUG: DEBUGSIG
 
 structure UTILITIES :
 sig
@@ -90,58 +80,9 @@ end;
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE
 
-(*****************************************************************************)
-(*                  COMPILERBODY export signature                            *)
-(*****************************************************************************)
+ ) : COMPILERBODYSIG
 
- ) : 
- 
-sig
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-    type exportTree
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    (* The completed compiler.
-       Returns the parse tree and, if successful, a function that executes the
-       compiled code.  *)
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * (unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option;
-end =
+=
 
 (*****************************************************************************)
 (*                  COMPILERBODY functor body                                *)
@@ -156,238 +97,103 @@ struct
     open STRUCTURES
     open EXPORTTREE
 
-    (* There is a problem with using Time.fmt directly.  The Time structure we use is
-       the one that is in effect when this code is compiled.  That freezes the value of
-       ticksPerMicrosecond and causes incorrect results on Windows if the compiler
-       has been built on Unix or vice-versa.  Since this is the only place that is
-       affected it's better to include the appropriate code here rather than modify
-       the Time structure in the basis library.  *)
-    abstype cpuTime = CPUTime of int
-    with
-        val doTiming: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch
-        fun callTiming (code: int) args = doTiming (code,args)
+    val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
-        fun cpuTime() =
-        let
-            val usr = doTiming(7, 0) and sys = doTiming(8, 0)
-        in
-            CPUTime(usr+sys)
-        end
-
-        fun printTimes printOut {startTime, parseTime, pass2Time, treeTime, codeTime, startRunTime, endRunTime} =
-        let
-            local
-                (* This is the value that is in effect now. *)
-                val ticksPerMicrosecond = callTiming 0 0
-                val realTicks = Real.fromInt(ticksPerMicrosecond * 1000000)
-                fun toReal (t: int): real = Real.fromInt t / realTicks
-            in
-                fun formatTimeDiff(CPUTime a, CPUTime b) =
-                    Real.fmt (StringCvt.FIX(SOME 1)) (toReal(a-b))
-            end
-
-            val message =
-                PrettyBlock(3, false, [],
-                    [
-                        PrettyString "Timing -",
-                        PrettyBreak(1, 0),
-                        PrettyString ("parse:" ^ formatTimeDiff(parseTime, startTime) ^ ","),
-                        PrettyBreak(1, 0),
-                        PrettyString ("semantics:" ^ formatTimeDiff(pass2Time, parseTime) ^ ","),
-                        PrettyBreak(1, 0),
-                        PrettyString ("translate:" ^ formatTimeDiff(treeTime, pass2Time) ^ ","),
-                        PrettyBreak(1, 0),
-                        PrettyString ("generate:" ^ formatTimeDiff(codeTime, treeTime) ^ ","),
-                        PrettyBreak(1, 0),
-                        PrettyString ("run:" ^ formatTimeDiff(endRunTime, startRunTime))
-                    ]
-                )
-        in
-            printOut message
-        end
-    end;
-
-  
-  (* switch profiling on/off *)
-  val systemProfile : int -> unit =
-    RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler;
-  
-  fun startProfile (level : int) : unit = 
-    if level <> 0 then systemProfile level else ();
-      
-  fun stopProfile (level : int) : unit = 
-    if level <> 0 then systemProfile 0 else ();
-
-  val stopSyms =
-    let
-      open SYMSET
-    in
-      op ++ (abortParse, semicolon)
-    end;
-
-  fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
+    fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
              functors: (string * functors) list, types: (string * typeConstrSet) list }) option =
-  let (* let1 *)
+    let (* let1 *)
 
-    val compilerOutput = getCompilerOutput debugSwitches
-    
-    val timing         = DEBUG.getParameter DEBUG.timingTag debugSwitches
-    and printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
-    and profiling      = DEBUG.getParameter DEBUG.profilingTag debugSwitches
+        val compilerOutput = getCompilerOutput debugSwitches
+        val printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
 
-    val globals =
-    { 
-        lookupFix    = #lookupFix nameSpace,
-        lookupVal    = #lookupVal nameSpace,
-        lookupType   = #lookupType nameSpace,
-        lookupSig    = #lookupSig nameSpace,
-        lookupStruct = #lookupStruct nameSpace,
-        lookupFunct  = #lookupFunct nameSpace,
-        enterFix     = #enterFix nameSpace,
-        enterVal     = #enterVal nameSpace,
-        enterType    = #enterType nameSpace,
-        enterStruct  = #enterStruct nameSpace,
-        enterSig     = #enterSig nameSpace,
-        enterFunct   = #enterFunct nameSpace,
-        allValNames  = fn () => map #1 (#allVal nameSpace ())
-    };
+        val globals =
+        { 
+            lookupFix    = #lookupFix nameSpace,
+            lookupVal    = #lookupVal nameSpace,
+            lookupType   = #lookupType nameSpace,
+            lookupSig    = #lookupSig nameSpace,
+            lookupStruct = #lookupStruct nameSpace,
+            lookupFunct  = #lookupFunct nameSpace,
+            enterFix     = #enterFix nameSpace,
+            enterVal     = #enterVal nameSpace,
+            enterType    = #enterType nameSpace,
+            enterStruct  = #enterStruct nameSpace,
+            enterSig     = #enterSig nameSpace,
+            enterFunct   = #enterFunct nameSpace,
+            allValNames  = fn () => map #1 (#allVal nameSpace ())
+        }
 
-    (* Return the total user+system time since the start. *)
- 
-    val startTime = cpuTime()
-    
-    val startLocn = location lex
-    val () =
-      if SYMSET.inside (sy lex, SYMSET.semicolon)
-      then insymbol lex
-      else ();
+        val startLocn = location lex
+
+        val () =
+            if SYMSET.inside (sy lex, SYMSET.semicolon)
+            then insymbol lex
+            else ()
       
-    val parentTreeNav =
-        case List.find (Universal.tagIs rootTreeTag) debugSwitches of
-            SOME opt => Universal.tagProject rootTreeTag opt
-        |   NONE => { parent = NONE, next = NONE, previous = NONE }
-  in (* let1 *)
-    (* An empty declaration (or end of file!) *)
-    if SYMSET.inside (sy lex, stopSyms)
-    then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
-       then (NONE, NONE)
-       else (SOME(locSpan(startLocn, location lex), []), 
+        val parentTreeNav =
+            case List.find (Universal.tagIs rootTreeTag) debugSwitches of
+                SOME opt => Universal.tagProject rootTreeTag opt
+            |   NONE => { parent = NONE, next = NONE, previous = NONE }
+
+    in
+        (* An empty declaration (or end of file!) *)
+        if SYMSET.inside (sy lex, stopSyms)
+        then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
+        then (NONE, NONE)
+        else (SOME(locSpan(startLocn, location lex), []), 
                  SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
             ) (* Do nothing *)
-    else let (* let2 *)
-      (* create a "throw away" compiling environment for this topdec *)
-      val newFixEnv = UTILITIES.searchList ();
-      val enterFix  = #enter newFixEnv;
-      val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals);
+        else
+        let
+            (* create a "throw away" compiling environment for this topdec *)
+            val newFixEnv = UTILITIES.searchList ()
+            val enterFix  = #enter newFixEnv
+            val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals)
    
-      (* parse a program: a sequence of topdecs ending with a semicolon. *)
-      val parseTree : STRUCTURES.program = 
-        PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix});
+            (* parse a program: a sequence of topdecs ending with a semicolon. *)
+            val parseTree : STRUCTURES.program = 
+                PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix})
 
-      val parseTime = cpuTime()
-
-      val () = 
-        if printParsetree
-        then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
-        else ();
-        
-      in (* let2 *)
-          if errorOccurred lex
-          then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
-          else let (* let3 *)
-          (* If no errors then do second pass to match identifiers
-             and declarations and return type of expression. *)
-          val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
-     
-          val pass2Time = cpuTime()
-          
-          in (* let3 *)
+            val () = 
+                if printParsetree
+                then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
+                else ()
+        in
             if errorOccurred lex
-            then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
-            else let (* let4 *)
-              
-              (* Only code-generate if there were no errors and it's not a directive. *)
-              val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex);
-              val treeTime = cpuTime()
-              
-              in
+            then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
+            else
+            let
+                (* If no errors then do second pass to match identifiers
+                   and declarations and return type of expression. *)
+                val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals)
+          
+            in
                 if errorOccurred lex
-                then (* Errors can be produced during the code-generation phase. *)
-                   (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
-                else let (* let5 *)                      
-                      val resultCode : unit -> CODETREE.codetree =
-                         CODETREE.genCode(structCode, debugSwitches, nLocals)
-                      val codeTime = cpuTime()
-                      
-                      (* This is the procedure which is returned as the result of
-                         the compilation. *)
-                      fun executeCode() =
-                        let
-                            (* Save the value of the profiling switch,
-                                 and switch profiling on if required. *)
-                            val wasProfiling = profiling;
-                    
-                            val startRunTime = cpuTime() (* Save the run-time *)
-                            val () = startProfile wasProfiling;
-            
-                            val resultVec = (* Now run it *)
-                                (* If we were profiling or timing we have to handle the exception to turn
-                                   these off even though it will mess up information about where the exception
-                                   was raised. *)
-                                if wasProfiling <> 0 orelse timing
-                                then
-                                (
-                                 resultCode ()
-                                     handle exn => (* Exceptions in run-time code. *)
-                                     let
-                                         val () = stopProfile wasProfiling;
-                                         val endRunTime = cpuTime()
-                                         (* if we are profiling, stop and force out the profile counts *)
-                                         val () = stopProfile wasProfiling;
-                                     in
-                                         (* print out timing info *)
-                                         if timing
-                                         then printTimes compilerOutput
-                                                {
-                                                    startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
-                                                    treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
-                                                    endRunTime=endRunTime
-                                                }
-                                         else ();
-                                         raise exn
-                                     end
-                                )
-                                else resultCode ()
-             
-                            val () = stopProfile wasProfiling;
-                            val endRunTime = cpuTime ()
-                             
-                            val extractedResults = STRUCTURES.pass4Structs (resultVec, parseTree)
-            
-                        in
-                            (* print out timing info *)
-                            if timing
-                            then printTimes compilerOutput
-                                    {
-                                        startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
-                                        treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
-                                        endRunTime=endRunTime
-                                    }
-                            else ();
-                
-                            extractedResults
-                        end
-                     
+                then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
+                else
+                let
+                    (* Only code-generate if there were no errors and it's not a directive. *)
+                    val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex)
+                in
+                    if errorOccurred lex
+                    then (* Errors can be produced during the code-generation phase. *)
+                        (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
+                    else
+                    let                      
+                        val resultCode = CODETREE.genCode(structCode, debugSwitches, nLocals)
+                        (* This is the function that is returned as the result of
+                           the compilation. *)
+                        fun executeCode() = STRUCTURES.pass4Structs (resultCode (), parseTree)
                     in
                         (SOME(structsExportTree (parentTreeNav, parseTree)), SOME executeCode)
-                    end (* let5 *)
-                end (* let4 *)
-            end (* let3 *)
-        end (* let2 *)
-    end; (* let1 *)
+                    end
+                end
+            end
+        end
+    end
 
     fun compiler (nameSpace: nameSpace, getChar: unit->char option, parameters: Universal.universal list) : 
        exportTree option * (unit ->
@@ -410,27 +216,38 @@ struct
       handle
         SML90.Interrupt =>
         (
-          printReport ("Compilation interrupted\n");
-          raise SML90.Interrupt
+            printReport "Compilation interrupted\n";
+            raise SML90.Interrupt
         )
          
       | InternalError s =>
         let
-          val s' =
-          "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
+            val s' =
+                "Exception- InternalError: " ^ String.toString s ^ " raised while compiling"
         in
-          printReport (s' ^ "\n");
-          raise Fail s'
+            printReport (s' ^ "\n");
+            raise Fail s'
         end
        
       | exn =>
         let
-          val s' =
+            val s' =
               "Exception- " ^ General.exnName exn ^ " unexpectedly raised while compiling"
         in
-          printReport (s' ^ "\n");
-          raise Fail s'
+            printReport (s' ^ "\n");
+            raise Fail s'
         end
+    end
+
+    structure Sharing =
+    struct
+        type values = values
+        and  typeConstrSet = typeConstrSet
+        and  fixStatus = fixStatus
+        and  structVals = structVals
+        and  signatures = signatures
+        and  functors = functors
+        and  exportTree = exportTree
     end
 
 end; (* struct *)

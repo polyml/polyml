@@ -20,10 +20,10 @@
 
 val () = Bootstrap.use "basis/RuntimeCalls.ML";
 val () = Bootstrap.use "basis/InitialBasis.ML";
-val () = Bootstrap.use "basis/InitialPolyML.ML";
 val () = Bootstrap.use "basis/Universal.ML";
 val () = Bootstrap.use "basis/General.sml";
 val () = Bootstrap.use "basis/LibrarySupport.sml";
+val () = Bootstrap.use "basis/PolyMLException.sml";
 val () = Bootstrap.use "basis/Option.sml";
 val () = Bootstrap.use "basis/VectorOperations.sml";
 val () = Bootstrap.use "basis/PolyVectorOperations.sml";
@@ -76,6 +76,7 @@ val () = Bootstrap.use "basis/Timer.sml";
 val () = Bootstrap.use "basis/CommandLine.sml";
 val () = Bootstrap.use "basis/OS.sml";
 val () = Bootstrap.use "basis/ExnPrinter.sml"; (* Relies on OS. *)
+val () = Bootstrap.use "basis/InitialPolyML.ML"; (* Relies on OS. *)
 val () = Bootstrap.use "basis/IO.sml";
 val () = Bootstrap.use "basis/PRIM_IO.sml";
 val () = Bootstrap.use "basis/PrimIO.sml";
@@ -113,8 +114,9 @@ local
         RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
 in
     val () =
-    if getOS = 0 then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
-    else if getOS = 1 then Bootstrap.use "basis/Windows.sml"
+    if getOS = 0
+    then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
+    else if getOS = 1 then (Bootstrap.use "basis/Windows.sml")
     else ()
 end;
 
@@ -126,6 +128,10 @@ val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
 val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
+val () = Bootstrap.use "basis/ForeignConstants.sml";
+val () = Bootstrap.use "basis/ForeignMemory.sml";
+(*val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";*)
+val () = Bootstrap.use "basis/Foreign.sml";
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 
@@ -149,11 +155,15 @@ PolyML.Compiler.forgetValue "it";
 PolyML.Compiler.forgetStructure "LibrarySupport";
 PolyML.Compiler.forgetStructure "LibraryIOSupport";
 PolyML.Compiler.forgetStructure "MachineConstants";
+PolyML.Compiler.forgetStructure "ForeignConstants";
+PolyML.Compiler.forgetStructure "ForeignMemory";
 PolyML.Compiler.forgetFunctor "BasicStreamIO";
 PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
 PolyML.Compiler.forgetFunctor "BasicImperativeIO";
+PolyML.Compiler.forgetFunctor "ASN1";
+PolyML.Compiler.forgetSignature "ASN1";
 
 (* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
    these don't automatically look at the -I option. *)

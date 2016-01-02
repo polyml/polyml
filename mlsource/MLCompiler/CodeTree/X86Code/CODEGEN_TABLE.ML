@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012-13
+    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012-13, 2015
 
     Derived from code
 
@@ -8,8 +8,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -35,17 +34,8 @@
    of bindings.  Hotspots are marked in the code. *)
 
 functor CODEGEN_TABLE (
-
     structure CODECONS : CODECONSSIG
-
-    structure DEBUG :
-    sig
-        (* Produce debugging output. *)
-        val pstackTraceTag : bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
-
+    structure DEBUG: DEBUGSIG
     structure PRETTY: PRETTYSIG
 
     structure MISC :
@@ -1521,7 +1511,14 @@ struct
                     (regIndex, ops)
                 end
                 else (entry, []) (* Safe *)
-        |   _ => (entry, []) (* Safe *)
+        |   _ =>
+            (* We must remove any floating point registers that cache this entry.
+               This is a bit of a shame because we may want the FP register
+               further on but is because argAsSource chooses ActInRegisterSet
+               if the cache is non-empty.  That's wrong if we want the FP value
+               in memory because we will attempt to store the FP register again.
+               See Tests/Succeed/Test159.ML *)
+            (entry, clearCacheEntry(table, floatingPtRegisters, entry))
 
     (* Checks if we are going to overwrite the stack, and loads the entry
        into a register. *)
@@ -2804,6 +2801,14 @@ struct
                 if cache <> noRegisters
                 then
                 (
+                    (* This assumes that it is preferable to have the value in a
+                       register.  That's generally true but can be wrong if we have
+                       pushed a floating point value to the stack, i.e. we've
+                       allocated a heap cell and stored the FP value into it
+                       then pushed the address of the cell.  In that case we
+                       might actually want the heap cell address.
+                       ensureNoAllocation has to clear the cache to make
+                       sure we use the address. *)
                     if lastRef
                     then ActInRegisterSet{modifiable=cache, readable=cache}
                     else ActInRegisterSet{modifiable=noRegisters, readable=cache}

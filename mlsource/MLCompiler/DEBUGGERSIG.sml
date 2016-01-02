@@ -90,11 +90,16 @@ sig
 
     (* Exported functions that appear in PolyML.DebuggerInterface. *)
     type debugState (* The run-time state. *)
-    val debugNameSpace: debugState -> nameSpace
-    val debugFunction: debugState -> string option
-    val debugFunctionArg: debugState -> values option
-    val debugFunctionResult: debugState -> values option
-    val debugLocation: debugState -> location
+
+    val makeValue: debugState -> string * types * locationProp list * machineWord -> values
+    and makeException: debugState -> string * types * locationProp list * machineWord -> values
+    and makeConstructor:
+        debugState -> string * types * bool * int * locationProp list * machineWord -> values
+    and makeAnonymousValue: debugState -> types * machineWord -> values
+    
+    val makeStructure: debugState -> string * signatures * locationProp list * machineWord -> structVals
+    and makeTypeConstr: debugState -> typeConstrSet -> typeConstrSet
+    
     val setOnEntry: (string * PolyML.location -> unit) option -> unit
     and setOnExit: (string * PolyML.location -> unit) option -> unit
     and setOnExitException: (string * PolyML.location -> exn -> unit) option -> unit

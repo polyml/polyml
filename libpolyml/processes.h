@@ -116,11 +116,10 @@ public:
     // allocation that needs to be made must be made in the parent.
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
     virtual void SetException(poly_exn *exc) = 0;
-    // This is used to get the argument to the callback_result function.
-    virtual Handle CallBackResult() = 0;
     // If a foreign function calls back to ML we need to set up the call to the
     // ML callback function.
-    virtual void SetCallbackFunction(Handle func, Handle args) {}
+    virtual Handle EnterCallbackFunction(Handle func, Handle args) = 0;
+
     virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
 
     // Increment or decrement the first word of the object pointed to by the
@@ -213,6 +212,8 @@ extern enum _mainThreadPhase {
     MTP_PROFILING,
     MTP_SIGHANDLER,
     MTP_CYGWINSPAWN,
+    MTP_STOREMODULE,
+    MTP_LOADMODULE,
     MTP_MAXENTRY
 } mainThreadPhase;
 

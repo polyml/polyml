@@ -224,7 +224,7 @@ struct
 
  (* Global declarations *)
    
- fun parseDec (fsys, lex, {enterFix,lookupFix}) : program =
+ fun parseDec (fsys, lex, {enterFix, lookupFix}) : program =
  let
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
@@ -304,7 +304,10 @@ struct
       (* op followed by a (long) variable *)
       val idLoc as (id, location) = getLongId (sys, fsys, lex);
       val isInfix =
-        case lookupFix id of SOME (Infix _) => true | SOME (InfixR _)  => true | _ => false
+        case lookupFix id of
+            SOME(FixStatus(_, Infix _)) => true 
+        |   SOME(FixStatus(_, InfixR _))  => true
+        |   _ => false
    in
       if isInfix andalso not opThere
       then warningMessage (lex, location,
@@ -561,7 +564,7 @@ struct
         then
         let
             val (iden, idLoc) = getShortId (variableSys, fsys, lex);
-            val () = #enterFix env (iden, fixForm);
+            val () = #enterFix env (iden, FixStatus(iden, fixForm))
             val (tail, endLoc) = vars idLoc
         in
             (iden :: tail, endLoc)
@@ -655,7 +658,10 @@ struct
                         (* It is infix if we find it and it has been declared
                            as infix. If it hasn't been declared then it isn't
                            infix. *)
-                        case lookupFix(id lex) of SOME (Infix _) => true | SOME (InfixR _) => true | _ => false
+                        case lookupFix(id lex) of
+                            SOME (FixStatus(_, Infix _)) => true
+                        |   SOME (FixStatus(_, InfixR _)) => true
+                        |   _ => false
                     )
             then (* it's an infix operator - don't treat it as an arg. *)
                 (funExp, funLoc)
@@ -680,8 +686,9 @@ struct
                     then
                     let
                         val (id, loc) = getLongId (opSys, fsys, lex)
+                        val FixStatus(_, fixity) = valOf(lookupFix id)
                     in
-                        (id, loc, valOf(lookupFix id))
+                        (id, loc, fixity)
                     end
                     else ("", nullLocation, Nonfix);
 

@@ -98,11 +98,6 @@ sig
     val getClosure:         level -> codetree list
     val multipleUses: codetree * (unit -> int) * level -> {load: level -> codetree, dec: codeBinding list}
 
-    val encodeBinary: codetree -> Word8Vector.vector
-    and decodeBinary: Word8Vector.vector -> codetree
-    
-    val importFunctor: codetree -> codetree
-
     structure Sharing:
     sig
         type machineWord = machineWord

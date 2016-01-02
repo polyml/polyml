@@ -2,15 +2,14 @@
     Title:      Run-time system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000, 2009
+    Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2012
+    Further work copyright David C. J. Matthews 2009, 2012, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -368,6 +367,31 @@ void raise_fail(TaskData *taskData, const char *errmsg)
     raise_exception_string(taskData, EXC_Fail, errmsg);
 }
 
+/* "Polymorphic" function to generate a list. */
+Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
+                       Handle (mkEntry)(TaskData *, void*, char*))
+{
+    Handle saved = taskData->saveVec.mark();
+    Handle list = SAVE(ListNull);
+    /* Start from the end of the list. */
+    p += count*size;
+    while (count > 0)
+    {
+        Handle value, next;
+        p -= size; /* Back up to the last entry. */
+        value = mkEntry(taskData, arg, p);
+        next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
+
+        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+
+        taskData->saveVec.reset(saved);
+        list = SAVE(DEREFHANDLE(next));
+        count--;
+    }
+    return list;
+}
+
 // Build a list of the function names on the stack.
 Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endOfTrace)
 {
@@ -411,15 +435,16 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 {
     Handle listHandle = buildStackList(taskData, sp, finish);
     PolyWord list = listHandle->Word();
+    extern FILE *polyStdout;
 
     while (! (list.IsTagged()))
     {
         ML_Cons_Cell *p = (ML_Cons_Cell*)list.AsObjPtr();
         print_string(p->h);
-        putc('\n',stdout);
+        putc('\n', polyStdout);
         list = p->t;
     }
-    fflush(stdout);
+    fflush(polyStdout);
 }
 
 
@@ -996,10 +1021,11 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     POLYUNSIGNED limitSize = getPolyUnsigned(taskData, taskData->threadObject->mlStackSize);
 
     // Do not grow the stack if its size is already too big.
-    if (limitSize != 0 && old_len >= limitSize || ! gMem.GrowOrShrinkStack(taskData, new_len))
+    if ((limitSize != 0 && old_len >= limitSize) || ! gMem.GrowOrShrinkStack(taskData, new_len))
     {
         /* Cannot expand the stack any further. */
-        fprintf(stderr, "Warning - Unable to increase stack - interrupting thread\n");
+        extern FILE *polyStderr;
+        fprintf(polyStderr, "Warning - Unable to increase stack - interrupting thread\n");
         if (debugOptions & DEBUG_THREADS)
             Log("THREAD: Unable to grow stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
         // We really should do this only if the thread is handling interrupts
@@ -1078,16 +1104,16 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call  21",
     "RTS Call  22",
     "SYS_str_compare",
-    "SYS_teststreq",
-    "SYS_teststrneq",
+    "RTS Call  24",
+    "RTS Call  25",
     "SYS_teststrgtr",
     "SYS_teststrlss",
     "SYS_teststrgeq",
     "SYS_teststrleq",
-    "SYS_exception_trace",
-    "SYS_give_ex_trace",
-    "RTS Call  32",
-    "RTS Call  33",
+    "RTS Call  30",
+    "RTS Call  31",
+    "SYS_exception_trace_fn",
+    "SYS_give_ex_trace_fn",
     "RTS Call  34",
     "RTS Call  35",
     "RTS Call  36",
@@ -1107,12 +1133,12 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call  50",
     "SYS_network",
     "SYS_os_specific",
-    "RTS Call  53",
-    "RTS Call  54",
-    "RTS Call  55",
-    "RTS Call  56",
-    "RTS Call  57",
-    "RTS Call  58",
+    "SYS_eq_longword",
+    "SYS_neq_longword",
+    "SYS_geq_longword",
+    "SYS_leq_longword",
+    "SYS_gt_longword",
+    "SYS_lt_longword",
     "RTS Call  59",
     "RTS Call  60",
     "SYS_io_dispatch",
@@ -1123,29 +1149,29 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call  66",
     "RTS Call  67",
     "RTS Call  68",
-    "RTS Call  69",
+    "SYS_atomic_reset",
     "SYS_atomic_incr",
     "SYS_atomic_decr",
     "SYS_thread_self",
     "SYS_thread_dispatch",
-    "RTS Call  74",
-    "RTS Call  75",
-    "RTS Call  76",
-    "RTS Call  77",
-    "RTS Call  78",
-    "RTS Call  79",
-    "RTS Call  70",
-    "RTS Call  81",
+    "SYS_plus_longword",
+    "SYS_minus_longword",
+    "SYS_mul_longword",
+    "SYS_div_longword",
+    "SYS_mod_longword",
+    "SYS_andb_longword",
+    "SYS_orb_longword",
+    "SYS_xorb_longword",
     "RTS Call  82",
     "RTS Call  83",
     "SYS_kill_self",
-    "RTS Call  85",
-    "RTS Call  86",
-    "RTS Call  87",
+    "SYS_shift_left_longword",
+    "SYS_shift_right_longword",
+    "SYS_shift_right_arith_longword",
     "SYS_profiler",
-    "RTS Call  89",
-    "RTS Call  90",
-    "RTS Call  91",
+    "SYS_longword_to_tagged",
+    "SYS_signed_to_longword",
+    "SYS_unsigned_to_longword",
     "SYS_full_gc",
     "SYS_stack_trace",
     "SYS_timing_dispatch",
@@ -1214,18 +1240,18 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call 157",
     "RTS Call 158",
     "RTS Call 159",
-    "RTS Call 160",
-    "RTS Call 161",
-    "RTS Call 162",
-    "RTS Call 163",
-    "RTS Call 164",
-    "RTS Call 165",
-    "RTS Call 166",
-    "RTS Call 167",
-    "RTS Call 168",
-    "RTS Call 169",
-    "RTS Call 170",
-    "RTS Call 171",
+    "SYS_cmem_load_8",
+    "SYS_cmem_load_16",
+    "SYS_cmem_load_32",
+    "SYS_cmem_load_64",
+    "SYS_cmem_load_float",
+    "SYS_cmem_load_double",
+    "SYS_cmem_store_8",
+    "SYS_cmem_store_16",
+    "SYS_cmem_store_32",
+    "SYS_cmem_store_64",
+    "SYS_cmem_store_float",
+    "SYS_cmem_store_double",
     "RTS Call 172",
     "RTS Call 173",
     "RTS Call 174",
@@ -1244,7 +1270,7 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call 187",
     "RTS Call 188",
     "SYS_io_operation",
-    "RTS Call 190",
+    "SYS_ffi",
     "RTS Call 191",
     "RTS Call 192",
     "RTS Call 193",
@@ -1253,7 +1279,7 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "SYS_shift_right_arith_word",
     "SYS_int_to_word",
     "SYS_move_bytes",
-    "RTS Call 199",
+    "SYS_move_bytes_overlap",
     "SYS_code_flags",
     "SYS_shrink_stack",
     "SYS_stderr",
@@ -1282,15 +1308,15 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call 225",
     "RTS Call 226",
     "RTS Call 227",
-    "RTS Call 228",
+    "SYS_touch_final",
     "SYS_int_eq",
     "SYS_int_neq",
     "SYS_int_geq",
     "SYS_int_leq",
     "SYS_int_gtr",
     "SYS_int_lss",
-    "RTS Call 235",
-    "RTS Call 236",
+    "SYS_load_byte_immut",
+    "SYS_load_word_immut",
     "RTS Call 237",
     "SYS_mul_word",
     "SYS_plus_word",

@@ -27,13 +27,7 @@ functor DEBUGGER_ (
     structure COPIER: COPIERSIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure LEX : LEXSIG
-
-    structure DEBUG :
-    sig
-        val debugTag: bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end
+    structure DEBUG: DEBUGSIG
 
     structure UTILITIES :
     sig
@@ -87,25 +81,48 @@ struct
         and onBreakPointCode =
             mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnBreakPoint), CodeZero])
 
+        (* We need to ensure that any break-point code preserves the state.  It could be modified
+           if we hit a break-point and run the interactive debugger with PolyML.Compiler.debug true. *)
+        fun wrap (f:'a -> unit) (x: 'a) : unit =
+        let
+            val threadId: address = RunCall.run_call0 POLY_SYS_thread_self ()
+            val stack = loadWord(threadId, 0w5)
+            and static = loadWord(threadId, 0w6)
+            and dynamic = loadWord(threadId, 0w7)
+            and location = loadWord(threadId, 0w8)
+
+            fun restore () =
+            (
+                assignWord(threadId, 0w5, stack);
+                assignWord(threadId, 0w6, static);
+                assignWord(threadId, 0w7, dynamic);
+                assignWord(threadId, 0w8, location)
+            )
+        in
+            f x handle exn => (restore(); PolyML.Exception.reraise exn);
+            restore()
+        end
+
         fun setOnEntry NONE = globalOnEntry := NoFunction
-        |   setOnEntry (SOME(f: string * PolyML.location -> unit)) = globalOnEntry := AFunction f
+        |   setOnEntry (SOME(f: string * PolyML.location -> unit)) = globalOnEntry := AFunction (wrap f)
 
         and setOnExit NONE = globalOnExit := NoFunction
-        |   setOnExit (SOME(f: string * PolyML.location -> unit)) = globalOnExit := AFunction f
+        |   setOnExit (SOME(f: string * PolyML.location -> unit)) = globalOnExit := AFunction (wrap f)
 
         and setOnExitException NONE = globalOnExitExc := NoFunction
-        |   setOnExitException (SOME(f: string * PolyML.location -> exn -> unit)) = globalOnExitExc := AFunction f
+        |   setOnExitException (SOME(f: string * PolyML.location -> exn -> unit)) =
+                globalOnExitExc := AFunction (fn x => wrap (f x))
 
         and setOnBreakPoint NONE = globalOnBreakPoint := NoFunction
-        |   setOnBreakPoint (SOME(f: PolyML.location * bool ref -> unit)) = globalOnBreakPoint := AFunction f
+        |   setOnBreakPoint (SOME(f: PolyML.location * bool ref -> unit)) = globalOnBreakPoint := AFunction (wrap f)
     end
 
     
 
     (* When stopped at a break-point any Bound ids must be replaced by Free ids.
        We make new Free ids at this point.  *)
-    fun envTypeId (id as TypeId{ description, idKind = Bound _, ...}) =
-            EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description) }
+    fun envTypeId (id as TypeId{ description, idKind = Bound{arity, ...}, ...}) =
+            EnvTypeid { original = id, freeId = makeFreeId(arity, Global CodeZero, isEquality id, description) }
     |   envTypeId id = EnvTypeid { original = id, freeId = id }
 
     fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
@@ -123,191 +140,89 @@ struct
         |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
             
     )
-    |   searchEnvs _ ([], []) = NONE
     
-    |   searchEnvs _ _ = raise Misc.InternalError "searchEnvs: Static and dynamic lists have different lengths"
+    |   searchEnvs _ _ = NONE
+        (* N.B.  It is possible to have ([EnvTConstr ...], []) in the arguments so we can't treat
+           that if either the static or dynamic list is nil and the other non-nil as an error. *)
 
-    fun searchType envs typeid =
+    (* Exported functions that appear in PolyML.DebuggerInterface. *)
+    type debugState = environEntry list * machineWord list * location
+
+    fun searchType ((clist, rlist, _): debugState) typeid =
     let
         fun match (EnvTypeid{original, freeId }, valu) =
             if sameTypeId(original, typeid)
             then 
                 case freeId of
-                    TypeId{description, idKind as Free _, typeFn, ...} =>
+                    TypeId{description, idKind as Free _, ...} =>
                         (* This can occur for datatypes inside functions. *)
-                        SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn })
+                        SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description})
                 |   _ => raise Misc.InternalError "searchType: TypeFunction"
             else NONE
         |   match _ = NONE
     in
-        case (searchEnvs match envs, typeid) of
+        case (searchEnvs match (clist, rlist), typeid) of
             (SOME t, _) => t
-        |   (NONE, typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =>
+        |   (NONE, TypeId{description, idKind = TypeFn typeFn, ...}) => makeTypeFunction(description, typeFn)
+
+        |   (NONE, typeid as TypeId{description, idKind = Bound{arity, ...}, ...}) =>
                 (* The type ID is missing.  Make a new temporary ID. *)
-                makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+                makeFreeId(arity, Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
 
-        |   (NONE, TypeId{description, typeFn, ...}) => makeTypeFunction(description, typeFn)
+        |   (NONE, typeid as TypeId{description, idKind = Free{arity, ...}, ...}) =>
+                (* The type ID is missing.  Make a new temporary ID. *)
+                makeFreeId(arity, Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+
     end
-
-    fun runTimeType debugEnviron ty =
-    let
-        fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
-        |   copyId id = SOME(searchType debugEnviron id)
-    in
-            copyType (ty, fn x => x,
-                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
-    end
-
-    (* Exported functions that appear in PolyML.DebuggerInterface. *)
-    type debugState = environEntry list * machineWord list * location
-
-    fun debugNameSpace ((clist, rlist, _): debugState) : nameSpace =
-    let
-        val debugEnviron = (clist, rlist)
-        (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
-        fun copyTheTypeConstructor (TypeConstrSet(tcons, (*tcConstructors*) _)) =
+    
+    (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
+    fun makeTypeConstr (state: debugState) (TypeConstrSet(tcons, (*tcConstructors*) _)) =
         let
-            val typeID = searchType debugEnviron (tcIdentifier tcons)
+            val typeID = searchType state (tcIdentifier tcons)
             val newTypeCons =
-                makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
+                makeTypeConstructor(tcName tcons, typeID, tcLocations tcons)
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in
             TypeConstrSet(newTypeCons, newValConstrs)
         end
 
-        (* When creating a structure we have to add a type map that will look up the bound Ids. *)
-        fun replaceSignature (Signatures{ name, tab, typeIdMap, firstBoundIndex, declaredAt, ... }) =
-        let
-            fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
+    (* When creating a structure we have to add a type map that will look up the bound Ids. *)
+    fun makeStructure state (name, rSig, locations, valu) =
+    let
+        local
+            val Signatures{ name = sigName, tab, typeIdMap, firstBoundIndex, locations=sigLocs, ... } = rSig
+            fun getFreeId n = searchType state (makeBoundId(0 (* ??? *), Global CodeZero, n, false, false, basisDescription ""))
         in
-            makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, getFreeId), [])
+            val newSig = makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(typeIdMap, getFreeId), [])
         end
-
-        val runTimeType = runTimeType debugEnviron
-
-        (* Lookup and "all" functions for the environment.  We can't easily use a general
-           function for the lookup because we have dynamic entries for values and structures
-           but not for type constructors. *)
-        fun lookupValues (EnvValue(name, ty, location) :: ntl, valu :: vl) s =
-                if name = s
-                then SOME(mkGvar(name, runTimeType ty, mkConst valu, location))
-                else lookupValues(ntl, vl) s
-
-        |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
-                if name = s
-                then SOME(mkGex(name, runTimeType ty, mkConst valu, location))
-                else lookupValues(ntl, vl) s
-
-        |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
-                if name = s
-                then SOME(makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location))
-                else lookupValues(ntl, vl) s
-
-        |  lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
-        
-        |  lookupValues (_ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
-
-        |  lookupValues _ _ =
-             (* The name we are looking for isn't in
-                the environment.
-                The lists should be the same length. *)
-             NONE
-
-        fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
-                (name, mkGvar(name, runTimeType ty, mkConst valu, location)) :: allValues(ntl, vl)
-
-         |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
-                (name, mkGex(name, runTimeType ty, mkConst valu, location)) :: allValues(ntl, vl)
-
-         |  allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
-                (name, makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location)) ::
-                    allValues(ntl, vl)
-
-         |  allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
-         |  allValues (_ :: ntl, _ :: vl) = allValues(ntl, vl)
-         |  allValues _ = []
-
-        fun lookupTypes (EnvTConstr (name, tcSet) :: ntl, vl) s =
-                if name = s
-                then SOME (copyTheTypeConstructor tcSet)
-                else lookupTypes(ntl, vl) s
-
-        |   lookupTypes (_ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-        |   lookupTypes _ _ = NONE
-
-        fun allTypes (EnvTConstr(name, tcSet) :: ntl, vl) =
-                (name, copyTheTypeConstructor tcSet) :: allTypes(ntl, vl)
-         |  allTypes (_ :: ntl, _ :: vl) = allTypes(ntl, vl)
-         |  allTypes _ = []
-
-        fun lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
-                if name = s
-                then SOME(makeGlobalStruct (name, replaceSignature rSig, mkConst valu, locations))
-                else lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvTConstr _ :: ntl, vl) s = lookupStructs(ntl, vl) s
-        |   lookupStructs (_ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
-        |   lookupStructs _ _ = NONE
-
-        fun allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
-                (name, makeGlobalStruct(name, replaceSignature rSig, mkConst valu, locations)) :: allStructs(ntl, vl)
-
-         |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-         |  allStructs (_ :: ntl, vl) = allStructs(ntl, vl)
-         |  allStructs _ = []
-
-        (* We have a full environment here for future expansion but at
-           the moment only some of the entries are used. *)
-        fun noLook _ = NONE
-        and noEnter _ = raise Fail "Cannot update this name space"
-        and allEmpty _ = []
-   in
-       {
-            lookupVal = lookupValues debugEnviron,
-            lookupType = lookupTypes debugEnviron,
-            lookupFix = noLook,
-            lookupStruct = lookupStructs debugEnviron,
-            lookupSig = noLook, lookupFunct = noLook, enterVal = noEnter,
-            enterType = noEnter, enterFix = noEnter, enterStruct = noEnter,
-            enterSig = noEnter, enterFunct = noEnter,
-            allVal = fn () => allValues debugEnviron,
-            allType = fn () => allTypes debugEnviron,
-            allFix = allEmpty,
-            allStruct = fn () => allStructs debugEnviron,
-            allSig = allEmpty,
-            allFunct = allEmpty }
-    end
-
-    (* debugFunction just looks at the static data. *)
-    fun debugFunction (cList, _, _) =
-    (
-        case List.find(fn (EnvStartFunction _) => true | _ => false) cList of
-            SOME(EnvStartFunction(s, _, _)) => SOME s
-        |   _ => NONE
-    )
-
-    and debugFunctionArg (cList, rList, _) =
-    let
-        val d = (cList, rList)
-        fun match (EnvStartFunction(_, _, ty), valu) =
-            SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
-        |   match _ = NONE
     in
-        searchEnvs match d
+        makeGlobalStruct (name, newSig, mkConst valu, locations)
     end
 
-    and debugFunctionResult (cList, rList, _) =
-    let
-        val d = (cList, rList)
-        fun match (EnvEndFunction(_, _, ty), valu) =
-            SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
-        |   match _ = NONE
+    local
+        fun runTimeType (state: debugState) ty =
+        let
+            fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
+            |   copyId id = SOME(searchType state id)
+        in
+                copyType (ty, fn x => x,
+                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+        end
+    
     in
-        searchEnvs match d
-    end
+        fun makeValue state (name, ty, location, valu) =
+            mkGvar(name, runTimeType state ty, mkConst valu, location)
+    
+        and makeException state (name, ty, location, valu) =
+            mkGex(name, runTimeType state ty, mkConst valu, location)
+   
+        and makeConstructor state (name, ty, nullary, count, location, valu) =
+                makeValueConstr(name, runTimeType state ty, nullary, count, Global(mkConst valu), location)
 
-    fun debugLocation (_, _, locn) = locn
+        and makeAnonymousValue state (ty, valu) =
+            makeValue state ("", ty, [], valu)
+    end
 
     (* Functions to make the debug entries.   These are needed both in CODEGEN_PARSETREE for
        the core language and STRUCTURES for the module language. *)
@@ -352,7 +267,7 @@ struct
                         codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
                     val newEnv =
                     (* Create a new entry in the environment. *)
-                          mkTuple [ loadVal (* Value. *), dynEnv level ]
+                          mkDatatype [ loadVal (* Value. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry =
                         case var of
@@ -381,7 +296,7 @@ struct
                 val id = tcIdentifier cons
                 val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
             in
-                if isTypeFunction (tcIdentifier(tsConstr tc))
+                if tcIsAbbreviation (tsConstr tc)
                 then foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv, lastLoc = lastLoc})
                 else
                 let
@@ -389,7 +304,7 @@ struct
                        associated with the type Id as the hd and the rest of the run-time
                        environment as the tl. *)                
                     val loadTypeId = TYPEIDCODE.codeId(id, level)
-                    val newEnv = mkTuple [ loadTypeId, dynEnv level ]
+                    val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     (* Make an entry for the type constructor itself as well as the new type id.
                        The type Id is used both for the type constructor and also for any values
@@ -412,7 +327,7 @@ struct
             fun loadStruct (str as Struct { name, signat, locations, ...}, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadStruct = codeStruct (str, level)
-                    val newEnv = mkTuple [ loadStruct (* Structure. *), dynEnv level ]
+                    val newEnv = mkDatatype [ loadStruct (* Structure. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry = EnvStructure(name, signat, locations)
                 in
@@ -442,7 +357,7 @@ struct
                         (* If we are processing functor arguments we will have a Formal here. *)
                         mkInd(addr, mkLoadArgument 0)
                     |   _ => TYPEIDCODE.codeId(id, level)
-                val newEnv = mkTuple [ loadTypeId, dynEnv level ]
+                val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val (decs, newEnv) =
                     foldIds(ids, {staticEnv=envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
@@ -484,7 +399,7 @@ struct
             
             fun addStartExitEntry({staticEnv, dynEnv, lastLoc, ...}, code, ty, startExit) =
             let
-                val newEnv = mkTuple [ code, dynEnv level ]
+                val newEnv = mkDatatype [ code, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val ctEntry = startExit(functionName, location, ty)
             in
@@ -524,7 +439,7 @@ struct
                debug status of the rest of the body. *)
             local
                 val {staticEnv, dynEnv, lastLoc, ...} = entryEnv
-                val newEnv = mkTuple [ argCode, dynEnv level ]
+                val newEnv = mkDatatype [ argCode, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val ctEntry = EnvStartFunction(functionName, location, argType)
             in

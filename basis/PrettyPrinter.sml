@@ -1,12 +1,11 @@
 (*
     Title:      Pretty Printer.
     Author:     David C. J. Matthews
-    Copyright (c) 2009, 2013
+    Copyright (c) 2009, 2013, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -106,13 +105,14 @@ struct
                 |   NONE => (* Doesn't fit - break line somewhere. *)
                     let
                         (* Lay out this block, breaking where necessary. *)
-                        fun doPrint([], left) = (* Finished: return what's left. *) left
+                        fun doPrint([], _, left) = (* Finished: return what's left. *) left
 
-                        |   doPrint([PrettyBreak _], left) =
+                        |   doPrint([PrettyBreak _], _, left) =
                                 left (* Ignore trailing breaks. *)
 
-                        |   doPrint(PrettyBreak (blanks, breakOffset) :: rest, left) =
+                        |   doPrint(PrettyBreak (blanks, breakIndent) :: rest, _, left) =
                             let
+                                val currentIndent = blockIndent+breakIndent
                                 (* Compute the space of the next item(s) up to the end or the
                                    next space.  Since we only break at spaces if there are
                                    Blocks or Strings without spaces between we need to know
@@ -129,40 +129,44 @@ struct
                                 then (* Either a consistent break or the next item won't fit. *)
                                 (
                                     stream "\n";
-                                    printBlanks(blockIndent+breakOffset);
-                                    doPrint(rest, lineWidth-blockIndent-breakOffset)
+                                    printBlanks currentIndent;
+                                    (* Carry the indent associated with this item forward so
+                                       that it is included in the block indentation if the next
+                                       item is a block.  If it is a string we have already
+                                       included it. *)
+                                    doPrint(rest, breakIndent, lineWidth-currentIndent)
                                 )
                                 else (* We don't need to break here. *)
                                 (
                                     printBlanks blanks;
-                                    doPrint(rest, left-blanks)
+                                    doPrint(rest, 0, left-blanks)
                                 )
                             end
  
-                        |   doPrint(PrettyString s :: rest, left) =
+                        |   doPrint(PrettyString s :: rest, _, left) =
                             (
                                 stream s;
-                                doPrint(rest, left-size s)
+                                doPrint(rest, 0, left-size s)
                             )
  
-                        |   doPrint(PrettyStringWithWidth(s, w) :: rest, left) =
+                        |   doPrint(PrettyStringWithWidth(s, w) :: rest, _, left) =
                             (
                                 stream s;
-                                doPrint(rest, left-w)
+                                doPrint(rest, 0, left-w)
                             )
 
-                        |   doPrint((b as PrettyBlock _) :: rest, left) =
-                                doPrint(rest, layOut(b, blockIndent, left))
+                        |   doPrint((b as PrettyBlock _) :: rest, breakIndent, left) =
+                                doPrint(rest, 0, layOut(b, blockIndent+breakIndent, left))
 
-                        |   doPrint(PrettyLineBreak :: rest, _) =
+                        |   doPrint(PrettyLineBreak :: rest, _, _) =
                             (
                                 stream "\n";
                                 printBlanks blockIndent;
-                                doPrint(rest, lineWidth-blockIndent)
+                                doPrint(rest, 0, lineWidth-blockIndent)
                             )
 
                         val () = beginContext context;
-                        val onLine = doPrint(entries, spaceLeft);
+                        val onLine = doPrint(entries, 0, spaceLeft);
                         val () = endContext context
                     in
                         onLine

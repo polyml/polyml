@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Check for weak references
 
-    Copyright (c) 2010, 2012 David C. J. Matthews
+    Copyright (c) 2010, 2012, 2015 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -9,8 +9,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -81,9 +80,8 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 // Deal with weak objects
 void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
 {
-    if (! OBJ_IS_WEAKREF_OBJECT(L)) return;
+    if (! OBJ_IS_WEAKREF_OBJECT(L) || OBJ_IS_BYTE_OBJECT(L)) return; // Ignore Weak-Byte cells.
     ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
-    ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
     // See if any of the SOME objects contain unreferenced refs.
     POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
     PolyWord *baseAddr = (PolyWord*)obj;
@@ -101,18 +99,29 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                 // set the contents of the SOME to TAGGED(0).
                 ASSERT(someObj->Length() == 1 && someObj->IsWordObject()); // Should be a SOME node.
                 PolyWord refAddress = someObj->Get(0);
-                LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
-                if (space != 0)
-                    // If the ref is permanent it's always there.
+                bool deleteRef = false;
+                if (refAddress.IsTagged())
+                    // If we have the same SOME cell referenced in two different places
+                    // we will have overwritten the address with TAGGED(0) "For safety".
+                    // We still need to overwrite the new reference to the SOME cell.
+                    deleteRef = true; // We've overwritten it.
+                else
                 {
-                    POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
-                    if (! space->bitmap.TestBit(new_bitno))
+                    // Usual case: the contents of the SOME cell is the address of a ref.
+                    LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
+                    if (space != 0) // If the ref is permanent it's always there.
                     {
+                        POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
                         // It wasn't marked so it's otherwise unreferenced.
-                        baseAddr[i] = TAGGED(0); // Set it to NONE.
-                        someObj->Set(0, TAGGED(0)); // For safety.
-                        convertedWeak = true;
+                        if (! space->bitmap.TestBit(new_bitno)) deleteRef = true;
                     }
+                }
+                if (deleteRef)
+                {
+                        
+                    baseAddr[i] = TAGGED(0); // Set it to NONE.
+                    someObj->Set(0, TAGGED(0)); // For safety.
+                    convertedWeak = true;
                 }
             }
         }

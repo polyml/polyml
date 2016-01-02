@@ -1,12 +1,11 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2015 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -57,7 +56,17 @@
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-12 CUTS, David C.J. Matthews and contributors.";
+"Copyright (c) 2002-15 CUTS, David C.J. Matthews and contributors.";
+
+#define Str(x) #x
+#define Xstr(x) Str(x)
+
+#ifdef GIT_VERSION
+#define GitVersion             Xstr(GIT_VERSION)
+#else
+#define GitVersion             ""
+#endif
+
 
 // Property bits for functions.  For compiled functions these are
 // stored in the register mask word.  None of the architectures has
@@ -159,7 +168,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_Div_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Abs_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Neg_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Repr_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_conv_real: return PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_real_to_int: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -176,7 +184,26 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_get_first_long_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_poly_specific: return 0;
     case POLY_SYS_bytevec_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_load_8: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_16: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_32: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_float: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_double: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_8: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_16: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_32: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#if (SIZEOF_VOIDP == 8)
+    case POLY_SYS_cmem_load_64: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_64: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#else
+        // These aren't implemented in 32-bit mode.
+    case POLY_SYS_cmem_load_64: return 0;
+    case POLY_SYS_cmem_store_64: return 0;
+#endif
+    case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;
     case POLY_SYS_move_words: return PROPWORD_NORAISE;
     case POLY_SYS_move_words_overlap: return PROPWORD_NORAISE;
@@ -196,9 +223,8 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_word_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_int_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_int_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -306,6 +332,11 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 3:
         return exportPortable(taskData, args); // Export as portable format
 
+    case 9: // Return the GIT version if appropriate
+        {
+             return SAVE(C_string_to_Poly(taskData, GitVersion));
+        }
+
     case 10: // Return the RTS version string.
         {
             const char *version;
@@ -361,7 +392,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return SaveState(taskData, args);
 
     case 21: // Load a saved state file and any ancestors.
-        return LoadState(taskData, args);
+        return LoadState(taskData, false, args);
 
     case 22: // Show the hierarchy.
         return ShowHierarchy(taskData);
@@ -394,6 +425,51 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
         return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, DEREFHANDLE(args)));
+
+    case 31: // Store a module
+        return StoreModule(taskData, args);
+
+    case 32: // Load a module
+        return LoadModule(taskData, args);
+
+    case 33: // Load hierarchy.  This provides a complete list of children and parents.
+        return LoadState(taskData, true, args);
+
+    case 34: // Return the system directory for modules.  This is configured differently
+        // in Unix and in Windows.
+#if (defined(MODULEDIR))
+    return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
+#elif (defined(_WIN32) && ! defined(__CYGWIN__))
+        {
+            // This registry key is configured when Poly/ML is installed using the installer.
+            // It gives the path to the Poly/ML installation directory.  We return the
+            // Modules subdirectory.
+            HKEY hk;
+            if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                    _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
+                    KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
+            {
+                DWORD valSize;
+                if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)
+                {
+#define MODULEDIR _T("Modules")
+                    TempString buff((TCHAR*)malloc(valSize + (_tcslen(MODULEDIR) + 1)*sizeof(TCHAR)));
+                    DWORD dwType;
+                    if (RegQueryValueEx(hk, _T("Path"), 0, &dwType, (LPBYTE)(LPTSTR)buff, &valSize) == ERROR_SUCCESS)
+                    {
+                        RegCloseKey(hk);
+                        // The registry entry should end with a backslash.
+                        _tcscat(buff, MODULEDIR);
+                        return SAVE(C_string_to_Poly(taskData, buff));
+                    }
+                }
+                RegCloseKey(hk);
+            }
+            return SAVE(C_string_to_Poly(taskData, ""));
+        }
+#else
+        return SAVE(C_string_to_Poly(taskData, ""));
+#endif
 
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));

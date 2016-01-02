@@ -4,12 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2008-2014.
+    Further development Copyright David C.J. Matthews 2008-2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -81,7 +80,7 @@ extern "C" {
 #include <malloc.h>
 #endif
 
-#ifdef HAVE_TCHAR_H
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <tchar.h>
 #else
 typedef char TCHAR;
@@ -720,7 +719,12 @@ static Handle load_lib (TaskData *taskData, Handle string)
     TCHAR name[500];
     
     Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
+
+#if (defined(_WIN32) && defined(UNICODE))
+    info(("<%S>\n", name));
+#else
     info(("<%s>\n", name));
+#endif
     // If the name is the null string use the current executable.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     HINSTANCE lib;
@@ -729,7 +733,11 @@ static Handle load_lib (TaskData *taskData, Handle string)
     if (lib == NULL) 
     {
         char buf[256];
+#if (defined(_WIN32) && defined(UNICODE))
+        sprintf(buf, "load_lib <%S> : %lu", name, GetLastError());
+#else
         sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
+#endif
         RAISE_EXN(buf);
     }
 
@@ -761,9 +769,9 @@ static Handle load_lib (TaskData *taskData, Handle string)
 
 static Handle load_sym (TaskData *taskData, Handle h)
 {
-    TCHAR name[500];
+    char name[500];
     
-    Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name)/sizeof(TCHAR));
+    Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name));
     info(("<%s>\n", name));
     
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -772,7 +780,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
     if (sym == NULL) 
     {
         char buf[256];
-        sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
+        sprintf(buf, "load_sym <%s> : %lu", name, GetLastError());
         RAISE_EXN(buf);
     }
 
@@ -965,7 +973,7 @@ static Handle fromCchar (TaskData *taskData, Handle h)
 {
     char c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
     mes(("<%c>\n", c));
-    return SAVE(Buffer_to_Poly(taskData, &c,1));
+    return SAVE(C_string_to_Poly(taskData, &c,1));
 }
 
 
@@ -1111,10 +1119,6 @@ static Handle fromCuint (TaskData *taskData, Handle h)
  *  String Conversion
  *   
  **********************************************************************/
-
-#define PSTRING_LENGTH(pstr) \
-    (IS_INT((pstr)) ? 1 : (pstr)->length)
-
 static Handle fillCstring (TaskData *taskData, Handle h)
 { TRACE; {
     POLYUNSIGNED size;
@@ -1196,7 +1200,7 @@ static Handle fromCbytes (TaskData *taskData, Handle h)
     char* str = *(char**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0));
     size_t size = get_C_long(taskData, DEREFHANDLE(h)->Get(1));
     if (str == NULL) return SAVE(EmptyString());
-    else return SAVE(Buffer_to_Poly(taskData, str, size));
+    else return SAVE(C_string_to_Poly(taskData, str, size));
 }}
 
 
@@ -1535,9 +1539,7 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 
     // Callbacks previously involved forking a new ML process.  They are
     // now handled on the caller's stack.
-    taskData->SetCallbackFunction(h, mlArgs);
-
-    Handle resultHandle = taskData->EnterPolyCode();
+    Handle resultHandle = taskData->EnterCallbackFunction(h, mlArgs);
 
     PolyWord resultWord = UNHANDLE(resultHandle);
     taskData->saveVec.reset(mark);

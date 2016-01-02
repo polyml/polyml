@@ -1,12 +1,11 @@
 /* Example code for a C-library accessible from ML
    using the CInterface structure.
 
-   Copyright David C.J. Matthews 1999, 2009
+   Copyright David C.J. Matthews 1999, 2009, 2015
 
 	This library is free software; you can redistribute it and/or
 	modify it under the terms of the GNU Lesser General Public
-	License as published by the Free Software Foundation; either
-	version 2.1 of the License, or (at your option) any later version.
+	License version 2.1 as published by the Free Software Foundation.
 	
 	This library is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -100,3 +99,21 @@ void FreeIt(void *p)
     free(p);
 }
 
+/* Test for call-by-reference.  Added in updated FFI. */
+void UpdateArg(int i, int *p)
+{
+    *p += i;
+}
+
+/* Test for returning a function.  Added in updated FFI. */
+static int acallBack(int q)
+{
+    return q * 2;
+}
+
+typedef int (*CB)(int);
+
+void ReturnFn(CB *v)
+{
+    *v = acallBack;
+}

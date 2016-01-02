@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -40,67 +39,52 @@ structure Path :
   end =
 struct
     local
-        open CInterface Base
-
-        fun callgdi name = call_sym (load_sym (load_lib "gdi32.DLL") name)
-
-        fun gdicall_IW name CR (C1,C2) (a1) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = address (alloc 1 ctype2)
-                val res = callgdi name [(ctype1,va1),(Cpointer ctype2,va2)] ctypeR
-                val _: unit = fromR res
-            in  (from2 (deref va2))
-            end
-        fun gdicall_IIW name CR (C1,C2,C3) (a1,a2) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (from3,to3,ctype3) = breakConversion C3
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = to2 a2
-                val va3 = address (alloc 1 ctype3)
-                val res = callgdi name [(ctype1,va1),(ctype2,va2),(Cpointer ctype3,va3)] ctypeR
-                val _ : unit = fromR res
-            in  (from3 (deref va3))
-            end
+        open Foreign Base
     in
         type HDC = HDC and POINT = POINT and HRGN = HRGN
         datatype PointType = datatype Line.PointType
 
         (* PATHS *)
-        val AbortPath                  = call1(gdi "AbortPath") (HDC) (SUCCESSSTATE "AbortPath")
-        val BeginPath                  = call1(gdi "BeginPath") (HDC) (SUCCESSSTATE "BeginPath")
-        val CloseFigure                = call1(gdi "CloseFigure") (HDC) (SUCCESSSTATE "CloseFigure")
-        val EndPath                    = call1(gdi "EndPath") (HDC) (SUCCESSSTATE "EndPath")
-        val FillPath                   = call1(gdi "FillPath") (HDC) (SUCCESSSTATE "FillPath")
-        val FlattenPath                = call1(gdi "FlattenPath") (HDC) (SUCCESSSTATE "FlattenPath")
-        val GetMiterLimit              = gdicall_IW "GetMiterLimit" (SUCCESSSTATE "GetMiterLimit") (HDC,FLOAT)
-        val PathToRegion               = call1(gdi "PathToRegion") (HDC) HRGN
-        val SetMiterLimit              = gdicall_IIW "SetMiterLimit" (SUCCESSSTATE "SetMiterLimit") (HDC,FLOAT,FLOAT)
-        val StrokeAndFillPath          = call1(gdi "StrokeAndFillPath") (HDC) (SUCCESSSTATE "StrokeAndFillPath")
-        val StrokePath                 = call1(gdi "StrokePath") (HDC) (SUCCESSSTATE "StrokePath")
-        val WidenPath                  = call1(gdi "WidenPath") (HDC) (SUCCESSSTATE "WidenPath")
-
-        fun GetPath h =
-        let
-            val gpCall = call4 (gdi "GetPath") (HDC, POINTER, POINTER, INT) INT
-            val null = toCint 0
-            (* Passing 0 as the size will retrieve the number of points. *)
-            val count = gpCall(h, null, null, 0)
-            val _ = checkResult(count >= 0)
-
-            val (fromPt, _, ptStruct) = breakConversion POINT
-            val (fromTy, _, _) = breakConversion GdiBase.POINTTYPE
-            val ptarr = alloc count ptStruct
-            val farr =  alloc count Cchar
-            val res = gpCall(h, address ptarr, address farr, count)
-            fun getElement(n:int): PointType * POINT =
-                (fromTy(deref(offset n Cchar farr)), fromPt(deref(offset n ptStruct ptarr)))
+        val AbortPath                  = winCall1(gdi "AbortPath") (cHDC) (successState "AbortPath")
+        val BeginPath                  = winCall1(gdi "BeginPath") (cHDC) (successState "BeginPath")
+        val CloseFigure                = winCall1(gdi "CloseFigure") (cHDC) (successState "CloseFigure")
+        val EndPath                    = winCall1(gdi "EndPath") (cHDC) (successState "EndPath")
+        val FillPath                   = winCall1(gdi "FillPath") (cHDC) (successState "FillPath")
+        val FlattenPath                = winCall1(gdi "FlattenPath") (cHDC) (successState "FlattenPath")
+        val PathToRegion               = winCall1(gdi "PathToRegion") (cHDC) cHRGN
+        val StrokeAndFillPath          = winCall1(gdi "StrokeAndFillPath") (cHDC) (successState "StrokeAndFillPath")
+        val StrokePath                 = winCall1(gdi "StrokePath") (cHDC) (successState "StrokePath")
+        val WidenPath                  = winCall1(gdi "WidenPath") (cHDC) (successState "WidenPath")
+        
+        local
+            val getMiterLimit = winCall2(gdi "GetMiterLimit") (cHDC, cStar cFloat) (successState "GetMiterLimit")
+            and setMiterLimit = winCall3(gdi "SetMiterLimit") (cHDC, cFloat, cStar cFloat) (successState "SetMiterLimit")
         in
-            List.tabulate(count, getElement) 
+            fun GetMiterLimit hdc = let val v = ref 0.0 in getMiterLimit(hdc, v); !v end
+            and SetMiterLimit(hdc, m) = let val v = ref 0.0 in setMiterLimit(hdc, m, v); !v end
+        end
+
+        local
+            val getPath = winCall4 (gdi "GetPath") (cHDC, cPointer, cPointer, cInt) cInt
+            val {load=fromPt, ctype={size=sizePt, ...}, ...} = breakConversion cPoint
+            val {load=fromTy, ...} = breakConversion GdiBase.cPOINTTYPE
+        in
+            fun GetPath h =
+            let
+                open Memory
+                infix 6 ++
+                (* Passing 0 as the size will retrieve the number of points. *)
+                val count = getPath(h, null, null, 0)
+                val _ = checkResult(count >= 0)
+
+                val ptarr = malloc(Word.fromInt count * sizePt)
+                val farr =  malloc(Word.fromInt count)
+                val _ = getPath(h, ptarr, farr, count) handle ex => (free ptarr; free farr; raise ex)
+                fun getElement n =
+                    (fromTy(farr ++ Word.fromInt n), fromPt(ptarr ++ Word.fromInt n * sizePt))
+            in
+                List.tabulate(count, getElement) before (free ptarr; free farr)
+            end
         end
 
     end

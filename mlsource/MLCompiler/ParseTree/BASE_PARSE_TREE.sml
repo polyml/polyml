@@ -165,7 +165,7 @@ struct
     |   Directive           of
             (* Directives are infix, infixr and nonfix. They are processed by the
                parser itself and only appear in the parse tree for completeness. *)
-            { tlist: string list, fix: fixStatus, location: location } 
+            { tlist: string list, fix: infixity, location: location } 
 
     |   ExDeclaration       of exbind list * location
 
@@ -314,7 +314,7 @@ struct
         and  typeVarForm = typeVarForm
         and  typeConstrSet = typeConstrSet
         and  values = values
-        and  fixStatus = fixStatus
+        and  infixity = infixity
         and  structVals = structVals
         and  typeParsetree = typeParsetree
         and  parsetree = parsetree

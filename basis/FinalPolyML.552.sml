@@ -710,7 +710,7 @@ local
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
-                            LibrarySupport.reraise exn
+                            PolyML.Exception.reraise exn
                         end
                 end
             end; (* readEvalPrint *)
@@ -801,7 +801,7 @@ local
                 topLevel
                     { isDebug = true, nameSpace = compositeNameSpace, exitLoop = fn _ => ! exitLoop,
                       exitOnError = false, isInteractive = true }
-                    handle exn => (alreadyInDebug := false; LibrarySupport.reraise exn);
+                    handle exn => (alreadyInDebug := false; PolyML.Exception.reraise exn);
 
                 alreadyInDebug := false;
 
@@ -970,14 +970,14 @@ local
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                 handle exn =>
-                    ( TextIO.StreamIO.closeIn(!stream); LibrarySupport.reraise exn )
+                    ( TextIO.StreamIO.closeIn(!stream); PolyML.Exception.reraise exn )
         in
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.StreamIO.closeIn (! stream);
-                LibrarySupport.reraise exn
+                PolyML.Exception.reraise exn
             )
         end;
         (* Normal termination: close the stream. *)
@@ -1011,51 +1011,57 @@ local
 
     fun longName (directory, file) = OS.Path.joinDirFile{dir=directory, file = file}
     
-    fun fileReadable (fileTuple as (directory, object)) =
-        (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-        if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
-        then false
-        else
+    local
+        fun fileReadable (fileTuple as (directory, object)) =
+            (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
+            if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
+            then false
+            else
+            let
+                (* Check that the object is present in the directory with the name
+                 given and not a case-insensitive version of it.  This avoids
+                 problems with "make" attempting to recursively make Array etc
+                 because they contain signatures ARRAY. *)
+                open OS.FileSys
+                val d = openDir (if directory = "" then "." else directory)
+                fun searchDir () =
+                  case readDir d of
+                     NONE => false
+                  |  SOME f => f = object orelse searchDir ()
+                val present = searchDir()
+            in
+                closeDir d;
+                present
+            end
+    
+        fun findFileTuple _                   [] = NONE
+        |   findFileTuple (directory, object) (suffix :: suffixes) =
         let
-            (* Check that the object is present in the directory with the name
-             given and not a case-insensitive version of it.  This avoids
-             problems with "make" attempting to recursively make Array etc
-             because they contain signatures ARRAY. *)
-            open OS.FileSys
-            val d = openDir (if directory = "" then "." else directory)
-            fun searchDir () =
-              case readDir d of
-                 NONE => false
-              |  SOME f => f = object orelse searchDir ()
-            val present = searchDir()
+            val fileName  = object ^ suffix
+            val fileTuple = (directory, fileName)
         in
-            closeDir d;
-            present
+            if fileReadable fileTuple
+            then SOME fileTuple
+            else findFileTuple (directory, object) suffixes
         end
     
-    fun findFileTuple _                   [] = NONE
-    |   findFileTuple (directory, object) (suffix :: suffixes) =
-    let
-        val fileName  = object ^ suffix
-        val fileTuple = (directory, fileName)
     in
-        if fileReadable fileTuple
-        then SOME fileTuple
-        else findFileTuple (directory, object) suffixes
-    end;
-    
-    fun filePresent (directory : string, object : string) =
-    let
-        (* Construct suffixes with the architecture and version number in so
-           we can compile architecture- and version-specific code. *)
-        val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
-        val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
-        val extraSuffixes = [archSuffix, versionSuffix, "" ]
-        val addedSuffixes =
-            List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
-    in
-        (* For each of the suffixes in the list try it. *)
-        findFileTuple (directory, object) addedSuffixes
+        fun filePresent (directory : string, kind: string option, object : string) =
+        let
+            (* Construct suffixes with the architecture and version number in so
+               we can compile architecture- and version-specific code. *)
+            val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
+            val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
+            val extraSuffixes =
+                case kind of
+                    NONE => [archSuffix, versionSuffix, ""]
+                |   SOME k => ["." ^ k ^ archSuffix, "." ^ k ^ versionSuffix, "." ^ k, archSuffix, versionSuffix, ""]
+            val addedSuffixes =
+                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+        in
+            (* For each of the suffixes in the list try it. *)
+            findFileTuple (directory, object) addedSuffixes
+        end
     end
     
     (* See if the corresponding file is there and if it is a directory. *)
@@ -1118,18 +1124,18 @@ local
            directory by compiling the "bind" file. This will only actually be
            executed if it involves some identifier which is newer than the
            result object. *)
-        fun remakeObj (objName: string) (findDirectory: string -> string) =
+        fun remakeObj (objName: string, kind: string option, findDirectory: string option -> string -> string) =
         let
         (* Find a directory that contains this object. An exception will be
              raised if it is not there. *)
-            val directory = findDirectory objName;
+            val directory = findDirectory kind objName
             val fullName  =
                 if directory = "" (* Work around for bug. *)
                 then objName
-                else OS.Path.joinDirFile{dir=directory, file=objName};
+                else OS.Path.joinDirFile{dir=directory, file=objName}
 
-            val objIsDir  = testForDirectory fullName;
-            val here      = fullName;
+            val objIsDir  = testForDirectory fullName
+            val here      = fullName
       
             (* Look to see if the file exists, possibly with an extension,
                and get the extended version. *)
@@ -1141,26 +1147,26 @@ local
                         then (here,"ml_bind")
                         else (directory, objName);
                 in
-                    case filePresent (dir, file) of
+                    case filePresent (dir, kind, file) of
                         SOME res' => res'
                     |   NONE      => raise Fail ("No such file or directory ("^file^","^dir^")")
                 end ;
             
             val fileName = longName fileTuple;
 
-            val newFindDirectory : string -> string =
+            val newFindDirectory : string option -> string -> string =
                 if objIsDir
                 then
                 let
                     (* Look in this directory then in the ones above. *)
-                    fun findDirectoryHere (name: string) : string =
-                        case filePresent (here, name) of
-                          NONE => findDirectory name (* not in this directory *)
+                    fun findDirectoryHere kind (name: string) : string =
+                        case filePresent (here, kind, name) of
+                          NONE => findDirectory kind name (* not in this directory *)
                         | _    => here;
                 in
                     findDirectoryHere
                 end
-                else findDirectory;
+                else findDirectory
     
             (* Compiles a file. *)
             fun remakeCurrentObj () =
@@ -1176,7 +1182,7 @@ local
                         else ();
                     
                     (* Called by the compiler to look-up a global identifier. *)
-                    fun lookupMakeEnv globalLook (name: string) : 'a option =
+                    fun lookupMakeEnv (globalLook, kind: string option) (name: string) : 'a option =
                     let
                         (* Have we re-declared it ? *)
                         val res = lookupStatus name;
@@ -1185,7 +1191,7 @@ local
                             NotProcessed  =>
                             (
                                 (* Compile the dependency. *)
-                                remakeObj name newFindDirectory;
+                                remakeObj (name, kind, newFindDirectory);
                                 (* Add this to the dependencies. *)
                                 addDep name
                             )
@@ -1198,9 +1204,9 @@ local
                         (* There was previously a comment about returning NONE here if
                            we had a problem remaking a dependency. *)
                         globalLook name
-                    end; (* lookupMakeEnv *)
+                    end (* lookupMakeEnv *)
 
-                     (* Enter the declared value in the table. Usually this will be the
+                    (* Enter the declared value in the table. Usually this will be the
                         target we are making. Also set the state to "Checked". The
                         state is set to checked when we finish making the object but
                         setting it now suppresses messages about circular dependencies
@@ -1245,9 +1251,9 @@ local
                             lookupFix    = #lookupFix globalNameSpace,
                             lookupVal    = #lookupVal globalNameSpace,
                             lookupType   = #lookupType globalNameSpace,
-                            lookupSig    = lookupMakeEnv (#lookupSig globalNameSpace),
-                            lookupStruct = lookupMakeEnv (#lookupStruct globalNameSpace),
-                            lookupFunct  = lookupMakeEnv (#lookupFunct globalNameSpace),
+                            lookupSig    = lookupMakeEnv (#lookupSig globalNameSpace, SOME "signature"),
+                            lookupStruct = lookupMakeEnv (#lookupStruct globalNameSpace, SOME "structure"),
+                            lookupFunct  = lookupMakeEnv (#lookupFunct globalNameSpace, SOME "functor"),
                             enterFix     = #enterFix globalNameSpace,
                             enterVal     = #enterVal globalNameSpace,
                             enterType    = #enterType globalNameSpace,
@@ -1284,18 +1290,18 @@ local
                             [CPNameSpace makeEnv, CPFileName fileName, CPLineNo(fn () => !lineNo)])
                     in
                         code ()
-                            handle exn as Fail _ => LibrarySupport.reraise exn
+                            handle exn as Fail _ => PolyML.Exception.reraise exn
                             |  exn =>
                             (
                                 print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                                LibrarySupport.reraise exn
+                                PolyML.Exception.reraise exn
                             )
                     end
                 end (* body of scope of inStream *)
                     handle exn => (* close inStream if an error occurs *)
                     (
                         TextIO.closeIn inStream;
-                        LibrarySupport.reraise exn
+                        PolyML.Exception.reraise exn
                     )
             in (* remake normal termination *)
                 TextIO.closeIn inStream 
@@ -1321,7 +1327,7 @@ local
                 case lookupStatus s of
                     NotProcessed => (* see if it's a file. *)
                         (* Compile the dependency. *)
-                        remakeObj s newFindDirectory
+                        remakeObj(s, kind, newFindDirectory)
                     
                     | Searching => (* In the process of making it *)
                         print ("Circular dependency: " ^ s ^ " depends on itself\n")
@@ -1372,7 +1378,7 @@ local
                 )
     in (*  body of make *)
         (* Check that the target exists. *)
-        case filePresent (dirName, objectName) of
+        case filePresent (dirName, NONE, objectName) of
             NONE =>
             let
                 val dir =
@@ -1392,17 +1398,17 @@ local
                must be in the directory. If it is a file we allow references
                to other objects in the same directory. Objects not found must
                be pervasive. *)
-            fun findDirectory (s: string) : string =
+            fun findDirectory kind (s: string) : string =
                 if (not targetIsDir orelse s = objectName) andalso
-                    isSome(filePresent(dirName,  s))
+                    isSome(filePresent(dirName, kind, s))
                 then dirName
                 else raise ObjNotFile;
         in
-            remakeObj objectName findDirectory
+            remakeObj (objectName, NONE, findDirectory)
                 handle exn  => 
                 (
                     print (targetName ^ " was not declared\n");
-                    LibrarySupport.reraise exn
+                    PolyML.Exception.reraise exn
                 )
         end
     end (* make *)
@@ -1639,7 +1645,7 @@ in
                 
                     TextIO.flushOut TextIO.stdOut;
                     (* Reraise the exception. *)
-                    LibrarySupport.reraise exn
+                    PolyML.Exception.reraise exn
                 end
             in
                 fun exception_trace f = traceException(f, printTrace)
@@ -1648,5 +1654,120 @@ in
         
         (* Include it in the PolyML structure for backwards compatibility. *)
         val exception_trace = Exception.exception_trace
+
+        (* Saving and loading state. *)
+        structure SaveState =
+        struct
+            local
+                val getOS: int =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
+                fun loadMod (args: string): Universal.universal list =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
+                and systemDir(): string =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (34, ())
+            in
+                fun loadModuleBasic (fileName: string): Universal.universal list =
+                (* If there is a path separator use the name and don't search further. *)
+                if OS.Path.dir fileName <> ""
+                then loadMod fileName
+                else
+                let
+                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
+                    val sepInPathList = if getOS = 1 then #";" else #":"
+                    val pathList =
+                        case OS.Process.getEnv "POLYMODPATH" of
+                            NONE => []
+                        |   SOME s => String.fields (fn ch => ch = sepInPathList) s
+
+                    fun findFile [] = NONE
+                    |   findFile (hd::tl) =
+                        (* Try actually loading the file.  That way we really check we have a module. *)
+                        SOME(loadMod (OS.Path.joinDirFile{dir=hd, file=fileName}))
+                            handle Fail _ => findFile tl | OS.SysErr _ => findFile tl      
+                in
+                    case findFile pathList of
+                        SOME l => l (* Found *)
+                    |   NONE => 
+                        let
+                            val sysDir = systemDir()
+                            val inSysDir =
+                                if sysDir = "" then NONE else findFile[sysDir]
+                        in
+                            case inSysDir of
+                                SOME l => l
+                            |   NONE => raise Fail("Unable to find module ``" ^ fileName ^ "''")
+                        end
+                end
+            end
+            fun saveChild(f: string, depth: int): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+            fun saveState f = saveChild (f, 0);
+            fun showHierarchy(): string list =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+            fun renameParent{ child: string, newParent: string }: unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+            fun showParent(child: string): string option =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+
+            fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+            and loadHierarchy (s: string list): unit =
+                (* Load hierarchy takes a list of file names in order with the parents
+                   before the children.  It's easier for the RTS if this is reversed. *)
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (33, List.rev s)
+
+            (* Module loading and storing. *)
+            structure Tags =
+            struct
+                val structureTag: (string * PolyML.NameSpace.structureVal) Universal.tag = Universal.tag()
+                val functorTag: (string * PolyML.NameSpace.functorVal) Universal.tag = Universal.tag()
+                val signatureTag: (string * PolyML.NameSpace.signatureVal) Universal.tag = Universal.tag()
+                val valueTag: (string * PolyML.NameSpace.valueVal) Universal.tag = Universal.tag()
+                val typeTag: (string * PolyML.NameSpace.typeVal) Universal.tag = Universal.tag()
+                val fixityTag: (string * PolyML.NameSpace.fixityVal) Universal.tag = Universal.tag()
+                val startupTag: (unit -> unit) Universal.tag = Universal.tag()
+            end
+            
+            val saveModuleBasic: string * Universal.universal list -> unit =
+                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+            
+            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            let
+                fun dolookup (look, tag, kind) s =
+                    case look globalNameSpace s of
+                        SOME v => Universal.tagInject tag (s, v)
+                    |   NONE => raise Fail (concat[kind, " ", s, " has not been declared"])
+                val structVals = map (dolookup(#lookupStruct, Tags.structureTag, "Structure")) structs
+                val functorVals = map (dolookup(#lookupFunct, Tags.functorTag, "Functor")) functors
+                val sigVals = map (dolookup(#lookupSig, Tags.signatureTag, "Signature")) sigs
+                val startVal =
+                    case onStartup of
+                        SOME f => [Universal.tagInject Tags.startupTag f]
+                    |   NONE => []
+            in
+                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+            end
+            
+            fun loadModule s =
+            let
+                val ulist = loadModuleBasic s
+                (* Find and run the start-up function.  If it raises an exception we
+                   don't go further. *)
+                val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
+                val () =
+                    case startFn of SOME f => (Universal.tagProject Tags.startupTag f) () | NONE => ()
+                (* Enter the items into the name space. *)
+                fun addItems (tag, enter) (hd :: tl) =
+                    (if Universal.tagIs tag hd
+                    then enter globalNameSpace (Universal.tagProject tag hd) else (); addItems (tag, enter)  tl)
+                |   addItems _ _ = ()
+            in
+                addItems(Tags.structureTag, #enterStruct) ulist;
+                addItems(Tags.signatureTag, #enterSig) ulist;
+                addItems(Tags.functorTag, #enterFunct) ulist;
+                addItems(Tags.valueTag, #enterVal) ulist;
+                addItems(Tags.typeTag, #enterType) ulist;
+                addItems(Tags.fixityTag, #enterFix) ulist
+            end
+        end
     end
 end (* PolyML. *);

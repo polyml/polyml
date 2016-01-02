@@ -18,12 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-
-structure Debug =
-
-(*****************************************************************************)
-(*                  Body of DEBUG                                            *)
-(*****************************************************************************)
+structure Debug: DEBUGSIG =
 struct
     local
         open Universal
@@ -34,11 +29,9 @@ struct
         val offsetTag: (unit->int) tag               = tag()
         (* File name. *)
         val fileNameTag: string tag                  = tag()
+        (* Binding counter *)
+        val bindingCounterTag: (unit->int) tag       = tag()
 
-        (* Print times for compilation and execution: default false. *)
-        val timingTag: bool tag                      = tag()
-        (* Profile executed code?  default 0. *)
-        val profilingTag: int tag                    = tag()
         (* How much to print in error messages?  default 6 *)
         val errorDepthTag: int tag                   = tag()
         (* Control print depth in PolyML.print. *)
@@ -78,13 +71,17 @@ struct
         val reportExhaustiveHandlersTag: bool tag    = tag()
         (* Use a narrow context to resolve overloading and flexible records. *)
         val narrowOverloadFlexRecordTag: bool tag    = tag()
-        (* Create print functions for datatypes based on the sconstructors. *)
+        (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
+        (* Warning level for discarding values *)
+        val reportDiscardedValuesTag: int tag           = tag()
+        val reportDiscardNone     = 0 (* No reports *)
+        and reportDiscardFunction = 1 (* Only report discarded functions *)
+        and reportDiscardNonUnit  = 2 (* Report discarding any non unit values *)
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
         (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
-           Debugger.debuggerFunTag: Debugger.debugger tag
            Pretty.printOutputTag: (pretty->unit) tag
            Pretty.compilerOutputTag: (pretty->unit) tag
            Lex.errorMessageProcTag: (pretty * bool * int -> unit) tag
@@ -97,6 +94,7 @@ struct
             tagInject lineNumberTag (fn () => 0), (* Zero line number *)
             tagInject offsetTag (fn () => 0), (* Zero offset *)
             tagInject fileNameTag "",
+            tagInject bindingCounterTag (fn () => 0), (* Zero counter *)
             tagInject inlineFunctorsTag true,
             tagInject maxInlineSizeTag 80,
             tagInject profileAllocationTag 0,
@@ -106,8 +104,6 @@ struct
             tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,
-            tagInject timingTag false,
-            tagInject profilingTag 0,
             tagInject errorDepthTag 6,
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
@@ -116,7 +112,8 @@ struct
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
-            tagInject createPrintFunctionsTag true
+            tagInject createPrintFunctionsTag true,
+            tagInject reportDiscardedValuesTag reportDiscardFunction
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

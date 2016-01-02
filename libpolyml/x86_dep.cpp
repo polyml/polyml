@@ -82,6 +82,7 @@
 #include "os_specific.h"
 #include "poly_specific.h"
 #include "timing.h"
+#include "polyffi.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -241,7 +242,6 @@ public:
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
     virtual void SetException(poly_exn *exc);
-    virtual Handle CallBackResult() { return callBackResult; } 
     virtual int  GetIOFunctionRegisterMask(int ioCall);
 
     // Increment or decrement the first word of the object pointed to by the
@@ -263,7 +263,7 @@ public:
 
     void SetExceptionTrace(void);
     void CallCodeTupled();
-    virtual void SetCallbackFunction(Handle func, Handle args);
+    virtual Handle EnterCallbackFunction(Handle func, Handle args);
 
     int SwitchToPoly();
 
@@ -374,45 +374,6 @@ extern "C" {
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 
-    extern int X86AsmCallPOLY_SYS_exit(void);
-    extern int X86AsmCallPOLY_SYS_chdir(void);
-    extern int X86AsmCallPOLY_SYS_get_flags(void);
-    extern int X86AsmCallPOLY_SYS_exception_trace(void);
-    extern int X86AsmCallPOLY_SYS_exception_trace_fn(void);
-    extern int X86AsmCallPOLY_SYS_profiler(void);
-    extern int X86AsmCallPOLY_SYS_Real_str(void);
-    extern int X86AsmCallPOLY_SYS_Real_Dispatch(void);
-    extern int X86AsmCallPOLY_SYS_Repr_real(void);
-    extern int X86AsmCallPOLY_SYS_conv_real(void);
-    extern int X86AsmCallPOLY_SYS_real_to_int(void);
-    extern int X86AsmCallPOLY_SYS_sqrt_real(void);
-    extern int X86AsmCallPOLY_SYS_sin_real(void);
-    extern int X86AsmCallPOLY_SYS_cos_real(void);
-    extern int X86AsmCallPOLY_SYS_arctan_real(void);
-    extern int X86AsmCallPOLY_SYS_exp_real(void);
-    extern int X86AsmCallPOLY_SYS_ln_real(void);
-    extern int X86AsmCallPOLY_SYS_io_operation(void);
-    extern int X86AsmCallPOLY_SYS_thread_dispatch(void);
-    extern int X86AsmCallPOLY_SYS_kill_self(void);
-    extern int X86AsmCallPOLY_SYS_objsize(void);
-    extern int X86AsmCallPOLY_SYS_showsize(void);
-    extern int X86AsmCallPOLY_SYS_timing_dispatch(void);
-    extern int X86AsmCallPOLY_SYS_XWindows(void);
-    extern int X86AsmCallPOLY_SYS_full_gc(void);
-    extern int X86AsmCallPOLY_SYS_stack_trace(void);
-    extern int X86AsmCallPOLY_SYS_foreign_dispatch(void);
-    extern int X86AsmCallPOLY_SYS_callcode_tupled(void);
-    extern int X86AsmCallPOLY_SYS_process_env(void);
-    extern int X86AsmCallPOLY_SYS_shrink_stack(void);
-    extern int X86AsmCallPOLY_SYS_code_flags(void);
-    extern int X86AsmCallPOLY_SYS_set_code_constant(void);
-    extern int X86AsmCallPOLY_SYS_poly_specific(void);
-    extern int X86AsmCallPOLY_SYS_io_dispatch(void);
-    extern int X86AsmCallPOLY_SYS_network(void);
-    extern int X86AsmCallPOLY_SYS_os_specific(void);
-    extern int X86AsmCallPOLY_SYS_signal_handler(void);
-    extern int X86AsmCallPOLY_SYS_kill_self(void);
-
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
@@ -421,54 +382,17 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
 
-    // These are declared in the assembly code.  They provide hand coded versions
-    // of simple functions.  Some cases, such as adding words, are actually handled by
-    // the code generator, so the assembly code versions would only be called when
-    // the function is passed as a closure e.g. map (op+) [(1,2),(3,4)]
-    extern int alloc_store(), alloc_uninit();
-    extern int get_length_a();
-    extern int str_compare();
-    extern int teststrgtr(), teststrlss(), teststrgeq(), teststrleq();
-    extern int locksega();
-    extern int is_shorta();
-    extern int add_long(), sub_long(), mult_long(), div_long(), rem_long(), neg_long();
-    extern int equal_long(), or_long(), and_long(), xor_long(), quotrem_long();
-    extern int offset_address();
-    extern int shift_right_word();
-    extern int word_neq();
-    extern int not_bool();
-    extern int string_length();
-    extern int int_geq(), int_leq(), int_gtr(), int_lss();
-    extern int or_word(), and_word(), xor_word(), shift_left_word(), shift_right_arith_word();
-    extern int word_eq();
-    extern int load_byte(), load_word();
-    extern int is_big_endian();
-    extern int bytes_per_word();
-    extern int assign_byte(), assign_word();
-    extern int set_string_length_a();
-    extern int get_first_long_word_a();
-    extern int int_to_word();
-    extern int move_bytes(), move_words(), bytevec_eq();
-    extern int mul_word(), plus_word(), minus_word(), div_word(), mod_word();
-    extern int word_geq(), word_leq(), word_gtr(), word_lss();
-    extern int raisex();
-    extern int thread_self(), atomic_increment(), atomic_decrement(), atomic_reset();
-    extern int real_add(), real_sub(), real_mul(), real_div(), real_abs(), real_neg();
-    extern int real_geq(), real_leq(), real_gtr(), real_lss(), real_eq(), real_neq();
-    extern int real_from_int();
-    extern int eq_longword(), neq_longword(), geq_longword(), leq_longword();
-    extern int gt_longword(), lt_longword();
-    extern int longword_to_tagged(), signed_to_longword(), unsigned_to_longword();
-    extern int plus_longword(), minus_longword(), mul_longword(), div_longword();
-    extern int mod_longword(), andb_longword(), orb_longword(), xorb_longword();
-    extern int shift_left_longword(), shift_right_longword(), shift_right_arith_longword();
 };
+
+// GCC doesn't seem to like these inside the brackets above.
+extern "C" POLYUNSIGNED entryPointVector[];
+extern "C" int registerMaskVector[];
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
     memRegisters.inRTS = 1; // We start off in the RTS.
     // Point "raiseException" at the assembly code for "raisex"
-    memRegisters.raiseException = (byte*)raisex;
+    memRegisters.raiseException = (byte*)entryPointVector[POLY_SYS_raisex];
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
@@ -477,7 +401,7 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     memRegisters.stackOverflowEx = stackOverflowEx;
     memRegisters.raiseDiv = raiseDiv;
     memRegisters.arbEmulation = arbEmulation;
-    memRegisters.fullRestore = 0;
+    memRegisters.fullRestore = 1; // To force the floating point to 64-bit
 }
 
 void X86TaskData::GCStack(ScanAddress *process)
@@ -758,7 +682,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult();
+                return callBackResult; // Return the saved value. Not used in the new interface.
 
             case POLY_SYS_exit:
                 CallIO1(this, &finishc);
@@ -916,10 +840,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &Real_negc);
                 break;
 
-            case POLY_SYS_Repr_real:
-                CallIO1(this, &Real_reprc);
-                break;
-
             case POLY_SYS_conv_real:
                 CallIO1(this, &Real_convc);
                 break;
@@ -996,14 +916,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_string_length:
                 CallIO1(this, &string_length_c);
-                break;
-
-            case POLY_SYS_int_eq:
-                CallIO2(this, &equal_longc);
-                break;
-
-            case POLY_SYS_int_neq:
-                CallIO2(this, &not_equal_longc);
                 break;
 
             case POLY_SYS_int_geq:
@@ -1093,6 +1005,10 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &foreign_dispatch_c);
                 break;
 
+            case POLY_SYS_ffi:
+                CallIO2(this, &poly_ffi);
+                break;
+
             case POLY_SYS_callcode_tupled:
                 CallCodeTupled();
                 break;
@@ -1129,6 +1045,48 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_bytevec_eq:
                 CallIO5(this, &testBytesEqual);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+#if (SIZEOF_VOIDP == 8)
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+#endif
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
                 break;
 
             case POLY_SYS_set_code_constant:
@@ -1392,9 +1350,9 @@ int X86TaskData::SwitchToPoly()
             break;
 
         case RETURN_CALLBACK_RETURN:
-            // Remove the extra exception handler we created in SetCallbackFunction
+            // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(PSP_HR(this) == PSP_SP(this));
-            PSP_SP(this) += 2;
+            PSP_SP(this) += 1;
             PSP_HR(this) = (*(PSP_SP(this)++)).AsStackAddr(); // Restore the previous handler.
             this->callBackResult = this->saveVec.push(PSP_EAX(this)); // Argument to return is in EAX.
             // Restore the registers
@@ -1411,11 +1369,8 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_CALLBACK_EXCEPTION:
             // An ML callback has raised an exception.
-            SetException((poly_exn *)PSP_EAX(this).AsObjPtr());
-            // Raise a C++ exception.  If the foreign function that called this callback
-            // doesn't handle the exception it will be raised in the calling ML function.
-            // But if it is caught we may have a problem ...
-            throw IOException();
+            // It isn't possible to do anything here except abort.
+            Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
 
         default:
             Crash("Unknown return reason code %u", this->memRegisters.returnReason);
@@ -1440,9 +1395,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     else newStack->p_eax = DEREFWORD(arg);
     newStack->p_ebx = TAGGED(0);
     newStack->p_ecx = TAGGED(0);
-    // We may set the function in SetCallbackFunction
-    if (proc == 0) newStack->p_edx = TAGGED(0);
-    else newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
+    newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
     newStack->p_esi = TAGGED(0);
     newStack->p_edi = TAGGED(0);
 #ifdef HOSTARCHITECTURE_X86_64
@@ -1461,7 +1414,8 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     // Floating point save area.
     ASSERT(sizeof(struct fpSaveArea) == 108);
     memset(&newStack->p_fp, 0, 108);
-    newStack->p_fp.cw = 0x037f ; // Control word
+    // Set the control word for 64-bit precision otherwise we get inconsistent results.
+    newStack->p_fp.cw = 0x027f ; // Control word
     newStack->p_fp.tw = 0xffff; // Tag registers - all unused
 
     /* We initialise the end of the stack with a sequence that will jump to
@@ -1605,8 +1559,14 @@ bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, 
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
+#if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
+    // CPP defines missing in amd64/signal.h in OpenBSD
+    pc = (byte*)context->sc_rip;
+    sp = (PolyWord*)context->sc_rsp;
+#else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
     pc = (byte*)context->sc_pc;
     sp = (PolyWord*)context->sc_sp;
+#endif
 #else
     // Can't get context.
     return false;
@@ -2316,159 +2276,13 @@ void X86TaskData::ArbitraryPrecisionTrap()
 // It's 7 bytes on both x86 and X86_64.
 #define MAKE_CALL_SEQUENCE_BYTES     7
 
-static void add_function_to_io_area(int x, int (*y)())
-{
-    add_word_to_io_area(x, PolyWord::FromUnsigned((POLYUNSIGNED)y));
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      MD_init_interface_vector - called from run-time system                */
-/*                                                                            */
-/******************************************************************************/
 void X86Dependent::InitInterfaceVector(void)
 {
-    add_function_to_io_area(POLY_SYS_exit, &X86AsmCallPOLY_SYS_exit);
-    add_function_to_io_area(POLY_SYS_alloc_store, &alloc_store);
-    add_function_to_io_area(POLY_SYS_alloc_uninit, &alloc_uninit);
-    add_function_to_io_area(POLY_SYS_chdir, &X86AsmCallPOLY_SYS_chdir);
-    add_function_to_io_area(POLY_SYS_get_length, &get_length_a);
-    add_function_to_io_area(POLY_SYS_get_flags, &X86AsmCallPOLY_SYS_get_flags);
-    add_function_to_io_area(POLY_SYS_str_compare, str_compare);
-    add_function_to_io_area(POLY_SYS_teststrgtr, &teststrgtr);
-    add_function_to_io_area(POLY_SYS_teststrlss, &teststrlss);
-    add_function_to_io_area(POLY_SYS_teststrgeq, &teststrgeq);
-    add_function_to_io_area(POLY_SYS_teststrleq, &teststrleq);
-    add_function_to_io_area(POLY_SYS_exception_trace_fn,  &X86AsmCallPOLY_SYS_exception_trace_fn);
-    add_function_to_io_area(POLY_SYS_lockseg, &locksega);
-    add_function_to_io_area(POLY_SYS_profiler,  &X86AsmCallPOLY_SYS_profiler);
-    add_function_to_io_area(POLY_SYS_quotrem, &quotrem_long);
-    add_function_to_io_area(POLY_SYS_is_short, &is_shorta);
-    add_function_to_io_area(POLY_SYS_aplus, &add_long);
-    add_function_to_io_area(POLY_SYS_aminus, &sub_long);
-    add_function_to_io_area(POLY_SYS_amul, &mult_long);
-    add_function_to_io_area(POLY_SYS_adiv, &div_long);
-    add_function_to_io_area(POLY_SYS_amod, &rem_long);
-    add_function_to_io_area(POLY_SYS_aneg, &neg_long);
-    add_function_to_io_area(POLY_SYS_equala, &equal_long);
-    add_function_to_io_area(POLY_SYS_ora, &or_long);
-    add_function_to_io_area(POLY_SYS_anda, &and_long);
-    add_function_to_io_area(POLY_SYS_xora, &xor_long);
-    add_function_to_io_area(POLY_SYS_Real_str, &X86AsmCallPOLY_SYS_Real_str);
-    add_function_to_io_area(POLY_SYS_Real_geq, real_geq);
-    add_function_to_io_area(POLY_SYS_Real_leq, real_leq);
-    add_function_to_io_area(POLY_SYS_Real_gtr, real_gtr);
-    add_function_to_io_area(POLY_SYS_Real_lss, real_lss);
-    add_function_to_io_area(POLY_SYS_Real_eq,  real_eq);
-    add_function_to_io_area(POLY_SYS_Real_neq, real_neq);
-    add_function_to_io_area(POLY_SYS_Real_Dispatch,  &X86AsmCallPOLY_SYS_Real_Dispatch);
-    add_function_to_io_area(POLY_SYS_Add_real, real_add);
-    add_function_to_io_area(POLY_SYS_Sub_real, real_sub);
-    add_function_to_io_area(POLY_SYS_Mul_real, real_mul);
-    add_function_to_io_area(POLY_SYS_Div_real, real_div);
-    add_function_to_io_area(POLY_SYS_Abs_real, real_abs);
-    add_function_to_io_area(POLY_SYS_Neg_real, real_neg);
-    add_function_to_io_area(POLY_SYS_Repr_real, &X86AsmCallPOLY_SYS_Repr_real);
-    add_function_to_io_area(POLY_SYS_conv_real, &X86AsmCallPOLY_SYS_conv_real);
-    add_function_to_io_area(POLY_SYS_real_to_int, &X86AsmCallPOLY_SYS_real_to_int);
-    add_function_to_io_area(POLY_SYS_int_to_real, real_from_int);
-    add_function_to_io_area(POLY_SYS_sqrt_real, &X86AsmCallPOLY_SYS_sqrt_real);
-    add_function_to_io_area(POLY_SYS_sin_real, &X86AsmCallPOLY_SYS_sin_real);
-    add_function_to_io_area(POLY_SYS_cos_real, &X86AsmCallPOLY_SYS_cos_real);
-    add_function_to_io_area(POLY_SYS_arctan_real, &X86AsmCallPOLY_SYS_arctan_real);
-    add_function_to_io_area(POLY_SYS_exp_real, &X86AsmCallPOLY_SYS_exp_real);
-    add_function_to_io_area(POLY_SYS_ln_real, &X86AsmCallPOLY_SYS_ln_real);
-    add_function_to_io_area(POLY_SYS_io_operation, &X86AsmCallPOLY_SYS_io_operation);
-    add_function_to_io_area(POLY_SYS_atomic_reset, &atomic_reset);
-    add_function_to_io_area(POLY_SYS_atomic_incr, &atomic_increment);
-    add_function_to_io_area(POLY_SYS_atomic_decr, &atomic_decrement);
-    add_function_to_io_area(POLY_SYS_thread_self, &thread_self);
-    add_function_to_io_area(POLY_SYS_thread_dispatch, &X86AsmCallPOLY_SYS_thread_dispatch);
-    add_function_to_io_area(POLY_SYS_kill_self, &X86AsmCallPOLY_SYS_kill_self);
-    add_function_to_io_area(POLY_SYS_offset_address, &offset_address);
-    add_function_to_io_area(POLY_SYS_shift_right_word, &shift_right_word);
-    add_function_to_io_area(POLY_SYS_word_neq, &word_neq);
-    add_function_to_io_area(POLY_SYS_not_bool, &not_bool);
-    add_function_to_io_area(POLY_SYS_string_length, &string_length);
-    add_function_to_io_area(POLY_SYS_int_eq, &word_eq);
-    add_function_to_io_area(POLY_SYS_int_neq, &word_neq);
-    add_function_to_io_area(POLY_SYS_int_geq, &int_geq);
-    add_function_to_io_area(POLY_SYS_int_leq, &int_leq);
-    add_function_to_io_area(POLY_SYS_int_gtr, &int_gtr);
-    add_function_to_io_area(POLY_SYS_int_lss, &int_lss);
-    add_function_to_io_area(POLY_SYS_or_word, &or_word);
-    add_function_to_io_area(POLY_SYS_and_word, &and_word);
-    add_function_to_io_area(POLY_SYS_xor_word, &xor_word);
-    add_function_to_io_area(POLY_SYS_shift_left_word, &shift_left_word);
-    add_function_to_io_area(POLY_SYS_word_eq, &word_eq);
-    add_function_to_io_area(POLY_SYS_load_byte, &load_byte);
-    add_function_to_io_area(POLY_SYS_load_word, &load_word);
-    add_function_to_io_area(POLY_SYS_load_byte_immut, &load_byte);
-    add_function_to_io_area(POLY_SYS_load_word_immut, &load_word);
-    add_function_to_io_area(POLY_SYS_is_big_endian, &is_big_endian);
-    add_function_to_io_area(POLY_SYS_bytes_per_word, &bytes_per_word);
-    add_function_to_io_area(POLY_SYS_assign_byte, &assign_byte);
-    add_function_to_io_area(POLY_SYS_assign_word, &assign_word);
-    add_function_to_io_area(POLY_SYS_objsize, &X86AsmCallPOLY_SYS_objsize);
-    add_function_to_io_area(POLY_SYS_showsize, &X86AsmCallPOLY_SYS_showsize);
-    add_function_to_io_area(POLY_SYS_timing_dispatch, &X86AsmCallPOLY_SYS_timing_dispatch);
-    add_function_to_io_area(POLY_SYS_XWindows, &X86AsmCallPOLY_SYS_XWindows);
-    add_function_to_io_area(POLY_SYS_full_gc, &X86AsmCallPOLY_SYS_full_gc);
-    add_function_to_io_area(POLY_SYS_stack_trace, &X86AsmCallPOLY_SYS_stack_trace);
-    add_function_to_io_area(POLY_SYS_foreign_dispatch, &X86AsmCallPOLY_SYS_foreign_dispatch);
-    add_function_to_io_area(POLY_SYS_callcode_tupled, &X86AsmCallPOLY_SYS_callcode_tupled);
-    add_function_to_io_area(POLY_SYS_process_env, &X86AsmCallPOLY_SYS_process_env);
-    add_function_to_io_area(POLY_SYS_set_string_length, &set_string_length_a);
-    add_function_to_io_area(POLY_SYS_get_first_long_word, &get_first_long_word_a);
-    add_function_to_io_area(POLY_SYS_shrink_stack, &X86AsmCallPOLY_SYS_shrink_stack);
-    add_function_to_io_area(POLY_SYS_code_flags, &X86AsmCallPOLY_SYS_code_flags);
-    add_function_to_io_area(POLY_SYS_shift_right_arith_word, &shift_right_arith_word);
-    add_function_to_io_area(POLY_SYS_int_to_word,      &int_to_word);
-    add_function_to_io_area(POLY_SYS_set_code_constant, &X86AsmCallPOLY_SYS_set_code_constant);
-    add_function_to_io_area(POLY_SYS_poly_specific, &X86AsmCallPOLY_SYS_poly_specific);
-    add_function_to_io_area(POLY_SYS_bytevec_eq,        &bytevec_eq);
-    add_function_to_io_area(POLY_SYS_move_bytes,        &move_bytes); 
-    add_function_to_io_area(POLY_SYS_move_bytes_overlap,&move_bytes); 
-    add_function_to_io_area(POLY_SYS_move_words,        &move_words);
-    add_function_to_io_area(POLY_SYS_move_words_overlap,&move_words);
-    add_function_to_io_area(POLY_SYS_mul_word,          &mul_word);
-    add_function_to_io_area(POLY_SYS_plus_word,         &plus_word);
-    add_function_to_io_area(POLY_SYS_minus_word,        &minus_word);
-    add_function_to_io_area(POLY_SYS_div_word,          &div_word);
-    add_function_to_io_area(POLY_SYS_mod_word,          &mod_word);
-    add_function_to_io_area(POLY_SYS_word_geq,          &word_geq);
-    add_function_to_io_area(POLY_SYS_word_leq,          &word_leq);
-    add_function_to_io_area(POLY_SYS_word_gtr,          &word_gtr);
-    add_function_to_io_area(POLY_SYS_word_lss,          &word_lss);
-
-    // This used to contain the code itself.  Now this is set up as a "closure"
-    // but is only used for exceptions raised within the RTS.
-    add_function_to_io_area(POLY_SYS_raisex,           &raisex);
-    
-    add_function_to_io_area(POLY_SYS_io_dispatch, &X86AsmCallPOLY_SYS_io_dispatch);
-    add_function_to_io_area(POLY_SYS_network, &X86AsmCallPOLY_SYS_network);
-    add_function_to_io_area(POLY_SYS_os_specific, &X86AsmCallPOLY_SYS_os_specific);
-    add_function_to_io_area(POLY_SYS_signal_handler, &X86AsmCallPOLY_SYS_signal_handler);
-    add_function_to_io_area(POLY_SYS_eq_longword, &eq_longword);
-    add_function_to_io_area(POLY_SYS_neq_longword, &neq_longword);
-    add_function_to_io_area(POLY_SYS_geq_longword, &geq_longword);
-    add_function_to_io_area(POLY_SYS_leq_longword, &leq_longword);
-    add_function_to_io_area(POLY_SYS_gt_longword, &gt_longword);
-    add_function_to_io_area(POLY_SYS_lt_longword, &lt_longword);
-    add_function_to_io_area(POLY_SYS_plus_longword, &plus_longword);
-    add_function_to_io_area(POLY_SYS_minus_longword, &minus_longword);
-    add_function_to_io_area(POLY_SYS_mul_longword, &mul_longword);
-    add_function_to_io_area(POLY_SYS_div_longword, &div_longword);
-    add_function_to_io_area(POLY_SYS_mod_longword, &mod_longword);
-    add_function_to_io_area(POLY_SYS_andb_longword, &andb_longword);
-    add_function_to_io_area(POLY_SYS_orb_longword, &orb_longword);
-    add_function_to_io_area(POLY_SYS_xorb_longword, &xorb_longword);
-    add_function_to_io_area(POLY_SYS_shift_left_longword, &shift_left_longword);
-    add_function_to_io_area(POLY_SYS_shift_right_longword, &shift_right_longword);
-    add_function_to_io_area(POLY_SYS_shift_right_arith_longword, &shift_right_arith_longword);
-    add_function_to_io_area(POLY_SYS_longword_to_tagged, &longword_to_tagged);
-    add_function_to_io_area(POLY_SYS_signed_to_longword, &signed_to_longword);
-    add_function_to_io_area(POLY_SYS_unsigned_to_longword, &unsigned_to_longword);
+    for (int i = 0; i < POLY_SYS_vecsize; i++)
+    {
+        if (entryPointVector[i] != 0)
+            add_word_to_io_area(i, PolyWord::FromUnsigned(entryPointVector[i]));
+    }
 
     // Entries for special cases.  These are generally, but not always, called from
     // compiled code.
@@ -2561,14 +2375,21 @@ void X86TaskData::CallCodeTupled()
 // the ML code has made a call in to foreign_dispatch.  We need to set the stack
 // up so that we will enter the callback (as with CallCodeTupled) but when we return
 // the result we enter callback_return. 
-void X86TaskData::SetCallbackFunction(Handle func, Handle args)
+Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 {
+    // If we ever implement a light version of the FFI that allows a call to C
+    // code without saving enough to allow allocation in C code we need to ensure
+    // that this code doesn't do any allocation.  Essentially we need the values
+    // in localMpointer and localMbottom to be valid across a call to C.  If we do
+    // a callback the ML callback function would pick up the values saved in the
+    // originating call 
     byte *codeAddr1 = (byte*)&X86AsmCallbackReturnTemplate;
     byte *codeAddr2 = (byte*)&X86AsmCallbackExceptionTemplate;
     Handle callBackReturn = this->BuildCodeSegment(codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
     Handle callBackException = this->BuildCodeSegment(codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
+    // TODO: Is that really required any longer?  We don't retry RTS calls now.
     *(--PSP_SP(this)) = PSP_EDX(this);
     *(--PSP_SP(this)) = PSP_EAX(this);
     *(--PSP_SP(this)) = PSP_EBX(this);
@@ -2580,7 +2401,6 @@ void X86TaskData::SetCallbackFunction(Handle func, Handle args)
     // Set up an exception handler so we will enter callBackException if there is an exception.
     *(--PSP_SP(this)) = PolyWord::FromStackAddr(PSP_HR(this)); // Create a special handler entry
     *(--PSP_SP(this)) = callBackException->Word();
-    *(--PSP_SP(this)) = TAGGED(0);
     PSP_HR(this) = PSP_SP(this);
     // Push the call to callBackReturn onto the stack as the return address.
     *(--PSP_SP(this)) = callBackReturn->Word();
@@ -2589,6 +2409,8 @@ void X86TaskData::SetCallbackFunction(Handle func, Handle args)
     PSP_EDX(this) = functToCall; // Closure address
     PSP_EAX(this) = args->Word();
     PSP_IC(this) = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+
+    return EnterPolyCode();
 }
 
 // Decode and process an effective address.  There may
@@ -2865,8 +2687,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         }
     }
 }
-
-extern "C" int registerMaskVector[];
 
 int X86TaskData::GetIOFunctionRegisterMask(int ioCall)
 {

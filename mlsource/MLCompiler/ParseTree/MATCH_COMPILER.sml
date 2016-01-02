@@ -41,17 +41,8 @@ functor MATCH_COMPILER (
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
+    structure DEBUG: DEBUGSIG
 
-    structure DEBUG :
-    sig
-        val debugTag: bool Universal.tag
-        val errorDepthTag : int Universal.tag
-        val fileNameTag: string Universal.tag
-        val reportUnreferencedIdsTag: bool Universal.tag
-        val reportExhaustiveHandlersTag: bool Universal.tag
-        val getParameter :
-               'a Universal.tag -> Universal.universal list -> 'a 
-    end
 
     structure MISC :
     sig

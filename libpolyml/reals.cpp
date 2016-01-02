@@ -295,74 +295,6 @@ Handle Real_lnc(TaskData *mdTaskData, Handle arg)
     else return real_result(mdTaskData, log(x));
 }
 
-/* Real_Rep and Real_reprc are redundant.  This is now dealt with by a function within the
-   basis library.  DCJM June 2002.*/
-
-static void Real_Rep(TaskData *mdTaskData, double val, char *string_buffer)
-/* Puts the string representation into ``string_buffer'' and edits it into
-   the Poly representation. i.e. replacing '-' by '~' and removing '+', and
-   putting in a ".0" if the number does not have an E or a decimal point. */
-{
-    int dot_or_e = 0, digits = 0;
-    char *sptr;
-    /* First handle the special cases.  We can't rely on sprintf doing
-       them in the way we want. */
-    if (isnan(val))
-    {
-        strcpy(string_buffer, "nan");
-    }
-    else if (! finite(val))
-    {
-        if (val > 0.0) strcpy(string_buffer, "inf");
-        else strcpy(string_buffer, "~inf");
-    }
-    else if (val == 0.0) 
-    {
-        if (copysign(1.0, val) < 0.0)
-            strcpy(string_buffer, "~0.0");
-        else strcpy(string_buffer, "0.0");
-    }
-    else
-    {
-        sprintf(string_buffer, "%.10G", val);
-    
-        for(sptr = string_buffer; *sptr != '\0'; sptr++)
-        {
-            if (*sptr == '-') *sptr = '~';
-            else if (*sptr == '+')
-            {
-                /* Shift the rest up to cover the '+' */
-                strcpy(sptr, sptr+1);
-                sptr--;
-            }
-            else if (*sptr == '.' || *sptr == 'E')
-            {
-                if (! digits)
-                {
-                    /* Must have a digit before the decimal point
-                       - shift down and put in a zero. */
-                    register char *p;
-                    for (p = sptr; *p != '\0'; p++);
-                    for (; p >= sptr; p--) p[1] = *p;
-                    *sptr = '0';
-                    digits = 1;
-                }
-                dot_or_e = 1;
-            }
-            else if (*sptr >= '0' && *sptr <= '9') digits = 1;
-        }
-        if (!dot_or_e) strcat(string_buffer, ".0");
-    }
-} /* Real_Rep */
-
-/* CALL_IO1(Real_repr, REF, NOIND) */
-Handle Real_reprc(TaskData *mdTaskData, Handle val) /* real to string */
-{
-    char string_buffer[30];
-    Real_Rep(mdTaskData, real_arg(val), string_buffer);
-    return mdTaskData->saveVec.push(C_string_to_Poly(mdTaskData, string_buffer));
-} /* Real_reprc */
-
 /* CALL_IO1(Real_conv, REF, NOIND) */
 Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 {
@@ -668,10 +600,12 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
        number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
+#if (0)
     case 15: /* Is finite */ /* No longer used - implemented in ML. */
         return mdTaskData->saveVec.push(finite(real_arg(args)) ? TAGGED(1) : TAGGED(0));
     case 16: /* Is Nan */ /* No longer used - implemented in ML. */
         return mdTaskData->saveVec.push(isnan(real_arg(args)) ? TAGGED(1) : TAGGED(0));
+#endif
     case 17: /* Get sign bit.  There may be better ways to find this. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
     case 18: /* Copy sign. */
