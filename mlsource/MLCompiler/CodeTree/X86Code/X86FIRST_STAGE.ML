@@ -3471,47 +3471,6 @@ struct
         |   LiteralSource of machineWord
         |   BaseOffsetSource of { base: reg, offset: int }
 
-        fun getArg(instr, regSet, outputReg, operands) (tArgs as (table, args, _)) =
-        let
-            (* Take each NONE in the operand list and replace it with the appropriate operand. *)
-            fun nextArg([], [], _) =
-                (* All done *)
-                actionDone{
-                    outReg=outputReg,
-                    operation=instr(List.map valOf operands, outputReg)
-                    } tArgs
-            |   nextArg(NONE :: otherOps, arg :: _, argNo) =
-                (
-                    case argAsSource table arg of (* Look at the next argument *)
-                        (ActInRegisterSet{ readable, ...}) =>
-                        if regSetIntersect(readable, regSet) <> noRegisters
-                        then
-                        let
-                            val aReg = oneOf(regSetIntersect(readable, regSet))
-                        in
-                            (* It's in a register.  Lock it, record it and go on to the next arg. *)
-                            actionLockRegister{reg=aReg, willOverwrite=false,
-                                next=getArg(instr, regSet, outputReg,
-                                        List.take(operands, argNo) @ (SOME(InRegister aReg) :: otherOps))} tArgs
-                        end
-                        else actionLoadArg{argNo=argNo, regSet=regSet, willOverwrite=false,
-                                (* Load into a register - won't modify it afterwards.  Next action is
-                                   to look at this again after it's been loaded. *)
-                                next=getArg(instr, regSet, outputReg, operands)} tArgs
-                    |   _ => (* If the value is not in a register we need to load it first to a
-                                general register even if the eventual destination is a floating pt reg. *)
-                            actionLoadArg{argNo=argNo, regSet=generalRegisters, willOverwrite=false,
-                                (* Load into a register - won't modify it afterwards.  Next action is
-                                   to look at this again after it's been loaded. *)
-                                next=getArg(instr, regSet, outputReg, operands)} tArgs
-                )
-            |   nextArg(SOME _ :: otherOps, _ :: otherArgs, argNo) =
-                    nextArg(otherOps, otherArgs, argNo+1)
-            |   nextArg _ = raise Empty
-        in
-            nextArg(operands, args, 0)
-        end
-
         (* Replace an entry in the operand list, which should be NONE, with SOME operand. *)
         fun replaceOperand(n, repWith) (operands, results) =
             case List.nth(operands, n) of
@@ -3641,25 +3600,27 @@ struct
                              next=loadBaseAddress  whenDone opAndResults} tArgs
         end
 
-        (* Process all the remaining arguments i.e. those with NONE in the argument list. *)
-        fun allArgs (eachArg, whenDone) (operands as (opers, _)) =
-        let
-            (* Take each NONE in the operand list and replace it with the appropriate operand. *)
-            fun nextArg([], _) = (* All done *) whenDone operands
-            |   nextArg(NONE :: _, argNo) =
-                    eachArg (argNo, fn operands => allArgs (eachArg, whenDone) operands) operands
-            |   nextArg(SOME _ :: otherOps, argNo) = nextArg(otherOps, argNo+1)
+        local
+            (* Process all the remaining arguments i.e. those with NONE in the argument list. *)
+            fun allArgs (eachArg, whenDone) (operands as (opers, _)) =
+            let
+                (* Take each NONE in the operand list and replace it with the appropriate operand. *)
+                fun nextArg([], _) = (* All done *) whenDone operands
+                |   nextArg(NONE :: _, argNo) =
+                        eachArg (argNo, fn operands => allArgs (eachArg, whenDone) operands) operands
+                |   nextArg(SOME _ :: otherOps, argNo) = nextArg(otherOps, argNo+1)
+            in
+                nextArg(opers, 0)
+            end
         in
-            nextArg(opers, 0)
+            (* This deals with any remaining operands and puts them into registers.  It is the fall-back
+               in a lot of cases. *)
+            fun allInRegisters (regSet, whenDone) =
+                allArgs(fn (argNo, whenDone) => loadToOneOf(regSet, false, argNo, whenDone), whenDone)
+
+            fun allInRegsOrLiterals (regSet, whenDone) =
+                allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
         end
-
-        (* This deals with any remaining operands and puts them into registers.  It is the fall-back
-           in a lot of cases. *)
-        fun allInRegisters (regSet, whenDone) =
-            allArgs(fn (argNo, whenDone) => loadToOneOf(regSet, false, argNo, whenDone), whenDone)
-
-        fun allInRegsOrLiterals (regSet, whenDone) =
-            allArgs(fn (argNo, whenDone) => loadToRegOrLiteral(regSet, argNo, whenDone), whenDone)
 
         (* Some cases require arguments in specific registers. *)
         fun loadToSpecificRegister(specReg, overWrite, argNo, whenDone) =
@@ -3676,31 +3637,28 @@ struct
                 allInRegisters(generalRegisters, generateInstruction instr)
                 ) (List.map(fn _ => NONE) args, NONE) tArgs
 
+        (* Single argument case where we can reuse the argument register for the result.
+           This is used mainly for shifts by constant amounts. *)
+        fun sharedSingleArgNegotiator instr (tArgs as (table, [arg], pref)) =
+        (
+            case argAsSource table arg of
+                ActInRegisterSet{ modifiable, ...} =>
+                    if regSetIntersect(modifiable, generalRegisters) <> noRegisters
+                    then
+                    let
+                        val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
+                    in
+                        actionLockRegister{reg=aReg, willOverwrite=true,
+                            next = actionDone{ outReg=SOME aReg, operation=instr(InRegister aReg, SOME aReg)}} tArgs
+                    end
+                    else actionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
+                                  next=sharedSingleArgNegotiator instr} tArgs
+            |   _ => (* Not in a register. *)
+                    actionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
+                                  next=sharedSingleArgNegotiator instr} tArgs
+        )
+        |   sharedSingleArgNegotiator _ _ = raise InternalError "sharedSingleArgNegotiator: not a single argument"
 
-        local (* Single argument case *)
-            fun loadDestArg instr (tArgs as (table, [arg], pref)) =
-            (
-                case argAsSource table arg of
-                    ActInRegisterSet{ modifiable, ...} =>
-                        if regSetIntersect(modifiable, generalRegisters) <> noRegisters
-                        then
-                        let
-                            val aReg = oneOf(regSetIntersect(modifiable, generalRegisters))
-                        in
-                            actionLockRegister{reg=aReg, willOverwrite=true,
-                                           next=getArg(instr, generalRegisters, SOME aReg, [SOME(InRegister aReg)])} tArgs
-                        end
-                        else actionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
-                                      next=loadDestArg instr} tArgs
-                |   _ => (* Not in a register. *)
-                        actionLoadArg{argNo=0, regSet=prefAsSet(pref, generalRegisters, []), willOverwrite=true,
-                                      next=loadDestArg instr} tArgs
-            )
-            |   loadDestArg _ _ = raise InternalError "loadDestArg: not a single argument"
-        in
-            val sharedSingleArgNegotiator = loadDestArg
-        end
-       
         local
             fun genStoreWord([base, index, value], NONE) =
             let
@@ -3852,7 +3810,6 @@ struct
         in
             fun getFirstLong(arg, transtable, whereto) =
             let
-
                 val (opRes, opCode) = generalNegotiator genFirstLong (transtable, [arg], whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
