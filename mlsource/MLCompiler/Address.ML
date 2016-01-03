@@ -18,23 +18,16 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*
-TODO: This duplicates some of the Word structure although it adds certain
-"unsafe" and Poly-specific functions.  It probably should be rewritten now
-that we have the standard basis library.  DCJM June 2000.
-*)
-
-
 signature AddressSig =
 sig
     type machineWord
     type address
-    type handler
     type short = Word.word
 
     val stringOfWord: machineWord -> string
+    val rtsFunctionName: int -> string
 
-    val wordEq : 'a * 'a -> bool
+    val wordEq : machineWord * machineWord -> bool
 
     val isShort   : machineWord -> bool
 
@@ -78,25 +71,30 @@ sig
     val call: (address * machineWord) -> machineWord
 
     val isIoAddress : address -> bool
-
-    (* The following function is VERY unsafe and should only be
-    used by the Poly/ML code generator *)    
-    val offsetAddr : address * short -> handler
 end
 
 structure Address :> AddressSig =
 
 struct
-    type machineWord    = word (* a legal ML object (tag = 0 or 1) *)
-    and address  = word (* a normal pointer (tag = 0) *)
-    and handler  = word (* pointer to exception handler (tag = 2!) *)
-    and short    = word (* a 31/63-bit int  (tag = 1) *)
+    (* These want to be abstract. *)
+    local
+        structure M:> sig type machineWord and address end =
+        struct 
+            type machineWord = word (* a legal ML object (tag = 0 or 1) *)
+            and address  = word (* a normal pointer (tag = 0) *)
+        end
+    in
+        open M
+    end
 
+    (* This is the same as word *)
+    type short    = word (* a 31/63-bit int  (tag = 1) *)
 
     open RuntimeCalls
 
-  (* pointer equality *)
-  val wordEq = PolyML.pointerEq
+    (* pointer equality *)
+    val wordEq: machineWord * machineWord -> bool = PolyML.pointerEq
+
   val unsafeCast : 'a -> 'b = RunCall.unsafeCast
 
   val isShort : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
@@ -205,12 +203,6 @@ struct
   in
         fun isIoAddress (a: address) : bool = doCall(102, a)
   end
-
-
-(* The following function is VERY unsafe and should only be *)
-(* used by the Poly/ML code generator (ML version).         *)    
-  val offsetAddr : address * short -> handler =
-    RunCall.run_call2 POLY_SYS_offset_address
   
   local
     val typeMask : Word8.word = 0wx03
@@ -382,12 +374,15 @@ struct
             (POLY_SYS_assign_byte,"POLY_SYS_assign_byte"),
             (POLY_SYS_assign_word,"POLY_SYS_assign_word")
             ]
-    in
+
         val rtsNames =
             Vector.tabulate(256,
                 fn n => case List.find(fn (rtsNo, _) => rtsNo=n) rtsTable of
                     SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
-    end
+    in
+        val rtsNames = rtsNames
+        fun rtsFunctionName n = Vector.sub(rtsNames, n)
+     end
 
     local
         val doCall: int*machineWord -> string

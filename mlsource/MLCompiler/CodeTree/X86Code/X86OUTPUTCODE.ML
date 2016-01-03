@@ -4113,13 +4113,14 @@ Calling conventions:
             |   putConst {const = HVal(ref hv), addrs, posn, ...} =
                 let
                     val handlerByteOffset = hv
-                    (* The following comment applies to offsetAddr *)
                     (* Special function to add to an address.
                        This only works if the resulting value is 
                        in a code segment and is on a word + 2 byte boundary. *)
-                    val handlerAddr : handler = offsetAddr (csegAddr seg, handlerByteOffset);
+                    val offsetAddr : address * short -> machineWord =
+                        RunCall.run_call2 RuntimeCalls.POLY_SYS_offset_address
+                    val handlerAddr = offsetAddr (csegAddr seg, handlerByteOffset);
                 in
-                    constLabels (cvec, addrs, toMachineWord handlerAddr, posn);
+                    constLabels (cvec, addrs, handlerAddr, posn);
                     numOfConsts := ! numOfConsts - 0w1
                 end
 
