@@ -685,6 +685,7 @@ struct
                we can eliminate both.  This can occur in cases such as Word.fromLargeWord o Word8.toLargeWord.
                If we have POLY_SYS_cmem_load_X functions where the address is formed by adding
                a constant to an address we can move the addend into the load instruction. *)
+            (* TODO: Could we also have POLY_SYS_signed_to_longword here? *)
         else if rtsCallNo = POLY_SYS_longword_to_tagged andalso
                 (case copiedArgs of [(_, _, EnvSpecBuiltIn(r, _))] => r = POLY_SYS_unsigned_to_longword | _ => false)
         then
@@ -696,17 +697,52 @@ struct
         in
             (arg, [], EnvSpecNone)
         end
-(*        else if (rtsCallNo = POLY_SYS_cmem_load_8 orelse rtsCallNo = POLY_SYS_cmem_load_16 orelse
+        else if (rtsCallNo = POLY_SYS_cmem_load_8 orelse rtsCallNo = POLY_SYS_cmem_load_16 orelse
                  rtsCallNo = POLY_SYS_cmem_load_32 orelse rtsCallNo = POLY_SYS_cmem_load_64 orelse
                  rtsCallNo = POLY_SYS_cmem_store_8 orelse rtsCallNo = POLY_SYS_cmem_store_16 orelse
                  rtsCallNo = POLY_SYS_cmem_store_32 orelse rtsCallNo = POLY_SYS_cmem_store_64) andalso
-                (case copiedArgs of (_, _, EnvSpecBuiltIn(r, _)) :: _ => r = POLY_SYS_plus_longword | _ => false)
+                (* Check if the first argument is an addition.  The second should be a constant.
+                   If the addend is a constant it will be a large integer i.e. the address of a
+                   byte segment. *)
+                let
+                    (* Check that we have a valid value to add to a large word.
+                       The cmem_load/store values sign extend their arguments so we
+                       use toLargeWordX here. *)
+                    fun isAcceptableOffset c =
+                        if isShort c (* Shouldn't occur. *) then false
+                        else
+                        let
+                            val l: LargeWord.word = RunCall.unsafeCast c
+                        in
+                            Word.toLargeWordX(Word.fromLargeWord l) = l
+                        end
+                in
+                    case copiedArgs of (_, _, EnvSpecBuiltIn(r, args)) :: (Constnt _, _, _) :: _ =>
+                        r = POLY_SYS_plus_longword andalso
+                            (case args of
+                                (* If they were both constants we'd have folded them. *)
+                                [Constnt(c, _), _] => isAcceptableOffset c
+                            |   [_, Constnt(c, _)] => isAcceptableOffset c
+                            | _ => false)
+                        | _ => false
+                end
         then
         let
-            val _ = print "***Found optimisable combination\n"
+            (* We have a load or store with an added constant. *)
+            val (base, offset) =
+                case copiedArgs of
+                    (_, _, EnvSpecBuiltIn(_, [Constnt(offset, _), base])) :: (Constnt(existing, _), _, _) :: _ =>
+                        (base, Word.fromLargeWord(RunCall.unsafeCast offset) + toShort existing)
+                |   (_, _, EnvSpecBuiltIn(_, [base, Constnt(offset, _)])) :: (Constnt(existing, _), _, _) :: _ =>
+                        (base, Word.fromLargeWord(RunCall.unsafeCast offset) + toShort existing)
+                |   _ => raise Bind
+            val newDecs = List.map(fn h => makeNewDecl(h, context)) copiedArgs
+            val genArgs = List.map(fn ((g, _), _) => envGeneralToCodetree g) newDecs
+            val preDecs = List.foldr (op @) [] (List.map #2 newDecs)
+            val gen = BuiltIn(rtsCallNo, base :: Constnt(toMachineWord offset, []) :: List.drop(genArgs, 2))
         in
-            raise Fail "TODO"
-        end*)
+            (gen, preDecs, EnvSpecNone)
+        end
         else
         let
             (* Create bindings for the arguments.  This ensures that any side-effects in the
