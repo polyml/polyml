@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15 David C.J. Matthews
+    Copyright (c) 2012,13,15-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -395,6 +395,8 @@ struct
         argList = argsAndTypes,
         resultType=resultType
     }
+
+    val mkBuiltIn = BuiltIn
 
     local
         open RuntimeCalls

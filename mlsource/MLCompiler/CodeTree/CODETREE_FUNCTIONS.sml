@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2012,13 David C.J. Matthews
+    Copyright (c) 2012,13,16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -41,7 +40,7 @@ struct
     val CodeFalse = Constnt(False, [])
     and CodeTrue  = Constnt(True, [])
     and CodeZero  = Constnt(word0, [])
-
+   
     (* Properties of code.  This indicates the extent to which the
        code has side-effects (i.e. where even if the result is unused
        the code still needs to be produced) or is applicative
@@ -58,15 +57,28 @@ struct
         and PROPWORD_NOUPDATE = 0wx20000000
         and PROPWORD_NODEREF  = 0wx10000000
 
-        fun rtsProperties ioCall = doCall(103, ioCall)
+        val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+        (* This function takes the address rather than the io call no. *)
+        fun rtsProperties ioCall = doCall(103, ioOp ioCall)
+    end
+
+    local
+        (* Convert the address of an RTS function into a code. *)
+        fun findNo no function =
+            if no = 256 then raise Fail "Unable to find RTS function"
+            else if wordEq(ioOp no, function)
+            then no
+            else findNo (no+1) function
+    in
+        val rtsCodeFromAddress = findNo 0
     end
 
     (* RTS calls that can be evaluated at compile-time i.e. they always return the
        same result and have no side-effects but may raise an exception for
        particular arguments. *)
-    fun earlyRtsCall function =
+    fun earlyRtsCall rtsNo =
     let
-        val props = rtsProperties function
+        val props = rtsProperties rtsNo
         val noUpdateNoDeref = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NODEREF)
     in
         Word.andb(props, noUpdateNoDeref) = noUpdateNoDeref
@@ -75,9 +87,9 @@ struct
     (* RTS calls that have have no side-effects and do not raise exceptions.
        They may return different results for different calls but that doesn't
        matter if the result is going to be discarded. *)
-    and sideEffectFreeRTSCall function =
+    and sideEffectFreeRTSCall rtsNo =
     let
-        val props = rtsProperties function
+        val props = rtsProperties rtsNo
         val noUpdateNoRaise = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
     in
         Word.andb(props, noUpdateNoRaise) = noUpdateNoRaise
@@ -118,11 +130,9 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        |   codeProps (Eval{function=Constnt(w, _), argList, ...}) =
-                if isIoAddress(toAddress w)
-                then List.foldl(fn ((c, _), r) => codeProps c andb r) (rtsProperties w) argList
-                else 0w0 (* Any other function is assumed to be unsafe *)
-        
+        |   codeProps (BuiltIn(function, argList)) =
+                List.foldl(fn (c, r) => codeProps c andb r) (rtsProperties function) argList
+
         |   codeProps (Eval _) = 0w0
 
         |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)

@@ -1027,8 +1027,7 @@ struct
                         (* Generate a function that will set the "print" ref for the type to
                            the argument function. *)
                         mkProc(
-                            mkEval(
-                                rtsFunction POLY_SYS_assign_word,
+                            mkBuiltIn(POLY_SYS_assign_word,
                                 [TypeValue.extractPrinter(
                                     codeAccess(idAccess typeId, nLevel)), CodeZero, printFunction]
                                 ), 1, "addPP", getClosure nLevel, 0)

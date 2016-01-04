@@ -88,8 +88,7 @@ struct
 
     (* allocate 1 mutable word, initialise to "v"; do not evaluate "early" *)
     fun refApplyCode (v: codetree) =
-      mkEval
-        (rtsFunction POLY_SYS_alloc_store,
+      mkBuiltIn(POLY_SYS_alloc_store,
         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v]);
 
     local
@@ -132,9 +131,8 @@ struct
                 (* Tag is first field.  It is always present and is always the tag so
                    we can use mkInd here rather than mkVarField. *)
 
-            fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
-                mkEval (rtsFunction POLY_SYS_not_bool,
-                    [mkEval (rtsFunction POLY_SYS_is_short, [v])]);
+            fun testBoxed (v: codetree) = (* not (isShort v) *)
+                mkBuiltIn(POLY_SYS_not_bool, [mkBuiltIn(POLY_SYS_is_short, [v])])
 
             (* get the tag from a TaggedBox or ConstForm *)
             fun loadTag (u: machineWord) : machineWord = 
@@ -169,8 +167,7 @@ struct
                     [arg])
 
             (* Use loadWord not indirect because the optimiser reorders indirections. *)
-            fun refDestructCode (v : codetree) : codetree =
-               mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero])
+            fun refDestructCode v = mkBuiltIn(POLY_SYS_load_word, [v, CodeZero])
         in
             case test of
                 UnboxedForm 0         => value (* Function - never detupled. *)

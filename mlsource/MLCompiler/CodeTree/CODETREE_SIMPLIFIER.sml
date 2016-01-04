@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -110,30 +109,6 @@ struct
     |   specialToGeneral(Constnt(w, p), [], s) = Constnt(w, setInline s p)
     |   specialToGeneral(g, [], _) = g
 
-    (* Call and RTS function to fold constants.  The function must be safe to evaluate "early". *)
-    fun callRTSFunction(rtsCall: machineWord, argList) =
-    let
-        exception Interrupt = Thread.Thread.Interrupt
-        val _ = (isIoAddress(toAddress rtsCall) andalso earlyRtsCall rtsCall)
-                    orelse raise InternalError "not early rts"
-
-        (* Turn the arguments into a vector.  *)
-        val argVector =
-            case makeConstVal(mkTuple argList) of
-                Constnt(w, _) => w
-            |   _ => raise InternalError "makeConstVal: Not constant"
-
-        (* Call the function.  If it raises an exception (e.g. divide
-           by zero) generate code to raise the exception at run-time.
-           We don't do that for Interrupt which we assume only arises
-           by user interaction and not as a result of executing the
-           code so we reraise that exception immediately. *)
-    in
-        Constnt (call(toAddress rtsCall, argVector), [])
-            handle exn as Interrupt => raise exn (* Must not handle this *)
-            | exn => Raise (Constnt(toMachineWord exn, []))
-    end
-
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
 
     (* Process the codetree to return a codetree node.  This is used
@@ -153,6 +128,9 @@ struct
 
     |   simpGeneral context (Eval {function, argList, resultType}) =
             SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context)))
+
+    |   simpGeneral context (BuiltIn(function, argList)) =
+            SOME(specialToGeneral(simpBuiltIn(function, argList, context)))
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
@@ -257,6 +235,9 @@ struct
 
     |   simpSpecial (Eval {function, argList, resultType}, context) =
             simpFunctionCall(function, argList, resultType, context)
+
+    |   simpSpecial (BuiltIn (function, argList), context) =
+            simpBuiltIn(function, argList, context)
 
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
@@ -633,14 +614,19 @@ struct
             end
 
         |   (_, gen as Constnt(w, _), _) => (* Not inlinable - constant function. *)
+            if isIoAddress(toAddress w)
+            then (* If it is the address of a built-in function convert it. *)
+            let
+                val () = reprocess := true
+                val (evCopiedCode, decs, evSpec) = simpBuiltIn(rtsCodeFromAddress w, map #1 argList, context)
+            in
+                (evCopiedCode, decsFunct @ decs, evSpec)
+            end
+            else
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
-                (* If the function is an RTS call that is safe to evaluate immediately and all the
-                   arguments are constants evaluate it now. *)
-                val evCopiedCode = 
-                    if isIoAddress(toAddress w) andalso earlyRtsCall w andalso List.all (isConstnt o #1) copiedArgs
-                    then callRTSFunction(w, List.map #1 copiedArgs)
-                    else Eval {function = gen, argList = copiedArgs, resultType=resultType}
+                val evCopiedCode =
+                    Eval {function = gen, argList = copiedArgs, resultType=resultType}
             in
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
@@ -653,6 +639,47 @@ struct
             in
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
+    end
+
+    (* A built-in function. *)
+    and simpBuiltIn(rtsCallNo, argList, context as { reprocess, ...}) =
+    let
+        val copiedArgs = map (fn arg => simplify(arg, context)) argList
+        (* If the function is an RTS call that is safe to evaluate immediately and all the
+           arguments are constants evaluate it now. *)
+        val evCopiedCode =
+            if earlyRtsCall rtsCallNo andalso List.all isConstnt copiedArgs
+            then
+            let
+                val () = reprocess := true
+                exception Interrupt = Thread.Thread.Interrupt
+
+                (* Turn the arguments into a vector.  *)
+                val argVector =
+                    case makeConstVal(mkTuple copiedArgs) of
+                        Constnt(w, _) => w
+                    |   _ => raise InternalError "makeConstVal: Not constant"
+
+                (* Call the function.  If it raises an exception (e.g. divide
+                   by zero) generate code to raise the exception at run-time.
+                   We don't do that for Interrupt which we assume only arises
+                   by user interaction and not as a result of executing the
+                   code so we reraise that exception immediately. *)
+                val ioOp : int -> machineWord =
+                    RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+                (* We need callcode_tupled here because we pass the arguments as
+                   a tuple but the RTS functions we're calling expect arguments in
+                   registers or on the stack. *)
+                val call: (address * machineWord) -> machineWord =
+                    RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
+            in
+                Constnt (call(toAddress(ioOp rtsCallNo), argVector), [])
+                    handle exn as Interrupt => raise exn (* Must not handle this *)
+                    | exn => Raise (Constnt(toMachineWord exn, []))
+            end
+            else BuiltIn(rtsCallNo, copiedArgs)
+    in
+        (evCopiedCode, [], EnvSpecNone)
     end
 
     and simpIfThenElse(condTest, condThen, condElse, context) =
@@ -682,20 +709,7 @@ struct
         |   test =>
             let
                 val simpTest = specialToGeneral test
-                local
-                    open RuntimeCalls
-                    val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
-                    fun rtsFunction v = Constnt(ioOp v, [])
-
-                    fun mkEval (ct, clist)   =
-                    Eval {
-                        function = ct,
-                        argList = List.map(fn c => (c, GeneralType)) clist,
-                        resultType=GeneralType
-                    }
-                in
-                    fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
-                end
+                fun mkNot arg = BuiltIn(RuntimeCalls.POLY_SYS_not_bool, [arg])
             in
                 case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
                     ((thenConst as Constnt(thenVal, _), [], _), (elseConst as Constnt(elseVal, _), [], _)) =>

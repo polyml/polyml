@@ -44,7 +44,9 @@ sig
     
     val sideEffectFree: codetree -> bool
     and reorderable: codetree -> bool
-    and sideEffectFreeRTSCall: machineWord -> bool
+    and sideEffectFreeRTSCall: int -> bool
+    
+    val rtsCodeFromAddress: machineWord -> int
 
     val makeConstVal: codetree -> codetree
     
@@ -52,7 +54,7 @@ sig
     
     val findEntryInBlock: codetree * int * bool -> codetree
     
-    val earlyRtsCall: machineWord -> bool
+    val earlyRtsCall: int -> bool
 
     val partitionMutableBindings: codeBinding -> codeBinding list
 

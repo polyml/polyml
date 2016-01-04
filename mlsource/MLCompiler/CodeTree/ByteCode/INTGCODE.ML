@@ -292,6 +292,12 @@ struct
        case pt of
          BICEval evl =>
            genEval (evl, tailKind)
+        
+       |    BICBuiltIn(function, argList) =>
+                genEval(
+                    {function=BICConstnt(ioOp function, []),
+                     argList=map (fn c => (c, GeneralType)) argList, resultType=GeneralType},
+                    tailKind)
 
        | BICExtract ext =>
            (* This may just be being used to discard a value which isn't
@@ -1132,6 +1138,9 @@ struct
 
        val closureAddr : address =
         codegen (pt, newCode, loadRecLink, 0, parameters)
+        val call: (Address.address * machineWord) -> machineWord =
+            RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
+        (* TODO: We can actually just cast closureAddr as a unit->machineWord function. *)
      in
        (* Result is a function to execute the code. *)
        (fn () => call (closureAddr, toMachineWord ()), [])

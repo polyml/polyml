@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -73,6 +73,8 @@ struct
             argList:   (p2Codetree * argumentType) list,
             resultType: argumentType
         }
+
+    |   P2BuiltIn of int * p2Codetree list
     
     |   P2Lambda of p2LambdaForm (* Lambda expressions. *)
 
@@ -153,17 +155,15 @@ struct
         | sideEffectFree (P2Tuple recs) = testList recs
         | sideEffectFree (P2Field{base, ...}) = sideEffectFree base
 
-            (* An RTS call, which may actually be code which is inlined
-               by the code-generator, may be side-effect free.  This can
+            (* A built-in function may be side-effect free.  This can
                occur if we have, for example, "if exp1 orelse exp2"
                where exp2 can be reduced to "true", typically because it's
                inside an inline function and some of the arguments to the
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        | sideEffectFree (P2Eval{function=P2Constnt(w, _), argList, ...}) =
-            isIoAddress(toAddress w) andalso CODETREE_FUNCTIONS.sideEffectFreeRTSCall w
-            andalso List.all (fn (c, _) => sideEffectFree c) argList
+        | sideEffectFree (P2BuiltIn(function, argList)) =
+            CODETREE_FUNCTIONS.sideEffectFreeRTSCall function andalso List.all sideEffectFree argList
 
         | sideEffectFree(P2Container _) = true
             (* But since SetContainer has a side-effect we'll always create the
@@ -350,6 +350,8 @@ struct
                     in
                         BICEval {function = func, argList = newargs, resultType=resultType}
                     end
+
+                |   insert(P2BuiltIn (function, argList)) = BICBuiltIn(function, mapright insert argList)
 
                 |   insert(P2Extract ext) = locaddr ext
 
@@ -861,6 +863,8 @@ struct
                     P2Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
+            |   insert(BuiltIn (function, argList)) = P2BuiltIn (function, map insert argList)
+
             |   insert(Extract ext) =
                     (* Load the value bound to an identifier. The closure flag is
                        set to true since the only cases where a closure is not needed,
@@ -1135,20 +1139,20 @@ struct
 
                 (* If we have a call to the int equality operation *)
                 (* then we may be able to use a case statement. *)
-                fun findCase (P2Eval{ function=P2Constnt(cv, _), argList, ... }) =
+                fun findCase (P2BuiltIn(function, argList)) =
                 let
-                    val isArbitrary = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_equala)
-                    val isWord = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_word_eq)
+                    val isArbitrary = function = RuntimeCalls.POLY_SYS_equala
+                    val isWord = function = RuntimeCalls.POLY_SYS_word_eq
                 in
                     if isArbitrary orelse isWord
                     then  (* Should be just two arguments. *)
                     case argList of
-                        [(P2Constnt(c1, _), _), (arg2, _)] =>
+                        [P2Constnt(c1, _), arg2] =>
                         if isShort c1
                         then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)
                     
-                     | [(arg1, _), (P2Constnt(c2, _), _)] =>
+                     | [arg1, P2Constnt(c2, _)] =>
                         if isShort c2
                         then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)

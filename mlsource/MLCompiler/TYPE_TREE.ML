@@ -206,7 +206,7 @@ struct
             fun make n = mkConst(Address.toMachineWord n)
             fun isCode n =
                 mkInlproc(
-                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoadArgument 0, make n]),
+                    mkBuiltIn(RuntimeCalls.POLY_SYS_word_eq, [mkLoadArgument 0, make n]),
                     1, "test-box", [], 0)
         in
             val boxedNever  = make boxedRepNever
@@ -280,8 +280,11 @@ struct
             makeTypeConstructor (name,
                 makeFreeId(0, eqAndPrintCode(eqFun, 0, boxed), true, basisDescription name),
                 [DeclaredAt inBasis])
+    
+        (* since code generator relies on these representations,
+           we may as well export them *)
         (* wordEq is used both for tagged words and for pointer equality *)
-        val wordEq = CODETREE.rtsFunction POLY_SYS_word_eq
+        val wordEq = rtsFunction POLY_SYS_word_eq
 
         (* Strings can be either tagged single characters or vectors whose first word is
            the length. *)
@@ -289,28 +292,28 @@ struct
             val stringEquality =
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkEval(wordEq, [mkLoadArgument 0, mkLoadArgument 1]),
+                        mkBuiltIn(POLY_SYS_word_eq, [mkLoadArgument 0, mkLoadArgument 1]),
                         (* ... or they're both long and ...*)
                         mkCand(
                             mkCand(
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
+                                mkBuiltIn(POLY_SYS_not_bool,
+                                    [mkBuiltIn(POLY_SYS_is_short, [mkLoadArgument 0])]),
+                                mkBuiltIn(POLY_SYS_not_bool,
+                                    [mkBuiltIn(POLY_SYS_is_short, [mkLoadArgument 1])])
                             ),
                             (* ... their contents are equal.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different. *)
-                            mkEval(rtsFunction POLY_SYS_bytevec_eq,
+                            mkBuiltIn(POLY_SYS_bytevec_eq,
                                 [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero,
-                                    mkEval(rtsFunction POLY_SYS_plus_word,
+                                    mkBuiltIn(POLY_SYS_plus_word,
                                         [
                                             mkConst(toMachineWord wordSize),
                                             (* Use argument 1 here rather than 0.  We could use either but this works
                                                better when we're using equality for pattern matching since it
                                                gets the length of the constant string.  It also works better
                                                for the, to me, more natural ordering of variable=constant. *)
-                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoadArgument 1])
+                                            mkBuiltIn(POLY_SYS_string_length, [mkLoadArgument 1])
                                         ])
                                 ])
                         )
@@ -320,7 +323,7 @@ struct
             val stringEquality = genCode(stringEquality, [], 0) ()
         end
     in
-        val intConstr    = makeConstr("int",    CODETREE.rtsFunction POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
+        val intConstr    = makeConstr("int",    rtsFunction POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
         val charConstr   = makeConstr("char",   wordEq, boxedNever) (* Always short *)
         val stringConstr = makeConstr("string", stringEquality, boxedEither (* Single chars are unboxed. *))
         val wordConstr   = makeConstr("word",   wordEq, boxedNever)

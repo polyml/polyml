@@ -56,6 +56,8 @@ struct
             argList:   (codetree * argumentType) list,
             resultType: argumentType
         }
+
+    |   BuiltIn of int * codetree list (* Call to an RTS/built-in function. *)
     
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -215,7 +217,22 @@ struct
                         )
                     ]
                 )
-         
+
+        |   BuiltIn (function, argList) => 
+                PrettyBlock (2, false, [],
+                    [
+                        PrettyString(rtsFunctionName function),
+                        PrettyBreak(1, 2),
+                        PrettyBlock(2, true, [],
+                            [
+                                printList("", argList, ","),
+                                PrettyBreak (0, 0),
+                                PrettyString (")")
+                            ]
+                        )
+                    ]
+                )
+
         |   Extract(LoadArgument addr) => string ("Arg" ^ Int.toString addr)
         |   Extract(LoadLocal addr) => string ("Local" ^ Int.toString addr)
         |   Extract(LoadClosure addr) => string ("Closure" ^ Int.toString addr)
@@ -521,6 +538,7 @@ struct
                     argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
                     resultType = resultType
                 }
+        |   mapt(BuiltIn (function, arglist)) = BuiltIn (function, map (mapCodetree f) arglist)
         |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
@@ -576,6 +594,7 @@ struct
         |   ftree (Indirect{base, ...}, v) = foldtree f v base
         |   ftree (Eval { function, argList, ...}, v) =
                 foldl(fn((c, _), w) => foldtree f w c) (foldtree f v function) argList
+        |   ftree (BuiltIn (_, arglist), v) = foldl (fn (c, w) => foldtree f w c) v arglist
         |   ftree (Lambda { body, closure, ...}, v) =
                 foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
         |   ftree (Cond(i, t, e), v) = foldtree f (foldtree f (foldtree f v i) t) e

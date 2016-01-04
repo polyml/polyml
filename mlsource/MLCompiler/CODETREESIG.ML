@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15 David C.J. Matthews
+    Copyright (c) 2012,13,15-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,9 +28,9 @@ sig
         GeneralType
     |   FloatingPtType
  
-    val CodeTrue:           codetree; (* code for "true"  *)
-    val CodeFalse:          codetree; (* code for "false" *)
-    val CodeZero:           codetree; (* code for 0, nil etc. *)
+    val CodeTrue:           codetree (* code for "true"  *)
+    val CodeFalse:          codetree (* code for "false" *)
+    val CodeZero:           codetree (* code for 0, nil etc. *)
 
     val mkFunction:
         {
@@ -48,28 +48,29 @@ sig
     and mkLoadArgument:     int -> codetree
     and mkLoadClosure:      int -> codetree
 
-    val mkConst:            machineWord -> codetree;
+    val mkConst:            machineWord -> codetree
     val mkInd:              int * codetree -> codetree
     val mkVarField:         int * codetree -> codetree
-    val mkProc:             codetree * int * string * codetree list * int -> codetree;
-    val mkInlproc:          codetree * int * string * codetree list * int -> codetree;
-    val mkMacroProc:        codetree * int * string * codetree list * int -> codetree;
-    val mkIf:               codetree * codetree * codetree -> codetree;
-    val mkWhile:            codetree * codetree -> codetree;
+    val mkProc:             codetree * int * string * codetree list * int -> codetree
+    val mkInlproc:          codetree * int * string * codetree list * int -> codetree
+    val mkMacroProc:        codetree * int * string * codetree list * int -> codetree
+    val mkIf:               codetree * codetree * codetree -> codetree
+    val mkWhile:            codetree * codetree -> codetree
     val mkEnv:              codeBinding list * codetree -> codetree
-    val mkStr:              string -> codetree;
-    val mkTuple:            codetree list -> codetree;
+    val mkStr:              string -> codetree
+    val mkTuple:            codetree list -> codetree
     val mkDatatype:         codetree list -> codetree
-    val mkRaise:            codetree -> codetree;
-    val mkNot:              codetree -> codetree;
-    val mkCor:              codetree * codetree -> codetree;
-    val mkCand:             codetree * codetree -> codetree;
-    val mkTestptreq:        codetree * codetree -> codetree;
-    val mkTestinteq:        codetree * codetree -> codetree;
+    val mkRaise:            codetree -> codetree
+    val mkNot:              codetree -> codetree
+    val mkCor:              codetree * codetree -> codetree
+    val mkCand:             codetree * codetree -> codetree
+    val mkTestptreq:        codetree * codetree -> codetree
+    val mkTestinteq:        codetree * codetree -> codetree
     val mkHandle:           codetree * codetree -> codetree
-    val mkEval:             codetree * codetree list -> codetree;
-    val identityFunction:   string -> codetree;
-    val Ldexc:              codetree;
+    val mkEval:             codetree * codetree list -> codetree
+    val mkBuiltIn:          int * codetree list -> codetree
+    val identityFunction:   string -> codetree
+    val Ldexc:              codetree
 
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: int * int -> codetree
@@ -84,9 +85,9 @@ sig
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 
-    val pretty:    codetree -> pretty;
+    val pretty:    codetree -> pretty
     val evalue:    codetree -> machineWord option
-    val genCode:   codetree * Universal.universal list * int -> (unit -> codetree);
+    val genCode:   codetree * Universal.universal list * int -> (unit -> codetree)
     
     val rtsFunction:        int -> codetree
 

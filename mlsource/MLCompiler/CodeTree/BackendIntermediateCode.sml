@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -42,7 +41,9 @@ struct
             argList:   (backendIC * argumentType) list,
             resultType: argumentType
         }
-    
+
+    |   BICBuiltIn of int * backendIC list (* Call an RTS/built-in function. *)
+
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
     |   BICCond of backendIC * backendIC * backendIC (* If-then-else expression *)
@@ -202,6 +203,11 @@ struct
                     [ pretty function, PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
                 )
             end
+
+        |   BICBuiltIn (function, arglist) =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(rtsFunctionName function), PrettyBreak(1, 0), printList("", arglist, ",") ]
+                )
 
         |   BICKillItems {expression, killSet, killBefore} =>
             PrettyBlock(1, false, [],

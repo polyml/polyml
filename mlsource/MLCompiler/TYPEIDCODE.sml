@@ -102,16 +102,12 @@ struct
     (* Generate code to check that the depth is not less than the allowedDepth
        and if it is to print "..." rather than the given code. *)
     and checkDepth(depthCode: codetree, allowedDepth: int, codeOk, codeFail) =
-        mkIf(
-            mkEval(
-                rtsFunction POLY_SYS_int_lss,
-                [depthCode, mkConst(toMachineWord allowedDepth)]),
-            codeFail,
-            codeOk)
+        mkIf(mkBuiltIn(POLY_SYS_int_lss, [depthCode, mkConst(toMachineWord allowedDepth)]),
+             codeFail, codeOk)
 
     (* Subtract one from the current depth to produce the depth for sub-elements. *)
     and decDepth depthCode =
-        mkEval(rtsFunction POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)])
+        mkBuiltIn(POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)])
 
     val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
 
@@ -189,7 +185,7 @@ struct
                     val printFn = (* Create a function to load the printer ref and apply to the args. *)
                         mkProc(
                             mkEval(
-                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                mkBuiltIn(POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                 [arg1]),
                             1, "print-" ^ tcName typConstr, [], 0)
                 in
@@ -514,7 +510,7 @@ struct
                                          the reference and apply it the pair of the value and the depth. *)
                                     mkProc(
                                         mkEval(
-                                            mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                            mkBuiltIn(POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                             [arg1]),
                                         1, "print-"^name, getClosure nLevel, 0)
                             |   _ =>  (* Construct a function, that when called, will extract the
@@ -523,7 +519,7 @@ struct
                                     mkProc(
                                         mkEval(
                                             mkEval(
-                                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                                mkBuiltIn(POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                                 argList),
                                             [arg1]),
                                         1, "print-"^name, getClosure nLevel, 0)
@@ -806,7 +802,7 @@ struct
                                the tags if it is not short because we can't guarantee
                                that the constant tuple hasn't been duplicated. *)
                             val isShort =
-                                mkEval(rtsFunction POLY_SYS_is_short, [addPolymorphism(extractInjection base)])
+                                mkBuiltIn(POLY_SYS_is_short, [addPolymorphism(extractInjection base)])
                        in
                             mkIf(mkIf(isShort, CodeFalse, matches arg1), matches arg2, processConstrs rest)
                         end
@@ -932,7 +928,7 @@ struct
 
         local
             fun callIo function args =
-                mkEval (rtsFunction function, args)
+                mkBuiltIn(function, args)
 
             fun eqStr (arg, str) =
                 callIo POLY_SYS_word_eq [arg, mkConst(toMachineWord str)]
@@ -1100,8 +1096,7 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
                     printCode =
-                    mkEval
-                        (rtsFunction POLY_SYS_alloc_store,
+                    mkBuiltIn(POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          codePrintDefault])
                 })
@@ -1152,8 +1147,7 @@ struct
                 createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode,
                     printCode =
-                    mkEval
-                        (rtsFunction POLY_SYS_alloc_store,
+                    mkBuiltIn(POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          printCode]),
                     sizeCode = sizeCode
@@ -1176,8 +1170,7 @@ struct
                 else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
 
             val printCode =
-                    mkEval
-                        (rtsFunction POLY_SYS_alloc_store,
+                    mkBuiltIn(POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn ]
                         )
         in
@@ -1227,8 +1220,7 @@ struct
                     {
                         eqCode=mkLoadLocal eqAddr,
                         printCode=
-                            mkEval
-                                (rtsFunction POLY_SYS_alloc_store,
+                            mkBuiltIn(POLY_SYS_alloc_store,
                                 [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                                  CodeZero (* Temporary - replaced by setPrinter. *)]
                             ),
@@ -1258,8 +1250,7 @@ struct
                     else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
             in
                 mkNullDec(
-                    mkEval(
-                        rtsFunction POLY_SYS_assign_word,
+                    mkBuiltIn(POLY_SYS_assign_word,
                         [TypeValue.extractPrinter(codeId(identifier, level)),
                                   CodeZero, printCode]
                         ))
@@ -1294,8 +1285,7 @@ struct
         open TypeValue
         val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal", [], 0)
         val printCode =
-            mkEval(
-                rtsFunction POLY_SYS_alloc_store,
+            mkBuiltIn(POLY_SYS_alloc_store,
                 [ mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault])
     in
         createTypeValue{

@@ -57,7 +57,9 @@ sig
             argList:   (codetree * argumentType) list,
             resultType: argumentType
         }
-    
+
+    |   BuiltIn of int * codetree list (* Call to an RTS/built-in function. *)
+
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)

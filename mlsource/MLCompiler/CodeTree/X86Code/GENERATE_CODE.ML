@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2009-10, 2012, 2013, 2015
+    Copyright David C. J. Matthews 1991, 2009-10, 2012-13, 2015-16
 
     Title:      General purpose code generator.
     Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
@@ -380,6 +380,10 @@ struct
         case pt of
           BICEval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind)
+            
+        |   BICBuiltIn(function, argList) =>
+                (* Temporarily map this back to genEval *)
+                genEval(BICConstnt(ioOp function, []), map (fn c => (c, GeneralType)) argList, GeneralType, primBoolOps, whereto, tailKind)
 
         | BICExtract ext =>
             let
@@ -2715,8 +2719,11 @@ struct
                     profileObject,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+            val call: (Address.address * machineWord) -> machineWord =
+                RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
+            (* TODO: We can actually just cast closureAddr as a unit->machineWord function. *)
         in (* Result is a function to execute the code. *)
-            (fn () => Address.call (closureAddr, Address.toMachineWord ()), [])
+            (fn () => call (closureAddr, Address.toMachineWord ()), [])
         end (* gencode *)
 
 end; (* GCODE functor body *)

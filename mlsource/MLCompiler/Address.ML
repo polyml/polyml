@@ -68,8 +68,6 @@ sig
     val isCode  : address -> bool
     val isMutable:address -> bool
 
-    val call: (address * machineWord) -> machineWord
-
     val isIoAddress : address -> bool
 end
 
@@ -174,18 +172,6 @@ struct
   val flags:  address -> Word8.word  =
     RunCall.run_call1 POLY_SYS_get_flags
   
-  (* "call" added SPF 7/7/94, corrected 13/7/94, 8/9/94 *)
-  (* call takes the address of the code of a function [N.B. *NOT*  *)
-  (* the closure for the function] that uses Poly parameter        *)
-  (* conventions (values in registers e.g. an ML secondary entry   *)
-  (* point) and applies it to the address of a single ML tuple.    *)
-  (* N.B. it MUST be a tuple, even if there's only one parameter.  *)
-  (* However, since unit is a "short" not an "address", the type   *)
-  (* of the second parameter has to be "word" (not "address").     *)
-  
-  (* The run-time system functions all use Poly convention. *)
-  val call: (address * machineWord) -> machineWord =
-    RunCall.run_call1 POLY_SYS_callcode_tupled
   
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)

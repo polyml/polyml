@@ -363,9 +363,8 @@ struct
             val runCall1Entry : codetree =
             let 
                 val name = "run_call1(1)";
-                val ioOpEntry = rtsFunction POLY_SYS_io_operation;
                 val n     = mkLoadArgument 0                 (* the outer parameter *)
-                val body  = mkEval (ioOpEntry, [n]);
+                val body  = mkBuiltIn (POLY_SYS_io_operation, [n]);
             in
                 makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
             end;
@@ -389,7 +388,6 @@ struct
                  *)
 
                 val name = "run_call" ^ Int.toString width;
-                val ioOpEntry = rtsFunction POLY_SYS_io_operation;
                 
                 val innerBody : codetree =
                 let
@@ -404,7 +402,7 @@ struct
                 val outerBody : codetree  =
                 let
                     val n = mkLoadArgument 0                 (* the outer parameter *)
-                    val f = mkEval (ioOpEntry, [n]);
+                    val f = mkBuiltIn (POLY_SYS_io_operation, [n]);
                 in
                     mkEnv([mkDec (0, f)], innerLambda)
                 end
@@ -420,7 +418,6 @@ struct
             let 
                 val name =
                     String.concat["run_call", Int.toString width, "C", Int.toString containerWidth]
-                val ioOpEntry = rtsFunction POLY_SYS_io_operation
                 
                 val innerLambda : codetree =
                 let
@@ -439,7 +436,7 @@ struct
                 val outerLambda =
                 let
                     val n = mkLoadArgument 0                 (* the outer parameter *)
-                    val f = mkEval (ioOpEntry, [n])
+                    val f = mkBuiltIn(POLY_SYS_io_operation, [n])
                 in
                     mkInlproc(mkEnv([mkDec (0, f)], innerLambda), 1, name, [], 1)
                 end
@@ -573,26 +570,26 @@ struct
                     mkProc(
                         mkEnv([
                             (* Length of the items. *)
-                            mkDec(0, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 0])),
-                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 1])),
+                            mkDec(0, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 0])),
+                            mkDec(1, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 1])),
                             mkMutualDecs[(2, (* Loop function. *)
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadClosure 0, mkLoadArgument 0]),
+                                        mkBuiltIn(POLY_SYS_word_eq, [mkLoadClosure 0, mkLoadArgument 0]),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
                                                 TypeValue.extractEquality(mkLoadClosure 2), (* Base equality fn *)
                                                 [
-                                                    mkEval(rtsFunction POLY_SYS_load_word,
+                                                    mkBuiltIn(POLY_SYS_load_word,
                                                         [mkLoadClosure 3, mkLoadArgument 0]),
-                                                    mkEval(rtsFunction POLY_SYS_load_word,
+                                                    mkBuiltIn(POLY_SYS_load_word,
                                                         [mkLoadClosure 4, mkLoadArgument 0])
                                                 ]),
                                             mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)
                                                 [
-                                                    mkEval(rtsFunction POLY_SYS_plus_word,
+                                                    mkBuiltIn(POLY_SYS_plus_word,
                                                         [mkLoadArgument 0, mkConst(toMachineWord 1)])
                                                 ]),
                                             CodeFalse (* Not equal elements - result false *)
@@ -605,7 +602,7 @@ struct
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                                mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
                                 (* Equal - test the contents. *)
                                 mkEval(mkLoadLocal 2, [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
@@ -642,22 +639,22 @@ struct
                 mkProc(
                     mkEnv([
                         (* Length of the items. *)
-                        mkDec(0, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 0])),
-                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 1]))
+                        mkDec(0, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 0])),
+                        mkDec(1, mkBuiltIn(POLY_SYS_get_length, [mkLoadArgument 1]))
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                            mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
                             (* Equal - test the contents. *)
                             mkEnv([
                                 (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
                                    the number of bytes per word. *)
                                 mkDec(2,
-                                    mkEval(rtsFunction POLY_SYS_mul_word,
-                                        [mkEval(rtsFunction POLY_SYS_bytes_per_word, []), mkLoadLocal 0]
+                                    mkBuiltIn(POLY_SYS_mul_word,
+                                        [mkBuiltIn(POLY_SYS_bytes_per_word, []), mkLoadLocal 0]
                                     ))
                                 ],
-                                mkEval(rtsFunction POLY_SYS_bytevec_eq,
+                                mkBuiltIn(POLY_SYS_bytevec_eq,
                                     [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 2])),
                             CodeFalse (* Not same length- result false *)
                         )

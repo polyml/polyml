@@ -164,6 +164,8 @@ struct
         |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
                 checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
 
+        |   checkUse isMain (BuiltIn(_, argList), cl, _) = checkUseList isMain (argList, cl)
+
         |   checkUse isMain (Cond(i, t, e), cl, isTail) =
                 checkUse isMain (i, checkUse isMain (t, checkUse isMain (e, cl -- 2, isTail), isTail), false)
         |   checkUse isMain (BeginLoop { loop, arguments, ...}, cl, _) =
