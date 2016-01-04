@@ -2292,7 +2292,9 @@ void X86TaskData::SetException(poly_exn *exc)
     PSP_EAX(this) = exc; /* put exception data into eax */
 }
 
-// Call a piece of compiled code.
+// Call a function that requires the arguments in registers or on the stack
+// using arguments from a tuple.  This is now only used in the compiler
+// to evaluate functions such as "add" with constant arguments.
 void X86TaskData::CallCodeTupled()
 {
     // The eventual return address is on the stack - leave it there.

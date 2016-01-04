@@ -1138,10 +1138,12 @@ struct
 
        val closureAddr : address =
         codegen (pt, newCode, loadRecLink, 0, parameters)
-        val call: (Address.address * machineWord) -> machineWord =
+        (* Call this with callcode-tupled.  We mustn't cast it because the code does
+           not expect any arguments on the stack at all and that's not the same
+           as calling it with a single unit value. *)
+         val call: (Address.address * machineWord) -> machineWord =
             RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
-        (* TODO: We can actually just cast closureAddr as a unit->machineWord function. *)
-     in
+    in
        (* Result is a function to execute the code. *)
        (fn () => call (closureAddr, toMachineWord ()), [])
      end; (* gencode *)

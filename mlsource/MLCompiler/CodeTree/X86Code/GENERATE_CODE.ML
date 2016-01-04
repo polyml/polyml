@@ -2719,11 +2719,11 @@ struct
                     profileObject,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-            val call: (Address.address * machineWord) -> machineWord =
-                RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
-            (* TODO: We can actually just cast closureAddr as a unit->machineWord function. *)
+            (* Cast this as a function.  That's safe on X86 since we're going to be
+               passing the unit argument in a register. *)
+            val resultFunction: unit -> machineWord = RunCall.unsafeCast closureAddr
         in (* Result is a function to execute the code. *)
-            (fn () => call (closureAddr, Address.toMachineWord ()), [])
+            (resultFunction, [])
         end (* gencode *)
 
 end; (* GCODE functor body *)
