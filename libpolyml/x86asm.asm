@@ -596,18 +596,7 @@ POLY_SYS_os_specific         EQU 52
 POLY_SYS_io_dispatch         EQU 61
 POLY_SYS_signal_handler      EQU 62
 POLY_SYS_thread_dispatch     EQU 73
-POLY_SYS_plus_longword       EQU 74
-POLY_SYS_minus_longword      EQU 75
-POLY_SYS_mul_longword        EQU 76
-POLY_SYS_div_longword        EQU 77
-POLY_SYS_mod_longword        EQU 78
-POLY_SYS_andb_longword       EQU 79
-POLY_SYS_orb_longword        EQU 80
-POLY_SYS_xorb_longword       EQU 81
 POLY_SYS_kill_self           EQU 84
-POLY_SYS_shift_left_longword        EQU  85
-POLY_SYS_shift_right_longword       EQU 86
-POLY_SYS_shift_right_arith_longword EQU 87
 POLY_SYS_profiler            EQU 88
 POLY_SYS_signed_to_longword   EQU 90
 POLY_SYS_unsigned_to_longword EQU 91
@@ -2679,8 +2668,6 @@ minus_longword:
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-minus_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_minus_longword
 CALLMACRO   RegMask minus_longword,(M_Reax OR M_Recx)
 
 mul_longword:
