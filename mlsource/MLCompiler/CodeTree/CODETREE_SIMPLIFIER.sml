@@ -464,6 +464,7 @@ struct
                                         case specEntry of
                                             EnvSpecTuple(size, env) => EnvSpecTuple(size, convertEnv env)
                                         |   EnvSpecInlineFunction(spec, env) => EnvSpecInlineFunction(spec, convertEnv env)
+                                        |   EnvSpecBuiltIn _ => EnvSpecNone (* Don't pass this in *)
                                         |   EnvSpecNone => EnvSpecNone
                                 in
                                     (newGeneral, newSpecial)
@@ -536,9 +537,7 @@ struct
 
     and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}) =
     let
-        (* Function call - This may involve inlining the function.  We may
-           also be able to call the function immediately if it is a simple
-           built-in function and the arguments are constants. *)
+        (* Function call - This may involve inlining the function. *)
 
         (* Get the function to be called and see if it is inline or
            a lambda expression. *)
@@ -641,45 +640,90 @@ struct
             end
     end
 
-    (* A built-in function. *)
+    (* A built-in function.  We can call certain built-ins immediately if
+       the arguments are constants.  *)
     and simpBuiltIn(rtsCallNo, argList, context as { reprocess, ...}) =
     let
-        val copiedArgs = map (fn arg => simplify(arg, context)) argList
+        val copiedArgs = map (fn arg => simpSpecial(arg, context)) argList
+        open RuntimeCalls
+    in
         (* If the function is an RTS call that is safe to evaluate immediately and all the
            arguments are constants evaluate it now. *)
-        val evCopiedCode =
-            if earlyRtsCall rtsCallNo andalso List.all isConstnt copiedArgs
-            then
-            let
-                val () = reprocess := true
-                exception Interrupt = Thread.Thread.Interrupt
+        if earlyRtsCall rtsCallNo andalso List.all (isConstnt o #1) copiedArgs
+        then
+        let
+            val () = reprocess := true
+            exception Interrupt = Thread.Thread.Interrupt
 
-                (* Turn the arguments into a vector.  *)
-                val argVector =
-                    case makeConstVal(mkTuple copiedArgs) of
-                        Constnt(w, _) => w
-                    |   _ => raise InternalError "makeConstVal: Not constant"
+            (* Turn the arguments into a vector.  *)
+            val argVector =
+                case makeConstVal(mkTuple(List.map specialToGeneral copiedArgs)) of
+                    Constnt(w, _) => w
+                |   _ => raise InternalError "makeConstVal: Not constant"
 
-                (* Call the function.  If it raises an exception (e.g. divide
-                   by zero) generate code to raise the exception at run-time.
-                   We don't do that for Interrupt which we assume only arises
-                   by user interaction and not as a result of executing the
-                   code so we reraise that exception immediately. *)
-                val ioOp : int -> machineWord =
-                    RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-                (* We need callcode_tupled here because we pass the arguments as
-                   a tuple but the RTS functions we're calling expect arguments in
-                   registers or on the stack. *)
-                val call: (address * machineWord) -> machineWord =
-                    RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
-            in
+            (* Call the function.  If it raises an exception (e.g. divide
+               by zero) generate code to raise the exception at run-time.
+               We don't do that for Interrupt which we assume only arises
+               by user interaction and not as a result of executing the
+               code so we reraise that exception immediately. *)
+            val ioOp : int -> machineWord =
+                RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+            (* We need callcode_tupled here because we pass the arguments as
+               a tuple but the RTS functions we're calling expect arguments in
+               registers or on the stack. *)
+            val call: (address * machineWord) -> machineWord =
+                RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
+            val code =
                 Constnt (call(toAddress(ioOp rtsCallNo), argVector), [])
                     handle exn as Interrupt => raise exn (* Must not handle this *)
                     | exn => Raise (Constnt(toMachineWord exn, []))
-            end
-            else BuiltIn(rtsCallNo, copiedArgs)
-    in
-        (evCopiedCode, [], EnvSpecNone)
+        in
+            (code, [], EnvSpecNone)
+        end
+            (* We can optimise certain built-ins in combination with others.
+               If we have POLY_SYS_unsigned_to_longword combined with POLY_SYS_longword_to_tagged
+               we can eliminate both.  This can occur in cases such as Word.fromLargeWord o Word8.toLargeWord.
+               If we have POLY_SYS_cmem_load_X functions where the address is formed by adding
+               a constant to an address we can move the addend into the load instruction. *)
+        else if rtsCallNo = POLY_SYS_longword_to_tagged andalso
+                (case copiedArgs of [(_, _, EnvSpecBuiltIn(r, _))] => r = POLY_SYS_unsigned_to_longword | _ => false)
+        then
+        let
+            val arg = (* Get the argument of the argument. *)
+                case copiedArgs of
+                    [(_, _, EnvSpecBuiltIn(_, [arg]))] => arg
+                |   _ => raise Bind
+        in
+            (arg, [], EnvSpecNone)
+        end
+(*        else if (rtsCallNo = POLY_SYS_cmem_load_8 orelse rtsCallNo = POLY_SYS_cmem_load_16 orelse
+                 rtsCallNo = POLY_SYS_cmem_load_32 orelse rtsCallNo = POLY_SYS_cmem_load_64 orelse
+                 rtsCallNo = POLY_SYS_cmem_store_8 orelse rtsCallNo = POLY_SYS_cmem_store_16 orelse
+                 rtsCallNo = POLY_SYS_cmem_store_32 orelse rtsCallNo = POLY_SYS_cmem_store_64) andalso
+                (case copiedArgs of (_, _, EnvSpecBuiltIn(r, _)) :: _ => r = POLY_SYS_plus_longword | _ => false)
+        then
+        let
+            val _ = print "***Found optimisable combination\n"
+        in
+            raise Fail "TODO"
+        end*)
+        else
+        let
+            (* Create bindings for the arguments.  This ensures that any side-effects in the
+               evaluation of the arguments are performed in the correct order even if the
+               application of the built-in itself is applicative.  The new arguments are
+               either loads or constants which are applicative. *)
+            val newDecs = List.map(fn h => makeNewDecl(h, context)) copiedArgs
+            val genArgs = List.map(fn ((g, _), _) => envGeneralToCodetree g) newDecs
+            val preDecs = List.foldr (op @) [] (List.map #2 newDecs)
+            val gen = BuiltIn(rtsCallNo, genArgs)
+            val spec =
+                if reorderable gen
+                then EnvSpecBuiltIn(rtsCallNo, genArgs)
+                else EnvSpecNone
+        in
+            (gen, preDecs, spec)
+        end
     end
 
     and simpIfThenElse(condTest, condThen, condElse, context) =

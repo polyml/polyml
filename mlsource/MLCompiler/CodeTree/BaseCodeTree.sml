@@ -115,11 +115,14 @@ struct
        in its closure we can pass in a EnvSpecTuple entry with a function that
        only adds a field to the closure if the field is actually used.  Passing
        a list would require adding all the fields to the closure at the time
-       the EnvSpecTuple was passed. *)
+       the EnvSpecTuple was passed.
+       EnvSpecBuiltIn is used for a small number of built-in functions which
+       can be simplied if they occur in combination with others. *)
     and envSpecial =
         EnvSpecNone
     |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
+    |   EnvSpecBuiltIn of int * codetree list
     
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)

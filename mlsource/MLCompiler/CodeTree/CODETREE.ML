@@ -214,6 +214,8 @@ struct
                         in
                             List.app processGenAndSpec closureItems
                         end
+                        
+                    |   findDecs (EnvSpecBuiltIn _) = ()
 
                     and processGenAndSpec (gen, spec) =
                         (* The spec part needs only to be processed if this entry has
@@ -320,6 +322,7 @@ struct
                         and mapSpec EnvSpecNone = EnvSpecNone
                         |   mapSpec (EnvSpecTuple(size, env)) = EnvSpecTuple(size, newEnviron env)
                         |   mapSpec (EnvSpecInlineFunction(spec, env)) = EnvSpecInlineFunction(spec, (newEnviron env))
+                        |   mapSpec (EnvSpecBuiltIn _) = EnvSpecNone
                     in 
                         (* and return the whole lot as a global value. *)
                         Constnt(generalVal, setInline(mapSpec simpleSpec) generalProps)
