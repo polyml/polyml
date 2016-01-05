@@ -2323,14 +2323,15 @@ struct
             { ctype = resType, load= resLoad, ...}: 'b conversion): 'a ->'b =
         let
             val callF = callwithAbi abi [argType] resType fnAddr
+            (* Allocate space for argument(s) and result.
+               We can't use cStruct here because we only store the
+               argument before the call and load the result after. *)
+            val argOffset = alignUp(#size resType, #align argType)
+            val argSpace = argOffset + #size argType
         in
             fn x =>
             let
-                (* Allocate space for argument(s) and result.
-                   We can't use cStruct here because we only store the
-                   argument before the call and load the result after. *)
-                val argOffset = alignUp(#size resType, #align argType)
-                val rMem = malloc(argOffset + #size argType)
+                val rMem = malloc argSpace
                 val argAddr = rMem ++ argOffset
                 val freea = argStore (argAddr, x)
                 fun freeAll () = (freea(); free rMem)
@@ -2354,12 +2355,13 @@ struct
              { ctype = resType, load= resLoad, ...}: 'c conversion): 'a * 'b -> 'c =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val argSpace = arg2Offset + #size arg2Type
         in
             fn (a, b) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val rMem = malloc(arg2Offset + #size arg2Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val freea = arg1Store (arg1Addr, a)
@@ -2386,13 +2388,14 @@ struct
              { ctype = resType, load= resLoad, ...}: 'd conversion): 'a * 'b *'c -> 'd =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val argSpace = arg3Offset + #size arg3Type
         in
             fn (a, b, c) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val rMem = malloc(arg3Offset + #size arg3Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2422,14 +2425,15 @@ struct
              { ctype = resType, load= resLoad, ...}: 'e conversion): 'a * 'b *'c * 'd -> 'e =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val argSpace = arg4Offset + #size arg4Type
         in
             fn (a, b, c, d) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val rMem = malloc(arg4Offset + #size arg4Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2464,15 +2468,16 @@ struct
         let
             val callF =
                 callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val argSpace = arg5Offset + #size arg5Type
         in
             fn (a, b, c, d, e) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val rMem = malloc(arg5Offset + #size arg5Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2511,16 +2516,17 @@ struct
         let
             val callF =
                 callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val argSpace = arg6Offset + #size arg6Type
         in
             fn (a, b, c, d, e, f) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val rMem = malloc(arg6Offset + #size arg6Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2563,17 +2569,18 @@ struct
         let
             val callF =
                 callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val argSpace = arg7Offset + #size arg7Type
         in
             fn (a, b, c, d, e, f, g) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val rMem = malloc(arg7Offset + #size arg7Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2621,18 +2628,19 @@ struct
             val callF =
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val argSpace = arg8Offset + #size arg8Type
         in
             fn (a, b, c, d, e, f, g, h) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val rMem = malloc(arg8Offset + #size arg8Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2685,19 +2693,20 @@ struct
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type, arg9Type]
                         resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val argSpace = arg9Offset + #size arg9Type
         in
             fn (a, b, c, d, e, f, g, h, i) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val rMem = malloc(arg9Offset + #size arg9Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2754,20 +2763,21 @@ struct
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+            val argSpace = arg10Offset + #size arg10Type
         in
             fn (a, b, c, d, e, f, g, h, i, j) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-                val rMem = malloc(arg10Offset + #size arg10Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2829,21 +2839,22 @@ struct
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type, arg11Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+            val argSpace = arg11Offset + #size arg11Type
         in
             fn (a, b, c, d, e, f, g, h, i, j, k) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-                val rMem = malloc(arg11Offset + #size arg11Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2908,22 +2919,23 @@ struct
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type, arg11Type, arg12Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+            val argSpace = arg12Offset + #size arg12Type
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-                val rMem = malloc(arg12Offset + #size arg12Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -2991,23 +3003,24 @@ struct
                 callwithAbi abi
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+            val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
+            val argSpace = arg13Offset + #size arg13Type
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l, m) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-                val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
-                val rMem = malloc(arg13Offset + #size arg13Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
@@ -3080,24 +3093,25 @@ struct
                     [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
                      arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type,
                      arg14Type] resType fnAddr
+            val arg1Offset = alignUp(#size resType, #align arg1Type)
+            val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+            val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+            val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+            val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+            val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+            val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+            val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+            val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+            val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+            val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+            val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+            val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
+            val arg14Offset = alignUp(arg13Offset + #size arg13Type, #align arg14Type)
+            val argSpace = arg14Offset + #size arg14Type
         in
             fn (a, b, c, d, e, f, g, h, i, j, k, l, m, n) =>
             let
-                val arg1Offset = alignUp(#size resType, #align arg1Type)
-                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
-                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
-                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
-                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
-                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
-                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
-                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
-                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
-                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
-                val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
-                val arg14Offset = alignUp(arg13Offset + #size arg13Type, #align arg14Type)
-                val rMem = malloc(arg14Offset + #size arg14Type)
+                val rMem = malloc argSpace
                 val arg1Addr = rMem ++ arg1Offset
                 val arg2Addr = rMem ++ arg2Offset
                 val arg3Addr = rMem ++ arg3Offset
