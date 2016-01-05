@@ -1,0 +1,77 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML>
+<HEAD>
+	<TITLE>The Universal structure</TITLE>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</HEAD>
+<BODY BGCOLOR="#ffffff">
+<ul class="nav">
+	<li><a href="Threads.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Weak.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">Universal structure</font></STRONG></H2>
+<p>The <span class="identifier">Universal</span> structure provides a universal 
+  union type. It allows value of any type to be stored in a single table without 
+  knowing in advance the types to be stored. Note that this is not the same as 
+  a dynamic type. The values are discriminated by the tag, not by the type. There 
+  may be more than one tag that can be used with values of a particular type and 
+  these are treated as completely different. <span class="identifier">Universal</span> 
+  is built in for efficiency reasons but it is perfectly feasible to implement 
+  it in Standard ML using <span class="identifier">exception</span> bindings. 
+</p>
+<pre class="mainsig">structure Universal:
+  sig
+    type universal
+    type 'a tag
+    val tag: unit -&gt; 'a tag
+    val tagInject: 'a tag -&gt; 'a -&gt; universal
+    val tagIs: 'a tag -&gt; universal -&gt; bool
+    val tagProject: 'a tag -&gt; universal -&gt; 'a
+  end</pre>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="universal" id="universal"></a>type universal</pre>
+  <div class="entrytext">
+    <p>The type of the universal union.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="tag_type" id="tag_type"></a>type 'a tag</pre>
+  <div class="entrytext">
+    <p>The type of a tag that can be used to mark a value of the argument type.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="tag" id="tag"></a>val tag: unit -&gt; 'a tag</pre>
+  <div class="entrytext">
+    <p>Create a tag that can be used to identify a value of a particular type.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="tagInject" id="tagInject"></a>val tagInject: 'a tag -&gt; 'a -&gt; universal</pre>
+  <div class="entrytext">
+    <p>Inject a value into the union. This marks the value with the tag.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="tagIs" id="tagIs"></a>val tagIs: 'a tag -&gt; universal -&gt; bool</pre>
+  <div class="entrytext">
+    <p>Test whether the value was marked with the tag.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="tagProject" id="tagProject"></a>val tagProject: 'a tag -&gt; universal -&gt; 'a</pre>
+  <div class="entrytext">
+    <p>Project a value from the union. The tag must match the tag that was used 
+      to create union value otherwise a <span class="identifier">Match</span> 
+      exception will be raised.</p>
+  </div>
+</div>
+<ul class="nav">
+	<li><a href="Threads.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Weak.html">Next</a></li>
+</ul>
+</BODY>
+</HTML>

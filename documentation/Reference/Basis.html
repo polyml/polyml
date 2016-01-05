@@ -1,0 +1,880 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>Poly/ML Basis Library</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body bgcolor="#FFFFFF">
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="../../Doc.html">Up</a></li>
+	<li><a href="PolyMLStructure.html">Next</a></li>
+</ul>
+
+<h2><font face="Arial"><strong>Poly/ML Basis Library</strong></font></h2>
+
+<p>A list of the items in the Poly/ML basis. These are the pre-defined structures, 
+  values, types and functors. Many of them are from the Standard Basis Library 
+  and are not described in much detail here. The entries that are specific to 
+  Poly/ML are explained in greater detail.</p>
+<h3>Structures</h3>
+<table>
+  <tr class="identifier"> 
+    <td><a href="#Array">Array</a></td>
+    <td><a href="#Array2">Array2</a></td>
+    <td><a href="#ArraySlice">ArraySlice</a></td>
+    <td><a href="#Asn1">Asn1</a></td>
+    <td><a href="#BinIO">BinIO</a></td>
+    <td><a href="#BinPrimIO">BinPrimIO</a></td>
+    <td><a href="#Bool">Bool</a></td>
+    <td><a href="#BoolArray">BoolArray</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#BoolArray2">BoolArray2</a></td>
+    <td><a href="#BoolVector">BoolVector</a></td>
+    <td><a href="#Byte">Byte</a></td>
+    <td><a href="#Char">Char</a></td>
+    <td><a href="#CharArray">CharArray</a></td>
+    <td><a href="#CharArray2">CharArray2</a></td>
+    <td><a href="#CharArraySlice">CharArraySlice</a></td>
+    <td><a href="#CharVector">CharVector</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#CharVectorSlice">CharVectorSlice</a></td>
+    <td><a href="#CInterface">CInterface</a></td>
+    <td><a href="#CommandLine">CommandLine</a></td>
+    <td><a href="#Date">Date</a></td>
+    <td><a href="#General">General</a></td>
+    <td><a href="#GenericSock">GenericSock</a></td>
+    <td><a href="#HashArray">HashArray</a></td>
+    <td><a href="#IEEEReal">IEEEReal</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#INetSock">INetSock</a></td>
+    <td><a href="#IO">IO</a></td>
+    <td><a href="#Int">Int</a></td>
+    <td><a href="#Int32">Int32</a></td>
+    <td><a href="#IntArray">IntArray</a></td>
+    <td><a href="#IntArray2">IntArray2</a></td>
+    <td><a href="#IntArraySlice">IntArraySlice</a></td>
+    <td><a href="#IntInf">IntInf</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#IntVector">IntVector</a></td>
+    <td><a href="#IntVectorSlice">IntVectorSlice</a></td>
+    <td><a href="#LargeInt">LargeInt</a></td>
+    <td><a href="#LargeReal">LargeReal</a></td>
+    <td><a href="#LargeWord">LargeWord</a></td>
+    <td><a href="#List">List</a></td>
+    <td><a href="#ListPair">ListPair</a></td>
+    <td><a href="#Math">Math</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#NetHostDB">NetHostDB</a></td>
+    <td><a href="#NetProtDB">NetProtDB</a></td>
+    <td><a href="#NetServDB">NetServDB</a></td>
+    <td><a href="#Option">Option</a></td>
+    <td><a href="#OS">OS</a></td>
+    <td><a href="#PackRealBig">PackRealBig</a></td>
+    <td><a href="#PackRealLittle">PackRealLittle</a></td>
+    <td><a href="#PackWord16Big">PackWord16Big</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#PackWord16Little">PackWord16Little</a></td>
+    <td><a href="#PackWord32Big">PackWord32Big</a></td>
+    <td><a href="#PackWord32Little">PackWord32Little</a></td>
+    <td><a href="#PackWord8Big">PackWord8Big</a></td>
+    <td><a href="#PackWord8Little">PackWord8Little</a></td>
+    <td><a href="#PolyML">PolyML</a></td>
+    <td><a href="#Position">Position</a></td>
+    <td><a href="#Posix">Posix</a> </td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#Process">Process</a></td>
+    <td><a href="#Real">Real</a></td>
+    <td><a href="#RealArray">RealArray</a></td>
+    <td><a href="#RealArray2">RealArray2</a></td>
+    <td><a href="#RealArraySlice">RealArraySlice</a></td>
+    <td><a href="#RealVector">RealVector</a></td>
+    <td><a href="#RealVectorSlice">RealVectorSlice</a></td>
+    <td><a href="#RunCall">RunCall</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#RuntimeCalls">RuntimeCalls</a></td>
+    <td><a href="#Signal">Signal</a></td>
+    <td><a href="#SingleAssignment">SingleAssignment</a></td>
+    <td><a href="#SML90">SML90</a></td>
+    <td><a href="#Socket">Socket</a></td>
+    <td><a href="#String">String</a></td>
+    <td><a href="#StringCvt">StringCvt</a></td>
+    <td><a href="#Substring">Substring</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#SysWord">SysWord</a></td>
+    <td><a href="#Text">Text</a></td>
+    <td><a href="#TextIO">TextIO</a></td>
+    <td><a href="#TextPrimIO">TextPrimIO</a></td>
+    <td><a href="#Thread">Thread</a></td>
+    <td><a href="#ThreadLib">ThreadLib</a></td>
+    <td><a href="#Time">Time</a></td>
+    <td><a href="#Timer">Timer</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#Universal">Universal</a></td>
+    <td><a href="#UniversalArray">UniversalArray</a></td>
+    <td><a href="#Unix">Unix</a></td>
+    <td><a href="#UnixSock">UnixSock</a></td>
+    <td><a href="#Vector">Vector</a></td>
+    <td><a href="#VectorSlice">VectorSlice</a></td>
+    <td><a href="#Weak">Weak</a></td>
+    <td><a href="#Windows">Windows</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#Word">Word</a></td>
+    <td><a href="#Word8">Word8</a></td>
+    <td><a href="#Word8Array">Word8Array</a></td>
+    <td><a href="#Word8Array2">Word8Array2</a></td>
+    <td><a href="#Word8ArraySlice">Word8ArraySlice</a></td>
+    <td><a href="#Word8Vector">Word8Vector</a></td>
+    <td><a href="#Word8VectorSlice">Word8VectorSlice</a></td>
+    <td><a href="#Word32">Word32</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#Word64">Word64</a></td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+&nbsp;</p>
+<h3>Signatures</h3>
+<p>
+<table>
+  <tr class="identifier"> 
+    <td>ARRAY</td>
+    <td>ARRAY2</td>
+    <td>ARRAY_SLICE</td>
+    <td>ASN1</td>
+    <td>BIN_IO</td>
+    <td>BIT_FLAGS</td>
+    <td>BOOL</td>
+    <td>BYTE</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>CHAR</td>
+    <td>COMMAND_LINE</td>
+    <td>DATE</td>
+    <td>GENERAL</td>
+    <td>GENERIC_SOCK</td>
+    <td>IEEE_REAL</td>
+    <td>IMPERATIVE_IO</td>
+    <td>INET_SOCK</td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="#IO_sig">IO</a></td>
+    <td>INTEGER</td>
+    <td>INT_INF</td>
+    <td>LIST</td>
+    <td>LIST_PAIR</td>
+    <td>MATH</td>
+    <td>MONO_ARRAY</td>
+    <td>MONO_ARRAY2</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>MONO_ARRAY_SLICE</td>
+    <td>MONO_VECTOR</td>
+    <td>MONO_VECTOR_SLICE</td>
+    <td>NET_HOST_DB</td>
+    <td>NET_PROT_DB</td>
+    <td>NET_SERV_DB</td>
+    <td>OPTION</td>
+    <td><a href="#OS_sig">OS</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td>OS_FILE_SYS</td>
+    <td>OS_IO</td>
+    <td>OS_PATH</td>
+    <td>OS_PROCESS</td>
+    <td>PACK_REAL</td>
+    <td>PACK_WORD</td>
+    <td>POSIX</td>
+    <td>POSIX_FILE_SYS</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>POSIX_IO</td>
+    <td>POSIX_PROC_ENV</td>
+    <td>POSIX_PROCESS</td>
+    <td>POSIX_SIGNAL</td>
+    <td>POSIX_SYS_DB</td>
+    <td>POSIX_TTY</td>
+    <td>PRIM_IO</td>
+    <td>REAL</td>
+  </tr>
+  <tr class="identifier"> 
+    <td><a href="Signal.html">SIGNAL</a></td>
+    <td>SML90</td>
+    <td>SOCKET</td>
+    <td>STREAM_IO</td>
+    <td>STRING</td>
+    <td>STRING_CVT</td>
+    <td>SUBSTRING</td>
+    <td>TEXT</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>TEXT_IO</td>
+    <td>TEXT_STREAM_IO</td>
+    <td><a href="Threads.html">THREAD</a></td>
+    <td>TIME</td>
+    <td>TIMER</td>
+    <td>UNIX</td>
+    <td>UNIX_SOCK</td>
+    <td>VECTOR</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>VECTOR_SLICE</td>
+    <td>WEAK</td>
+    <td>WINDOWS</td>
+    <td>WORD</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+<h3>Functors</h3>
+<table>
+  <tr class="identifier"> 
+    <td><a href="#ImperativeIO">ImperativeIO</a></td>
+    <td><a href="#PrimIO">PrimIO</a></td>
+    <td><a href="#StreamIO">StreamIO</a></td>
+  </tr>
+</table>
+<h3>Values</h3>
+<table>
+  <tr class="identifier"> 
+    <td>!</td>
+    <td>::</td>
+    <td>:=</td>
+    <td>@</td>
+    <td>^</td>
+    <td>app</td>
+    <td>before</td>
+    <td>Bind</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>ceil</td>
+    <td>chr</td>
+    <td>Chr</td>
+    <td>concat</td>
+    <td>Div</td>
+    <td>Domain</td>
+    <td>EQUAL</td>
+    <td>Empty</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>exnMessage</td>
+    <td>exnName</td>
+    <td>explode</td>
+    <td>Fail</td>
+    <td>false</td>
+    <td>floor</td>
+    <td>foldl</td>
+    <td>foldr</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>getOpt</td>
+    <td>GREATER</td>
+    <td>hd</td>
+    <td>ignore</td>
+    <td>implode</td>
+    <td>isSome</td>
+    <td>length</td>
+    <td>LESS</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>map</td>
+    <td>Match</td>
+    <td>nil</td>
+    <td>NONE</td>
+    <td>not</td>
+    <td>null</td>
+    <td>o</td>
+    <td>ord</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>Option</td>
+    <td>Overflow</td>
+    <td>print</td>
+    <td>real</td>
+    <td>ref</td>
+    <td>rev</td>
+    <td>round</td>
+    <td>size</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>Size</td>
+    <td>SOME</td>
+    <td>Span</td>
+    <td>str</td>
+    <td>Subscript</td>
+    <td>substring</td>
+    <td>tl</td>
+    <td>true</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>trunc</td>
+    <td>use</td>
+    <td>valOf</td>
+    <td>vector</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+<h3>Types</h3>
+<table>
+  <tr class="identifier"> 
+    <td>array</td>
+    <td>bool</td>
+    <td>char</td>
+    <td>exn</td>
+    <td>int</td>
+    <td>list</td>
+    <td>option</td>
+    <td>order</td>
+  </tr>
+  <tr class="identifier"> 
+    <td>real</td>
+    <td>ref</td>
+    <td>string</td>
+    <td>substring</td>
+    <td>unit</td>
+    <td>vector</td>
+    <td>word</td>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+
+<h3>Infixes</h3>
+<div class="entryblock">
+  <pre class="entrycode">infix  7 * / div mod
+infix  6 + - ^
+infix  4 = <> > >= < <= 
+infixr 5 :: @
+infix  3 := o
+infix  0 before</pre>
+</div>
+<h3><font face="Arial"><strong>Standard Basis Library</strong></font></h3>
+<p><font face="Arial">Poly/ML supports the ML Standard Basis Library. The documentation 
+  is available as a book, The Standard ML Basis Library, by Emden Gansner and 
+  John Reppy.&nbsp; This is a short overview with specific reference to the implementation 
+  in Poly/ML.</font></p>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="GENERAL"></a>GENERAL
+structure <a name="General"></a>General: GENERAL</pre>
+  <div class="entrytext">
+    <p>Mainly standard exceptions. All of the values in the <tt>General</tt> 
+  structure are available unqualified at the top level.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="OPTION"></a>OPTION
+structure <a name="Option"></a>Option: OPTION</pre>
+  <div class="entrytext">
+    <p>The option type, defined as <tt>datatype 'a option = NONE | SOME of 'a</tt>, 
+  together with associated functions. Some of these are available unqualified 
+  at the top level.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="BOOL"></a>BOOL
+structure <a name="Bool"></a>Bool: BOOL</pre>
+  <div class="entrytext">
+    <p>Functions on type bool.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="INTEGER"></a>INTEGER
+structure <a name="LargeInt"></a>LargeInt: INTEGER
+structure <a name="Position"></a>Position: INTEGER
+structure <a name="IntInf"></a>IntInf: INTEGER</pre>
+  <div class="entrytext">
+    <p><tt>Int</tt>, <tt>LargeInt</tt> and <tt>Position</tt> are the same structure 
+      and provide operations on type <tt>int</tt>. In Poly/ML that is an 
+      arbitrary precision integer.  Poly/ML does not support any fixed precision 
+      integers. <tt>IntInf</tt> provides additional functions, such as logical 
+      operations on integers. Note: there are functions to compute LCM and GCD 
+      in <a href="PolyMLStructure.html#IntInf"><span class="identifier">PolyML.IntInf</span></a>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="REAL"></a>REAL
+structure <a name="Real"></a>Real: REAL
+structure <a name="LargeReal"></a>LargeReal: REAL</pre>
+  <div class="entrytext">
+    <p><tt>Real</tt> and <tt>LargeReal</tt> are the same structure in Poly/ML. 
+  They provide functions on type <tt>real</tt>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="MATH"></a>MATH
+structure <a name="Zzz"></a>Math: MATH</pre>
+  <div class="entrytext">
+    <p>The mathematical functions on type real.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="IEEE_REAL"></a>IEEE_REAL
+structure <a name="IEEEReal"></a>IEEEReal: IEEE_REAL</pre>
+  <div class="entrytext">
+    <p>Functions to manipulate IEEE real numbers, such as controlling rounding and 
+  handling not-a-number.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="WORD"></a>WORD
+structure <a name="Word8"></a>Word8: WORD
+structure <a name="LargeWord"></a>LargeWord: WORD
+structure <a name="SysWord"></a>SysWord: WORD
+structure <a name="Word32"></a>Word32: WORD
+structure <a name="Word64"></a>Word64: WORD</pre>
+  <div class="entrytext">
+    <p>Operations on machine words treated as unsigned quantities. Functions 
+      which would overflow simply wrap round. Poly/ML implements <span class="identifier">Word.word</span> 
+      as a 31 bit quantity on 32-bit platforms and a 63 bit quantity on 64-bit 
+      platforms. In version 5.5 and earlier <span class="identifier">LargeWord</span> 
+      and <span class="identifier">SysWord</span> were implemented using a double 
+      precision version. From version 5.5.1 they are implemented as 32 and 64-bit 
+      versions as <span class="identifier">Word32</span> and <span class="identifier">Word64</span> 
+      respectively. <span class="identifier">Word64</span> is only available on 
+      64-bit architectures. <span class="identifier">SysWord</span> is used in 
+      the <span class="identifier"><a href="#Windows">Windows</a></span> and <a href="#Posix"><span class="identifier">Posix</span></a> 
+      structures. <span class="identifier">Word8.word</span> is an unsigned 
+      byte.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="CHAR"></a>CHAR
+structure <a name="Char"></a>Char: CHAR</pre>
+  <div class="entrytext">
+    <p>Operations on values of type <tt>char</tt>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="STRING"></a>STRING
+structure <a name="String"></a>String: STRING</pre>
+  <div class="entrytext">
+    <p>Operations on values of type <tt>string</tt>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="STRING_CVT"></a>STRING_CVT
+structure <a name="StringCvt"></a>StringCvt: STRING_CVT</pre>
+  <div class="entrytext">
+    <p>Additional string functions used primarily when converting between strings and 
+  string representations.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="SUBSTRING"></a>SUBSTRING
+structure <a name="Substring"></a>Substring: SUBSTRING</pre>
+  <div class="entrytext">
+    <p>Operations on substrings. These are segments of strings defined by a base 
+  string, an offset and a length and are designed to allow substrings to be manipulated 
+  without the storage overhead of creating the substrings themselves.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="LIST"></a>LIST
+signature <a name="LIST_PAIR"></a>LIST_PAIR
+structure <a name="List"></a>List: LIST
+structure <a name="ListPair"></a>ListPair: LIST_PAIR</pre>
+  <div class="entrytext">
+    <p>Functions on lists and lists of pairs.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="VECTOR"></a>VECTOR
+signature <a name="ARRAY"></a>ARRAY
+structure <a name="Vector"></a>Vector: VECTOR
+structure <a name="Array"></a>Array: ARRAY</pre>
+  <div class="entrytext">
+    <p>Polymorphic vector and array.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="MONO_VECTOR"></a>MONO_VECTOR
+signature <a name="MONO_ARRAY"></a>MONO_ARRAY
+structure <a name="Word8Vector"></a>Word8Vector: MONO_VECTOR
+structure <a name="CharVector"></a>CharVector: MONO_VECTOR
+structure <a name="BoolVector"></a>BoolVector: MONO_VECTOR
+structure <a name="IntVector"></a>IntVector: MONO_VECTOR
+structure <a name="RealVector"></a>RealVector: MONO_VECTOR
+structure <a name="Word8Array"></a>Word8Array: MONO_ARRAY
+structure <a name="CharArray"></a>CharArray: MONO_ARRAY
+structure <a name="BoolArray"></a>BoolArray: MONO_ARRAY
+structure <a name="IntArray"></a>IntArray: MONO_ARRAY
+structure <a name="RealArray"></a>RealArray: MONO_ARRAY</pre>
+  <div class="entrytext">
+    <p>Monomorphic vectors and arrays. Generally these are designed to be storage-efficient 
+  at the expense of time. <tt>CharVector.vector</tt> is the same as string 
+  so provides vector operations on strings. <tt>Word8Vector.vector</tt> 
+  is used in various places throughout the library as a binary analogue of string. 
+  <tt>BoolVector</tt> and <tt>BoolArray</tt> use single bits for each value.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="ARRAY2"></a>ARRAY2
+structure <a name="Array2"></a>Array2: ARRAY2
+signature <a name="MONO_ARRAY2"></a>MONO_ARRAY2
+structure <a name="Word8Array2"></a>Word8Array2: MONO_ARRAY2
+structure <a name="CharArray2"></a>CharArray2: MONO_ARRAY2
+structure <a name="BoolArray2"></a>BoolArray2: MONO_ARRAY2
+structure <a name="IntArray2"></a>IntArray2: MONO_ARRAY2
+structure <a name="RealArray2"></a>RealArray2: MONO_ARRAY2</pre>
+  <div class="entrytext">
+    <p>Two dimensional arrays.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="BYTE"></a>BYTE
+structure <a name="Byte"></a>Byte: BYTE</pre>
+  <div class="entrytext">
+    <p>Provides functions to convert between characters and <tt>Word8.word</tt> values 
+  and between strings and <tt>Word8Vector.vector</tt> values. In Poly/ML 
+  these can generally be implemented as a cast so do not incur any time or space overhead.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="COMMAND_LINE"></a>COMMAND_LINE
+structure <a name="Zzz"></a>CommandLine: COMMAND_LINE</pre>
+  <div class="entrytext">
+    <p>Access to the command line and arguments.  Does not include arguments taken by the run-time system.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="TIME"></a>TIME
+structure <a name="Time"></a>Time: TIME</pre>
+  <div class="entrytext">
+    <p>Functions on times. Poly/ML implements this as microseconds since 1st 
+  January 1970 in Unix and nanoseconds since 1st January 1601 (FILETIME) in Windows.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="DATE"></a>DATE
+structure <a name="Date"></a>Date: DATE</pre>
+  <div class="entrytext">
+    <p>Functions on dates including conversions to and from <tt>Time.time</tt>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="TIMER"></a>TIMER
+structure <a name="Timer"></a>Timer: TIMER</pre>
+  <div class="entrytext">
+    <p>Functions to return CPU time and garbage collection time.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="PACK_WORD"></a>PACK_WORD
+structure <a name="Pack8Big"></a>Pack8Big: PACK_WORD
+structure <a name="Pack8Little"></a>Pack8Little: PACK_WORD
+structure <a name="Pack16Big"></a>Pack16Big: PACK_WORD
+structure <a name="Pack16Little"></a>Pack16Little: PACK_WORD
+structure <a name="Pack32Big"></a>Pack32Big: PACK_WORD
+structure <a name="Pack32Little"></a>Pack32Little: PACK_WORD
+signature <a name="PACK_REAL"></a>PACK_REAL
+structure <a name="PackRealBig"></a>PackRealBig: PACK_REAL
+structure <a name="PackRealLittle"></a>PackRealLittle: PACK_REAL</pre>
+  <div class="entrytext">
+    <p>Operations to pack and unpack integers and reals into byte vectors.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="IO_sig"></a>IO
+structure <a name="IO"></a>IO: IO</pre>
+  <div class="entrytext">
+    <p>The <tt>IO</tt> structure contains types and exceptions used within the other 
+  IO structures.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">structure <a name="TextIO"></a>TextIO: sig ... end</pre>
+  <div class="entrytext">
+    <p>The <tt>TextIO</tt> structure is the top level of the IO stack for textual input 
+  and output.  This is level likely to be used most often. Input and 
+  output are side-effecting and, if necessary, characters such as newlines are 
+  translated between the ML and operating system codes.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="TEXT_STREAM_IO"></a>TEXT_STREAM_IO
+structure <a name="TextIO.StreamIO"></a>TextIO.StreamIO: TEXT_STREAM_IO</pre>
+  <div class="entrytext">
+    <p>This substructure access to a lower level of textual input and output. 
+  Output is not significantly different from that of <tt>TextIO</tt> but input 
+  is applicative rather than imperative. In essence this means that input 
+  functions return both a value, character or string, and a new stream. 
+  Reading from the new stream continues the input, reading from the original stream 
+  returns the previous value. This is intended to simplify backtracking 
+  in parsing and works particularly well with the <tt>scan</tt> functions in the 
+  library.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="BIN_IO"></a>BIN_IO
+structure <a name="BinIO"></a>BinIO: BIN_IO</pre>
+  <div class="entrytext">
+    <p><tt>BinIO</tt> is similar to <tt>TextIO</tt> but for binary input and output. 
+  While <tt>TextIO</tt> works on types <tt>char</tt> and <tt>string</tt>, <tt>BinIO</tt> 
+  works on bytes (<tt>Word8.word</tt>) and byte vectors (<tt>Word8Vector.vector</tt>). 
+  Unlike TextIO binary I/O does not perform any translation of characters.<br>
+  <tt>BinIO.StreamIO: STREAM_IO</tt><br>
+  Similar to <tt>TextIO.StreamIO</tt>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="PRIM_IO"></a>PRIM_IO
+structure <a name="BinPrimIO"></a>BinPrimIO: PRIM_IO
+structure <a name="TextPrimIO"></a>TextPrimIO: PRIM_IO</pre>
+  <div class="entrytext">
+    <p>The primitive I/O functions are the lowest level of the stack. They 
+  provide access to the underlying readers and writers.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="IMPERATIVE_IO"></a>IMPERATIVE_IO
+functor <a name="ImperativeIO"></a>ImperativeIO ( ... ): IMPERATIVE_IO
+signature <a name="STREAM_IO"></a>STREAM_IO
+functor <a name="StreamIO"></a>StreamIO ( ... ): STREAM_IO
+signature <a name="PRIM_IO"></a>PRIM_IO
+functor <a name="PrimIO"></a>PrimIO ( ... ): PRIM_IO</pre>
+  <div class="entrytext">
+    <p>These functors can be used to build new stacks to provide input and output on 
+  data structures other than characters and bytes.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="OS_sig"></a>OS
+signature <a name="OS_FILE_SYS"></a>OS_FILE_SYS
+signature <a name="OS_IO"></a>OS_IO
+signature <a name="OS_PATH"></a>OS_PATH
+signature <a name="OS_PROCESS"></a>OS_PROCESS
+structure <a name="OS"></a>OS: OS</pre>
+  <div class="entrytext">
+    <p>The <tt>OS</tt> structure contains a large number of functions for accessing 
+  operating system facilities. Most of them are grouped into substructures. 
+  <tt>OS.FileSys</tt> contains functions for examining directories and files. 
+  <tt>OS.Path</tt> operates on file path names.  <tt>OS.Process</tt> provides 
+  functions to terminate the current ML program with various results, examine 
+  the environment and to run sub-processes. <tt>OS.IO</tt> provides the 
+  ability to poll a set of file descriptors.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="SOCKET"></a>SOCKET
+structure <a name="Socket"></a>Socket: SOCKET</pre>
+  <div class="entrytext">
+    <p>Operations on sockets, providing access to network facilities from ML. 
+  <tt>Socket</tt> does not actually contain functions to create sockets. 
+  Instead these are found in the <tt>INetSock</tt>, <tt>UnixSock</tt> and <tt>GenericSock</tt> 
+  structures.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="INET_SOCK"></a>INET_SOCK
+structure <a name="INetSock"></a>INetSock: INET_SOCK</pre>
+  <div class="entrytext">
+    <p>Creates internet domain sockets and provides functions on internet addresses.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="UNIX_SOCK"></a>UNIX_SOCK
+structure <a name="UnixSock"></a>UnixSock: UNIX_SOCK</pre>
+  <div class="entrytext">
+    <p>Creates Unix domain (local) sockets. This structure is not provided in 
+  the Windows implementation.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="GENERIC_SOCK"></a>GENERIC_SOCK
+structure <a name="GenericSock"></a>GenericSock: GENERIC_SOCK</pre>
+  <div class="entrytext">
+    <p>Can be used to create sockets in any domain supported by the system.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="NET_HOST_DB"></a>NET_HOST_DB
+structure <a name="NetHostDB"></a>NetHostDB: NET_HOST_DB
+signature <a name="NET_PROT_DB"></a>NET_PROT_DB
+structure <a name="NetProtDB"></a>NetProtDB: NET_PROT_DB
+signature <a name="NET_SERV_DB"></a>NET_SERV_DB
+structure <a name="NetServDB"></a>NetServDB: NET_SERV_DB</pre>
+  <div class="entrytext">
+    <p>Look up names in various tables. <tt>NetHostDB</tt> looks up an internet 
+  address using DNS. <tt>NetProtDB</tt> looks up a protocol in (on Unix) /etc/protocols. 
+  <tt>NetServDB</tt> looks up a service in (on Unix) /etc/services.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="UNIX"></a>UNIX
+structure <a name="Unix"></a>Unix: UNIX</pre>
+  <div class="entrytext">
+    <p>Provides access to Unix-specific functions, such as forking a process. 
+  This structure is not provided in the Windows implementation.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="POSIX"></a>POSIX
+signature <a name="POSIX_ERROR"></a>POSIX_ERROR
+signature <a name="POSIX_SIGNAL"></a>POSIX_SIGNAL
+signature <a name="POSIX_PROCESS"></a>POSIX_PROCESS
+signature <a name="POSIX_PROC_ENV"></a>POSIX_PROC_ENV
+signature <a name="POSIX_FILE_SYS"></a>POSIX_FILE_SYS
+signature <a name="POSIX_IO"></a>POSIX_IO
+signature <a name="POSIX_SYS_DB"></a>POSIX_SYS_DB
+signature <a name="POSIX_TTY"></a>POSIX_TTY
+structure <a name="Posix"></a>Posix: POSIX</pre>
+  <div class="entrytext">
+    <p>Provides access to a wide range of Unix system calls. This structure and the signatures are not 
+  provided in the Windows implementation.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="WINDOWS"></a>WINDOWS
+structure <a name="Windows"></a>Windows: WINDOWS</pre>
+  <div class="entrytext">
+    <p>Windows-specific functions. This structure is not provided in the Unix 
+  implementations.</p>
+  </div>
+</div>
+
+<h3><font face="Arial"><strong>Poly/ML Extensions</strong></font></h3>
+<p><font face="Arial">There are a number of extensions to Poly/ML. Most of these 
+  are described in greater detail in other documents.</font></p>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Asn1" id="Asn1"></a>Asn1: <a href="#ASN1">ASN1</a>
+signature <a name="ASN1" id="ASN1"></a>ASN1</pre>
+  <div class="entrytext">
+    <p> Operations on ASN1 binary encoding. There are functions 
+      to help convert between tree structures and byte vectors. This is experimental.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="CInterface" id="CInterface"></a>CInterface
+signature <a name="CInterfaceSig" id="CInterfaceSig"></a>CInterfaceSig</pre>
+  <div class="entrytext">
+    <p> Provides a foreign-function interface. See the <a href="../Tutorials/CInterface.html">full documentation</a>.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="HashArray" id="HashArray"></a>HashArray</pre>
+  <div class="entrytext"> 
+    <p> Provides a hash-table type and operations.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="PolyML" id="PolyML"></a>PolyML</pre>
+  <div class="entrytext"> 
+    <p> Contains a large number of operations specific to Poly/ML. See <a href="PolyMLStructure.html">here</a> 
+      for full information.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Process" id="Process"></a>Process</pre>
+  <div class="entrytext"> 
+    <p> This is the original implementation of parallelism in 
+      Poly/ML. It has now been reimplemented using the <a href="#Thread"><span class="identifier">Thread</span></a> 
+      structure. It is provided for backwards compatibility only.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="RunCall" id="RunCall"></a>RunCall
+structure <a name="RuntimeCalls" id="RuntimeCalls"></a>RuntimeCalls</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">RunCall</span> contains various low-level operations 
+      for interface to the run-time system. <span class="identifier">RuntimeCalls</span> 
+      contains symbolic definitions for entry points to the run-time system. These 
+      structures are intended only for use in the basis library itself and should 
+      not be used in user code unless absolutely necessary. It is very easy to 
+      use them in a way that will cause a crash or break the garbage-collector 
+      resulting in a failure at some point in the future.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Signal" id="Signal"></a>Signal
+signature <a name="SIGNAL" id="SIGNAL"></a>SIGNAL</pre>
+  <div class="entrytext">
+    <p>Provides a way of handling Unix-style signals. On Windows this deals only 
+      with the interrupt signal, <span class="identifier">SIGINT</span>. See <a href="Signal.html">here</a> 
+      for full information.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="SingleAssignment" id="SingleAssignment"></a>SingleAssignment</pre>
+  <div class="entrytext"> 
+    <p>Provides references that can only be assigned to once. Once a variable 
+      has been assigned a value that is fixed and further attempts to assign a 
+      new value result in an exception. The main reason for providing this is 
+      that once the value has been assigned it is marked as an <em>immutable</em> 
+      cell and this has advantages in efficiency for the garbage collector. Locked 
+      cells that contain the same value can be shared with <a href="PolyMLStructure.html#shareCommonData"><span class="identifier">PolyML.shareCommonData</span></a>. 
+      See <a href="SingleAssignment.html">here</a> for more information.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="SML90" id="SML90"></a>SML90: SML90
+signature <a name="SML90_sig" id="SML90_sig"></a>SML90</pre>
+  <div class="entrytext">
+    <p>Provides backwards compatibility with ML90. This was included in an earlier 
+      draft of the Standard Basis Library but was withdrawn before the final release.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Thread" id="Thread"></a>Thread: THREAD
+signature <a name="THREAD" id="THREAD"></a>THREAD
+structure <a name="ThreadLib" id="ThreadLib"></a>ThreadLib</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">Thread</span> structure provides a way of 
+      creating parallel threads and synchronising between them. <span class="identifier">ThreadLib</span> 
+      is an extension library for the <span class="identifier">Thread</span> structure. 
+      See <a href="Threads.html">here</a> for full information.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Universal" id="Universal"></a>Universal
+structure <a name="UniversalArray" id="UniversalArray"></a>UniversalArray</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">Universal</span> structure provides support 
+      for a universal union type that can contain a value of any type. It is used 
+      in various library functions. See <a href="Universal.html">here</a> for 
+      full information.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">structure <a name="Weak" id="Weak"></a>Weak
+signature <a name="WEAK" id="WEAK"></a>WEAK</pre>
+  <div class="entrytext">
+    <p>Provides the ability to construct <em>weak</em> references, that is references 
+      that can be used to detect when all other pointers to the reference have 
+      been removed by the garbage collector. They are intended to allow a program 
+      to recover resources when they are no longer reachable. See <a href="Weak.html">here</a> 
+      for full information. </p>
+  </div>
+</div>
+  
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="../../Doc.html">Up</a></li>
+	<li><a href="PolyMLStructure.html">Next</a></li>
+</ul>
+</body>
+</html>

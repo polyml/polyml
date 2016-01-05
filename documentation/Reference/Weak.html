@@ -1,0 +1,99 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML>
+<HEAD>
+	<TITLE>The Weak structure and signature</TITLE>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</HEAD>
+<BODY BGCOLOR="#ffffff">
+<ul class="nav">
+	<li><a href="Threads.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Basis.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">Weak structure</font></STRONG></H2>
+<p>The <span class="identifier">Weak</span> structure contains functions for constructing 
+  <em>weak</em> references and arrays. A weak reference is a way of detecting 
+  when a resource is no longer in use and can be recovered. It is, in effect, 
+  a way of extending the concept of garbage-collection to user code.</p>
+<pre class="mainsig">signature WEAK =
+sig
+    val weak: 'a ref option -&gt; 'a ref option ref
+    val weakArray: int * 'a ref option -&gt; 'a ref option array
+    val weakLock: Thread.Mutex.mutex
+    and weakSignal: Thread.ConditionVar.conditionVar
+end;
+
+structure Weak: WEAK;
+</pre>
+<div class="entryblock">
+  <pre class="entrycode">val <a name="weak" id="weak"></a>weak: 'a ref option -&gt; 'a ref option ref</pre>
+  <div class="entrytext">
+    <p>Constructs a weak reference.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">val <a name="weakArray" id="weakArray"></a>weakArray: int * 'a ref option -&gt; 'a ref option array</pre>
+  <div class="entrytext">
+    <p>Constructs an array containing weak references.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode">val <a name="weakLock" id="weakLock"></a>weakLock: Thread.Mutex.mutex
+val <a name="weakSignal" id="weakSignal"></a>weakSignal: Thread.ConditionVar.conditionVar</pre>
+  <div class="entrytext">
+    <p>A lock and a condition variable that is broadcast when the garbage collector 
+      has recovered a <em>token</em>.</p>
+  </div>
+</div>
+<p>The idea behind weak references is to allow user library code to recover resources 
+  when they are no longer in use. This is only relevant for resources, such as 
+  file descriptors, that exist outside the Poly/ML memory and need to be recovered.</p>
+<p>The garbage-collector recovers space in the heap by identifying cells that 
+  are reachable from <em>roots</em>, generally the stacks of threads, and treating 
+  everything else as garbage. This can be extended to external resources by associating 
+  a <em>token</em> with the resource. While the token is reachable the resource 
+  is considered to be in use. Once the token ceases to be reachable the resource 
+  can be recovered.</p>
+<p>A weak reference is used to detect when the token is no longer accessible. 
+  To make use of this the library code must allocate a normal reference value, 
+  the token, whenever it constructs or links to the external resource and include 
+  the token within the data it returns to the client code. The contents of the 
+  reference are not relevant; it can be a <span class="identifier">unit ref</span>, 
+  what matters is the identity of the reference. When the library creates a token 
+  it makes an entry in its own data structure within a weak reference or array. 
+  That entry is set to <span class="identifier">SOME token</span>. Note that the 
+  type of a weak reference is <span class="identifier">'a ref option ref</span> 
+  i.e. it can only contain an option type holding a reference value.</p>
+<p>Provided the client code continues to use the resource and has a reachable 
+  pointer to the token there will be no change to the state. If, though, it discards 
+  the data associated with the resource and hence the pointer to the token the 
+  resource is considered to be released and the library may recover the resource. 
+  If the garbage collector detects that there are no other pointers to the token 
+  except the weak reference it will change the weak reference from <span class="identifier">SOME 
+  token</span> to <span class="identifier">NONE</span>, so there are no longer 
+  any pointers at all.</p>
+<p>To actually release the external resource the library must check the weak references 
+  or arrays within its own data structures and look for entries that have been 
+  set to <span class="identifier">NONE</span>. Depending how the library code 
+  works it may be appropriate to do this synchronously whenever a request is made 
+  to allocate a new resource. An alternative would be to create a new thread to 
+  manage the process asynchronously. To aid this the thread should lock the <span class="identifier">weakLock</span> 
+  mutex and suspend itself by calling <span class="identifier"><a href="Threads.html#wait">Thread.ConditionVar.wai</a></span><a href="Threads.html">t</a> 
+  or <a href="Threads.html#waitUntil"><span class="identifier">Thread.ConditionVar.waitUntil</span></a>, 
+  passing <span class="identifier">weakLock</span> and <span class="identifier">weakSignal</span> 
+  as arguments. The <span class="identifier">weakSignal</span> condition variable 
+  is broadcast after a garbage-collection if the garbage collector has modified 
+  a weak reference. Because there may be several libraries using weak references 
+  the receipt of the signal does not guarantee that a resource associated with 
+  any particular library has been released.</p>
+<p>The garbage-collector is only run when necessary and detection of released 
+  resources may happen very infrequently, depending on factors such as the size 
+  of the heap. To force a collection the library can call <a href="PolyMLStructure.html#fullGC"><span class="identifier">PolyML.fullGC</span></a>.</p>
+<ul class="nav">
+	<li><a href="Threads.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Basis.html">Next</a></li>
+</ul>
+</BODY>
+</HTML>

@@ -2,8 +2,15 @@
 <HTML>
 <HEAD>
 	<TITLE>The Thread structure and signature</TITLE>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
 </HEAD>
 <BODY BGCOLOR="#ffffff">
+<ul class="nav">
+	<li><a href="SingleAssignment.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Universal.html">Next</a></li>
+</ul>
 <H2><STRONG><font face="Arial, Helvetica, sans-serif">Thread structure</font></STRONG></H2>
 <P>Earlier versions of Poly/ML have provided a form of concurrent execution through 
   the Process structure. Version 5.1 introduces 
@@ -207,7 +214,8 @@ remain unchanged.</BLOCKQUOTE>
   an asynchronous interrupt. It should always set its interrupt state to either 
   InterruptDefer or InterruptSynch before calling these functions. An asynchronous 
   interrupt may leave the mutex in an indeterminate state.</P>
-<PRE STYLE="margin-bottom: 0.5cm"><STRONG>type</STRONG> mutex</PRE><BLOCKQUOTE>
+<PRE STYLE="margin-bottom: 0.5cm"><STRONG><a name="mutex_type"></a>type</STRONG> mutex</PRE>
+<BLOCKQUOTE>
 The type of a mutex</BLOCKQUOTE>
 <PRE><STRONG>val</STRONG> mutex: unit -&gt; mutex</PRE>
 <BLOCKQUOTE>Create a new mutex.</BLOCKQUOTE>
@@ -247,7 +255,7 @@ condition variables.
 The type of a condition variable</BLOCKQUOTE>
 <PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> conditionVar: unit -&gt; conditionVar</PRE><BLOCKQUOTE>
 Make a new condition variable.</BLOCKQUOTE>
-<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> wait: conditionVar * Mutex.mutex -&gt; unit</PRE>
+<PRE STYLE="margin-bottom: 0.5cm"><STRONG><a name="wait"></a>val</STRONG> wait: conditionVar * Mutex.mutex -&gt; unit</PRE>
 <BLOCKQUOTE> 
   <p>Release the mutex and block until the condition variable is signalled. When 
     wait returns the mutex will have been re-acquired.</p>
@@ -270,7 +278,7 @@ Make a new condition variable.</BLOCKQUOTE>
     All the threads waiting on a condition variable should pass the same mutex 
     as argument.</p>
   </BLOCKQUOTE>
-<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> waitUntil: conditionVar * Mutex.mutex * Time.time -&gt; bool</PRE>
+<PRE STYLE="margin-bottom: 0.5cm"><STRONG><a name="waitUntil"></a>val</STRONG> waitUntil: conditionVar * Mutex.mutex * Time.time -&gt; bool</PRE>
 <BLOCKQUOTE> As wait except that it blocks until either the condition variable 
   is signalled or the time (absolute) is reached. Either way the mutex is reacquired 
   so there may be a further delay if it is held by another thread. Returns true 
@@ -284,5 +292,10 @@ Make a new condition variable.</BLOCKQUOTE>
 Wake up all threads waiting on the condition variable.</BLOCKQUOTE>
 <BLOCKQUOTE STYLE="margin-left: 0cm"><BR><BR>
 </BLOCKQUOTE>
+<ul class="nav">
+	<li><a href="SingleAssignment.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="Universal.html">Next</a></li>
+</ul>
 </BODY>
 </HTML>

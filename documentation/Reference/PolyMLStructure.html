@@ -1,0 +1,777 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+<body>
+<ul class="nav">
+  <li><a href="Basis.html">Previous</a></li>
+  <li><a href="Basis.html">Up</a></li>
+  <li><a href="Signal.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML structure</font></STRONG></H2>
+<p>Generally, the basis library of Poly/ML follows the ML standard libraries. 
+  With a few exceptions the extensions are all contained in the PolyML structure. 
+  There are a number of sub-structures that are documented separately.</p>
+<pre class="mainsig">structure PolyML:
+sig
+   type <a href="#location">location</a> =
+       {file: string, startLine: int, endLine: int, startPosition: int, endPosition: int}
+
+   structure <a href="#CodeTree">CodeTree</a> : sig ... end
+
+   structure <a href="#Compiler">Compiler</a> : sig ... end 
+
+   val <a href="#compiler">compiler</a>: (unit -&gt; char option) * Compiler.compilerParameters list -&gt; unit -&gt; unit
+
+   structure <a href="#Debug">Debug</a> : sig ... end
+
+   structure <a href="#DebuggerInterface">DebuggerInterface</a> : sig ... end
+
+   structure <a href="#Exception">Exception</a> : sig ... end
+   val <a href="#exceptionLocation">exceptionLocation</a>: exn -&gt; location option
+   val <a href="#raiseWithLocation">raiseWithLocation</a> : exn * location -&gt; 'a
+   val <a href="#exception_trace">exception_trace</a>: (unit -&gt; 'a) -&gt; 'a
+
+   structure <a href="#NameSpace">NameSpace</a> : sig ... end
+   val <a href="#globalNameSpace">globalNameSpace</a>: NameSpace.nameSpace
+
+   structure <a href="#SaveState">SaveState</a> : sig ... end
+
+   structure <a href="#Statistics">Statistics</a> : sig ... end
+
+   structure IDEInterface :
+   sig
+      val parseTree : (string * (location * ptProperties list) list) ref
+      val runIDEProtocol : unit -&gt; unit
+   end
+
+   structure <a href="#IntInf">IntInf</a>:
+   sig
+      val gcd : int * int -&gt; int
+      val lcm : int * int -&gt; int
+   end
+
+   val <a href="#export">export</a>: string * (unit -&gt; unit) -&gt; unit
+   val <a href="#exportPortable">exportPortable</a>: string * (unit -&gt; unit) -&gt; unit
+   val <a href="#shareCommonData">shareCommonData</a> : 'a -&gt; unit
+
+   val <a href="#onEntry">onEntry</a> : (unit -&gt; unit) -&gt; unit
+
+   val <a href="#architecture">architecture</a> : unit -&gt; string
+   val <a href="#rtsArgumentHelp">rtsArgumentHelp</a> : unit -&gt; string
+   val <a href="#rtsVersion">rtsVersion</a> : unit -&gt; int
+
+   val <a href="#make">make</a>: string -&gt; unit
+   val <a href="#use">use</a> : string -&gt; unit
+   val <a href="#suffixes">suffixes</a> = ref [&quot;&quot;, &quot;.ML&quot;, &quot;.sml&quot;]: string list ref
+
+   val <a href="#objSize">objSize</a>: 'a -&gt; int
+   val <a href="#showSize">showSize</a> : 'a -&gt; int
+   val <a href="#objProfile">objProfile</a> : 'a -&gt; int
+
+   datatype <a href="#ptProperties">ptProperties</a> =
+       PTbreakPoint of bool ref
+   |   PTcompletions of string list
+   |   PTdeclaredAt of location
+   |   PTfirstChild of unit -&gt; parseTree
+   |   PTnextSibling of unit -&gt; parseTree
+   |   PTopenedAt of location
+   |   PTparent of unit -&gt; parseTree
+   |   PTpreviousSibling of unit -&gt; parseTree
+   |   PTprint of int -&gt; pretty
+   |   PTreferences of bool * location list
+   |   PTstructureAt of location
+   |   PTtype of typeExpression
+
+   type <a href="#parseTree">parseTree</a> = location * ptProperties list
+
+   datatype <a href="#context">context</a> =
+       ContextLocation of location
+   |   ContextProperty of string * string
+
+   datatype <a href="#pretty">pretty</a> =
+       PrettyBlock of int * bool * context list * pretty list
+   |   PrettyBreak of int * int
+   |   PrettyLineBreak
+   |   PrettyString of string
+   |   PrettyStringWithWidth of string * int
+
+   val <a href="#prettyPrint">prettyPrint</a> : (string -&gt; unit) * int -&gt; pretty -&gt; unit
+   val <a href="#prettyMarkup">prettyMarkup</a> :
+       (context list -&gt; unit) * (context list -&gt; unit) -&gt;
+       (string -&gt; unit) * int -&gt; pretty -&gt; unit
+   val <a href="#prettyPrintWithIDEMarkup">prettyPrintWithIDEMarkup</a> : (string -&gt; unit) * int -&gt; pretty -&gt; unit
+
+   val <a href="#addPrettyPrinter">addPrettyPrinter</a> : (int -&gt; 'a -&gt; 'b -&gt; pretty) -&gt; unit
+
+   val <a href="#install_pp">install_pp</a> :
+       ((string -&gt; unit) * (int * bool -&gt; unit) * (int * int -&gt; unit) *
+       (unit -&gt; unit) -&gt; int -&gt; 'a -&gt; 'b -&gt; unit) -&gt; unit
+
+   val <a href="#prettyRepresentation">prettyRepresentation</a> : 'a * int -&gt; pretty
+
+   val <a href="#print">print</a>: 'a -&gt; 'a
+   val <a href="#makestring">makestring</a>: 'a -&gt; string
+   val <a href="#print_depth">print_depth</a>: int -&gt; unit
+   val error_depth: int -&gt; unit
+   val line_length: int -&gt; unit
+
+   val <a href="#rootFunction">rootFunction</a> : unit -&gt; unit
+   val <a href="#shell">shell</a> : unit -&gt; unit
+
+   val <a href="#sourceLocation">sourceLocation</a> : unit -&gt; location
+
+   val <a href="#fullGC">fullGC</a> : unit -&gt; unit
+   val <a href="#pointerEq">pointerEq</a> : 'a * 'a -&gt; bool
+   val <a href="#stackTrace">stackTrace</a> : unit -&gt; unit
+
+   val <a href="#profiling">profiling</a> : int -&gt; unit
+   val <a href="#timing">timing</a> : bool -&gt; unit
+end
+</pre>
+<p>The <span class="identifier">PolyML</span> structure contains a large collection 
+  of functions, structures and types that are specific to Poly/ML.</p>
+<div class="entryblock">
+  <pre class="entrycode"><a name="CodeTree"></a>structure CodeTree : sig ... end </pre>
+  <div class="entrytext"> 
+    <p><a href="PolyMLCodetree.html">Functions related to the intermediate code 
+      structure.</a></p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="Compiler"></a>structure Compiler : sig ... end
+</pre>
+  <div class="entrytext"> 
+    <p><a href="PolyMLCompiler.html">Functions and types specific to the Poly/ML 
+      compiler.</a></p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="compiler" id="compiler"></a>val compiler: (unit -&gt; char option) * Compiler.compilerParameters list -&gt; unit -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">PolyML.compiler</span> function provides direct 
+      access to the compiler for Poly/ML. It is used by all the functions, such 
+      as <a href="#use"><span class="identifier">use</span></a>, <a href="#shell"><span class="identifier">shell</span></a> 
+      and <a href="#make"><span class="identifier">make</span></a> that compile 
+      Standard ML source code into executable code.</p>
+    <p><span class="identifier">compiler(instream, parms)</span> takes an input 
+      stream, <span class="identifier">instream</span>, and a set of optional 
+      parameters, <span class="identifier">parms</span>, of type <span class="identifier"><a href="PolyMLCompiler.html#compilerParameters">Compiler.compilerParameters</a></span>. 
+      The input stream is called whenever the compiler wants to read the next 
+      character from the input. If it returns <span class="identifier">NONE</span> 
+      the compiler assumes that it has reached an end-of-stream and does not read 
+      further. Otherwise the compiler stops when it has parsed a valid <em>topdec</em>, 
+      generally a declaration or expression with a final semicolon. The parameters, 
+      <span class="identifier">parms</span>, provide a set of options to the compiler. 
+      There are default values for these options so it is possible to provide 
+      an empty list. The parameters, their meanings and the default values are 
+      listed under <span class="identifier"><a href="PolyMLCompiler.html#compilerParameters">Compiler.compilerParameters</a></span>.</p>
+    <p>If an error is detected <span class="identifier">compiler</span> raises 
+      the <span class="identifier">Fail</span> exception, otherwise the result 
+      of the compilation is a function of type <span class="identifier">unit-&gt;unit</span>. 
+      This function represents the compiled code and calling this function executes 
+      the code. At that point any side-effects will be performed and bindings 
+      made by the code will be added to the name-space.</p>
+    <p>The <span class="identifier">compiler</span> function itself is thread-safe, 
+      that is multiple instances of it can be executed in parallel without interference, 
+      provided suitable parameters are provided. In particular it may be necessary 
+      to ensure that the name-spaces passed as <span class="identifier"><a href="PolyMLCompiler.html#CPNameSpace">CPNameSpace</a></span> 
+      parameters do not interfere.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="Debug"></a>structure Debug : sig ... end</pre>
+  <div class="entrytext"> 
+    <p>Functions to aid interactive debugging. There is a <a href="PolyMLDebug.html">reference 
+      here</a> and a <a href="../Tutorials/Debugging.html">tutorial here</a>. 
+    </p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="DebuggerInterface"></a>structure DebuggerInterface : sig ... end
+</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLDebuggerInterface.html" class="identifier">DebuggerInterface</a> 
+      structure contains functions to allow application code to access information 
+      about a program that has been compiled for debugging. It is intended for 
+      applications that replace the default Poly/ML top-level.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="Exception"></a>structure Exception : sig ... end
+<a name="exceptionLocation"></a>val exceptionLocation: exn -&gt; location option
+<a name="raiseWithLocation"></a>val raiseWithLocation : exn * location -&gt; 'a
+<a name="exception_trace"></a>val exception_trace: (unit -&gt; 'a) -&gt; 'a</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLException.html" class="identifier">Exception</a> structure 
+      contains functions to assist with the location and tracing of exceptions. 
+      Three functions, <span class="identifier">exception_trace</span>, <span class="identifier">exceptionLocation</span> 
+      and <span class="identifier">raiseWithLocation</span> were originally contained 
+      in the <span class="identifier">PolyML</span> structure itself so for backwards 
+      compatibility they are available both in <span class="identifier">PolyML</span> 
+      and <span class="identifier">PolyML.Exception</span>. </p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="NameSpace"></a>structure NameSpace : sig ... end
+<a name="globalNameSpace"></a>val globalNameSpace: NameSpace.nameSpace
+</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLNameSpace.html" class="identifier">NameSpace</a> structure 
+      contains functions and types for printing the values produced by the compiler. 
+      <span class="identifier">globalNameSpace</span> is the default name space. 
+      It contains the top-level bindings made by compiling source code with <a href="#use"><span class="identifier">use</span></a> 
+      or <a href="#make"><span class="identifier">make</span></a> or entering 
+      code at the top-level. Values in <span class="identifier">globalNameSpace</span> 
+      can be extracted and displayed in the same way as any other values of the 
+      <span class="identifier"><a href="PolyMLNameSpace.html#nameSpace">nameSpace</a></span> 
+      type. Values can be deleted using <span class="identifier"><a href="PolyMLCompiler.html#forgetValue">Compiler.forgetValue</a></span> 
+      etc.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="SaveState"></a>structure SaveState : sig ... end
+</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLSaveState.html" class="identifier">SaveState</a> structure 
+      contains functions to save the current state to a file and restore the previous 
+      state.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="Statistics"></a>structure Statistics : sig ... end
+</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLStatistics.html" class="identifier">Statistics</a> structure 
+      contains functions to extract information about the Poly/ML run-time system. 
+      It can also be used to query statistics about other Poly/ML processes run 
+      by the same user.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="fullGC" id="fullGC"></a>val fullGC: unit -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">fullGC</span> function forces the run-time 
+      system to execute a full garbage collection. Normally this will not be required.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="pointerEq" id="pointerEq"></a>val pointerEq: 'a * 'a -&gt; bool</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">pointerEq</span> function compares two values 
+      for identity. The normal ML rules for equality state that two values are 
+      equal if they have the same contents. The exception is <em>mutable</em> 
+      values, such as refs and arrays, which are considered equal only if they 
+      are the same ref or array. Equality is only possible for equality types, 
+      which excludes functions and values of type real.</p>
+    <p><span class="identifier">PolyML.pointerEq</span> can be applied to values 
+      of any type and returns true if the values are identifical. It is intended 
+      for use in user functions that wish to test for equality in a general sense 
+      and where a potentially expensive operation can be cut short if it is known 
+      that the arguments are actually the same. It should be used with care. Poly/ML 
+      only guarantees the ML equality property and the compiler and run-time system 
+      may merge or split immutable values. For example, <a href="#shareCommonData" class="identifier">shareCommonData</a>, 
+      combines immutable values with the same contents.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="shareCommonData" id="shareCommonData"></a>val shareCommonData : 'a -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">shareCommonData</span> function is intended 
+      to reduce the storage requirements by merging <em>immutable</em> data, such 
+      as lists and strings, that have the same contents. Since the ML equality 
+      function tests for equality of contents rather than pointer equality, running 
+      <span class="identifier">shareCommonData</span> does not affect the behaviour 
+      of an ML program unless it relies on non-standard functions such as <a href="#pointerEq" class="identifier">PolyML.pointerEq</a>. 
+      The <span class="identifier">shareCommonData</span> function requires extra 
+      space on the heap and sorts the data before merging so can be expensive 
+      to run when the heap is large. The argument is the root of the data that 
+      should be shared. To share everything pass <span class="identifier"><a href="#rootFunction">PolyML.rootFunction</a></span> 
+      as the argument. It is frequently used before the heap is saved with <a href="#export" class="identifier">PolyML.export</a> 
+      or <span class="identifier"><a href="#SaveState">PolyML.SaveState</a>.saveState</span>.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="export" id="export"></a>val export: string * (unit -&gt; unit) -&gt; unit
+<a name="exportPortable"></a>val exportPortable: string * (unit -&gt; unit) -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">export</span> and <span class="identifier">exportPortable</span> 
+      functions are used to create object modules or object files. They both take 
+      arguments which are the name of the file to be written and a function to 
+      use as the root. All data reachable from the root are written to the output 
+      file. <span class="identifier">export</span> writes an object file whose 
+      format depends on the particular operating system. On Linux and other similar 
+      systems this is an ELF object file, on Windows a PECOFF file and on Mac 
+      OS a Mach-O file. It can then be linked with the Poly/ML libraries to produce 
+      an executable file. <span class="identifier">exportPortable</span> writes 
+      an operating-system-independent text file that can be read by the <span class="identifier">polyImport</span> 
+      program. It is intended primarily to allow the Poly/ML system itself to 
+      be distributed by avoiding the necessity of having separate object files 
+      for each operating system. Note that the file contains machine code so while 
+      it is operating-system independent it is not independent of the architecture.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="onEntry" id="onEntry"></a>val onEntry: (unit -&gt; unit) -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">onEntry</span> function adds a function to 
+      a list of functions that are executed when a Poly/ML program begins. It 
+      is primarily intended for libraries that need to be initialised.</p>
+  </div>
+</div>
+<pre class="entrycode"><a name="make" id="make"></a>val make: string -&gt; unit</pre>
+<div class="entrytext"> 
+  <p>The <a href="PolyMLMake.html" class="identifier">make</a> function is used 
+    to compile and build a set of modules from source. There is a separate <a href="PolyMLMake.html">description 
+    and tutorial</a>.</p>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="use" id="use"></a>val use: string -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.use</span> is the same function as the 
+      top-level <span class="identifier">use</span> function. It takes a file 
+      name as its argument and compiles and executes the Standard ML code in the 
+      file. The file-name extension may be omitted if it is one of those listed 
+      in <span class="identifier"><a href="#suffixes">PolyML.suffixes</a></span>. 
+      The inclusion of <span class="identifier">PolyML.use</span> is really a 
+      relic from an early version of Standard ML which did not include a <span class="identifier">use</span> 
+      function.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="suffixes" id="suffixes"></a>val suffixes = ref [&quot;&quot;, &quot;.ML&quot;, &quot;.sml&quot;]: string list ref</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.suffixes</span> holds a list of file-name 
+      extensions of ML source files. This is used by <span class="identifier"><a href="#use">PolyML.use</a></span> 
+      and <span class="identifier"><a href="#make">PolyML.make</a></span>. If 
+      they are given a file-name as an argument and the file does not exist they 
+      attempt to open a file with a name constructed from the original argument 
+      by adding each of the extensions in turn.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="ptProperties" id="ptProperties"></a>datatype ptProperties =
+       PTfirstChild of unit -&gt; parseTree
+   |   PTnextSibling of unit -&gt; parseTree
+   |   PTpreviousSibling of unit -&gt; parseTree
+   |   PTparent of unit -&gt; parseTree
+   |   PTtype of <a href="PolyMLNameSpace.html">NameSpace.typeExpression</a>
+   |   PTdeclaredAt of location
+   |   PTopenedAt of location
+   |   PTreferences of bool * location list
+   |   PTstructureAt of location
+   |   PTprint of int -&gt; pretty
+<a name="parseTree" id="parseTree"></a>   |   PTbreakPoint of bool ref
+   |   PTcompletions of string list
+withtype parseTree = <a href="#location">location</a> * ptProperties list
+</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">ptProperties</span> datatype is associated 
+      with a parse-tree that has been exported from the compiler. The parse-tree 
+      is an abstract tree where each node has a <a href="#location"><span class="identifier">location</span></a> 
+      and a set of properties. The properties associated with a particular node 
+      vary according to the underlying parse-tree and circumstances.</p>
+    <p><span class="identifier"><a name="PTfirstChild"></a>PTfirstChild</span>, 
+      <span class="identifier"><a name="PTnextSibling"></a>PTnextSibling</span>, 
+      <span class="identifier"><a name="PTpreviousSibling"></a>PTpreviousSibling</span> and <span class="identifier"><a name="PTparent"></a>PTparent</span> 
+      are used to move between nodes. They are only present if the appropriate 
+      node exists. <span class="identifier">PPTfirstChild</span> is present if 
+      the node has children and returns the first (leftmost) node. <span class="identifier">PTnextSibling</span> 
+      and <span class="identifier">PTpreviousSibling</span> return the next (right) 
+      and previous (left) nodes at the same level. <span class="identifier">PTparent</span> 
+      returns the parent node.</p>
+    <p><span class="identifier"><a name="PTtype"></a>PTtype</span> returns a value that represents 
+      the type of the node. It is present on nodes that represent values and can 
+      have a type. </p>
+    <p><span class="identifier"><a name="PTdeclaredAt"></a>PTdeclaredAt</span>, <span class="identifier"><a name="PTopenedAt"></a>PTopenedAt</span>, 
+      <span class="identifier"><a name="PTstructureAt"></a>PTstructureAt</span> and <span class="identifier"><a name="PTreferences"></a>PTreferences</span> 
+      may be present on nodes that represent identifiers. They provide location 
+      information. <span class="identifier">PTdeclaredAt</span> provides the location 
+      where the identifier was declared. <span class="identifier">PTopenedAt</span> 
+      and <span class="identifier">PTstructureAt</span> are only present if the 
+      identifier came from a structure that had been opened and give the location 
+      where the structure had been opened and where the structure itself was declared.</p>
+    <p><span class="identifier"><a name="PTprint"></a>PTprint</span> produces a pretty-print structure 
+      of the node. It is present on most nodes. The argument is the depth of the 
+      data structure to produce before eliding the detail.</p>
+    <p><span class="identifier"><a name="PTbreakPoint"></a>PTbreakPoint</span> is only present if debugging 
+      has been enabled. It returns the debugger identifier for the node.</p>
+    <p><span class="identifier"><a name="PTcompletions"></a>PTcompletions</span> returns possible completions 
+      of an invalid identifier.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="context"></a>datatype context =
+       ContextLocation of location
+   |   ContextProperty of string * string
+</pre>
+  <div class="entrytext"> 
+    <p>The context type is primarily used by the IDE when providing error messages. 
+      For most purposes the <span class="identifier">context</span> argument to 
+      <span class="identifier">PrettyBlock</span> can be the empty list. <span class="identifier">ContextLocation</span> 
+      provides the location associated with the item being printed, typically 
+      the location where it was declared. <span class="identifier">ContextProperty</span> 
+      can be used by a user-supplied pretty printer to provide extra information 
+      which may be useful if the result of pretty printing is to be processed 
+      by a user function. It is not produced by Poly/ML pretty printers and the 
+      default printers ignore this item.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="pretty"></a>datatype pretty =
+       PrettyBlock of int * bool * context list * pretty list
+   |   PrettyBreak of int * int
+   |   PrettyLineBreak
+   |   PrettyString of string
+   |   PrettyStringWithWidth of string * int
+</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">pretty</span> datatype is used in connection 
+      with formatting data for display. Rather than create text directly most 
+      display functions create values of this type. It is used with a pretty-printer 
+      based around the model described by D.C. Oppen in ACM ToPLAS Vol. 2 No. 
+      4 Oct 1980.</p>
+    <p><span class="identifier"><a name="PrettyString"></a>PrettyString s</span> 
+      contains a string to be printed.</p>
+    <p><span class="identifier"><a name="PrettyStringWithWidth"></a>PrettyStringWithWidth 
+      (s, n)</span> is similar to <span class="identifier">PrettyString</span> 
+      except that it contains an explicit width. It is used when the width of 
+      the displayed string is not the same as the number of characters. This may 
+      happen if the string contains UTF-8 encoded characters.</p>
+    <p><span class="identifier"><a name="PrettyBlock"></a>PrettyBlock(indent, 
+      consistent, context, items)</span> defines a block of <span class="identifier">items</span> 
+      which may be strings, breaks or blocks. The items will be retained on a 
+      single line if possible. The <span class="identifier">indent</span> parameter 
+      is an indentation that will be added to the current indentation if the block 
+      has to be broken. Note that this does not apply to the first item in the 
+      block which will always be printed with the current indentation. The <span class="identifier">consistent</span> 
+      parameter indicates whether the block is to be broken consistently (true) 
+      or not (false). If it is true then if the block will not all fit on a line 
+      and must be broken then it will be broken at all the breaks in the block 
+      whether this is necessary or not. If it is false it will only be broken 
+      where necessary. Neither of these parameters are used if the block will 
+      fit on a line.</p>
+    <p><span class="identifier"><a name="PrettyBreak"></a>PrettyBreak(blanks, 
+      breakOffset)</span> indicates a break between items. If the line is not 
+      broken at this point then <span class="identifier">blanks</span> is the 
+      number of space characters that will be inserted. If the line is broken 
+      at that point then instead the following item is indented by an extra <span class="identifier">breakOffset</span> 
+      spaces.</p>
+    <p><span class="identifier"><a name="PrettyLineBreak"></a>PrettyLineBreak</span> 
+      inserts an explicit line-break.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="prettyPrint"></a>val prettyPrint : (string -&gt; unit) * int -&gt; pretty -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">prettyPrint</span> provides a basic formatting 
+      of a <span class="identifier">pretty</span> structure.<span class="identifier"> 
+      prettyPrint (output, width) p</span> formats the <span class="identifier">pretty</span> 
+      structure <span class="identifier">p</span> and calls the <span class="identifier">output</span> 
+      function to display it. The <span class="identifier">width</span> is the 
+      number of characters that can be displayed on a single line. Spaces and 
+      line-breaks are produced by calling output with strings containing spaces 
+      and the newline character<span class="identifier"> &quot;\n&quot;</span>. 
+      Context information in <span class="identifier"><a href="#PrettyBlock">PrettyBlock</a></span> 
+      nodes is ignored.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="prettyMarkup"></a>val prettyMarkup :
+       (context list -&gt; unit) * (context list -&gt; unit) -&gt;
+       (string -&gt; unit) * int -&gt; pretty -&gt; unit
+</pre>
+  <div class="entrytext"><span class="identifier">prettyMarkup</span> provides 
+    the same formatting as <a href="#prettyPrint"><span class="identifier">prettyPrint</span></a> 
+    except that it includes processing of context information. <span class="identifier">prettyMarkup(startC, 
+    endC) (output, width) p</span> formats the pretty structure <span class="identifier">p</span> 
+    using <span class="identifier">output</span> and <span class="identifier">width</span> 
+    with the addition that whenever a <span class="identifier">PrettyBlock</span> 
+    is encountered with non-empty context list <span class="identifier">startC</span> 
+    is called with the list before the block is output and <span class="identifier">endC</span> 
+    is called with the same list when the block is complete. </div>
+  <div class="entrytext"></div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="prettyPrintWithIDEMarkup"></a>val prettyPrintWithIDEMarkup : (string -&gt; unit) * int -&gt; pretty -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p></p>
+  </div>
+  <div class="entrytext"> 
+    <p><span class="identifier">prettyPrintWithIDEMarkup</span> is the same as 
+      <span class="identifier">prettyPrint</span> except that it adds <a href="../IDEProtocol.html">IDE 
+      mark-up</a> for location properties.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="addPrettyPrinter"></a>val addPrettyPrinter : (int -&gt; 'a -&gt; 'b -&gt; pretty) -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">addPrettyPrinter</span> is used to associate a 
+      printing function with a type so that it can be displayed in a more user-friendly 
+      form than the default. It appears to have a polymorphic type but is specially 
+      handled by the compiler. Pretty-printers can be installed for datatypes 
+      or types produced by opaque signature matching or returned from functors. 
+      It is not possible to install a pretty-printer for a <em>type function</em> 
+      (i.e. a type defined by <span class="identifier">type t = ...</span>) unless 
+      the type function is simply giving an alternative name to a datatype.</p>
+    <p><span class="identifier">addPrettyPrinter pp</span> installs a pretty printer 
+      <span class="identifier">pp</span> where <span class="identifier">pp</span> 
+      has arguments <span class="identifier">depth printArgTypes value</span>. 
+      The first argument, <span class="identifier">depth</span>, is the print 
+      depth. This is a value that indicates how much of the data structure should 
+      be displayed. If this value is zero or negative the pretty printer should 
+      always print a simple string such as <span class="identifier">PrettyString 
+      &quot;...&quot;</span>. The intention is that the user can control how much 
+      output to produce when printing a large data structure. Larger values produce 
+      more of the structure. For values produced by the top-level this will generally 
+      be controlled by <a href="#print_depth"><span class="identifier">PolyML.print_depth</span></a>. 
+      The third argument, <span class="identifier">value</span>, is the actual 
+      value of the type that is to be printed. When installing a pretty printer 
+      there must be sufficient type constraint so that the compiler is able to 
+      determine the type unambiguiously. </p>
+    <p>The second argument, <span class="identifier">printArgTypes</span>, is 
+      only used for <em>polytypes</em> i.e. datatypes with type parameters defined 
+      as <span class="identifier">'a t</span> or <span class="identifier">('a, 
+      'b', 'c ...) t</span>. It is not used for <em>monotypes</em>. If the type 
+      takes a single argument then <span class="identifier">printArgTypes</span> 
+      has type <span class="identifier">'a * int -&gt; pretty</span> and is the 
+      function that will generate the pretty data structure for the argument type. 
+      The <span class="identifier">int</span> argument is the adjusted print depth 
+      and should normally be one less than the value of <span class="identifier">depth</span>. 
+      If the type takes multiple arguments then <span class="identifier">printArgTypes</span> 
+      is a tuple with each field being a function of type <span class="identifier">'a 
+      * int -&gt; pretty</span> that is used for the corresponding argument of 
+      the datatype.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="install_pp"></a>val install_pp:
+       ((string -&gt; unit) * (int * bool -&gt; unit) * (int * int -&gt; unit) *
+       (unit -&gt; unit) -&gt; int -&gt; 'a -&gt; 'b -&gt; unit) -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">install_pp</span> was previously used to install 
+      pretty-print functions. <a href="#addPrettyPrinter"><span class="identifier">addPrettyPrinter</span></a> 
+      should be used instead. This function may be removed in future releases.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="prettyRepresentation"></a>val prettyRepresentation : 'a * int -&gt; pretty</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">prettyRepresentation</span> returns the <code>pretty</code> 
+      structure that can be used to print a value of the given type up to the 
+      specified depth. It is similar to <code>PolyML.print</code> in being infinitely 
+      overloaded. It can be useful when writing a pretty printer for a datatype 
+      that includes types that already have pretty printers installed or where 
+      they will be installed later since it uses any pretty printers for the types 
+      when it is actually called.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="print" id="print"></a>val print: 'a -&gt; 'a</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">PolyML.print</span> function is a special 
+      <em>infinitely overloaded</em> function that prints its argument and returns 
+      the original result. It is treated specially by the compiler which uses 
+      type information to format the output.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="makestring" id="makestring"></a>val makestring: 'a -&gt; string</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">PolyML.makestring</span> function is similar 
+      to <a href="#print"><span class="identifier">PolyML.print</span></a> in 
+      being infinitely overloaded. It returns a string representation of its argument.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="rootFunction" id="rootFunction"></a>val rootFunction : unit -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.rootFunction</span> is the initial function 
+      for the default Poly/ML system. It processes the command line arguments 
+      and then calls <span class="identifier"><a href="#shell">PolyML.shell</a></span> 
+      to start the main top-level, read-eval-print loop. It is the root of everything 
+      in the Poly/ML system so it may be used as an argument to <a href="#shareCommonData"><span class="identifier">PolyML.shareCommonData</span></a> 
+      to minimise the size of the heap before it is saved.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="shell" id="shell"></a>val shell : unit -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The shell function runs the normal Poly/ML top-level read-eval-print loop 
+      (REPL). This function is provided for the situation where a user might wish 
+      to export an alternative top-level function but in some cases switch to 
+      the default. It returns only when it detects end-of-file on <span class="identifier">TextIO.stdIn</span>. 
+      The top-level prompts the user for input using the value held in <span class="identifier"><a href="PolyMLCompiler.html#prompt1">Compiler.prompt1</a></span>, 
+      <span class="identifier">&quot;&gt; &quot;</span> by default, for the first 
+      line of a <em>topdec</em>. Subsequent lines are prompted for using the value 
+      in <span class="identifier"><a href="PolyMLCompiler.html#prompt2">Compiler.prompt2</a></span>, 
+      default <span class="identifier">&quot;# &quot;</span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="architecture" id="architecture"></a>val architecture : unit -&gt; string</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">architecture</span> function returns a string 
+      that identifies the computer architecture for which the current version 
+      of Poly/ML has been built and the code that the compiler generates. Currently, 
+      it returns one of the following values: <span class="identifier">&quot;I386&quot;</span>, 
+      <span class="identifier"> &quot;X86_64&quot;</span> or <span class="identifier">&quot;Interpreted&quot;</span>. 
+      The last is used when Poly/ML has been built for the portable byte-code 
+      version. </p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="rtsArgumentHelp" id="rtsArgumentHelp"></a>val rtsArgumentHelp : unit -&gt; string</pre>
+  <div class="entrytext"> 
+    <p>PolyML.rtsArgumentHelp returns a string that describes the command-line 
+      arguments that are used by the run-time system. The main purpose of this 
+      function is to enable Poly/ML programs that accept a command-line &quot;help&quot; 
+      argument to provide information to the user about arguments that will be 
+      interpreted by the run-time system in addition to information about their 
+      own arguments.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="rtsVersion" id="rtsVersion"></a>val rtsVersion : unit -&gt; int</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">rtsVersion</span> function returns a number 
+      that identifies the version of the run-time system. For version 5.5.3 it 
+      returns 553.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="objSize" id="objSize"></a>val objSize: 'a -&gt; int
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.objSize</span> returns the number of words 
+      of heap space used in its argument. It is primarily intended for debugging 
+      when the heap requirements of a program are larger than expected. It returns 
+      the total size of everything reachable from its argument. It takes account 
+      of sharing so if parts of the data structure are shared they will be counted 
+      only once.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="showSize" id="showSize"></a>val showSize : 'a -&gt; int</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.showSize</span> returns the same result 
+      as <span class="identifier">objSize</span> but as a side-effect it prints 
+      a low-level representation of the data to the standard output. It should 
+      be used with care as the output can be very large.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="objProfile" id="objProfile"></a>val objProfile : 'a -&gt; int</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.</span>objProfile returns the same result 
+      as <span class="identifier">objSize</span> but as a side-effect it prints 
+      a profile of the sizes of cells, the number of cells of each size. Separate 
+      profiles are produced for <em>mutable</em> cells i.e. refs and arrays, and 
+      <em>immutable</em> cells such as lists and tuples.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="stackTrace" id="stackTrace"></a>val stackTrace : unit -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">stackTrace</span> function prints a trace 
+      of the current stack; that is the name of the calling function and the function 
+      that called it back to the start of the thread.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="profiling" id="profiling"></a>val profiling : int -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.profiling</span> enables profiling for 
+      executed code. It takes an integer argument that sets the kind of profiling. 
+      Zero disables profiling; non-zero values enable different kinds of profiling.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="timing" id="timing"></a>val timing : bool -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.timing</span> enables or disables the timing 
+      of each expression typed at the top-level. For each expression figures are 
+      shown for various passes of the compiler and the execution time of the expression.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="sourceLocation" id="sourceLocation"></a>val sourceLocation : unit -&gt; location</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.sourceLocation </span>is a function that 
+      is treated specially by the compiler. It returns the <a href="#location"><span class="identifier">location</span></a> 
+      in the source file where its call appears. Exactly what information is returned 
+      depends on what options have been provided to the compiler.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="location" id="location"></a>type location = {file: string, startLine: int, endLine: int, startPosition: int, endPosition: int}
+</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">location</span> type is associated with the 
+      compiler. It represents a position in some program source, usually a source 
+      file. The information that is included depends on the particular function 
+      that has returned the <span class="identifier">location</span> and how the 
+      compiler was called. Generally, <span class="identifier">file</span> will 
+      contain the source file name, <span class="identifier">startLine</span> 
+      and <span class="identifier">endLine</span> will contain the line numbers 
+      where the item started and ended and <span class="identifier">startPosition</span> 
+      and <span class="identifier">endPosition</span> the byte position in the 
+      file. The file name may be the empty string and any of the other arguments 
+      may be zero if the information is not available.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="IntInf" id="IntInf"></a>structure IntInf: sig val gcd : int * int -&gt; int val lcm : int * int -&gt; int end</pre>
+  <div class="entrytext"> 
+    <p>The <span class="identifier">IntInf</span> structure contains two functions 
+      that have been added to the arbitrary-precision arithmetic library. They 
+      compute the greatest common divisor and the lowest common multiple. If Poly/ML 
+      has been built to use the GMP library these functions will make use of that 
+      library.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="print_depth" id="print_depth"></a>val print_depth: int -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.print_depth</span> sets the depth for printing 
+      the results of each top-level expression. Passing zero or a negative value 
+      as the argument disables all printing of top-level results. When a large 
+      data structure is to be printed the print depth controls how much of the 
+      structure is displayed. <span class="identifier">PolyML.print_depth</span> 
+      sets the value of <span class="identifier"><a href="PolyMLCompiler.html#printDepth">PolyML.Compiler.printDepth</a></span>.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="error_depth" id="error_depth"></a>val error_depth: int -&gt; unit
+</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.error_depth</span> controls the amount 
+      of output to produce when printing information in an error message. It behaves 
+      in the same way as <a href="#print_depth"><span class="identifier">PolyML.print_depth</span></a>. 
+      <span class="identifier"><a href="PolyMLCompiler.html#errorDepth">PolyML.error_depth</a></span> 
+      sets the value of <span class="identifier">PolyML.Compiler.errorDepth</span>. 
+    </p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode"><a name="line_length" id="line_length"></a>val line_length: int -&gt; unit</pre>
+  <div class="entrytext"> 
+    <p><span class="identifier">PolyML.line_length</span> sets the length of a 
+      line which is used when produced pretty-printed output. <span class="identifier">PolyML.line_length</span> 
+      sets the value of <span class="identifier"><a href="PolyMLCompiler.html#lineLength">PolyML.Compiler.lineLength</a></span>.</p>
+  </div>
+</div>
+<ul class="nav">
+  <li><a href="Basis.html">Previous</a></li>
+  <li><a href="Basis.html">Up</a></li>
+  <li><a href="Signal.html">Next</a></li>
+</ul>
+</body>
+</html>
