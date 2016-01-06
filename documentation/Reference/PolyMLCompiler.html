@@ -19,9 +19,9 @@
   and values associated with the Poly/ML top-level. Many of the values are associated 
   with debugging the compiler itself and are not of general usefulness.</p>
 <pre class="mainsig">
-structure Compiler :
-  sig
-    datatype <a href="#compilerParameters">compilerParameters</a> =
+<strong>structure</strong> Compiler :
+  <strong>sig</strong>
+    <strong>datatype</strong> <a href="#compilerParameters">compilerParameters</a> =
         <a href="#CPOutStream">CPOutStream</a> of string-&gt;unit
     |   <a href="#CPNameSpace">CPNameSpace</a> of <a href="PolyMLNameSpace.html#nameSpace">PolyML.NameSpace.nameSpace</a>
     |   <a href="#CPErrorMessageProc">CPErrorMessageProc</a> of
@@ -29,11 +29,11 @@ structure Compiler :
     |   <a href="#CPLineNo">CPLineNo</a> of unit -&gt; int
     |   <a href="#CPLineOffset">CPLineOffset</a> of unit -&gt; int
     |   <a href="#CPFileName">CPFileName</a> of string
-	    |   <a href="#CPPrintInAlphabeticalOrder">CPPrintInAlphabeticalOrder</a> of bool
+	 |   <a href="#CPPrintInAlphabeticalOrder">CPPrintInAlphabeticalOrder</a> of bool
     |   <a href="#CPResultFun">CPResultFun</a> of {
-            fixes: (string * fixityVal) list, values: (string * valueVal) list,
-            structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-			 functors: (string * functorVal) list, types: (string * typeVal) list
+            fixes: (string * NameSpace.Infixes.fixity) list, values: (string * NameSpace.Values.value) list,
+            structures: (string * NameSpace.Structures.structureVal) list, signatures: (string * NameSpace.Signatures.signatureVal) list,
+			 functors: (string * NameSpace.Functors.functorVal) list, types: (string * NameSpace.TypeConstrs.typeConstr) list
             } -&gt; unit
 	|   <a href="#CPCompilerResultFun">CPCompilerResultFun</a> of
 	         PolyML.parseTree option *
@@ -59,53 +59,55 @@ structure Compiler :
 	|   <a href="#CPAllocationProfiling">CPAllocationProfiling</a> of int
 	|   <a href="#CPDebuggerFunction">CPDebuggerFunction</a> of int * valueVal * int * string * string * nameSpace -&gt; unit
 
-    val <a href="#compilerVersion">compilerVersion</a> : string
-    val <a href="#compilerVersionNumber">compilerVersionNumber</a> : int
+    <strong>val</strong> <a href="#compilerVersion">compilerVersion</a> : string
+    <strong>val</strong> <a href="#compilerVersionNumber">compilerVersionNumber</a> : int
 
-    val <a href="#printDepth">printDepth</a> : int ref
-    val <a href="#errorDepth">errorDepth</a> : int ref
-    val <a href="#lineLength">lineLength</a> : int ref
+    <strong>val</strong> <a href="#printDepth">printDepth</a> : int ref
+    <strong>val</strong> <a href="#errorDepth">errorDepth</a> : int ref
+    <strong>val</strong> <a href="#lineLength">lineLength</a> : int ref
 
-    val <a href="#printInAlphabeticalOrder">printInAlphabeticalOrder</a> : bool ref
+    <strong>val</strong> <a href="#printInAlphabeticalOrder">printInAlphabeticalOrder</a> : bool ref
 
-    val <a href="#prompt1">prompt1</a>: string ref
-    val <a href="#prompt2">prompt2</a>: string ref
+    <strong>val</strong> <a href="#prompt1">prompt1</a>: string ref
+    <strong>val</strong> <a href="#prompt2">prompt2</a>: string ref
 
-    val <a href="#reportExhaustiveHandlers">reportExhaustiveHandlers</a>: bool ref
-    val <a href="#reportUnreferencedIds">reportUnreferencedIds</a>: bool ref
+    <strong>val</strong> <a href="#reportExhaustiveHandlers">reportExhaustiveHandlers</a>: bool ref
+    <strong>val</strong> <a href="#reportUnreferencedIds">reportUnreferencedIds</a>: bool ref
+    <strong>val</strong> <a href="#reportDiscardFunction">reportDiscardFunction</a>: bool ref
+	<strong>val</strong> <a href="#reportDiscardNonUnit">reportDiscardNonUnit</a>: bool ref
 
-    val <a href="#debug">debug</a>: bool ref
-    val <a href="#timing">timing</a>: bool ref
-    val <a href="#profiling">profiling</a>: int ref
-    val <a href="#allocationProfiling">allocationProfiling</a>: int ref
+    <strong>val</strong> <a href="#debug">debug</a>: bool ref
+    <strong>val</strong> <a href="#timing">timing</a>: bool ref
+    <strong>val</strong> <a href="#profiling">profiling</a>: int ref
+    <strong>val</strong> <a href="#allocationProfiling">allocationProfiling</a>: int ref
 
-    val <a href="#lowlevelOptimise">lowlevelOptimise</a>: bool ref
-    val <a href="#inlineFunctors">inlineFunctors</a>: bool ref
-    val <a href="#createPrintFunctions">createPrintFunctions</a>: bool ref
-    val <a href="#maxInlineSize">maxInlineSize</a>: int ref
-    val <a href="#narrowOverloadFlexRecord">narrowOverloadFlexRecord</a>: bool ref
-    val <a href="#traceCompiler">traceCompiler</a>: bool ref
+    <strong>val</strong> <a href="#lowlevelOptimise">lowlevelOptimise</a>: bool ref
+    <strong>val</strong> <a href="#inlineFunctors">inlineFunctors</a>: bool ref
+    <strong>val</strong> <a href="#createPrintFunctions">createPrintFunctions</a>: bool ref
+    <strong>val</strong> <a href="#maxInlineSize">maxInlineSize</a>: int ref
+    <strong>val</strong> <a href="#narrowOverloadFlexRecord">narrowOverloadFlexRecord</a>: bool ref
+    <strong>val</strong> <a href="#traceCompiler">traceCompiler</a>: bool ref
 
-    val <a href="#parsetree">parsetree</a>: bool ref
-    val <a href="#codetree">codetree</a>: bool ref
-    val <a href="#codetreeAfterOpt">codetreeAfterOpt</a>: bool ref
-    val <a href="#assemblyCode">assemblyCode</a>: bool ref
-    val <a href="#pstackTrace">pstackTrace</a>: bool ref
+    <strong>val</strong> <a href="#parsetree">parsetree</a>: bool ref
+    <strong>val</strong> <a href="#codetree">codetree</a>: bool ref
+    <strong>val</strong> <a href="#codetreeAfterOpt">codetreeAfterOpt</a>: bool ref
+    <strong>val</strong> <a href="#assemblyCode">assemblyCode</a>: bool ref
+    <strong>val</strong> <a href="#pstackTrace">pstackTrace</a>: bool ref
 
-    val <a href="#fixityNames">fixityNames</a> : unit -> string list
-    val <a href="#functorNames">functorNames</a> : unit -> string list
-    val <a href="#signatureNames">signatureNames</a>: unit -> string list
-    val <a href="#structureNames">structureNames</a>: unit -> string list
-    val <a href="#typeNames">typeNames</a>: unit -> string list
-    val <a href="#valueNames">valueNames</a>: unit -> string list
+    <strong>val</strong> <a href="#fixityNames">fixityNames</a> : unit -> string list
+    <strong>val</strong> <a href="#functorNames">functorNames</a> : unit -> string list
+    <strong>val</strong> <a href="#signatureNames">signatureNames</a>: unit -> string list
+    <strong>val</strong> <a href="#structureNames">structureNames</a>: unit -> string list
+    <strong>val</strong> <a href="#typeNames">typeNames</a>: unit -> string list
+    <strong>val</strong> <a href="#valueNames">valueNames</a>: unit -> string list
 
-    val <a href="#forgetFixity">forgetFixity</a> : string -> unit
-    val <a href="#forgetFunctor">forgetFunctor</a> : string -> unit
-    val <a href="#forgetSignature">forgetSignature</a> : string -> unit
-    val <a href="#forgetStructure">forgetStructure</a> : string -> unit
-    val <a href="#forgetType">forgetType</a> : string -> unit
-    val <a href="#forgetValue">forgetValue</a> : string -> unit
-  end
+    <strong>val</strong> <a href="#forgetFixity">forgetFixity</a> : string -> unit
+    <strong>val</strong> <a href="#forgetFunctor">forgetFunctor</a> : string -> unit
+    <strong>val</strong> <a href="#forgetSignature">forgetSignature</a> : string -> unit
+    <strong>val</strong> <a href="#forgetStructure">forgetStructure</a> : string -> unit
+    <strong>val</strong> <a href="#forgetType">forgetType</a> : string -> unit
+    <strong>val</strong> <a href="#forgetValue">forgetValue</a> : string -> unit
+  <strong>end</strong>
 </pre>
 <div class="entryblock"> 
   <pre class="entrycode"><a name="compilerParameters" id="compilerParameters"></a>datatype compilerParameters</pre>
@@ -210,16 +212,13 @@ structure Compiler :
 <div class="entryblock"> 
   <pre class="entrycode"><a name="CPProfiling" id="CPProfiling"></a>CPProfiling of int</pre>
   <div class="entrytext"> 
-    <p>Control profiling. 0 is no profiling, 1 is time etc. Default is value of 
-      <a href="PolyMLStructure.html#profiling"> <span class="identifier">PolyML.profiling</span></a>.</p>
+    <p>This is no longer used.</p>
   </div>
 </div>
 <div class="entryblock"> 
   <pre class="entrycode"><a name="CPTiming" id="CPTiming"></a>CPTiming of bool</pre>
   <div class="entrytext"> 
-    <p>Control whether the compiler should time various phases of the compilation 
-      and also the run time. Default : Get the current value of <span class="identifier"><a href="#timing">timing</a></span> 
-      i.e. the value set by <span class="identifier"><a href="PolyMLStructure.html#timing">PolyML.timing</a></span>.</p>
+    <p>This is no longer used.</p>
   </div>
 </div>
 <div class="entryblock"> 
@@ -383,6 +382,21 @@ structure Compiler :
   </div>
 </div>
 <div class="entryblock"> 
+  <pre class="entrycode"><a name="reportDiscardFunction" id="reportDiscardFunction"></a>val reportDiscardFunction: bool ref
+<a name="reportDiscardNonUnit" id="reportDiscardNonUnit"></a>val reportDiscardNonUnit: bool ref</pre>
+  <div class="entrytext"> 
+    <p>These references control whether the compiler should produce a warning 
+      if a value is discarded. In an expression sequence or a let-binding only 
+      the value of the last expression is returned and the values of expressions 
+      followed by semicolons are discarded. Typically they are evaluated for their 
+      side-effects and return unit. <span class="identifier">reportDiscardFunction</span>, 
+      default <span class="identifier">true</span>, produces a warning message 
+      if the value being discarded has a function type but not otherwise. <span class="identifier">reportDiscardNonUnit</span>, 
+      default <span class="identifier">false</span>, produces a warning unless 
+      the discarded value has unit type.</p>
+  </div>
+</div>
+<div class="entryblock"> 
   <pre class="entrycode"><a name="printInAlphabeticalOrder" id="printInAlphabeticalOrder"></a>val printInAlphabeticalOrder: bool ref</pre>
   <div class="entrytext"> 
     <p>This reference controls whether the default result function for the compiler 
@@ -505,29 +519,15 @@ structure Compiler :
     <p>Setting this reference to true causes the compiler to include timing information 
       in the output after each topdec. The timing information includes information 
       about various passes of the compiler and also the execution time of the 
-      topdec. It is used unless the <a href="#CPTiming"><span class="identifier">CPTiming</span></a> 
-      option is included. Its value is also set by the <span class="identifier"><a href="PolyMLStructure.html#timing">PolyML.timing</a></span> 
+      topdec. Its value is also set by the <span class="identifier"><a href="PolyMLStructure.html#timing">PolyML.timing</a></span> 
       function. </p>
   </div>
 </div>
 <div class="entryblock"> 
-  <pre class="entrycode"><a name="profiling" id="profiling"></a>val profiling: int ref
-</pre>
-  <div class="entrytext"> 
-    <p>If this reference is set to a non-zero value the compiler will switch on 
-      profiling during execution of the compiled code. Exactly what is profiled 
-      is controlled by the argument. It is used unless the <a href="#CPProfiling"><span class="identifier">CPProfiling</span></a> 
-      option is included. Its value is also set by the <span class="identifier"><a href="PolyMLStructure.html#profiling">PolyML.profiling</a></span> 
-      function. </p>
-  </div>
+  <pre class="entrycode">&nbsp;</pre>
 </div>
-<div class="entryblock"> 
-  <pre class="entrycode"><a name="allocationProfiling" id="allocationProfiling"></a>val allocationProfiling: int ref</pre>
-  <div class="entrytext"> 
-    <p>This reference controls whether the compiler should add profiling information 
-      to track the allocation of memory. . It is used unless the <a href="#CPAllocationProfiling"><span class="identifier">CPAllocationProfiling</span></a> 
-      option is included.</p>
-  </div>
+<div class="entryblock">
+  <div class="entrytext"></div>
 </div>
 <ul class="nav">
 	<li><a href="PolyMLCodetree.html">Previous</a></li>

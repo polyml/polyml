@@ -1,0 +1,450 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>The Foreign structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body bgcolor="#FFFFFF">
+<ul class="nav">
+	<li><a href="Basis.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="PolyMLStructure.html">Next</a></li>
+</ul>
+
+<h2><font face="Arial"><strong>Foreign structure</strong></font></h2>
+
+<p>This is the new foreign-function interface</p>
+
+<pre class="mainsig">
+signature FOREIGN =
+sig
+    exception Foreign of string
+
+    structure Memory:
+    sig
+        eqtype volatileRef
+        val volatileRef: SysWord.word -> volatileRef
+        val setVolatileRef: volatileRef * SysWord.word -> unit
+        val getVolatileRef: volatileRef -> SysWord.word
+        
+        eqtype voidStar
+        val voidStar2Sysword: voidStar -> SysWord.word
+        val sysWord2VoidStar: SysWord.word -> voidStar
+        val null: voidStar
+
+        val ++ : voidStar * word -> voidStar
+        val -- : voidStar * word -> voidStar
+        
+        val memoise: ('a -> voidStar) ->'a -> unit -> voidStar
+        
+        exception Memory
+
+        val malloc: word -> voidStar
+        val free: voidStar -> unit
+
+        val get8:  voidStar * Word.word -> Word8.word
+        val get16: voidStar * Word.word -> Word.word
+        val get32: voidStar * Word.word -> Word32.word
+        val get64: voidStar * Word.word -> SysWord.word
+        val set8:  voidStar * Word.word * Word8.word -> unit
+        val set16: voidStar * Word.word * Word.word -> unit
+        val set32: voidStar * Word.word * Word32.word -> unit
+        val set64: voidStar * Word.word * SysWord.word -> unit
+
+        val getFloat:   voidStar * Word.word -> real
+        val getDouble:  voidStar * Word.word -> real
+        val setFloat:   voidStar * Word.word * real -> unit
+        val setDouble:  voidStar * Word.word * real -> unit
+
+        val getAddress: voidStar * Word.word -> voidStar
+        val setAddress: voidStar * Word.word * voidStar -> unit
+    end
+    
+    structure System:
+    sig
+        type voidStar = Memory.voidStar
+        val loadLibrary: string -> voidStar
+        and loadExecutable: unit -> voidStar
+        and freeLibrary: voidStar -> unit
+        and getSymbol: voidStar * string -> voidStar
+    end
+    
+    structure LibFFI:
+    sig
+        eqtype abi
+        (* List of ABIs defined in libffi for this platform. *)
+        val abiList: (string * abi) list
+        (* The default Abi. *)
+        val abiDefault:         abi
+
+        (* Type codes. *)
+        val ffiTypeCodeVoid:    Word.word
+        and ffiTypeCodeInt:     Word.word
+        and ffiTypeCodeFloat:   Word.word
+        and ffiTypeCodeDouble:  Word.word
+        and ffiTypeCodeUInt8:   Word.word
+        and ffiTypeCodeSInt8:   Word.word
+        and ffiTypeCodeUInt16:  Word.word
+        and ffiTypeCodeSInt16:  Word.word
+        and ffiTypeCodeUInt32:  Word.word
+        and ffiTypeCodeSInt32:  Word.word
+        and ffiTypeCodeUInt64:  Word.word
+        and ffiTypeCodeSInt64:  Word.word
+        and ffiTypeCodeStruct:  Word.word
+        and ffiTypeCodePointer: Word.word
+
+        eqtype ffiType
+        val ffiType2voidStar: ffiType -> Memory.voidStar
+        val voidStar2ffiType: Memory.voidStar -> ffiType
+
+        val getFFItypeVoid: unit -> ffiType
+        and getFFItypeUint8: unit -> ffiType
+        and getFFItypeSint8: unit -> ffiType
+        and getFFItypeUint16: unit -> ffiType
+        and getFFItypeSint16: unit -> ffiType
+        and getFFItypeUint32: unit -> ffiType
+        and getFFItypeSint32: unit -> ffiType
+        and getFFItypeUint64: unit -> ffiType
+        and getFFItypeSint64: unit -> ffiType
+        and getFFItypeFloat: unit -> ffiType
+        and getFFItypeDouble: unit -> ffiType
+        and getFFItypePointer: unit -> ffiType
+        and getFFItypeUChar: unit -> ffiType
+        and getFFItypeSChar: unit -> ffiType
+        and getFFItypeUShort: unit -> ffiType
+        and getFFItypeSShort: unit -> ffiType
+        and getFFItypeUint: unit -> ffiType
+        and getFFItypeSint: unit -> ffiType
+        and getFFItypeUlong: unit -> ffiType
+        and getFFItypeSlong: unit -> ffiType
+        
+        val extractFFItype:
+            ffiType -> { size: word, align: word, typeCode: word, elements: ffiType list }
+        val createFFItype:
+            { size: word, align: word, typeCode: word, elements: ffiType list } -> ffiType
+
+        eqtype cif
+        val cif2voidStar: cif -> Memory.voidStar
+        val voidStar2cif: Memory.voidStar -> cif
+        val createCIF: abi * ffiType * ffiType list -> cif
+        val callFunction:
+            { cif: cif, function: Memory.voidStar, result: Memory.voidStar, arguments: Memory.voidStar } -> unit
+
+        val createCallback:
+            (Memory.voidStar * Memory.voidStar -> unit) * cif -> Memory.voidStar
+        val freeCallback: Memory.voidStar -> unit
+    end
+    
+    type library
+    type symbol
+    val loadLibrary: string -> library
+    val loadExecutable: unit -> library
+    val getSymbol: library -> string  -> symbol
+    val symbolAsAddress: symbol -> Memory.voidStar
+
+    structure LowLevel:
+    sig
+        type ctype =
+        {
+            size: Word.word, (* Size in bytes *)
+            align: Word.word, (* Alignment *)
+            ffiType: unit -> LibFFI.ffiType
+        }
+        
+        val cTypeVoid: ctype
+        and cTypePointer: ctype
+        and cTypeInt8: ctype
+        and cTypeChar: ctype
+        and cTypeUint8: ctype
+        and cTypeUchar: ctype
+        and cTypeInt16: ctype
+        and cTypeUint16: ctype
+        and cTypeInt32: ctype
+        and cTypeUint32: ctype
+        and cTypeInt64: ctype
+        and cTypeUint64: ctype
+        and cTypeInt: ctype
+        and cTypeUint: ctype
+        and cTypeLong: ctype
+        and cTypeUlong: ctype
+        and cTypeFloat: ctype
+        and cTypeDouble: ctype
+        
+        val cStruct: ctype list -> ctype
+
+        val callwithAbi: LibFFI.abi -> ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
+        val call: ctype list -> ctype -> symbol -> Memory.voidStar list * Memory.voidStar -> unit
+        
+        val cFunctionWithAbi:
+            LibFFI.abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
+        val cFunction:
+            ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
+    end
+
+    type 'a conversion
+
+    val makeConversion:
+        {
+            load: Memory.voidStar -> 'a, (* Load a value from C memory *)
+            store: Memory.voidStar * 'a -> unit -> unit, (* Store value and return free function. *)
+            ctype: LowLevel.ctype
+        } -> 'a conversion
+
+    val breakConversion:
+        'a conversion ->
+        {
+            load: Memory.voidStar -> 'a, (* Load a value from C memory *)
+            store: Memory.voidStar * 'a -> unit -> unit, (* Store value and return free function. *)
+            ctype: LowLevel.ctype
+        }
+
+    val cVoid: unit conversion
+    val cPointer: Memory.voidStar conversion
+    val cInt8: int conversion
+    val cUint8: int conversion
+    val cChar: char conversion
+    val cUchar: Word8.word conversion
+    val cInt16: int conversion
+    val cUint16: int conversion
+    val cInt32: int conversion
+    val cUint32: int conversion
+    val cInt64: int conversion
+    val cUint64: int conversion
+    val cShort: int conversion
+    val cUshort: int conversion
+    val cInt: int conversion
+    val cUint: int conversion
+    val cLong: int conversion
+    val cUlong: int conversion
+    val cString: string conversion
+    val cByteArray: Word8Vector.vector conversion
+    val cFloat: real conversion
+    val cDouble: real conversion
+    
+    (* When a pointer e.g. a string may be null. *)
+    val cOptionPtr: 'a conversion -> 'a option conversion
+
+    type 'a closure
+    
+    val cFunction: ('a->'b) closure conversion
+
+    val buildClosure0withAbi: (unit -> 'a) * LibFFI.abi * unit * 'a conversion -> (unit -> 'a) closure
+    val buildClosure0: (unit -> 'a) * unit * 'a conversion -> (unit -> 'a) closure
+    val buildClosure1withAbi: ('a -> 'b) * LibFFI.abi * 'a conversion * 'b conversion -> ('a -> 'b) closure
+    val buildClosure1:  ('a -> 'b) * 'a conversion * 'b conversion -> ('a -> 'b) closure
+    val buildClosure2withAbi:
+         ('a * 'b -> 'c) * LibFFI.abi * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
+    val buildClosure2: ('a * 'b -> 'c) * ('a conversion * 'b conversion) * 'c conversion -> ('a * 'b -> 'c) closure
+    val buildClosure3withAbi:
+         ('a * 'b *'c -> 'd) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) closure
+    val buildClosure3: ('a * 'b *'c -> 'd) * ('a conversion * 'b conversion * 'c conversion) * 'd conversion ->
+            ('a * 'b *'c -> 'd) closure
+    val buildClosure4withAbi:
+         ('a * 'b * 'c  * 'd -> 'e) * LibFFI.abi * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c * 'd -> 'e) closure
+    val buildClosure4:
+        ('a * 'b * 'c  * 'd -> 'e) * ('a conversion * 'b conversion * 'c conversion* 'd conversion) * 'e conversion ->
+            ('a * 'b * 'c * 'd -> 'e) closure
+    val buildClosure5withAbi:
+        ('a * 'b * 'c * 'd * 'e -> 'f) *
+            LibFFI.abi * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildClosure5:
+        ('a * 'b * 'c * 'd * 'e -> 'f) *
+        ('a conversion * 'b conversion * 'c conversion* 'd conversion * 'e conversion) * 'f conversion ->
+            ('a * 'b * 'c * 'd * 'e -> 'f) closure
+    val buildClosure6withAbi:
+        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) * LibFFI.abi *
+            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+    val buildClosure6:
+        ('a * 'b * 'c * 'd * 'e * 'f -> 'g) *
+            ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) * 'g conversion ->
+            ('a * 'b * 'c * 'd * 'e * 'f -> 'g) closure
+
+    (* Remove the "free" from a conversion.  Used if extra memory allocated
+       by the argument must not be freed when the function returns.  *)
+    val permanent: 'a conversion -> 'a conversion
+
+    (* Call by reference.  *)
+    val cStar: 'a conversion -> 'a ref conversion
+    (* Pass a const pointer *)
+    val cConstStar: 'a conversion -> 'a conversion
+    
+    (* Fixed size vector.  It is treated as a struct and passed by value or embedded in a structure. *)
+    val cVectorFixedSize: int * 'a conversion -> 'a vector conversion
+    (* Pass an ML vector as a pointer to a C array. *)
+    and cVectorPointer: 'a conversion -> 'a vector conversion
+    (* Pass an ML array as a pointer to a C array and, on return, update each element of
+       the ML array from the C array. *)
+    and cArrayPointer: 'a conversion -> 'a array conversion
+
+    (* structs. *)
+    val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
+    val cStruct3: 'a conversion * 'b conversion * 'c conversion -> ('a*'b*'c)conversion
+    val cStruct4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> ('a*'b*'c*'d)conversion
+    val cStruct5: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion -> ('a*'b*'c*'d*'e)conversion
+    val cStruct6: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion -> ('a*'b*'c*'d*'e*'f)conversion
+    val cStruct7: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion * 'g conversion -> ('a*'b*'c*'d*'e*'f*'g)conversion
+    val cStruct8: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion * 'g conversion * 'h conversion -> ('a*'b*'c*'d*'e*'f*'g*'h)conversion
+    val cStruct9: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                       'e conversion * 'f conversion * 'g conversion * 'h conversion * 'i conversion ->
+                       ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion
+    val cStruct10: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion
+    val cStruct11: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion
+    val cStruct12: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion
+    val cStruct13: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion
+    val cStruct14: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion
+    val cStruct15: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion
+    val cStruct16: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion
+    val cStruct17: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion
+    val cStruct18: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion
+    val cStruct19: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion
+    val cStruct20: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion * 't conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion
+
+    val buildCall0withAbi: LibFFI.abi * symbol * unit * 'a conversion -> unit -> 'a
+    val buildCall0: symbol * unit * 'a conversion -> unit -> 'a
+    val buildCall1withAbi: LibFFI.abi * symbol * 'a conversion * 'b conversion -> 'a -> 'b
+    val buildCall1: symbol * 'a conversion * 'b conversion -> 'a -> 'b
+    val buildCall2withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
+    val buildCall2:
+        symbol * ('a conversion * 'b conversion) * 'c conversion -> 'a * 'b -> 'c
+    val buildCall3withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
+    val buildCall3:
+        symbol * ('a conversion * 'b conversion * 'c conversion) * 'd conversion -> 'a * 'b * 'c -> 'd
+    val buildCall4withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val buildCall4:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion) * 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val buildCall5withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            'a * 'b * 'c * 'd * 'e -> 'f
+    val buildCall5:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion) * 'f conversion ->
+            'a * 'b * 'c * 'd * 'e -> 'f
+    val buildCall6withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
+                'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val buildCall6:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion) *
+                'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val buildCall7withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion) *
+                'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val buildCall7:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion) *
+                'h conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val buildCall8withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion) *
+                'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val buildCall8:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion) *
+                'i conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val buildCall9withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion) *
+                'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val buildCall9:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion) *
+                'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val buildCall10withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
+                'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val buildCall10:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion) *
+                'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val buildCall11withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
+                'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+    val buildCall11:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion) *
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k  -> 'l
+    val buildCall12withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion) * 'm conversion ->
+                'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val buildCall12:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion) * 'm conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val buildCall13withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion) *
+            'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val buildCall13:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion) *
+            'n conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val buildCall14withAbi:
+        LibFFI.abi * symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion * 'n conversion) *
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+    val buildCall14:
+        symbol * ('a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion * 'n conversion) *
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+end
+structure Foreign: FOREIGN
+</pre>
+
+<p></p>
+<ul class="nav">
+	<li><a href="Basis.html">Previous</a></li>
+	<li><a href="Basis.html">Up</a></li>
+	<li><a href="PolyMLStructure.html">Next</a></li>
+</ul>
+</body>
+</html>
+

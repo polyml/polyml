@@ -7,7 +7,7 @@
 </head>
 <body>
 <ul class="nav">
-  <li><a href="Basis.html">Previous</a></li>
+  <li><a href="Foreign.html">Previous</a></li>
   <li><a href="Basis.html">Up</a></li>
   <li><a href="Signal.html">Next</a></li>
 </ul>
@@ -38,7 +38,10 @@ sig
    structure <a href="#NameSpace">NameSpace</a> : sig ... end
    val <a href="#globalNameSpace">globalNameSpace</a>: NameSpace.nameSpace
 
+   structure <a href="#Profiling">Profiling</a>: sig ... end
+
    structure <a href="#SaveState">SaveState</a> : sig ... end
+   val <a href="#loadModule">loadModule</a>: string -&gt; unit
 
    structure <a href="#Statistics">Statistics</a> : sig ... end
 
@@ -66,6 +69,7 @@ sig
 
    val <a href="#make">make</a>: string -&gt; unit
    val <a href="#use">use</a> : string -&gt; unit
+   val <a href="#getUseFileName">getUseFileName</a>: unit -&gt; string option
    val <a href="#suffixes">suffixes</a> = ref [&quot;&quot;, &quot;.ML&quot;, &quot;.sml&quot;]: string list ref
 
    val <a href="#objSize">objSize</a>: 'a -&gt; int
@@ -73,18 +77,7 @@ sig
    val <a href="#objProfile">objProfile</a> : 'a -&gt; int
 
    datatype <a href="#ptProperties">ptProperties</a> =
-       PTbreakPoint of bool ref
-   |   PTcompletions of string list
-   |   PTdeclaredAt of location
-   |   PTfirstChild of unit -&gt; parseTree
-   |   PTnextSibling of unit -&gt; parseTree
-   |   PTopenedAt of location
-   |   PTparent of unit -&gt; parseTree
-   |   PTpreviousSibling of unit -&gt; parseTree
-   |   PTprint of int -&gt; pretty
-   |   PTreferences of bool * location list
-   |   PTstructureAt of location
-   |   PTtype of typeExpression
+        PTbreakPoint of bool ref<br>      | PTcompletions of string list<br>      | PTdeclaredAt of location<br>      | PTdefId of int<br>      | PTfirstChild of unit -&gt; parseTree<br>      | PTnextSibling of unit -&gt; parseTree<br>      | PTopenedAt of location<br>      | PTparent of unit -&gt; parseTree<br>      | PTpreviousSibling of unit -&gt; parseTree<br>      | PTprint of int -&gt; pretty<br>      | PTreferences of bool * location list<br>      | PTrefId of int<br>      | PTstructureAt of location<br>      | PTtype of NameSpace.Values.typeExpression
 
    type <a href="#parseTree">parseTree</a> = location * ptProperties list
 
@@ -106,10 +99,6 @@ sig
    val <a href="#prettyPrintWithIDEMarkup">prettyPrintWithIDEMarkup</a> : (string -&gt; unit) * int -&gt; pretty -&gt; unit
 
    val <a href="#addPrettyPrinter">addPrettyPrinter</a> : (int -&gt; 'a -&gt; 'b -&gt; pretty) -&gt; unit
-
-   val <a href="#install_pp">install_pp</a> :
-       ((string -&gt; unit) * (int * bool -&gt; unit) * (int * int -&gt; unit) *
-       (unit -&gt; unit) -&gt; int -&gt; 'a -&gt; 'b -&gt; unit) -&gt; unit
 
    val <a href="#prettyRepresentation">prettyRepresentation</a> : 'a * int -&gt; pretty
 
@@ -234,11 +223,12 @@ end
 </div>
 <div class="entryblock">
   <pre class="entrycode"><a name="SaveState"></a>structure SaveState : sig ... end
+val loadModule: string -&gt; unit
 </pre>
   <div class="entrytext"> 
     <p>The <a href="PolyMLSaveState.html" class="identifier">SaveState</a> structure 
       contains functions to save the current state to a file and restore the previous 
-      state.</p>
+      state. <span class="identifier">loadModule</span> is a synonym for <span class="identifier">SaveState.loadModule</span>.</p>
   </div>
 </div>
 <div class="entryblock">
@@ -343,6 +333,16 @@ end
   </div>
 </div>
 <div class="entryblock"> 
+  <pre class="entrycode"><a name="getUseFileName" id="getUseFileName"></a>val getUseFileName: unit -&gt; string option</pre>
+  <div class="entrytext"> 
+    <p>This function can be called within a piece of ML code that is being compiled 
+      with <span class="identifier">use</span> to return the file name and specifically 
+      the path that was used to refer to the file. It is useful if the ML code 
+      itself calls <span class="identifier">use</span> because it can then adjust 
+      the path.</p>
+  </div>
+</div>
+<div class="entryblock"> 
   <pre class="entrycode"><a name="suffixes" id="suffixes"></a>val suffixes = ref [&quot;&quot;, &quot;.ML&quot;, &quot;.sml&quot;]: string list ref</pre>
   <div class="entrytext"> 
     <p><span class="identifier">PolyML.suffixes</span> holds a list of file-name 
@@ -355,18 +355,7 @@ end
 </div>
 <div class="entryblock"> 
   <pre class="entrycode"><a name="ptProperties" id="ptProperties"></a>datatype ptProperties =
-       PTfirstChild of unit -&gt; parseTree
-   |   PTnextSibling of unit -&gt; parseTree
-   |   PTpreviousSibling of unit -&gt; parseTree
-   |   PTparent of unit -&gt; parseTree
-   |   PTtype of <a href="PolyMLNameSpace.html">NameSpace.typeExpression</a>
-   |   PTdeclaredAt of location
-   |   PTopenedAt of location
-   |   PTreferences of bool * location list
-   |   PTstructureAt of location
-   |   PTprint of int -&gt; pretty
-<a name="parseTree" id="parseTree"></a>   |   PTbreakPoint of bool ref
-   |   PTcompletions of string list
+        PTbreakPoint of bool ref<br>      | PTcompletions of string list<br>      | PTdeclaredAt of location<br>      | PTdefId of int<br>      | PTfirstChild of unit -&gt; parseTree<br>      | PTnextSibling of unit -&gt; parseTree<br>      | PTopenedAt of location<br>      | PTparent of unit -&gt; parseTree<br>      | PTpreviousSibling of unit -&gt; parseTree<br>      | PTprint of int -&gt; pretty<br>      | PTreferences of bool * location list<br>      | PTrefId of int<br>      | PTstructureAt of location<br>      | PTtype of NameSpace.Values.typeExpression
 withtype parseTree = <a href="#location">location</a> * ptProperties list
 </pre>
   <div class="entrytext"> 
@@ -400,8 +389,12 @@ withtype parseTree = <a href="#location">location</a> * ptProperties list
       data structure to produce before eliding the detail.</p>
     <p><span class="identifier"><a name="PTbreakPoint"></a>PTbreakPoint</span> is only present if debugging 
       has been enabled. It returns the debugger identifier for the node.</p>
-    <p><span class="identifier"><a name="PTcompletions"></a>PTcompletions</span> returns possible completions 
-      of an invalid identifier.</p>
+    <p><span class="identifier"><a name="PTcompletions"></a>PTcompletions</span> 
+      returns possible completions of an invalid identifier.</p>
+    <p><span class="identifier">PTrefId</span> and <span class="identifier">PTdefId</span> 
+      properties are used with identifiers. <span class="identifier">PTdefId</span> 
+      is a defining occurence of an identifier while <span class="identifier">PTrefId</span> 
+      is a referencing occurrence.</p>
   </div>
 </div>
 <div class="entryblock"> 
@@ -548,16 +541,6 @@ withtype parseTree = <a href="#location">location</a> * ptProperties list
       is a tuple with each field being a function of type <span class="identifier">'a 
       * int -&gt; pretty</span> that is used for the corresponding argument of 
       the datatype.</p>
-  </div>
-</div>
-<div class="entryblock"> 
-  <pre class="entrycode"><a name="install_pp"></a>val install_pp:
-       ((string -&gt; unit) * (int * bool -&gt; unit) * (int * int -&gt; unit) *
-       (unit -&gt; unit) -&gt; int -&gt; 'a -&gt; 'b -&gt; unit) -&gt; unit</pre>
-  <div class="entrytext"> 
-    <p><span class="identifier">install_pp</span> was previously used to install 
-      pretty-print functions. <a href="#addPrettyPrinter"><span class="identifier">addPrettyPrinter</span></a> 
-      should be used instead. This function may be removed in future releases.</p>
   </div>
 </div>
 <div class="entryblock"> 
@@ -769,7 +752,7 @@ withtype parseTree = <a href="#location">location</a> * ptProperties list
   </div>
 </div>
 <ul class="nav">
-  <li><a href="Basis.html">Previous</a></li>
+  <li><a href="Foreign.html">Previous</a></li>
   <li><a href="Basis.html">Up</a></li>
   <li><a href="Signal.html">Next</a></li>
 </ul>
