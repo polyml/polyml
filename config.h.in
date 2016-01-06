@@ -566,6 +566,9 @@
 /* Define if the host is a Power PC (32 bit) */
 #undef HOSTARCHITECTURE_PPC
 
+/* Define if the host is a Power PC (64 bit) */
+#undef HOSTARCHITECTURE_PPC64
+
 /* Define if the host is a Sparc (32 bit) */
 #undef HOSTARCHITECTURE_SPARC
 
