@@ -1008,7 +1008,7 @@ ENDIF
 ;# A number of functions implemented in Assembly for efficiency reasons
 ;#
 
-int_to_word:
+CALLMACRO INLINE_ROUTINE int_to_word
  ;# Extract the low order bits from a word.
     TESTL   CONST TAG,Reax
     jz      get_first_long_word_a1
@@ -1016,8 +1016,8 @@ int_to_word:
 CALLMACRO   RegMask int_to_word,(M_Reax)
 
  ;# This is now used in conjunction with isShort in Word.fromInt.
+CALLMACRO INLINE_ROUTINE get_first_long_word_a
 get_first_long_word_a1:
-get_first_long_word_a:
 IFDEF WINDOWS
     test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
 ELSE
@@ -1033,7 +1033,7 @@ CALLMACRO   RegMask get_first_long_word,(M_Reax)
 
 
 
-move_bytes:
+CALLMACRO INLINE_ROUTINE move_bytes
  ;# Move a segment of memory from one location to another.
  ;# Must deal with the case of overlapping segments correctly.
  ;# (source, sourc_offset, destination, dest_offset, length)
@@ -1089,7 +1089,7 @@ ENDIF
 CALLMACRO   RegMask move_bytes,Mask_all
 
 
-move_words:
+CALLMACRO INLINE_ROUTINE move_words
  ;# Move a segment of memory from one location to another.
  ;# Must deal with the case of overlapping segments correctly.
  ;# (source, source_offset, destination, dest_offset, length)
@@ -1157,29 +1157,29 @@ RetTrue:
     MOVL    CONST TRUE,Reax
     ret
 
-not_bool:
+CALLMACRO INLINE_ROUTINE not_bool
     XORL    CONST (TRUE-TAG),Reax   ;# Change the value but leave the tag
     ret
 CALLMACRO   RegMask not_bool,(M_Reax)
 
  ;# or, and, xor shift etc. assume the values are tagged integers
-or_word:
+CALLMACRO INLINE_ROUTINE or_word
     ORL     Rebx,Reax
     ret
 CALLMACRO   RegMask or_word,(M_Reax)
 
-and_word:
+CALLMACRO INLINE_ROUTINE and_word
     ANDL    Rebx,Reax
     ret
 CALLMACRO   RegMask and_word,(M_Reax)
 
-xor_word:
+CALLMACRO INLINE_ROUTINE xor_word
     XORL    Rebx,Reax
     ORL     CONST TAG,Reax  ;# restore the tag
     ret
 CALLMACRO   RegMask xor_word,(M_Reax)
 
-shift_left_word:
+CALLMACRO INLINE_ROUTINE shift_left_word
  ;# Assume that both args are tagged integers
  ;# Word.<<(a,b) is defined to return 0 if b > Word.wordSize
 IFNDEF HOSTARCHITECTURE_X86_64
@@ -1200,7 +1200,7 @@ slw1:
     ret
 CALLMACRO   RegMask shift_left_word,(M_Reax OR M_Recx)
 
-shift_right_word:
+CALLMACRO INLINE_ROUTINE shift_right_word
  ;# Word.>>(a,b) is defined to return 0 if b > Word.wordSize
 IFNDEF HOSTARCHITECTURE_X86_64
     CMPL    CONST TAGGED(31),Rebx
@@ -1219,7 +1219,7 @@ srw1:
     ret
 CALLMACRO   RegMask shift_right_word,(M_Reax OR M_Recx)
 
-shift_right_arith_word:
+CALLMACRO INLINE_ROUTINE shift_right_arith_word
  ;# Word.~>>(a,b) is defined to return 0 or ~1 if b > Word.wordSize
  ;# The easiest way to do that is to set the shift to 31.
 IFNDEF HOSTARCHITECTURE_X86_64
@@ -1243,7 +1243,7 @@ sra1:
 CALLMACRO   RegMask shift_right_arith_word,(M_Reax OR M_Recx)
 
 ;# Clears the "mutable" bit on a segment
-locksega:
+CALLMACRO INLINE_ROUTINE locksega
 IFDEF WINDOWS
     and     byte ptr    [Reax-1],CONST(0ffh-B_mutable)
 ELSE
@@ -1253,7 +1253,7 @@ ENDIF
     ret
 CALLMACRO   RegMask lockseg,M_Reax
 
-get_length_a:
+CALLMACRO INLINE_ROUTINE get_length_a
     MOVL    (-POLYWORDSIZE)[Reax],Reax
     SHLL    CONST 8,Reax            ;# Clear top byte
     SHRL    CONST(8-TAGSHIFT),Reax  ;# Make it a tagged integer
@@ -1262,14 +1262,14 @@ get_length_a:
 CALLMACRO   RegMask get_length,(M_Reax)
 
 
-is_shorta:
+CALLMACRO INLINE_ROUTINE is_shorta
 ;# Returns true if the argument is tagged
     ANDL    CONST TAG,Reax
     jz      RetFalse
     jmp     RetTrue
 CALLMACRO   RegMask is_short,(M_Reax)
 
-string_length:
+CALLMACRO INLINE_ROUTINE string_length
     TESTL   CONST TAG,Reax  ;# Single char strings are represented by the
     jnz     RetOne      ;# character.
     MOVL    [Reax],Reax ;# Get length field
@@ -1280,7 +1280,7 @@ RetOne: MOVL    CONST TAGGED(1),Reax
 CALLMACRO   RegMask string_length,(M_Reax)
 
  ;# Store the length of a string in the first word.
-set_string_length_a:
+CALLMACRO INLINE_ROUTINE set_string_length_a
     SHRL    CONST TAGSHIFT,Rebx ;# Untag the length
     MOVL    Rebx,[Reax]
     MOVL    CONST UNIT,Reax     ;# Return unit
@@ -1289,7 +1289,7 @@ set_string_length_a:
 CALLMACRO   RegMask set_string_length,(M_Reax OR M_Rebx)
 
 ;# raisex (formerly raisexn) is used by compiled code.
-raisex:
+CALLMACRO INLINE_ROUTINE raisex
     MOVL    HandlerRegister[Rebp],Recx    ;# Get next handler into %rcx
 
 IFDEF WINDOWS
@@ -1298,7 +1298,7 @@ ELSE
     jmp     *[Recx]
 ENDIF
 
-load_byte:
+CALLMACRO INLINE_ROUTINE load_byte
     MOVL    Rebx,Redi
     SHRL    CONST TAGSHIFT,Redi
 IFDEF WINDOWS
@@ -1315,7 +1315,7 @@ CALLMACRO   MAKETAGGED  Redi,Reax
     ret
 CALLMACRO   RegMask load_byte,(M_Reax OR M_Redi)
 
-load_word:
+CALLMACRO INLINE_ROUTINE load_word
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    (-2)[Reax+Rebx*2],Reax
 ELSE
@@ -1325,7 +1325,7 @@ ENDIF
     ret
 CALLMACRO   RegMask load_word,(M_Reax)
 
-assign_byte:
+CALLMACRO INLINE_ROUTINE assign_byte
 ;# We can assume that the data value will not overflow 30 bits (it is only 1 byte!)
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx
@@ -1349,7 +1349,7 @@ ENDIF
 CALLMACRO   RegMask assign_byte,(M_Reax OR M_Rebx OR M_Recx)
 
 
-assign_word:
+CALLMACRO INLINE_ROUTINE assign_word
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx
     MOVL    Recx,(-2)[Reax+Rebx*2]
@@ -1368,7 +1368,7 @@ ENDIF
 ;# Allocate a piece of memory that does not need to be initialised.
 ;# We can't actually risk leaving word objects uninitialised so for the
 ;# moment we always initialise.
-alloc_uninit:
+CALLMACRO INLINE_ROUTINE alloc_uninit
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    CONST ZERO,R8
 ELSE
@@ -1389,7 +1389,7 @@ ENDIF
 ;#
 ;# This is primarily used for arrays and for strings.  Refs are
 ;# allocated using inline code.
-alloc_store:
+CALLMACRO INLINE_ROUTINE alloc_store
 allsts:
  ;# alloc(size, flags, initial).  Allocates a segment of a given size and
  ;# initialises it.
@@ -1504,12 +1504,12 @@ alloc_in_rts:
     MOVL    Reax,Redi
 CALLMACRO   CALL_IO    POLY_SYS_alloc_store
 
-touch_final:
+CALLMACRO INLINE_ROUTINE touch_final
 ;# This is really a pseudo-op
     MOVL    CONST UNIT,Reax
 CALLMACRO   RegMask touch_final,(M_Reax)
 
-add_long:
+CALLMACRO INLINE_ROUTINE add_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi
@@ -1524,7 +1524,7 @@ add_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_aplus
 CALLMACRO   RegMask aplus,(M_Reax OR M_Redi OR Mask_all)
 
-sub_long:
+CALLMACRO INLINE_ROUTINE sub_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi
@@ -1540,7 +1540,7 @@ sub_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_aminus
 CALLMACRO   RegMask aminus,(M_Reax OR M_Redi OR Mask_all)
 
-mult_long:
+CALLMACRO INLINE_ROUTINE mult_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi
@@ -1561,7 +1561,7 @@ mul_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_amul
 CALLMACRO   RegMask amul,(M_Reax OR M_Redi OR M_Resi OR Mask_all)
 
-div_long:
+CALLMACRO INLINE_ROUTINE div_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi          ;# %Redi now contains $0 or $1 (both legal!)
@@ -1589,7 +1589,7 @@ div_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_adiv
 CALLMACRO   RegMask adiv,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
 
-rem_long:
+CALLMACRO INLINE_ROUTINE rem_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi      ;# %Redi now contains $0 or $1 (both legal!
@@ -1621,7 +1621,7 @@ CALLMACRO   RegMask amod,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
  ;# if the arguments are long or there's an overflow.  The first two
  ;# arguments are the values to be divided.  The third argument is the
  ;# address where the results should be placed. 
-quotrem_long:
+CALLMACRO INLINE_ROUTINE quotrem_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
     ANDL    CONST TAG,Redi
@@ -1668,7 +1668,7 @@ quotrem_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_quotrem
 CALLMACRO   RegMask quotrem,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
 
-equal_long:
+CALLMACRO INLINE_ROUTINE equal_long
     CMPL    Reax,Rebx
     je      RetTrue
     MOVL    Reax,Recx   ;# If either is short
@@ -1680,7 +1680,7 @@ CALLMACRO   CALL_IO    POLY_SYS_equala
 CALLMACRO   RegMask equala,(M_Reax OR M_Recx OR Mask_all)
 
 
-or_long:
+CALLMACRO INLINE_ROUTINE or_long
 IFDEF NOTATTHEMOMENT
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
@@ -1694,7 +1694,7 @@ ENDIF
 CALLMACRO   CALL_IO    POLY_SYS_ora
 CALLMACRO   RegMask ora,(M_Reax OR M_Redi OR Mask_all)
 
-xor_long:
+CALLMACRO INLINE_ROUTINE xor_long
 IFDEF NOTATTHEMOMENT
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
@@ -1709,7 +1709,7 @@ ENDIF
 CALLMACRO   CALL_IO    POLY_SYS_xora
 CALLMACRO   RegMask xora,(M_Reax OR M_Redi OR Mask_all)
 
-and_long:
+CALLMACRO INLINE_ROUTINE and_long
 IFDEF NOTATTHEMOMENT
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
@@ -1723,7 +1723,7 @@ ENDIF
 CALLMACRO   CALL_IO    POLY_SYS_anda
 CALLMACRO   RegMask anda,(M_Reax OR M_Redi OR Mask_all)
 
-neg_long:
+CALLMACRO INLINE_ROUTINE neg_long
     TESTL   CONST TAG,Reax
     jz      neg_really_long
     MOVL    CONST (TAGGED(0)+TAG),Redi
@@ -1736,7 +1736,7 @@ neg_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_aneg
 CALLMACRO   RegMask aneg,(M_Reax OR M_Redi OR Mask_all)
 
-int_geq:
+CALLMACRO INLINE_ROUTINE int_geq
     TESTL   CONST TAG,Reax ;# Is first arg short?
     jz      igeq2
     TESTL   CONST TAG,Rebx ;# Is second arg short?
@@ -1773,7 +1773,7 @@ CALLMACRO   CALL_IO    POLY_SYS_int_geq
 CALLMACRO   RegMask int_geq,(M_Reax OR Mask_all)
 
 
-int_leq:
+CALLMACRO INLINE_ROUTINE int_leq
     TESTL   CONST TAG,Reax ;# Is first arg short?
     jz      ileq2
     TESTL   CONST TAG,Rebx ;# Is second arg short?
@@ -1809,7 +1809,7 @@ CALLMACRO   CALL_IO    POLY_SYS_int_leq
 CALLMACRO   RegMask int_leq,(M_Reax OR M_Recx OR Mask_all)
 
 
-int_gtr:
+CALLMACRO INLINE_ROUTINE int_gtr
     TESTL   CONST TAG,Reax ;# Is first arg short?
     jz      igtr2
     TESTL   CONST TAG,Rebx ;# Is second arg short?
@@ -1845,7 +1845,7 @@ CALLMACRO   CALL_IO    POLY_SYS_int_gtr
 CALLMACRO   RegMask int_gtr,(M_Reax OR M_Recx OR Mask_all)
 
 
-int_lss:
+CALLMACRO INLINE_ROUTINE int_lss
     TESTL   CONST TAG,Reax ;# Is first arg short?
     jz      ilss2
     TESTL   CONST TAG,Rebx ;# Is second arg short?
@@ -1880,7 +1880,7 @@ ilss3:
 CALLMACRO   CALL_IO    POLY_SYS_int_lss
 CALLMACRO   RegMask int_lss,(M_Reax OR M_Recx OR Mask_all)
 
-offset_address:
+CALLMACRO INLINE_ROUTINE offset_address
  ;# This is needed in the code generator, but is a very risky thing to do.
     SHRL    CONST TAGSHIFT,Rebx     ;# Untag
     ADDL    Rebx,Reax       ;# and add in
@@ -1960,7 +1960,7 @@ tststr4:
  ;# These functions compare strings for lexical ordering.  This version, at
  ;# any rate, assumes that they are UNSIGNED bytes.
 
-str_compare:
+CALLMACRO INLINE_ROUTINE str_compare
     call    teststr
     ja      RetTrue         ;# Return TAGGED(1) if it's greater
     je      RetFalse        ;# Return TAGGED(0) if it's equal
@@ -1969,32 +1969,32 @@ str_compare:
 CALLMACRO   RegMask str_compare,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
 
-teststrgeq:
+CALLMACRO INLINE_ROUTINE teststrgeq
     call    teststr
     jnb     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask teststrgeq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
-teststrleq:
+CALLMACRO INLINE_ROUTINE teststrleq
     call    teststr
     jna     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask teststrleq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
-teststrlss:
+CALLMACRO INLINE_ROUTINE teststrlss
     call    teststr
     jb      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask teststrlss,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
-teststrgtr:
+CALLMACRO INLINE_ROUTINE teststrgtr
     call    teststr
     ja      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask teststrgtr,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
 
-bytevec_eq:
+CALLMACRO INLINE_ROUTINE bytevec_eq
  ;# Compare arrays of bytes.  The arguments are the same as move_bytes.
  ;# (source, sourc_offset, destination, dest_offset, length)
 
@@ -2043,18 +2043,18 @@ ENDIF
 CALLMACRO   RegMask bytevec_eq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
 
-is_big_endian:
+CALLMACRO INLINE_ROUTINE is_big_endian
     jmp     RetFalse    ;# I386/486 is little-endian
 CALLMACRO   RegMask is_big_endian,(M_Reax)
 
-bytes_per_word:
+CALLMACRO INLINE_ROUTINE bytes_per_word
     MOVL    CONST TAGGED(POLYWORDSIZE),Reax  ;# 4/8 bytes per word
     ret
 CALLMACRO   RegMask bytes_per_word,(M_Reax)
 
  ;# Word functions.  These are all unsigned and do not raise Overflow
  
-mul_word:
+CALLMACRO INLINE_ROUTINE mul_word
     SHRL    CONST TAGSHIFT,Rebx ;# Untag the multiplier
     SUBL    CONST TAG,Reax      ;# Remove the tag from the multiplicand
     MULL    Rebx                ;# unsigned multiplication
@@ -2064,18 +2064,18 @@ mul_word:
     ret
 CALLMACRO   RegMask mul_word,(M_Reax OR M_Rebx OR M_Redx)
 
-plus_word:
+CALLMACRO INLINE_ROUTINE plus_word
     LEAL    (-TAG)[Reax+Rebx],Reax  ;# Add the values and subtract a tag
     ret
 CALLMACRO   RegMask plus_word,(M_Reax)
 
-minus_word:
+CALLMACRO INLINE_ROUTINE minus_word
     SUBL    Rebx,Reax
     ADDL    CONST TAG,Reax          ;# Put back the tag
     ret
 CALLMACRO   RegMask minus_word,(M_Reax)
 
-div_word:
+CALLMACRO INLINE_ROUTINE div_word
     SHRL    CONST TAGSHIFT,Rebx
     jz      raise_div_ex
     SHRL    CONST TAGSHIFT,Reax
@@ -2087,7 +2087,7 @@ CALLMACRO   MAKETAGGED  Reax,Reax
     ret
 CALLMACRO   RegMask div_word,(M_Reax OR M_Rebx OR M_Redx)
 
-mod_word:
+CALLMACRO INLINE_ROUTINE mod_word
     SHRL    CONST TAGSHIFT,Rebx
     jz      raise_div_ex
     SHRL    CONST TAGSHIFT,Reax
@@ -2106,31 +2106,31 @@ ELSE
     jmp     *RaiseDiv[Rebp]
 ENDIF
 
-word_eq:
+CALLMACRO INLINE_ROUTINE word_eq
     CMPL    Rebx,Reax
     jz      RetTrue         ;# True if they are equal.
     jmp     RetFalse
 CALLMACRO   RegMask word_eq,(M_Reax)
 
-word_geq:
+CALLMACRO INLINE_ROUTINE word_geq
     CMPL    Rebx,Reax
     jnb     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask word_geq,(M_Reax)
 
-word_leq:
+CALLMACRO INLINE_ROUTINE word_leq
     CMPL    Rebx,Reax
     jna     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask word_leq,(M_Reax)
 
-word_gtr:
+CALLMACRO INLINE_ROUTINE word_gtr
     CMPL    Rebx,Reax
     ja      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask word_gtr,(M_Reax)
 
- word_lss:
+ CALLMACRO INLINE_ROUTINE word_lss
     CMPL    Rebx,Reax
     jb      RetTrue
     jmp     RetFalse
@@ -2139,7 +2139,7 @@ CALLMACRO   RegMask word_lss,(M_Reax)
 ;# Atomically increment the value at the address of the arg and return the
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to increment it.
-atomic_increment:
+CALLMACRO INLINE_ROUTINE atomic_increment
 atomic_incr:                    ;# Internal name in case "atomic_increment" is munged.
     MOVL    CONST 2,Rebx
     LOCKXADDL Rebx,[Reax]
@@ -2152,7 +2152,7 @@ CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
 ;# Atomically decrement the value at the address of the arg and return the
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to decrement it.
-atomic_decrement:
+CALLMACRO INLINE_ROUTINE atomic_decrement
 atomic_decr:
     MOVL    CONST -2,Rebx
     LOCKXADDL Rebx,[Reax]
@@ -2164,7 +2164,7 @@ CALLMACRO   RegMask atomic_decr,(M_Reax OR M_Rebx)
 
 ;# Reset a mutex to (tagged) one.  Because the increment and decrements
 ;# are atomic this doesn't have to do anything special.
-atomic_reset:
+CALLMACRO INLINE_ROUTINE atomic_reset
 IFDEF WINDOWS
     mov     FULLWORD ptr [Reax],3 
 ELSE
@@ -2176,7 +2176,7 @@ ENDIF
 CALLMACRO   RegMask atomic_reset,M_Reax
 
 ;# Return the thread id object for the current thread
-thread_self:
+CALLMACRO INLINE_ROUTINE thread_self
     MOVL    ThreadId[Rebp],Reax
     ret
 CALLMACRO   RegMask thread_self,(M_Reax)
@@ -2248,7 +2248,7 @@ ENDIF
         ret
 
 
-real_add:
+CALLMACRO INLINE_ROUTINE real_add
         call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2270,7 +2270,7 @@ CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 
-real_sub:
+CALLMACRO INLINE_ROUTINE real_sub
         call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2289,7 +2289,7 @@ ENDIF
 CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
-real_mul:
+CALLMACRO INLINE_ROUTINE real_mul
         call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2308,7 +2308,7 @@ ENDIF
 CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
-real_div:
+CALLMACRO INLINE_ROUTINE real_div
         call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2330,7 +2330,7 @@ CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 ;# For all values except NaN it's possible to do this by a test such as
 ;# "if x < 0.0 then ~ x else x" but the test always fails for NaNs
 
-real_abs:
+CALLMACRO INLINE_ROUTINE real_abs
     call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2350,7 +2350,7 @@ ENDIF
 CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
-real_neg:
+CALLMACRO INLINE_ROUTINE real_neg
         call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2371,7 +2371,7 @@ CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 
-real_eq:
+CALLMACRO INLINE_ROUTINE real_eq
 IFDEF WINDOWS
     FLD     qword ptr [Reax]
     FCOMP   qword ptr [Rebx]
@@ -2389,7 +2389,7 @@ ENDIF
 CALLMACRO   RegMask real_eq,(M_Reax OR M_FP7)
 
 
-real_neq:
+CALLMACRO INLINE_ROUTINE real_neq
 IFDEF WINDOWS
     FLD     qword ptr [Reax]
     FCOMP   qword ptr [Rebx]
@@ -2406,7 +2406,7 @@ ENDIF
 CALLMACRO   RegMask real_neq,(M_Reax OR M_FP7)
 
 
-real_lss:
+CALLMACRO INLINE_ROUTINE real_lss
 ;# Compare Rebx > Reax
 IFDEF WINDOWS
     FLD     qword ptr [Rebx]
@@ -2426,7 +2426,7 @@ ENDIF
 CALLMACRO   RegMask real_lss,(M_Reax OR M_FP7)
 
 
-real_gtr:
+CALLMACRO INLINE_ROUTINE real_gtr
 IFDEF WINDOWS
     FLD     qword ptr [Reax]
     FCOMP   qword ptr [Rebx]
@@ -2445,7 +2445,7 @@ ENDIF
 CALLMACRO   RegMask real_gtr,(M_Reax OR M_FP7)
 
 
-real_leq:
+CALLMACRO INLINE_ROUTINE real_leq
 ;# Compare Rebx > Reax
 IFDEF WINDOWS
     FLD     qword ptr [Rebx]
@@ -2464,7 +2464,7 @@ ENDIF
 CALLMACRO   RegMask real_leq,(M_Reax OR M_FP7)
 
 
-real_geq:
+CALLMACRO INLINE_ROUTINE real_geq
 IFDEF WINDOWS
     FLD     qword ptr [Reax]
     FCOMP   qword ptr [Rebx]
@@ -2481,7 +2481,7 @@ ENDIF
 
 CALLMACRO   RegMask real_geq,(M_Reax OR M_FP7)
 
-real_from_int:
+CALLMACRO INLINE_ROUTINE real_from_int
     TESTL   CONST TAG,Reax   ;# Is it long ?
     jz      real_float_1
     call    mem_for_real
@@ -2592,49 +2592,50 @@ ENDIF
 
 ;# LargeWord.word operations.  These are 32 or 64-bit values in a single-word byte
 ;# memory cell.
-eq_longword:
+CALLMACRO INLINE_ROUTINE eq_longword
     MOVL    [Reax],Reax
     CMPL    [Rebx],Reax
     jz      RetTrue         ;# True if they are equal.
     jmp     RetFalse
 CALLMACRO   RegMask eq_longword,(M_Reax)
 
-geq_longword:
+CALLMACRO INLINE_ROUTINE geq_longword
+
     MOVL    [Reax],Reax
     CMPL    [Rebx],Reax
     jnb     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask geq_longword,(M_Reax)
 
-leq_longword:
+CALLMACRO INLINE_ROUTINE leq_longword
     MOVL    [Reax],Reax
     CMPL    [Rebx],Reax
     jna     RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask leq_longword,(M_Reax)
 
-gt_longword:
+CALLMACRO INLINE_ROUTINE gt_longword
     MOVL    [Reax],Reax
     CMPL    [Rebx],Reax
     ja      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask gt_longword,(M_Reax)
 
-lt_longword:
+CALLMACRO INLINE_ROUTINE lt_longword
     MOVL    [Reax],Reax
     CMPL    [Rebx],Reax
     jb      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask lt_longword,(M_Reax)
 
-longword_to_tagged:
+CALLMACRO INLINE_ROUTINE longword_to_tagged
 ;# Load the value and tag it, discarding the top bit
     MOVL    [Reax],Reax
     CALLMACRO   MAKETAGGED  Reax,Reax
     ret
 CALLMACRO   RegMask longword_to_tagged,(M_Reax)
 
-signed_to_longword:
+CALLMACRO INLINE_ROUTINE signed_to_longword
 ;# Shift the value to remove the tag and store it.
     call    mem_for_largeword
     SARL    CONST TAGSHIFT,Reax         ;# Arithmetic shift, preserve sign
@@ -2643,7 +2644,7 @@ signed_to_longword:
     ret
 CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Recx)
 
-unsigned_to_longword:
+CALLMACRO INLINE_ROUTINE unsigned_to_longword
 ;# Shift the value to remove the tag and store it.
     call    mem_for_largeword
     SHRL    CONST TAGSHIFT,Reax         ;# Logical shift, zero top bit
@@ -2652,7 +2653,7 @@ unsigned_to_longword:
     ret
 CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Recx)
 
-plus_longword:
+CALLMACRO INLINE_ROUTINE plus_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
     ADDL    [Rebx],Reax
@@ -2661,7 +2662,7 @@ plus_longword:
     ret
 CALLMACRO   RegMask plus_longword,(M_Reax OR M_Recx)
 
-minus_longword:
+CALLMACRO INLINE_ROUTINE minus_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
     SUBL    [Rebx],Reax
@@ -2670,7 +2671,7 @@ minus_longword:
     ret
 CALLMACRO   RegMask minus_longword,(M_Reax OR M_Recx)
 
-mul_longword:
+CALLMACRO INLINE_ROUTINE mul_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
 IFDEF WINDOWS
@@ -2684,7 +2685,7 @@ ENDIF
     ret
 CALLMACRO   RegMask mul_longword,(M_Reax OR M_Recx OR M_Redx)
 
-div_longword:
+CALLMACRO INLINE_ROUTINE div_longword
 IFDEF WINDOWS
     cmp     FULLWORD ptr [Rebx],0
 ELSE
@@ -2706,7 +2707,7 @@ ENDIF
 
 CALLMACRO   RegMask div_longword,(M_Reax OR M_Recx OR M_Redx)
 
-mod_longword:
+CALLMACRO INLINE_ROUTINE mod_longword
 IFDEF WINDOWS
     cmp     FULLWORD ptr [Rebx],0
 ELSE
@@ -2728,7 +2729,7 @@ ENDIF
 
 CALLMACRO   RegMask mod_longword,(M_Reax OR M_Recx OR M_Redx)
 
-andb_longword:
+CALLMACRO INLINE_ROUTINE andb_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
     ANDL    [Rebx],Reax
@@ -2738,7 +2739,7 @@ andb_longword:
 
 CALLMACRO   RegMask andb_longword,(M_Reax OR M_Recx)
 
-orb_longword:
+CALLMACRO INLINE_ROUTINE orb_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
     ORL     [Rebx],Reax
@@ -2748,7 +2749,7 @@ orb_longword:
 
 CALLMACRO   RegMask orb_longword,(M_Reax OR M_Recx)
 
-xorb_longword:
+CALLMACRO INLINE_ROUTINE xorb_longword
     call    mem_for_largeword
     MOVL    [Reax],Reax
     XORL    [Rebx],Reax
@@ -2758,7 +2759,7 @@ xorb_longword:
 
 CALLMACRO   RegMask xorb_longword,(M_Reax OR M_Recx)
 
-shift_left_longword:
+CALLMACRO INLINE_ROUTINE shift_left_longword
     call    mem_for_largeword
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
@@ -2783,7 +2784,7 @@ sllw2:
     ret
 CALLMACRO   RegMask shift_left_longword,(M_Reax OR M_Recx OR M_Redx)
 
-shift_right_longword:
+CALLMACRO INLINE_ROUTINE shift_right_longword
     call    mem_for_largeword
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
@@ -2808,7 +2809,7 @@ srlw2:
     ret
 CALLMACRO   RegMask shift_right_longword,(M_Reax OR M_Recx OR M_Redx)
 
-shift_right_arith_longword:
+CALLMACRO INLINE_ROUTINE shift_right_arith_longword
     call    mem_for_largeword
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
@@ -2837,7 +2838,7 @@ sralw1:
 CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx)
 
 ;# C-memory operations.
-cmem_load_8:
+CALLMACRO INLINE_ROUTINE cmem_load_asm_8
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -2861,7 +2862,7 @@ CALLMACRO   MAKETAGGED  Reax,Reax
     RET3
 CALLMACRO   RegMask cmem_load_8,(M_Reax OR M_Rebx)
 
-cmem_load_16:
+CALLMACRO INLINE_ROUTINE cmem_load_asm_16
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -2884,7 +2885,7 @@ CALLMACRO   MAKETAGGED  Reax,Reax
     RET3
 CALLMACRO   RegMask cmem_load_16,(M_Reax OR M_Rebx)
 
-cmem_load_32:
+CALLMACRO INLINE_ROUTINE cmem_load_asm_32
 IFDEF HOSTARCHITECTURE_X86_64
 ;# 64-bit mode - the result is tagged
     MOVL    [Reax],Reax             ;# The address is boxed.
@@ -2916,7 +2917,7 @@ ELSE
 CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
-cmem_load_64: ;# The result is boxed in 64-bit mode. Not implemented in 32-bit mode
+CALLMACRO INLINE_ROUTINE cmem_load_asm_64 ;# The result is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
     call    mem_for_largeword
     MOVL    [Reax],Reax             ;# The address is boxed.
@@ -2931,7 +2932,7 @@ IFDEF HOSTARCHITECTURE_X86_64
 CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
-cmem_load_float:
+CALLMACRO INLINE_ROUTINE cmem_load_asm_float
     call    mem_for_real
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
@@ -2953,7 +2954,7 @@ ENDIF
 
 CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
-cmem_load_double:
+CALLMACRO INLINE_ROUTINE cmem_load_asm_double
     call    mem_for_real
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
@@ -2977,7 +2978,7 @@ cmem_load_double1:
      CALLMACRO   CALL_IO POLY_SYS_cmem_load_double
 CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
    
-cmem_store_8:
+CALLMACRO INLINE_ROUTINE cmem_store_asm_8
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -2997,7 +2998,7 @@ ENDIF
     RET4
 CALLMACRO   RegMask cmem_store_8,(M_Reax OR M_Rebx OR M_Recx)
 
-cmem_store_16:
+CALLMACRO INLINE_ROUTINE cmem_store_asm_16
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3019,7 +3020,7 @@ ENDIF
     RET4
 CALLMACRO   RegMask cmem_store_16,(M_Reax OR M_Rebx OR M_Recx)
 
-cmem_store_32:
+CALLMACRO INLINE_ROUTINE cmem_store_asm_32
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3042,7 +3043,7 @@ ENDIF
     RET4
 CALLMACRO   RegMask cmem_store_32,(M_Reax OR M_Rebx OR M_Recx)
 
-cmem_store_64: ;# The value is boxed in 64-bit mode. Not implemented in 32-bit mode
+CALLMACRO INLINE_ROUTINE cmem_store_asm_64 ;# The value is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
@@ -3056,7 +3057,7 @@ IFDEF HOSTARCHITECTURE_X86_64
 CALLMACRO   RegMask cmem_store_64,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
-cmem_store_float:
+CALLMACRO INLINE_ROUTINE cmem_store_asm_float
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3079,7 +3080,7 @@ ENDIF
     RET4
 CALLMACRO   RegMask cmem_store_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
-cmem_store_double:
+CALLMACRO INLINE_ROUTINE cmem_store_asm_double
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3106,7 +3107,7 @@ CALLMACRO   RegMask cmem_store_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 IFDEF WINDOWS
 
 CREATE_IO_CALL  MACRO index
-Call&index&:
+    INLINE_ROUTINE  Call&index&
     CALL_IO index
     ENDM
 
@@ -3118,7 +3119,7 @@ CREATE_EXTRA_CALL MACRO index
 ELSE
 
 #define CREATE_IO_CALL(index) \
-Call##index##: \
+    INLINE_ROUTINE(Call##index##) \
     CALL_IO(index)
 
 #define CREATE_EXTRA_CALL(index) \
@@ -3169,292 +3170,6 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
 CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
-
-
-;# Entry point vector.  These are copied into the io_vector during initialisation.
-IFDEF WINDOWS
-IFDEF HOSTARCHITECTURE_X86_64
-DDQ    TEXTEQU <dq>
-ELSE
-DDQ    TEXTEQU <dd>
-ENDIF
-    align 4
-    PUBLIC entryPointVector
-entryPointVector DDQ 0                   ;# 0 is unused
-ELSE
-IFDEF HOSTARCHITECTURE_X86_64
-#define DDQ .quad
-ELSE
-#define DDQ .long
-ENDIF
-        GLOBAL EXTNAME(entryPointVector)
-EXTNAME(entryPointVector):
-    DDQ 0                               ;# 0 is unused
-ENDIF
-    DDQ  CallPOLY_SYS_exit              ;# 1
-    DDQ  0                              ;# 2 is unused
-    DDQ  0                              ;# 3 is unused
-    DDQ  0                              ;# 4 is unused
-    DDQ  0                              ;# 5 is unused
-    DDQ  0                              ;# 6 is unused
-    DDQ  0                              ;# 7 is unused
-    DDQ  0                              ;# 8 is unused
-    DDQ  CallPOLY_SYS_chdir             ;# 9
-    DDQ  0                              ;# 10 is unused
-    DDQ  alloc_store                    ;# 11
-    DDQ  alloc_uninit                   ;# 12
-    DDQ  0                              ;# 13 is unused
-    DDQ  raisex                         ;# raisex = 14
-    DDQ  get_length_a                   ;# 15
-    DDQ  0                              ;# 16 is unused
-    DDQ  CallPOLY_SYS_get_flags         ;# 17
-    DDQ  0                              ;# 18 is no longer used
-    DDQ  0                              ;# 19 is no longer used
-    DDQ  0                              ;# 20 is no longer used
-    DDQ  0                              ;# 21 is unused
-    DDQ  0                              ;# 22 is unused
-    DDQ  str_compare                    ;# 23
-    DDQ  0                              ;# 24 is unused
-    DDQ  0                              ;# 25 is unused
-    DDQ  teststrgtr                     ;# 26
-    DDQ  teststrlss                     ;# 27
-    DDQ  teststrgeq                     ;# 28
-    DDQ  teststrleq                     ;# 29
-    DDQ  0                              ;# 30
-    DDQ  0                              ;# 31 is no longer used
-    DDQ  CallPOLY_SYS_exception_trace_fn ;# 32
-    DDQ  0                              ;# 33 - exception trace
-    DDQ  0                              ;# 34 is no longer used
-    DDQ  0                              ;# 35 is no longer used
-    DDQ  0                              ;# 36 is no longer used
-    DDQ  0                              ;# 37 is unused
-    DDQ  0                              ;# 38 is unused
-    DDQ  0                              ;# 39 is unused
-    DDQ  0                              ;# 40 is unused
-    DDQ  0                              ;# 41 is unused
-    DDQ  0                              ;# 42
-    DDQ  0                              ;# 43
-    DDQ  0                              ;# 44 is no longer used
-    DDQ  0                              ;# 45 is no longer used
-    DDQ  0                              ;# 46
-    DDQ  locksega                       ;# 47
-    DDQ  0                              ;# nullorzero = 48
-    DDQ  0                              ;# 49 is no longer used
-    DDQ  0                              ;# 50 is no longer used
-    DDQ  CallPOLY_SYS_network           ;# 51
-    DDQ  CallPOLY_SYS_os_specific       ;# 52
-    DDQ  eq_longword                    ;# 53
-    DDQ  0								;# 54 is no longer used
-    DDQ  geq_longword                   ;# 55
-    DDQ  leq_longword                   ;# 56
-    DDQ  gt_longword                    ;# 57
-    DDQ  lt_longword                    ;# 58
-    DDQ  0                              ;# 59 is unused
-    DDQ  0                              ;# 60 is unused
-    DDQ  CallPOLY_SYS_io_dispatch       ;# 61
-    DDQ  CallPOLY_SYS_signal_handler    ;# 62
-    DDQ  0                              ;# 63 is unused
-    DDQ  0                              ;# 64 is unused
-    DDQ  0                              ;# 65 is unused
-    DDQ  0                              ;# 66 is unused
-    DDQ  0                              ;# 67 is unused
-    DDQ  0                              ;# 68 is unused
-    DDQ  atomic_reset                   ;# 69
-    DDQ  atomic_incr                    ;# 70
-    DDQ  atomic_decr                    ;# 71
-    DDQ  thread_self                    ;# 72
-    DDQ  CallPOLY_SYS_thread_dispatch   ;# 73
-    DDQ  plus_longword                  ;# 74
-    DDQ  minus_longword                 ;# 75
-    DDQ  mul_longword                   ;# 76
-    DDQ  div_longword                   ;# 77
-    DDQ  mod_longword                   ;# 78
-    DDQ  andb_longword                  ;# 79
-    DDQ  orb_longword                   ;# 80
-    DDQ  xorb_longword                  ;# 81
-    DDQ  0                              ;# 82 is unused
-    DDQ  0                              ;# 83 is now unused
-    DDQ  CallPOLY_SYS_kill_self         ;# 84
-    DDQ  shift_left_longword            ;# 85
-    DDQ  shift_right_longword           ;# 86
-    DDQ  shift_right_arith_longword     ;# 87
-    DDQ  CallPOLY_SYS_profiler          ;# 88
-    DDQ  longword_to_tagged             ;# 89
-    DDQ  signed_to_longword             ;# 90
-    DDQ  unsigned_to_longword           ;# 91
-    DDQ  CallPOLY_SYS_full_gc           ;# 92
-    DDQ  CallPOLY_SYS_stack_trace       ;# 93
-    DDQ  CallPOLY_SYS_timing_dispatch   ;# 94
-    DDQ  0                              ;# 95 is unused
-    DDQ  0                              ;# 96 is unused
-    DDQ  0                              ;# 97 is unused
-    DDQ  0                              ;# 98 is unused
-    DDQ  CallPOLY_SYS_objsize           ;# 99
-    DDQ  CallPOLY_SYS_showsize          ;# 100
-    DDQ  0                              ;# 101 is unused
-    DDQ  0                              ;# 102 is unused
-    DDQ  0                              ;# 103 is unused
-    DDQ  quotrem_long                   ;# 104
-    DDQ  is_shorta                      ;# 105
-    DDQ  add_long                       ;# 106
-    DDQ  sub_long                       ;# 107
-    DDQ  mult_long                      ;# 108
-    DDQ  div_long                       ;# 109
-    DDQ  rem_long                       ;# 110
-    DDQ  neg_long                       ;# 111
-    DDQ  xor_long                       ;# 112
-    DDQ  equal_long                     ;# 113
-    DDQ  or_long                        ;# 114
-    DDQ  and_long                       ;# 115
-    DDQ  0                              ;# 116 is unused
-    DDQ  CallPOLY_SYS_Real_str          ;# 117
-    DDQ  real_geq                       ;# 118
-    DDQ  real_leq                       ;# 119
-    DDQ  real_gtr                       ;# 120
-    DDQ  real_lss                       ;# 121
-    DDQ  real_eq                        ;# 122
-    DDQ  real_neq                       ;# 123
-    DDQ  CallPOLY_SYS_Real_Dispatch     ;# 124
-    DDQ  real_add                       ;# 125
-    DDQ  real_sub                       ;# 126
-    DDQ  real_mul                       ;# 127
-    DDQ  real_div                       ;# 128
-    DDQ  real_abs                       ;# 129
-    DDQ  real_neg                       ;# 130
-    DDQ  0                              ;# 131 is unused
-    DDQ  0                              ;# 132 is no longer used
-    DDQ  CallPOLY_SYS_conv_real         ;# 133
-    DDQ  CallPOLY_SYS_real_to_int       ;# 134
-    DDQ  real_from_int                  ;# 135
-    DDQ  CallPOLY_SYS_sqrt_real         ;# 136
-    DDQ  CallPOLY_SYS_sin_real          ;# 137
-    DDQ  CallPOLY_SYS_cos_real          ;# 138
-    DDQ  CallPOLY_SYS_arctan_real       ;# 139
-    DDQ  CallPOLY_SYS_exp_real          ;# 140
-    DDQ  CallPOLY_SYS_ln_real           ;# 141
-    DDQ  0                              ;# 142 is no longer used
-    DDQ  0                              ;# 143 is unused
-    DDQ  0                              ;# 144 is unused
-    DDQ  0                              ;# 145 is unused
-    DDQ  0                              ;# 146 is unused
-    DDQ  0                              ;# 147 is unused
-    DDQ  0                              ;# stdin = 148
-    DDQ  0                              ;# stdout= 149
-    DDQ  CallPOLY_SYS_process_env       ;# 150
-    DDQ  set_string_length_a            ;# 151
-    DDQ  get_first_long_word_a          ;# 152
-    DDQ  CallPOLY_SYS_poly_specific     ;# 153
-    DDQ  bytevec_eq                     ;# 154
-    DDQ  0                              ;# 155 is unused
-    DDQ  0                              ;# 156 is unused
-    DDQ  0                              ;# 157 is unused
-    DDQ  0                              ;# 158 is unused
-    DDQ  0                              ;# 159 is unused
-    DDQ  cmem_load_8                    ;# 160
-    DDQ  cmem_load_16                   ;# 161
-    DDQ  cmem_load_32                   ;# 162
-IFDEF HOSTARCHITECTURE_X86_64
-    DDQ  cmem_load_64                   ;# 163
-ELSE
-    DDQ  0                              ;# 163
-ENDIF
-    DDQ  cmem_load_float                ;# 164
-    DDQ  cmem_load_double               ;# 165
-    DDQ  cmem_store_8                   ;# 166
-    DDQ  cmem_store_16                  ;# 167
-    DDQ  cmem_store_32                  ;# 168
-IFDEF HOSTARCHITECTURE_X86_64
-    DDQ  cmem_store_64                  ;# 169
-ELSE
-    DDQ  0                              ;# 169
-ENDIF
-    DDQ  cmem_store_float               ;# 170
-    DDQ  cmem_store_double              ;# 171
-    DDQ  0                              ;# 172 is unused
-    DDQ  0                              ;# 173 is unused
-    DDQ  0                              ;# 174 is unused
-    DDQ  0                              ;# 175 is unused
-    DDQ  0                              ;# 176 is unused
-    DDQ  0                              ;# 177 is unused
-    DDQ  0                              ;# 178 is unused
-    DDQ  0                              ;# 179 is unused
-    DDQ  0                              ;# 180 is unused
-    DDQ  0                              ;# 181 is unused
-    DDQ  0                              ;# 182 is unused
-    DDQ  0                              ;# 183 is unused
-    DDQ  0                              ;# 184 is unused
-    DDQ  0                              ;# 185 is unused
-    DDQ  0                              ;# 186 is unused
-    DDQ  0                              ;# 187 is unused
-    DDQ  0                              ;# 188 is unused
-    DDQ  CallPOLY_SYS_io_operation      ;# 189
-    DDQ  CallPOLY_SYS_ffi               ;# 190
-    DDQ  0                              ;# 191 is no longer used
-    DDQ  0                              ;# 192 is unused
-    DDQ  move_words                     ;# move_words_overlap = 193
-    DDQ  CallPOLY_SYS_set_code_constant ;# 194
-    DDQ  move_words                     ;# 195
-    DDQ  shift_right_arith_word         ;# 196
-    DDQ  int_to_word                    ;# 197
-    DDQ  move_bytes                     ;# 198
-    DDQ  move_bytes                     ;# move_bytes_overlap = 199
-    DDQ  CallPOLY_SYS_code_flags        ;# 200
-    DDQ  CallPOLY_SYS_shrink_stack      ;# 201
-    DDQ  0                              ;# stderr = 202
-    DDQ  0                              ;# 203 now unused
-    DDQ  CallPOLY_SYS_callcode_tupled   ;# 204
-    DDQ  CallPOLY_SYS_foreign_dispatch  ;# 205
-    DDQ  0                              ;# 206 - foreign null
-    DDQ  0                              ;# 207 is unused
-    DDQ  0                              ;# 208 now unused
-    DDQ  CallPOLY_SYS_XWindows          ;# 209
-    DDQ  0                              ;# 210 is unused
-    DDQ  0                              ;# 211 is unused
-    DDQ  0                              ;# 212 is unused
-    DDQ  is_big_endian                  ;# 213
-    DDQ  bytes_per_word                 ;# 214
-    DDQ  offset_address                 ;# 215
-    DDQ  shift_right_word               ;# 216
-    DDQ  0								;# 217 now unused
-    DDQ  not_bool                       ;# 218
-    DDQ  0                              ;# 219 is unused
-    DDQ  0                              ;# 220 is unused
-    DDQ  0                              ;# 221 is unused
-    DDQ  0                              ;# 222 is unused
-    DDQ  string_length                  ;# 223
-    DDQ  0                              ;# 224 is unused
-    DDQ  0                              ;# 225 is unused
-    DDQ  0                              ;# 226 is unused
-    DDQ  0                              ;# 227 is unused
-    DDQ  touch_final                    ;# 228
-    DDQ  0                              ;# 229 is no longer used
-    DDQ  0                              ;# 230 is no longer used
-    DDQ  int_geq                        ;# 231
-    DDQ  int_leq                        ;# 232
-    DDQ  int_gtr                        ;# 233
-    DDQ  int_lss                        ;# 234
-    DDQ  load_byte                      ;# load_byte_immut = 235
-    DDQ  load_word                      ;# load_word_immut = 236
-    DDQ  0                              ;# 237 is unused
-    DDQ  mul_word                       ;# 238
-    DDQ  plus_word                      ;# 239
-    DDQ  minus_word                     ;# 240
-    DDQ  div_word                       ;# 241
-    DDQ  or_word                        ;# 242
-    DDQ  and_word                       ;# 243
-    DDQ  xor_word                       ;# 244
-    DDQ  shift_left_word                ;# 245
-    DDQ  mod_word                       ;# 246
-    DDQ  word_geq                       ;# 247
-    DDQ  word_leq                       ;# 248
-    DDQ  word_gtr                       ;# 249
-    DDQ  word_lss                       ;# 250
-    DDQ  word_eq                        ;# 251
-    DDQ  load_byte                      ;# 252
-    DDQ  load_word                      ;# 253
-    DDQ  assign_byte                    ;# 254
-    DDQ  assign_word                    ;# 255
-
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified

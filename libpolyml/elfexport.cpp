@@ -344,6 +344,10 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_PPC;
     directReloc = R_PPC_ADDR32;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_PPC64)
+    fhdr.e_machine = EM_PPC64;
+    directReloc = R_PPC64_ADDR64;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_SPARC)
     fhdr.e_machine = EM_SPARC;
     directReloc = R_SPARC_32;
