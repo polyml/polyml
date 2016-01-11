@@ -958,8 +958,8 @@ struct
                         val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
                         val tupleType =
                             case typeVars of
-                                [] => (* No arg so we can have anything here. *)
-                                    mkTypeVar (generalisable, false, false, false)
+                                [] => (* No arg so must have unit. *)
+				    unitType
                             |   [arg] => mkFn arg (* Just a single function. *)
                             |   args => mkProductType(List.map mkFn args)
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))
@@ -970,7 +970,7 @@ struct
                     in
                         checkPPType(addPPType, testType, "addPrettyPrint", lex, loc,
                             fn () =>
-                                PrettyString "addPrettyPrint element functions must have type 'a * int -> pretty")
+                                PrettyString "addPrettyPrint element functions must have type 'a * int -> pretty, 'b * int -> pretty, ... with one function for each type parameter")
                     end;
 
             (* Only report the error when the function is run.  Because addPrettyPrint is
