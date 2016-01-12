@@ -63,17 +63,13 @@ sig
         Recursive
     |   ConstantClosure of Address.machineWord
     |   ConstantCode of Address.machineWord
-    |   CodeFun of code
     |   FullCall
     
     val callFunction: callKinds -> operations
     val jumpToFunction: callKinds  -> operations
 
-    val codeCreate: bool * string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+    val codeCreate: string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     val copyCode: code * operations * int * RegSet.regSet * bool -> Address.address
-
-    (*val codeAddress: code -> address option*)
-    val addCompletionHook: code * (code * Address.machineWord -> unit) -> unit
 
     type regSet = RegSet.regSet
     type machineWord = Address.machineWord
@@ -100,7 +96,6 @@ sig
     val pushReg:      ttab * reg  -> stackIndex;
     val pushStack:    ttab * int  -> stackIndex
     val pushConst:    ttab * machineWord -> stackIndex
-    val pushCodeRef:  ttab * code -> stackIndex;
     val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operation list
     val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operation list
     val pushSpecificEntry: ttab * stackIndex -> operation list
@@ -175,10 +170,7 @@ sig
     val callCode: stackIndex * bool * ttab -> operation list
     val jumpToCode: stackIndex * bool * ttab -> operation list
 
-    (* Get constants or code refs, which are really constants. *)
-    datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
-
-    val isConstant: stackIndex * ttab -> constEntry
+    val isConstant: stackIndex * ttab -> machineWord option
     val isRegister: stackIndex * ttab -> reg option
     val isContainer: stackIndex * ttab -> bool
 

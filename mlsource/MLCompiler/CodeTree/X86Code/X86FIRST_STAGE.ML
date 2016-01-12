@@ -110,7 +110,6 @@ struct
         Register  of reg * int         (* In a register.  The int is the stack offset if
                                           the value was originally a container. *)
     |   Literal   of machineWord        (* A constant (was "int") *)
-    |   CodeRef   of code        (* Forward reference to code *)
     |   Direct    of {base: reg, offset: int}  (* Register/Offset *)
     |   StackW    of int         (* On the real stack. *)
         (* Container entries are a group of items on the stack.  They are used
@@ -348,7 +347,7 @@ struct
         ActLiteralSource of machineWord
     |   ActInRegisterSet of { modifiable: RegSet.regSet, readable: RegSet.regSet}
     |   ActBaseOffset of reg * int
-    |   ActOther (* Containers and CodeRefs. *)
+    |   ActOther (* Containers. *)
 
     type argAction = ttab * stackIndex list * regHint -> reg option * operation list
     type nextAction = argAction
@@ -400,8 +399,6 @@ struct
                 ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
 
         |   Container _ => ActOther (* This can be used as the address in a moveToVec *)
-
-        |   CodeRef _ => ActOther (* This can occur as a source in moveToVec. *)
     end
 
     (* Exported versions of operations datatype *)
@@ -492,9 +489,6 @@ struct
     |   moveConstantToRegister(source, output as FPReg _) =
         (* Real constants are the addresses of 64-bit quantities on the heap. *)
             [FPStoreToFPReg{output=output, andPop=true}, loadFPConstant source]
-
-    and moveCodeRefToRegister(code, output) = (* The address of another function *)
-        [LoadCodeRef{code=code, output=output}]
 
     (* Set a register to an address in the stack.  Just a reg-reg move if
        offset is zero otherwise a load-address. *)
@@ -673,13 +667,6 @@ struct
           if isShort w
           then printStream(Int.toString (Word.toIntX (toShort w)))
           else printStream "?" (* ??? *)      
-      
-      | CodeRef si =>
-          (
-            printStream "(";
-            printStream (procName si);
-            printStream ")"
-          )
 
      | Direct {base, offset} =>
          (
@@ -925,10 +912,6 @@ struct
 
     (* The top of the pseudo-stack is a constant *)
     fun pushConst (table, v : machineWord) = pushPstack(table, Literal v, "pushConst", [])
-
-
-    (* The top of the pseudo-stack is a forward reference to a function. *)
-    fun pushCodeRef (table, rf : code) = pushPstack(table, CodeRef rf, "pushCodeRef", [])
 
     fun addRegUse (Ttab{regset, ...}, reg) = incr regset reg
 
@@ -1693,7 +1676,6 @@ struct
                     then moveRegisterToRegister(reg, destReg)
                     else []
             |   Literal lit => moveConstantToRegister(lit, destReg)
-            |   CodeRef code => moveCodeRefToRegister(code, destReg)
             |   Direct {base, offset} => moveFromMemory(base, offset, destReg)
             |   StackW index =>
                     moveFromMemory(regStackPtr, (! realstackptr - index - 1) * wordSize, destReg)
@@ -2907,12 +2889,6 @@ struct
                                     Literal _ => flushCache()
                                 |   _ => raise InternalError "Literal mismatch"
                                 )
-                        |   CodeRef _ =>
-                                (
-                                case saveEnt of
-                                    CodeRef _ => flushCache()
-                                |   _ => raise InternalError "Coderef mismatch"
-                                )
                         |   Direct {base = tabBase, ...} =>
                                 (
                                 (* As with register entries these should have been
@@ -3181,11 +3157,6 @@ struct
             Literal lit =>
                 jumpToFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
 
-        |  CodeRef code =>
-            if isIndirect
-            then raise InternalError "jumpToCode: indirect call to codeRef"
-            else jumpToFunction(CodeFun code)
-
         |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
@@ -3207,11 +3178,6 @@ struct
         case ent of
             Literal lit =>
                 callFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
-
-        |  CodeRef code =>
-            if isIndirect
-            then raise InternalError "callCode: indirect call to codeRef"
-            else callFunction(CodeFun code)
 
         |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
@@ -3287,7 +3253,6 @@ struct
                                 if tabReg = saveReg then pushList else entry :: pushList
                         |   (StackW _, StackW _) => pushList
                         |   (Literal _, Literal _) => pushList
-                        |   (CodeRef _, CodeRef _) => pushList
                         |   (Direct _, Direct _) => pushList
                         |   (Container _, Container _) => pushList
                         |   _ => raise InternalError "Funny entries"
@@ -3391,13 +3356,12 @@ struct
         checkStack(!marker)
     end
 
-    datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
+    datatype constEntry = ConstLit of machineWord | NotConst
 
     fun isConstant(entry, table) =
         case pstackRealEntry(table, entry) of
-            {ent = Literal l, ...} => ConstLit l
-        |   {ent = CodeRef c, ...} => ConstCode c
-        |   _ => NotConst
+            {ent = Literal l, ...} => SOME l
+        |   _ => NONE
 
     fun isRegister(entry, table) =
         case pstackRealEntry(table, entry) of
@@ -3712,8 +3676,7 @@ struct
             (* Moves an expression into a newly created tuple or into a container.
                It's convenient for this to use the same process as for RTS functions
                but it does complicate argToSource.  RTS functions never have containers
-               or code-refs but it's possible for the vecEntry to be a container and for
-               the valueEntry to be a CodeRef. *)
+               or code-refs but it's possible for the vecEntry to be a container. *)
             fun moveToVec (vecEntry, valueEntry, offset: int, table) : operation list =
             let
                 val freeCode1 = incrUseCount (table, vecEntry, 1) (* This must be kept. *)

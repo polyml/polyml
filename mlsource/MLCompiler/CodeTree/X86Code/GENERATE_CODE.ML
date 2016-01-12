@@ -902,7 +902,7 @@ struct
                 val entries = List.map(fn h => genToStackOrGeneralRegister (h)) reclist
                 val asConstants = List.map(fn i => isConstant(i, transtable)) entries
             in
-                if List.exists(fn NotConst => true | _ => false) asConstants
+                if List.exists(not o isSome) asConstants
                 then
                 let
                     fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
@@ -940,9 +940,8 @@ struct
                         if !toFill = 0 then lock vec else ()
                     )
 
-                    fun addItem(ConstLit lit, n) = (setItem n ((), lit); n+1)
-                    |   addItem(ConstCode code, n) = (addCompletionHook(code, setItem n); n+1)
-                    |   addItem(NotConst, _) = raise InternalError "addItem: NotConst"
+                    fun addItem(SOME lit, n) = (setItem n ((), lit); n+1)
+                    |   addItem(NONE, _) = raise InternalError "addItem: NotConst"
                     val _ = List.foldl addItem 0 asConstants
                     (* Remove the entries which aren't actually used. *)
                     val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) entries
@@ -1176,8 +1175,8 @@ struct
             val initialLocs = List.map loadClosure closureList
             (* Extract any constants. *)
             val constants =
-                List.map(fn i => if i = noIndex then NotConst else isConstant(i, transtable)) initialLocs
-            val nonConstCount = List.foldl(fn (NotConst, n) => n+1 | (_, n) => n) 0 constants
+                List.map(fn i => if i = noIndex then NONE else isConstant(i, transtable)) initialLocs
+            val nonConstCount = List.foldl(fn (NONE, n) => n+1 | (_, n) => n) 0 constants
         in
             if nonConstCount = 0
             then (* All the entries that are there are constants.  We can avoid constructing a
@@ -1187,20 +1186,20 @@ struct
                     bypasses the closure altogether.  That means that any constants that are there must be
                     passed back via "previous". *)
             let
+                val profileObject = createProfileObject lambdaName
                 (* Create a one word item for the closure.  This is returned for recursive references
                    and filled in with the address of the code when we've finished. *)
-                val profileObject = createProfileObject lambdaName
-                val newCode = codeCreate (false (* make a closure *), lambdaName, profileObject, debugSwitches)
+                val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
+                val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
 
                 fun previous (BICLoadRecursive, _, newtab) = (* load the address of the closure itself *)
-                    (pushCodeRef(newtab, newCode), [])
+                    (pushConst(newtab, Address.toMachineWord closure), [])
                 |   previous (BICLoadClosure locn, _, newtab) =
                     (
                         (* load a constant (item locn of the logical closure) *)
                         case List.nth(constants, locn) of
-                            ConstLit lit => (pushConst (newtab, lit), [])
-                        |   ConstCode code => (pushCodeRef(newtab, code), [])
-                        |   NotConst => raise InternalError "previous: NotConst"
+                            SOME lit => (pushConst (newtab, lit), [])
+                        |   NONE => raise InternalError "previous: NotConst"
                     )
                |    previous _ = raise InternalError "previous: local"
           
@@ -1209,8 +1208,9 @@ struct
                             0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
                             localCount, profileObject, debugSwitches)
                 
-                val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-                val result = pushConst (transtable, Address.toMachineWord closureAddr);
+                val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+                val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
+                val result = pushConst (transtable, Address.toMachineWord closure)
                 (* Clear off the constant entries. *)
                 val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) initialLocs
                 (* Handle any other recursive functions. *)
@@ -1223,8 +1223,8 @@ struct
             let
                 local
                     (* Convert the original index to a new index with the constants skipped. *)
-                    fun makeIndex(NotConst :: t, n) = SOME n :: makeIndex(t, n+1)
-                    |   makeIndex(_ :: t, n) = NONE :: makeIndex(t, n)
+                    fun makeIndex(NONE :: t, n) = SOME n :: makeIndex(t, n+1)
+                    |   makeIndex(SOME _ :: t, n) = NONE :: makeIndex(t, n)
                     |   makeIndex([], _) = []
                 in
                     val closureIndexes = Vector.fromList(makeIndex(constants, 1(*Starts from 1*)))
@@ -1235,9 +1235,8 @@ struct
                 |   previous(BICLoadClosure locn, makeSl, newtab) =
                     (
                         case List.nth(constants, locn) of
-                            ConstLit lit => (pushConst (newtab, lit), [])
-                        |   ConstCode code => (pushCodeRef(newtab, code), [])
-                        |   NotConst =>
+                            SOME lit => (pushConst (newtab, lit), [])
+                        |   NONE =>
                             let
                                 val newLocn = valOf(Vector.sub(closureIndexes, locn))
                                 val (sl, closureCode) = makeSl() (* load the closure *)
@@ -1249,8 +1248,7 @@ struct
                 |   previous(_, _, _) = raise InternalError "previous: local"
 
                 val profileObject = createProfileObject lambdaName
-                val newCode =
-                    codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
+                val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
         
                 val (ops, maxStack, regList, callsAFunction) = (* code-gen function *)
                     codegen (lambdaBody, previous,
@@ -1275,7 +1273,7 @@ struct
                     (* First word is the address of the code. *)
                     val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
                     (* Put in everything else *)
-                    fun fillClosure(index::indices, NotConst::constEntries, n) =
+                    fun fillClosure(index::indices, NONE::constEntries, n) =
                         let
                             val indexOrDummy =
                                 if index = noIndex
@@ -1346,7 +1344,7 @@ struct
                 let (* Stack closure *)
                     (* Get the non-constant entries and release the constants. *)
                     val nonConstEntries =
-                        ListPair.foldr (fn (index, NotConst, l) => index :: l |
+                        ListPair.foldr (fn (index, NONE, l) => index :: l |
                                            (index, _, l) => (codeGenerate(incrUseCount(transtable, index, ~1), cvec); l))
                                     [] (initialLocs, constants)
                     
@@ -1972,13 +1970,12 @@ struct
                          SOME(BICConstnt(w, _)) =>
                             (* Do we need to load the closure register? *)
                             let
-                                val addr = Address.toAddress w;
+                                val addr = Address.toAddress w
                             in
-                                if Address.isIoAddress addr
-                                then (* We don't need the closure register but we can't
-                                        do the indirection here.  That's because the
-                                        code address isn't valid.  We have to do the
-                                        indirection at run time. *)
+                                if Address.isIoAddress addr orelse Address.flags addr <> Address.F_words
+                                then (* If it's the address into the IO vector or it's a reference
+                                        to code we haven't yet compiled we don't need the closure
+                                        register but we can't do the indirection until run time. *)
                                     (SOME(pushConst(transtable, w)), true, [], [])
                                 else
                                 let
@@ -2672,41 +2669,44 @@ struct
         (!cvec, maxstack transtable, getModifedRegSet transtable, !callsAFunction)
     end (* codegen *)
 
-    fun gencode (BICLambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
-        let (* We are compiling a function. *)
-            (* It is not essential to treat this specially, but it saves generating
-             a piece of code whose only function is to return the address of the
-             function. *)
-       
-            (* make the code buffer for the new function. *)
-            val profileObject = createProfileObject name
-            val newCode = codeCreate (false (* don't make a closure *), name, profileObject, debugSwitches); 
+    (* Result functions.
+       gencodeLambda compiles a top-level function.  This cannot have free variables.  Instead
+       we pass in the address of a one-word mutable cell that can be used as the closure for
+       recursive calls. *)
+    fun gencodeLambda({ name, body, argTypes, resultType, argLifetimes, localCount, ...}:bicLambdaForm, debugSwitches, closure) =
+    let
+        open Address
+        (* make the code buffer for the new function. *)
+        val profileObject = createProfileObject name
+        val newCode = codeCreate (name, profileObject, debugSwitches); 
 
-         (* The only non-local references will be references to the
-            closure itself. We have to fetch these from the constants
-            section because:
-            (1) we don't save the closure register in the function body
-            (2) we don't even initialise it if we use the PureCode
-            calling convention
-            SPF 2/1/97
-          *)
-            val (ops, maxStack, regList, callsAFunction) =
-                codegen
-                    (body,
-                    fn (_ , _, newtab) => (pushCodeRef (newtab, newCode), []),
-                    0, (* Discard regClosure *)
-                    argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
+        val (ops, maxStack, regList, callsAFunction) =
+            codegen
+                (body,
+                fn (_ , _, newtab) => (pushConst (newtab, toMachineWord closure), []),
+                0, (* Discard regClosure *)
+                argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
 
-            val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+        val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+    in
+        assignWord(closure, 0w0, toMachineWord codeAddr);
+        lock closure
+    end
+
+
+    fun gencode (BICLambda lambda, debugSwitches, _) =
+        let
+            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
+            val () = gencodeLambda(lambda, debugSwitches, closure)
         in
             (* Result is a function which returns the address of the function. *)
-            (fn () => (Address.toMachineWord closureAddr), [])
+            (fn () => (Address.toMachineWord closure), [])
         end
  
     |   gencode (pt, debugSwitches, localCount) =
         let (* Compile a top-level expression. *)
             val profileObject = createProfileObject "<top level>"
-            val newCode = codeCreate (false (* make a closure *), "<top level>", profileObject, debugSwitches);
+            val newCode = codeCreate ("<top level>", profileObject, debugSwitches);
 
             (* There should be *no* non-local references. *)
             val (ops, maxStack, regList, callsAFunction) =
@@ -2718,10 +2718,12 @@ struct
                     localCount,
                     profileObject,
                     debugSwitches)
-            val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+            val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord codeAddr)
+            val () = Address.lock closure
             (* Cast this as a function.  That's safe on X86 since we're going to be
                passing the unit argument in a register. *)
-            val resultFunction: unit -> machineWord = RunCall.unsafeCast closureAddr
+            val resultFunction: unit -> machineWord = RunCall.unsafeCast closure
         in (* Result is a function to execute the code. *)
             (resultFunction, [])
         end (* gencode *)

@@ -82,7 +82,6 @@ sig
         Recursive
     |   ConstantClosure of machineWord
     |   ConstantCode of machineWord
-    |   CodeFun of code
     |   FullCall
 
     datatype label =
@@ -128,7 +127,6 @@ sig
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
     |   LockMutableSegment of reg
     |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
-    |   LoadCodeRef of { output: reg, code: code }
     |   TestTagR of reg
     |   TestByteMem of { base: reg, offset: int, bits: word }
     |   CallRTS of int
@@ -175,11 +173,9 @@ sig
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
 
-    val codeCreate: bool * string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+    val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
     val createCodeSegment: operations * RegSet.regSet * code -> address
-
-    val addCompletionHook: code * (code * machineWord -> unit) -> unit
 
     val codeAddress: code -> address option
     val procName:   code -> string      (* Name of the procedure. *)
