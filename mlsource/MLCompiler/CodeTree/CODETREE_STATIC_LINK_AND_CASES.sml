@@ -21,10 +21,22 @@ functor CODETREE_STATIC_LINK_AND_CASES(
 
     structure GCODE :
     sig
-      type backendIC
-      type machineWord = Address.machineWord
-      val gencode: backendIC * Universal.universal list * int -> (unit -> machineWord) * Universal.universal list
-      structure Sharing: sig type backendIC = backendIC end
+        type backendIC and argumentType
+        type bicLambdaForm =
+        {
+            body          : backendIC,
+            name          : string,
+            closure       : backendIC list,
+            argTypes      : argumentType list,
+            resultType    : argumentType,
+            closureRefs   : int,
+            localCount    : int,
+            heapClosure   : bool,
+            argLifetimes  : int list
+        }
+        type machineWord = Address.machineWord
+        val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
+        structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
     end
 
     structure DEBUG: DEBUGSIG
@@ -37,13 +49,7 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     =   GCODE.Sharing
     =   PRETTY.Sharing
     =   BACKENDTREE.Sharing
-) : 
-sig
-    type codetree
-    type machineWord = Address.machineWord
-    val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-    structure Sharing : sig type codetree = codetree end
-end
+) : CodegenTreeSig
 =
 struct
 
@@ -1439,17 +1445,18 @@ struct
         (insertedCode, !outputAddresses, argProperties)
     end (* staticLinkAndCases *)
 
-    fun codeGenerate(code, localCount, debugSwitches) =
+    fun codeGenerate(lambda: lambdaForm, debugSwitches, closure) =
     let
-        val (code, localCount, argProperties) = staticLinkAndCases(code, localCount)
+        val (code, localCount, argProperties) = staticLinkAndCases(Lambda lambda, 0)
         val backendCode = lifeTimes(code, localCount)
         val () =
             if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-            then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ();
-        val (code, props) = GCODE.gencode(backendCode, debugSwitches, localCount)
+            then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ()
+        val bicLambda = case backendCode of BACKENDTREE.BICLambda lam => lam | _ => raise InternalError "Not BICLambda"
+        val () = GCODE.gencodeLambda(bicLambda, debugSwitches, closure)
     in
-        (code, argProperties @ props)
+        argProperties
     end
-
-    structure Sharing = struct type codetree = codetree end
+    
+    (* Sharing can be copied from CODETREE. *)
 end;

@@ -24,16 +24,7 @@ addresses.
 functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-
-    structure BACKEND:
-    sig
-        type codetree
-        type machineWord = Address.machineWord
-        val codeGenerate:
-            codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-        structure Sharing : sig type codetree = codetree end
-    end
-
+    structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
 
@@ -68,21 +59,28 @@ struct
     (* Code-generate a function or set of mutually recursive functions that contain no free variables
        and run the code to return the address.  This allows us to further fold the address as
        a constant if, for example, it is used in a tuple. *)
-    local
-        exception Interrupt = Thread.Thread.Interrupt
-    in
-        fun codeGenerateToConstant debugSwitches (pt, localCount) =
-        let
-            val () =
-                if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-                then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty pt) else ()
+    fun codeGenerateToConstant(lambda, debugSwitches, closure) =
+    let
+        val () =
+            if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
+            then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty(Lambda lambda)) else ()
 
-            val (code, props) = BACKEND.codeGenerate(pt, localCount, debugSwitches)
-        in
-            Constnt (code(), props) (* Evaluate it and convert any exceptions into Raise instrs. *)
-                handle Interrupt => raise Interrupt (* Must not handle this *)
-                | exn => Raise (Constnt(toMachineWord exn, []))
-        end
+        val props = BACKEND.codeGenerate(lambda, debugSwitches, closure)
+        val () = Address.lock closure
+    in
+        props
+    end
+
+    (* If we are code-generating a function immediately we make a one-word
+       mutable cell that will subsequently contain the address of the code.
+       After it is locked this becomes the closure of the function.  By creating
+       it here we can turn recursive references into constant references before
+       we actually compile the function. *)
+    fun makeConstantClosure () =
+    let
+        open Address
+    in
+        alloc(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
     end
 
     fun cgFuns ({ lookupAddr, ...}: cgContext) (Extract ext) =
@@ -95,49 +93,25 @@ struct
             |   EnvGenConst w => SOME(Constnt w)
         )
 
-    |   cgFuns ({lookupAddr, debugArgs, ...}) 
-            (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse}) =
+    |   cgFuns (context as {debugArgs, ...}) (Lambda lambda) =
         let
-            val cArray = Array.array(localCount, NONE)
-            val newClosure = makeClosure()
-
-            fun lookupLocal(load as LoadLocal n) =
-                (
-                    case Array.sub(cArray, n) of
-                        NONE => EnvGenLoad load
-                    |   SOME w => EnvGenConst w
-                )
-            |   lookupLocal(LoadClosure n) =
-                (
-                    case lookupAddr(List.nth (closure, n)) of
-                        EnvGenLoad load => EnvGenLoad(addToClosure newClosure load)
-                    |   c as EnvGenConst _ => c
-                )
-            |   lookupLocal load = EnvGenLoad load (* Argument or Recursive *)
-            
-            val context =
-            {
-                lookupAddr = lookupLocal,
-                enterConstant = fn (n, w) => Array.update(cArray, n, SOME w),
-                debugArgs = debugArgs
-            }
-
-            (* Process the body to deal with any sub-functions and also to bind
-               in any constants from free variables. *)
-            val newBody = mapCodetree (cgFuns context) body
-            (* Build the resulting lambda. *)
-            val resultClosure = extractClosure newClosure
-            val resultLambda =
-                Lambda { 
-                    body = newBody, isInline = isInline, name = name, closure = resultClosure,
-                    argTypes = argTypes, resultType = resultType, localCount = localCount,
-                    recUse = recUse
-                }
+            val copied as { closure=resultClosure, ...} = cgLambda(context, lambda, EnvGenLoad LoadRecursive)
         in
-            (* If the closure is (now) empty we can code-generate it. *)
             case resultClosure of
-                [] => SOME(codeGenerateToConstant debugArgs (resultLambda, localCount))
-            |   _ =>  SOME resultLambda
+                [] =>
+                    let
+                        (* Create a "closure" for the function. *)
+                        val closure = makeConstantClosure()
+                        (* Replace any recursive references by references to the closure.  There
+                           may be inner functions that only make recursive calls to this.  By turning
+                           the recursive references into constants we may be able to compile
+                           them immediately as well. *)
+                        val repLambda = cgLambda(context, lambda, EnvGenConst(toMachineWord closure, []))
+                        val props = codeGenerateToConstant(repLambda, debugArgs, closure)
+                    in
+                        SOME(Constnt(toMachineWord closure, props))
+                    end
+            |   _ => SOME(Lambda copied)
         end
 
     |   cgFuns (context as { enterConstant, debugArgs, ...}) (Newenv(envBindings, envExp)) =
@@ -169,10 +143,7 @@ struct
                        outside the group.  Each function must have at least one free
                        variable which is part of the group.  *)
                     fun processEntry {addr, lambda, use} =
-                        case mapCodetree (cgFuns context) (Lambda lambda) of
-                            Lambda result => { addr=addr, lambda=result, use=use}
-                        |   _ => raise InternalError "processEntry: not lambda"
-
+                        {addr=addr, lambda=cgLambda(context, lambda, EnvGenLoad LoadRecursive), use=use}
                     val processedGroup = map processEntry recdecs
 
                     (* If every free variable is another member of the group we can
@@ -190,26 +161,27 @@ struct
                     if canCodeGen
                     then
                     let
-                        val extracts =
-                            List.map(fn {addr, ...} => Extract(LoadLocal addr)) processedGroup
-
-                        val code = Newenv([RecDecs processedGroup], mkTuple extracts)
-                        val maxAddr = List.foldl(fn ({addr, ...}, n) => Int.max(addr, n)) 0 processedGroup
-                        (* Code generate it. *)
-                        val results = codeGenerateToConstant debugArgs (code, maxAddr+1)
-                        (* Enter the constants in the table. *)
-                        fun enterDec ({addr, ...}, n) =
-                        (
-                            case findEntryInBlock(results,  n, false) of
-                                Constnt w => enterConstant(addr, w)
-                            |   _ => raise InternalError "Not a constant";
-                            n+1
-                        )
-                        val _ = List.foldl enterDec 0 processedGroup
+                        open Address
+                        (* Create "closures" for each entry.  Add these as constants to the table. *)
+                        fun createAndEnter {addr, ...} =
+                            let val c = makeConstantClosure() in enterConstant(addr, (Address.toMachineWord c, [])); c end
+                        val closures = List.map createAndEnter processedGroup
+                        (* Code-generate each of the lambdas and store the code in the closure. *)
+                        fun processLambda({lambda, addr, ...}, closure) =
+                        let
+                            val closureAsMachineWord = Address.toMachineWord closure
+                            val repLambda =
+                                cgLambda(context, lambda, EnvGenConst(closureAsMachineWord, []))
+                            val props = codeGenerateToConstant(repLambda, debugArgs, closure)
+                        in
+                            (* Include any properties we may have added *)
+                            enterConstant(addr, (closureAsMachineWord, props))
+                        end
+                        val () = ListPair.appEq processLambda (processedGroup, closures)
                     in
-                        processBindings tail
+                        processBindings tail (* We've done these *)
                     end
-
+                    
                     else RecDecs processedGroup :: processBindings tail
                 end
 
@@ -234,6 +206,48 @@ struct
 
     |   cgFuns _ _ = NONE
     
+    and cgLambda({lookupAddr, debugArgs, ...},
+                 { body, isInline, name, closure, argTypes, resultType, localCount, recUse},
+                 loadRecursive) =
+    let
+        val cArray = Array.array(localCount, NONE)
+        val newClosure = makeClosure()
+
+        fun lookupLocal(load as LoadLocal n) =
+            (
+                case Array.sub(cArray, n) of
+                    NONE => EnvGenLoad load
+                |   SOME w => EnvGenConst w
+            )
+        |   lookupLocal(LoadClosure n) =
+            (
+                case lookupAddr(List.nth (closure, n)) of
+                    EnvGenLoad load => EnvGenLoad(addToClosure newClosure load)
+                |   c as EnvGenConst _ => c
+            )
+        |   lookupLocal LoadRecursive = loadRecursive
+        |   lookupLocal load = EnvGenLoad load (* Argument *)
+        
+        val context =
+        {
+            lookupAddr = lookupLocal,
+            enterConstant = fn (n, w) => Array.update(cArray, n, SOME w),
+            debugArgs = debugArgs
+        }
+
+        (* Process the body to deal with any sub-functions and also to bind
+           in any constants from free variables. *)
+        val newBody = mapCodetree (cgFuns context) body
+        (* Build the resulting lambda. *)
+        val resultClosure = extractClosure newClosure
+    in
+        { 
+            body = newBody, isInline = isInline, name = name, closure = resultClosure,
+            argTypes = argTypes, resultType = resultType, localCount = localCount,
+            recUse = recUse
+        }
+    end
+
     fun codeGenerate(original, nLocals, debugArgs) =
     let
         val cArray = Array.array(nLocals, NONE)
@@ -253,7 +267,21 @@ struct
         }
         
         val resultCode = mapCodetree (cgFuns context) original
-        val (code, props) = BACKEND.codeGenerate(resultCode, nLocals, debugArgs)
+        (* Turn this into a lambda to code-generate. *)
+        val lambda:lambdaForm =
+        {
+            body = resultCode,
+            isInline = NonInline,
+            name = "<top level>",
+            closure = [],
+            argTypes = [(GeneralType, [])],
+            resultType = GeneralType,
+            localCount = nLocals,
+            recUse = []
+        }
+        val closure = makeConstantClosure()
+
+        val props = BACKEND.codeGenerate(lambda, debugArgs, closure)
 
         (* The code may consist of tuples (i.e. compiled ML structures) containing
            a mixture of Loads, where the values are yet to be compiled, and
@@ -279,9 +307,11 @@ struct
         |   extractProps _ = []
 
         val newProps = extractProps original
+        (* Cast this as a function. It is a function with a single argument. *)
+        val resultFunction: unit -> machineWord = RunCall.unsafeCast closure
 
     in
-        (code, CodeTags.mergeTupleProps(newProps, props))
+        (resultFunction, CodeTags.mergeTupleProps(newProps, props))
     end
 
     structure Sharing = struct type codetree = codetree end

@@ -34,16 +34,7 @@ functor CODETREE_LAMBDA_LIFT (
 
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-
-    structure BACKEND:
-    sig
-        type codetree
-        type machineWord = Address.machineWord
-        val codeGenerate:
-            codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-        structure Sharing : sig type codetree = codetree end
-    end
-
+    structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
 
@@ -52,13 +43,7 @@ functor CODETREE_LAMBDA_LIFT (
     =   CODETREE_FUNCTIONS.Sharing
     =   BACKEND.Sharing
     =   PRETTY.Sharing
-):
-sig
-    type codetree
-    type machineWord = Address.machineWord
-    val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
-    structure Sharing: sig type codetree = codetree end
-end =
+): CodegenTreeSig =
 struct
     open BASECODETREE
     open CODETREE_FUNCTIONS
@@ -444,13 +429,31 @@ struct
                 (* We may have a single anonymous lambda.  In that case we can give it
                    address zero. *)
                 val addresses = map (fn (_, addr) => getOpt(addr, 0)) bindings
+                (* Create "closures" for each entry.  These will be set by the
+                   code-generator to the code of each function and will become the
+                   closures we return.  Put them into the table. *)
+                val maxAddr = List.foldl(fn (addr, n) => Int.max(addr, n)) 0 addresses
                 (* To get the constant addresses we create bindings for the functions and
                    return a tuple with one entry for each binding. *)
                 val extracts = List.map(Extract o LoadLocal) addresses
                 val code = Newenv([RecDecs bindingsForCode], mkTuple extracts)
-                val maxAddr = List.foldl(fn (addr, n) => Int.max(addr, n)) 0 addresses
                 (* Code-generate, "run" the code and extract the results. *)
-                val (code, props) = BACKEND.codeGenerate(code, maxAddr+1, debugArgs)
+                open Address
+                val closure = alloc(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
+                (* Turn this into a lambda to code-generate. *)
+                val lambda:lambdaForm =
+                {
+                    body = code,
+                    isInline = NonInline,
+                    name = "<top level>",
+                    closure = [],
+                    argTypes = [(GeneralType, [])],
+                    resultType = GeneralType,
+                    localCount = maxAddr+1,
+                    recUse = []
+                }
+                val props = BACKEND.codeGenerate(lambda, debugArgs, closure)
+                val code: unit -> machineWord = RunCall.unsafeCast closure
                 val codeConstnt = Constnt(code(), props)
 
                 fun getItem([], _) = []
@@ -468,14 +471,18 @@ struct
         processMapCode code
     end
 
-    fun codeGenerate(original, nLocals, debugArgs) =
+    fun codeGenerate(original: lambdaForm, debugArgs, closure) =
     let
         fun toplevel _ = raise InternalError "Top level reached"
-        val checked = checkBody(original, toplevel, toplevel, nLocals)
-        val processed = processBody(checked, toplevel, toplevel, nLocals, debugArgs)
+        val checked = checkBody(Lambda original, toplevel, toplevel, 0)
+        val processed =
+            case processBody(checked, toplevel, toplevel, 0, debugArgs) of
+                Lambda p => p
+            |   _ => raise InternalError "CODETREE_LAMBDA_LIFT:codeGenerate"
     in
-        BACKEND.codeGenerate(processed, nLocals, debugArgs)
+        BACKEND.codeGenerate(processed, debugArgs, closure)
     end
 
-    structure Sharing = struct type codetree = codetree end
+    structure Sharing = BASECODETREE.Sharing
+
 end;

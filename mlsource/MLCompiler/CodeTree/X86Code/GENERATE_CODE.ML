@@ -30,10 +30,21 @@ functor GENERATE_CODE (
     sharing CODECONS.Sharing = BACKENDTREE.Sharing
 ) :  
 sig
-  type backendIC
-  type machineWord
-  val gencode: backendIC * Universal.universal list * int -> (unit -> machineWord) * Universal.universal list
-  structure Sharing: sig type backendIC = backendIC end
+    type backendIC and argumentType and machineWord
+    type bicLambdaForm =
+    {
+        body          : backendIC,
+        name          : string,
+        closure       : backendIC list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        closureRefs   : int,
+        localCount    : int,
+        heapClosure   : bool,
+        argLifetimes  : int list
+    }
+    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
+    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
 end =
 
 struct
@@ -1913,7 +1924,13 @@ struct
                 val modifiedRegisters =
                     case clos of
                         SOME (BICConstnt(w, _)) =>
-                            regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
+                            if not (Address.isWords(Address.toAddress w))
+                            then raise InternalError "callClosure: not closure"
+                            else if Address.isMutable(Address.toAddress w)
+                                (* It may be a forward reference i.e. a mutable closure that hasn't
+                                   yet been set. *)
+                            then allRegisters
+                            else regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
                       | _ (* Recursive or not a constant. *) => allRegisters;
 
                 (* Add the registers to the set modified by this function.
@@ -1981,6 +1998,7 @@ struct
                                 let
                                     val code : machineWord = Address.loadWord (addr, 0w0)
                                     val codeLocn = pushConst(transtable, code)
+                                    
                                 in
                                     if Address.length addr = 0w1
                                     then (* The closure is just one word - we don't need to
@@ -2669,14 +2687,13 @@ struct
         (!cvec, maxstack transtable, getModifedRegSet transtable, !callsAFunction)
     end (* codegen *)
 
-    (* Result functions.
+    (* Result function.
        gencodeLambda compiles a top-level function.  This cannot have free variables.  Instead
        we pass in the address of a one-word mutable cell that can be used as the closure for
        recursive calls. *)
     fun gencodeLambda({ name, body, argTypes, resultType, argLifetimes, localCount, ...}:bicLambdaForm, debugSwitches, closure) =
     let
         open Address
-        (* make the code buffer for the new function. *)
         val profileObject = createProfileObject name
         val newCode = codeCreate (name, profileObject, debugSwitches); 
 
@@ -2692,40 +2709,5 @@ struct
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
-
-
-    fun gencode (BICLambda lambda, debugSwitches, _) =
-        let
-            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
-            val () = gencodeLambda(lambda, debugSwitches, closure)
-        in
-            (* Result is a function which returns the address of the function. *)
-            (fn () => (Address.toMachineWord closure), [])
-        end
- 
-    |   gencode (pt, debugSwitches, localCount) =
-        let (* Compile a top-level expression. *)
-            val profileObject = createProfileObject "<top level>"
-            val newCode = codeCreate ("<top level>", profileObject, debugSwitches);
-
-            (* There should be *no* non-local references. *)
-            val (ops, maxStack, regList, callsAFunction) =
-                codegen 
-                    (pt,
-                    fn _ => raise InternalError "top level reached",
-                    0,  (* Discard regClosure *)
-                    [], [], (* No args. *) GeneralType, (* General result (if any?) *)
-                    localCount,
-                    profileObject,
-                    debugSwitches)
-            val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord codeAddr)
-            val () = Address.lock closure
-            (* Cast this as a function.  That's safe on X86 since we're going to be
-               passing the unit argument in a register. *)
-            val resultFunction: unit -> machineWord = RunCall.unsafeCast closure
-        in (* Result is a function to execute the code. *)
-            (resultFunction, [])
-        end (* gencode *)
 
 end; (* GCODE functor body *)

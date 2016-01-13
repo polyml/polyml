@@ -38,6 +38,7 @@ use "mlsource/MLCompiler/STRUCT_VALS.ML";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCodeSig.sml";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTreeSig.sml";
 use "mlsource/MLCompiler/CodeTree/CodetreeFunctionsSig.sml";
+use "mlsource/MLCompiler/CodeTree/CodegenTreeSig.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_FUNCTIONS.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_STATIC_LINK_AND_CASES.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml";
