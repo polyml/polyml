@@ -911,54 +911,21 @@ struct
                 (* Since the vector is immutable, we have to evaluate
                    all the values before we can allocate it. *)
                 val entries = List.map(fn h => genToStackOrGeneralRegister (h)) reclist
-                val asConstants = List.map(fn i => isConstant(i, transtable)) entries
+
+                fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
+
+                |   loadSmallVector (v::t, wordOffset) =
+                    let
+                        val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
+                        val moveCode = moveToVec (vec, v, wordOffset, transtable)
+                    in
+                        (vec, moveCode @ vecCode)
+                    end;
+                val (vec, code) = loadSmallVector(entries, 0)
+                val () = codeGenerate(code, cvec)
+                val () = codeGenerate(allocationComplete, cvec)
             in
-                if List.exists(not o isSome) asConstants
-                then
-                let
-                    fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
-
-                    |   loadSmallVector (v::t, wordOffset) =
-                        let
-                            val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
-                            val moveCode = moveToVec (vec, v, wordOffset, transtable)
-                        in
-                            (vec, moveCode @ vecCode)
-                        end;
-                    val (vec, code) = loadSmallVector(entries, 0)
-                    val () = codeGenerate(code, cvec)
-                    val () = codeGenerate(allocationComplete, cvec)
-                in
-                    MergeIndex vec
-                end
-                else
-                let
-                    (* The higher levels of the code generator attempt to remove tuples of
-                       constants but some still slip through.  One particular case that
-                       can't be handled in the higher levels is a tuple that contains a
-                       recursive reference.  That does occur with equality functions. *)
-                    (* Construct a mutable object and fill it in. *)
-                    val toFill = ref vecsize
-                    open Address
-                    val vec : address = alloc(toShort(toMachineWord vecsize), F_mutable_words, toMachineWord 0)
-
-                    (* Set the element in the address.  If this is a forward reference to a
-                       code segment it won't be called until the code has been completed. *)
-                    fun setItem (n: int) (_, addr: machineWord) =
-                    (
-                        assignWord(vec, toShort(toMachineWord n), addr);
-                        toFill := !toFill - 1;
-                        if !toFill = 0 then lock vec else ()
-                    )
-
-                    fun addItem(SOME lit, n) = (setItem n ((), lit); n+1)
-                    |   addItem(NONE, _) = raise InternalError "addItem: NotConst"
-                    val _ = List.foldl addItem 0 asConstants
-                    (* Remove the entries which aren't actually used. *)
-                    val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) entries
-                in
-                    MergeIndex(pushConst(transtable, toMachineWord vec))
-                end
+                MergeIndex vec
             end
         
         | BICContainer size =>
@@ -1164,16 +1131,42 @@ struct
     (* `mutualRecursive' is used for mutually recursive functions
        where a function may not be able to fill in its closure if it does
        not function address has been pushed but before the code is generated. *)
-    and genProc ({ closure=closureList, heapClosure, name=lambdaName, body=lambdaBody,
+    and genProc ({ closure=[], name=lambdaName, body=lambdaBody,
+                   argTypes, resultType, argLifetimes, localCount, ... },
+                 mutualRecursive: stackIndex -> unit, _) =
+        let
+            val profileObject = createProfileObject lambdaName
+            (* Create a one word item for the closure.  This is returned for recursive references
+               and filled in with the address of the code when we've finished. *)
+            val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
+            val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
+
+            fun previous (BICLoadRecursive, _, newtab) = (* load the address of the closure itself *)
+                    (pushConst(newtab, Address.toMachineWord closure), [])
+            |   previous (BICLoadClosure _, _, _) =
+                    raise InternalError "genProc: previous: NotConst"
+           |    previous _ = raise InternalError "previous: local"
+  
+            val (ops, maxStack, regList, callsAFunction) = 
+                    codegen (lambdaBody, previous,
+                        0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
+                        localCount, profileObject, debugSwitches)
+        
+            val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+            val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
+            val result = pushConst (transtable, Address.toMachineWord closure)
+            (* Handle any other recursive functions. *)
+            val () = mutualRecursive result
+        in
+            result
+        end
+
+    |   genProc ({ closure=closureList, heapClosure, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
                  mutualRecursive: stackIndex -> unit, whereto) =
-        (* Requires a closure but this may be a constant. *)
+
         let
-            (* Frequently the closure is actually empty but it may be that there are
-               values that are now constants.  This can occur if we are compiling an
-               inner function that contains a recursive reference to an outer function
-               and the outer function has an empty closure and is therefore a constant.
-               First try loading all the items of the closure.  If
+            (* First try loading all the items of the closure.  If
                there are mutually recursive references we may not be able to load them
                at this point.  *)
             fun loadClosure(c as BICExtract(BICLoadLocal addr, _)) =
@@ -1184,54 +1177,10 @@ struct
                     genToStackOrGeneralRegister (c)
             |   loadClosure c = genToStackOrGeneralRegister (c)
             val initialLocs = List.map loadClosure closureList
-            (* Extract any constants. *)
+            (* This could be simplied.  There shouldn't be any constants now. *)
             val constants =
                 List.map(fn i => if i = noIndex then NONE else isConstant(i, transtable)) initialLocs
             val nonConstCount = List.foldl(fn (NONE, n) => n+1 | (_, n) => n) 0 constants
-        in
-            if nonConstCount = 0
-            then (* All the entries that are there are constants.  We can avoid constructing a
-                    closure at run-time.  Instead we construct a single word item containing the address
-                    of the code that can be used if a full closure call is used.  As far as possible,
-                    though, calls to this function are made using the PureCode convention which
-                    bypasses the closure altogether.  That means that any constants that are there must be
-                    passed back via "previous". *)
-            let
-                val profileObject = createProfileObject lambdaName
-                (* Create a one word item for the closure.  This is returned for recursive references
-                   and filled in with the address of the code when we've finished. *)
-                val closure = Address.alloc(0w1, F_mutable_words, Address.toMachineWord 0w0)
-                val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
-
-                fun previous (BICLoadRecursive, _, newtab) = (* load the address of the closure itself *)
-                    (pushConst(newtab, Address.toMachineWord closure), [])
-                |   previous (BICLoadClosure locn, _, newtab) =
-                    (
-                        (* load a constant (item locn of the logical closure) *)
-                        case List.nth(constants, locn) of
-                            SOME lit => (pushConst (newtab, lit), [])
-                        |   NONE => raise InternalError "previous: NotConst"
-                    )
-               |    previous _ = raise InternalError "previous: local"
-          
-                val (ops, maxStack, regList, callsAFunction) = 
-                        codegen (lambdaBody, previous,
-                            0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
-                            localCount, profileObject, debugSwitches)
-                
-                val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-                val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
-                val result = pushConst (transtable, Address.toMachineWord closure)
-                (* Clear off the constant entries. *)
-                val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) initialLocs
-                (* Handle any other recursive functions. *)
-                val () = mutualRecursive result
-            in
-                result
-            end
-
-            else (* There's at least one non-constant so we're going to have to build a closure. *)
-            let
                 local
                     (* Convert the original index to a new index with the constants skipped. *)
                     fun makeIndex(NONE :: t, n) = SOME n :: makeIndex(t, n+1)
@@ -1241,167 +1190,166 @@ struct
                     val closureIndexes = Vector.fromList(makeIndex(constants, 1(*Starts from 1*)))
                 end
 
-                fun previous(BICLoadRecursive, makeSl, _) =
-                        makeSl () (* load the address of the closure itself *)
-                |   previous(BICLoadClosure locn, makeSl, newtab) =
+            fun previous(BICLoadRecursive, makeSl, _) =
+                    makeSl () (* load the address of the closure itself *)
+            |   previous(BICLoadClosure locn, makeSl, newtab) =
+                (
+                    case List.nth(constants, locn) of
+                        SOME lit => (pushConst (newtab, lit), [])
+                    |   NONE =>
+                        let
+                            val newLocn = valOf(Vector.sub(closureIndexes, locn))
+                            val (sl, closureCode) = makeSl() (* load the closure *)
+                            val (entry, indCode) = indirect(newLocn, sl, newtab) (* load value from the closure *)
+                        in
+                            (entry, indCode @ closureCode)
+                        end
+                )
+            |   previous(_, _, _) = raise InternalError "previous: local"
+
+            val profileObject = createProfileObject lambdaName
+            val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
+    
+            val (ops, maxStack, regList, callsAFunction) = (* code-gen function *)
+                codegen (lambdaBody, previous,
+                    closureRefs, argTypes, argLifetimes, resultType, localCount,
+                    profileObject, debugSwitches)
+
+            val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
+    
+            val res = Address.toMachineWord codeAddr
+
+            (* Build the closure.  If there are outstanding entries it has to be mutable and we
+               can't complete it until we've done the other mutually recursive entries.  *)
+            val incomplete = List.exists(fn i => i = noIndex) initialLocs
+        in
+            if heapClosure
+            then
+            let
+                val (vector, vecCode) =
+                    callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
+
+                val () = codeGenerate(vecCode, cvec)
+                (* First word is the address of the code. *)
+                val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
+                (* Put in everything else *)
+                fun fillClosure(index::indices, NONE::constEntries, n) =
+                    let
+                        val indexOrDummy =
+                            if index = noIndex
+                            then (* Recursive entry.  This has to be initialised to avoid problems if we GC
+                                    when allocating other closures. *)
+                                pushConst (transtable, DummyValue)
+                            else index
+                        val vecAddr = valOf(Vector.sub(closureIndexes, n))
+                    in
+                        codeGenerate(moveToVec(vector, indexOrDummy, vecAddr, transtable), cvec);
+                        fillClosure(indices, constEntries, n+1)
+                    end
+                |   fillClosure(index::indices, _::constEntries, n) =
                     (
-                        case List.nth(constants, locn) of
-                            SOME lit => (pushConst (newtab, lit), [])
-                        |   NONE =>
-                            let
-                                val newLocn = valOf(Vector.sub(closureIndexes, locn))
-                                val (sl, closureCode) = makeSl() (* load the closure *)
-                                val (entry, indCode) = indirect(newLocn, sl, newtab) (* load value from the closure *)
-                            in
-                                (entry, indCode @ closureCode)
-                            end
+                        (* It was a constant.  Remove it. *)
+                        codeGenerate(incrUseCount(transtable, index, ~1), cvec);
+                        fillClosure(indices, constEntries, n+1)
                     )
-                |   previous(_, _, _) = raise InternalError "previous: local"
+                |   fillClosure _ = ()
+                val () = fillClosure(initialLocs, constants, 0)
+                val () = codeGenerate(allocationComplete, cvec)
 
-                val profileObject = createProfileObject lambdaName
-                val newCode = codeCreate (lambdaName, profileObject, debugSwitches)
-        
-                val (ops, maxStack, regList, callsAFunction) = (* code-gen function *)
-                    codegen (lambdaBody, previous,
-                        closureRefs, argTypes, argLifetimes, resultType, localCount,
-                        profileObject, debugSwitches)
+                (* Have to ensure that the closure remains on the psuedo-stack until
+                   we've filled in all uses of it. The only references may be in the
+                   closures of other functions so it's possible that its use-count
+                   could be zero when `mutualRecursive' returns. Have to  increment
+                   the use-count and then decrement it afterwards to make sure it
+                    is still on the stack. *)
+                val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
 
-                val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-        
-                val res = Address.toMachineWord codeAddr
+                  (* Any mutually recursive references. *)
+                val () = mutualRecursive vector
 
-                (* Build the closure.  If there are outstanding entries it has to be mutable and we
-                   can't complete it until we've done the other mutually recursive entries.  *)
-                val incomplete = List.exists(fn i => i = noIndex) initialLocs
+                (* We should now be able to fill in the recursive references. *)
+                fun fillRecursive(index::indices, entry::entries, n) =
+                    (
+                        if index = noIndex (* Deferred entry*)
+                        then
+                        let
+                            val loadEntry = genToStack entry
+                            val addr = valOf(Vector.sub(closureIndexes, n))
+                            val moveCode = moveToVec(vector, loadEntry, addr, transtable)
+                        in
+                            codeGenerate(moveCode, cvec)
+                        end
+                        else ();
+                        fillRecursive(indices, entries, n+1)
+                    )
+                |   fillRecursive _ = ()
+
+                val () = fillRecursive(initialLocs, closureList, 0)
+            
+                val () =
+                    let
+                        (* Finally we can lock this. *)
+                        (* Increment the use count before the lock. *)
+                        val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
+                        val (lockCode, _) = lockVector(vector, transtable, NoResult)
+                    in
+                        codeGenerate(lockCode, cvec)
+                    end
+                (* Restore the use count *)
+                val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
             in
-                if heapClosure
-                then
-                let
-                    val (vector, vecCode) =
-                        callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
-
-                    val () = codeGenerate(vecCode, cvec)
-                    (* First word is the address of the code. *)
-                    val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
-                    (* Put in everything else *)
-                    fun fillClosure(index::indices, NONE::constEntries, n) =
-                        let
-                            val indexOrDummy =
-                                if index = noIndex
-                                then (* Recursive entry.  This has to be initialised to avoid problems if we GC
-                                        when allocating other closures. *)
-                                    pushConst (transtable, DummyValue)
-                                else index
-                            val vecAddr = valOf(Vector.sub(closureIndexes, n))
-                        in
-                            codeGenerate(moveToVec(vector, indexOrDummy, vecAddr, transtable), cvec);
-                            fillClosure(indices, constEntries, n+1)
-                        end
-                    |   fillClosure(index::indices, _::constEntries, n) =
-                        (
-                            (* It was a constant.  Remove it. *)
-                            codeGenerate(incrUseCount(transtable, index, ~1), cvec);
-                            fillClosure(indices, constEntries, n+1)
-                        )
-                    |   fillClosure _ = ()
-                    val () = fillClosure(initialLocs, constants, 0)
-                    val () = codeGenerate(allocationComplete, cvec)
-
-                    (* Have to ensure that the closure remains on the psuedo-stack until
-                       we've filled in all uses of it. The only references may be in the
-                       closures of other functions so it's possible that its use-count
-                       could be zero when `mutualRecursive' returns. Have to  increment
-                       the use-count and then decrement it afterwards to make sure it
-                        is still on the stack. *)
-                    val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-
-                      (* Any mutually recursive references. *)
-                    val () = mutualRecursive vector
-
-                    (* We should now be able to fill in the recursive references. *)
-                    fun fillRecursive(index::indices, entry::entries, n) =
-                        (
-                            if index = noIndex (* Deferred entry*)
-                            then
-                            let
-                                val loadEntry = genToStack entry
-                                val addr = valOf(Vector.sub(closureIndexes, n))
-                                val moveCode = moveToVec(vector, loadEntry, addr, transtable)
-                            in
-                                codeGenerate(moveCode, cvec)
-                            end
-                            else ();
-                            fillRecursive(indices, entries, n+1)
-                        )
-                    |   fillRecursive _ = ()
-
-                    val () = fillRecursive(initialLocs, closureList, 0)
-                
-                    val () =
-                        let
-                            (* Finally we can lock this. *)
-                            (* Increment the use count before the lock. *)
-                            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-                            val (lockCode, _) = lockVector(vector, transtable, NoResult)
-                        in
-                            codeGenerate(lockCode, cvec)
-                        end
-                    (* Restore the use count *)
-                    val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
-                in
-                    vector
-                end
-            else
-                let (* Stack closure *)
-                    (* Get the non-constant entries and release the constants. *)
-                    val nonConstEntries =
-                        ListPair.foldr (fn (index, NONE, l) => index :: l |
-                                           (index, _, l) => (codeGenerate(incrUseCount(transtable, index, ~1), cvec); l))
-                                    [] (initialLocs, constants)
-                    
-                    val (container, containerCode) =
-                        createStackClosure(transtable, pushConst (transtable, res) :: nonConstEntries)
-
-                    val () = codeGenerate(containerCode, cvec)
-                    (* Have to ensure that the closure remains on the psuedo-stack until
-                       we've filled in all uses of it. The only references may be in the
-                       closures of other functions so it's possible that its use-count
-                       could be zero when `mutualRecursive' returns. Have to  increment
-                       the use-count and then decrement it afterwards to make sure it
-                        is still on the stack. *)
-                    val () = codeGenerate(incrUseCount (transtable, container, 1), cvec)
-
-                      (* Any mutually recursive references. *)
-                    val () = mutualRecursive container
-
-                    (* We should now be able to fill in the recursive references. *)
-                    fun fillRecursive(index::indices, entry::entries, n) =
-                        (
-                            if index = noIndex (* Deferred entry*)
-                            then
-                            let
-                                val loadEntry = genToStack entry
-                                val addr = valOf(Vector.sub(closureIndexes, n))
-                                (* Move this into the stack. *)
-                                val moveCode =
-                                    setRecursiveClosureEntry(container, loadEntry, addr, transtable)
-                            in
-                                codeGenerate(moveCode, cvec)
-                            end
-                            else ();
-                            fillRecursive(indices, entries, n+1)
-                        )
-                    |   fillRecursive _ = ()
-
-                    val () = fillRecursive(initialLocs, closureList, 0)
-
-                    (* Restore the use count *)
-                    val () = codeGenerate(incrUseCount (transtable, container, ~1), cvec)
-                in
-                    container
-                end
+                vector
             end
-        end (* genProc *)
+        else
+            let (* Stack closure *)
+                (* Get the non-constant entries and release the constants. *)
+                val nonConstEntries =
+                    ListPair.foldr (fn (index, NONE, l) => index :: l |
+                                       (index, _, l) => (codeGenerate(incrUseCount(transtable, index, ~1), cvec); l))
+                                [] (initialLocs, constants)
+                
+                val (container, containerCode) =
+                    createStackClosure(transtable, pushConst (transtable, res) :: nonConstEntries)
+
+                val () = codeGenerate(containerCode, cvec)
+                (* Have to ensure that the closure remains on the psuedo-stack until
+                   we've filled in all uses of it. The only references may be in the
+                   closures of other functions so it's possible that its use-count
+                   could be zero when `mutualRecursive' returns. Have to  increment
+                   the use-count and then decrement it afterwards to make sure it
+                    is still on the stack. *)
+                val () = codeGenerate(incrUseCount (transtable, container, 1), cvec)
+
+                  (* Any mutually recursive references. *)
+                val () = mutualRecursive container
+
+                (* We should now be able to fill in the recursive references. *)
+                fun fillRecursive(index::indices, entry::entries, n) =
+                    (
+                        if index = noIndex (* Deferred entry*)
+                        then
+                        let
+                            val loadEntry = genToStack entry
+                            val addr = valOf(Vector.sub(closureIndexes, n))
+                            (* Move this into the stack. *)
+                            val moveCode =
+                                setRecursiveClosureEntry(container, loadEntry, addr, transtable)
+                        in
+                            codeGenerate(moveCode, cvec)
+                        end
+                        else ();
+                        fillRecursive(indices, entries, n+1)
+                    )
+                |   fillRecursive _ = ()
+
+                val () = fillRecursive(initialLocs, closureList, 0)
+
+                (* Restore the use count *)
+                val () = codeGenerate(incrUseCount (transtable, container, ~1), cvec)
+            in
+                container
+            end
+        end
 
     (* Generates test for if..then..else or while..do. Returns address of address field of jump.
        If jumpOn is true the jump is taken if the condition is true,
