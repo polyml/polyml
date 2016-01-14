@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=196
+NFiles=197
 
 File0=basis\Array.sml
 File1=basis\Array2.sml
@@ -200,3 +200,4 @@ File192=mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToX86Code.ML
 File193=mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML
 File194=mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML
 File195=mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml
+File196=mlsource\MLCompiler\CodeTree\CodegenTreeSig.sml

@@ -163,8 +163,6 @@ struct
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
-      completionHooks:                (* Functions to call when we have the final code address. *)
-        (code * machineWord -> unit) list ref,
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
       (* These next two are closely related but kept separate to avoid making big
          changes to the code.  They are only non-empty immediately after JumpLabel instructions.
@@ -173,7 +171,6 @@ struct
       justComeFrom:   labList ref,    (* The label we have just jumped from. *)
       justComeFromAddrs: addrs ref list ref, (* *)
       exited:         bool ref,       (* False if we can fall-through to here *)
-      noClosure:      bool,           (* should we make a closure from this? *)
       branchCheck:    addrs ref,      (* the address we last fixed up to.  I added
                                          this to track down a bug and I've left it
                                          in for security.  DCJM 19/1/01. *)
@@ -187,13 +184,6 @@ struct
     (* Exported functions *)
     fun procName       (Code {procName,...})       = procName
     and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
-
-    (* Add a function to be called when the code is complete and the final address
-       is known.  Called immediately if it has already been compiled. *)
-    fun addCompletionHook(code as Code{resultSeg = ref(Set seg), ...}, hookFn) =
-            hookFn(code, toMachineWord(csegAddr seg))
-    |   addCompletionHook(Code{completionHooks, ...}, hookFn) =
-            completionHooks := hookFn :: !completionHooks
 
   (* %ebp points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
@@ -226,7 +216,7 @@ struct
     fun sameCode(Code{ic=a, ...}, Code{ic=b, ...}) = a=b;
   
     (* create and initialise a code segment *)
-    fun codeCreate (noClosure : bool, name : string, profObj, parameters) : code =
+    fun codeCreate (name : string, profObj, parameters) : code =
     let
         val printStream = PRETTY.getSimplePrinter parameters;
     in
@@ -241,12 +231,10 @@ struct
             labelList      = ref [],
             longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
-            completionHooks= ref [],
             resultSeg      = ref Unset,   (* Not yet done *)
             justComeFrom   = ref [],
             justComeFromAddrs = ref [],
             exited         = ref false,
-            noClosure      = noClosure,
             branchCheck    = ref addrZero,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
@@ -980,51 +968,6 @@ SS-relative addressing modes:
 
     fun scSet (Set x) = x | scSet _ = raise InternalError "scSet";
 
-    (* Make a reference to another procedure. Usually this will be a forward reference but
-     it may have been compiled already, in which case we can put the code address in now. *)
-    fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
-    (* Already done. *) addConstToVec (WVal (toMachineWord(csegAddr seg)), isRel, into)
-
-    |   codeConst (r, isRel, into as Code{ic = ref constPosition, nonInlineConsts=ref nic, ...} ) = (* forward *)
-      (* Forward reference to other code or a recursive reference to this one.
-         Add a completion hook to the other code. *)
-        let
-            fun onCompletion(_, finalAddr) =
-            let
-                (* This is called after the forward reference is completed but also
-                   after this code, the one making the reference, has been completed. *)
-                val Code{numOfConsts, resultSeg = ref resultSeg, ic = ref endByte, ...} = into
-            in
-                (* Fix up the forward reference. *)
-                case isRel of
-                    InlineRelative =>
-                        csegPutConstant (scSet resultSeg, constPosition, finalAddr, true)
-                |   InlineAbsolute =>
-                        csegPutConstant (scSet resultSeg, constPosition, finalAddr, false)
-
-                |   NonAddrArea => raise InternalError "onCompletion: NonAddrArea"
-
-                |   ConstArea _ =>
-                    let
-                        val addrOfConst = endByte addrPlus (nic+1-1 + 2+1) * wordSize
-                        val seg         = scSet resultSeg
-                    in
-                        csegPutConstant (seg, addrOfConst, finalAddr, false);
-                        set32s(Word.toInt(addrOfConst - constPosition - 0w4), constPosition, seg)
-                    end;
-                (* decrement the "pending references" count *)
-                numOfConsts := !numOfConsts - 0w1;
-                (* If this function has no more references we can lock it. *)
-                if !numOfConsts = 0w0
-                then csegLock (scSet resultSeg)
-                else ()
-            end
-
-            val _ = addCompletionHook(r, onCompletion)
-        in
-            addConstToVec (CVal r, isRel, into)
-        end
-
    (* Removes a label from the list when it has been fixed up
       or converted to the long form. *)
    fun removeLabel (lab:addrs, Code{longestBranch, labelList, ... }) : unit = 
@@ -1690,7 +1633,6 @@ SS-relative addressing modes:
         Recursive           (* The function calls itself. *)
     |   ConstantClosure of machineWord (* A pre-compiled or io function. *)
     |   ConstantCode of machineWord (* A function that doesn't need a closure *)
-    |   CodeFun of code      (* Forward reference to code *)
     |   FullCall            (* Full closure call *)
   
 (*****************************************************************************
@@ -1739,30 +1681,6 @@ Calling conventions:
          
                 genop (Group5, NONE, cvec);
                 genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
-            )
-
-        |   CodeFun c =>
-            (
-                (* Make sure anything pending is done first. *)
-                doPending (cvec, maxInstrSize+3); 
-
-                if isX64
-                then
-                (
-                    align (0w0, cvec);
-                    genop (Group5, NONE, cvec);
-                    genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
-                    codeConst (c, ConstArea 0, cvec)
-                )
-                else
-                (
-    		        (* Ensure the return address is aligned on
-    		           a word + 2 byte boundary.  *)
-    		        align (0w1, cvec);
-		 
-    		        genop (CALL_32, NONE, cvec);
-    			    codeConst (c, InlineRelative, cvec)
-    		    )
             )
 
         |   ConstantCode w =>
@@ -1847,20 +1765,6 @@ Calling conventions:
             ( (* Full closure call *)
                 genop (Group5, NONE, cvec);
                 genmodrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure), cvec)
-            )
-      
-        |   CodeFun c =>
-            if isX64
-            then
-            (
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *), cvec);
-                codeConst (c, ConstArea 0, cvec)
-            )
-            else
-            (
-		        genop (JMP_32, NONE, cvec);
-			    codeConst (c, InlineRelative, cvec)
             )
 
         |   ConstantCode w =>
@@ -2116,7 +2020,6 @@ Calling conventions:
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
     |   LockMutableSegment of reg
     |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
-    |   LoadCodeRef of { output: reg, code: code }
     |   TestTagR of reg
     |   TestByteMem of { base: reg, offset: int, bits: word }
     |   CallRTS of int
@@ -2181,7 +2084,6 @@ Calling conventions:
         fun printCallKind Recursive = stream "Recursive"
         |   printCallKind (ConstantClosure w) = (stream "closure="; stream(stringOfWord w))
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
-        |   printCallKind (CodeFun(Code{procName, ...})) = stream("CODE-" ^ procName)
         |   printCallKind FullCall = stream "via ClosureReg"
      in
         case operation of
@@ -2299,9 +2201,6 @@ Calling conventions:
                 |   Index8 x => (stream " + "; printReg x; stream "*8 ");
                 stream " => "; printReg output
             )
-
-        |   LoadCodeRef { output, code=Code{procName, ...} } =>
-            ( stream "LoadCodeRef "; stream procName; stream " => "; printReg output )
 
         |   TestTagR reg => ( stream "TestTagR "; printReg reg )
         |   TestByteMem { base, offset, bits } =>
@@ -2710,17 +2609,6 @@ Calling conventions:
                 addConstToVec(WVal addr, InlineAbsolute, code);
                 cgOp remainder
             )
-
-        |   cgOp(LoadCodeRef{ code=refCode, output } :: remainder) =
-            let
-                val (rc, rx) = getReg output
-            in
-                addDests[output];
-                genop (MOVL_32_64_R rc,
-                        if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE, code);
-                codeConst(refCode, InlineAbsolute, code);
-                cgOp remainder
-            end
 
         |   cgOp(LoadAddress{ offset, base, index, output } :: remainder) =
             (
@@ -4011,8 +3899,7 @@ Calling conventions:
         val () = codeGenerate(operations, cvec)
 
         (* After code generation get the final values of some refs. *)
-        val Code{codeVec, noClosure,
-                 numOfConsts, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
+        val Code{codeVec, numOfConsts, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
                  resultSeg, procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
@@ -4132,32 +4019,7 @@ Calling conventions:
     
             (* Switch off "mutable" bit now if we have no
                forward or recursive references to fix-up *)
-            val _ = if ! numOfConsts = 0w0 then csegLock seg else ();
-  
-            (* Do we need to make a closure, or just return the code? *)
-            val addr : address =
-                if noClosure
-                then csegAddr seg
-                else
-                let
-                    val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg))
-                    (* Logically unnecessary; however the RTS currently allocates everything
-                       as mutable because Dave's code assumed that things were done this
-                       way and I'm not completely sure that everything that needs a mutable
-                       allocation actually asks for it yet.  *)
-                    val () = lock addr
-                in
-                    addr
-                end
-  
-            (* Now we know the address of this object we can fix up
-               any forward references outstanding. This is put in here
-               because there may be directly recursive references. *)
-            local
-                val Code{completionHooks=ref hooks, ...} = cvec
-            in
-                val () = List.app(fn f => f(cvec, toMachineWord addr)) hooks
-            end
+            val _ = if ! numOfConsts = 0w0 then csegLock seg else ()
 
             val () = 
                 if printAssemblyCode
@@ -4170,7 +4032,7 @@ Calling conventions:
                 )
             else ()
         in
-            addr 
+            csegAddr seg 
         end (* the result *)
     end (* copyCode *);
 

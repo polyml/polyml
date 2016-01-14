@@ -142,11 +142,21 @@ structure BACKENDTREE: BackendIntermediateCodeSig
 (*                  GCODE export signature                                   *)
 (*****************************************************************************)
 sig
-    type backendIC
-    type machineWord
-    val gencode:
-        backendIC * Universal.universal list * int -> ((unit -> machineWord) * Universal.universal list)
-    structure Sharing: sig type backendIC = backendIC end
+    type backendIC and argumentType and machineWord
+    type bicLambdaForm =
+    {
+        body          : backendIC,
+        name          : string,
+        closure       : backendIC list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        closureRefs   : int,
+        localCount    : int,
+        heapClosure   : bool,
+        argLifetimes  : int list
+    }
+    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
+    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
 end =
 
 let
@@ -477,7 +487,7 @@ struct
        | BICCase (cas as {cases, caseType, ...}) =>
          let
            val numberOfCases = List.length cases;
-            val (isExhaustive, min:int, max:int) =
+            val (_, min:int, max:int) =
                 case caseType of
                     CaseTag max => (true, 0, Word.toInt max)
                 |   _ =>
@@ -928,7 +938,7 @@ struct
      (* The exit jumps are chained together. *)
      val lastEndJump : labels ref = ref noJump;
 
-    val (isExhaustive, min:int, max:int) =
+    val (_, min:int, max:int) =
         case #caseType pt of
             CaseTag max => (true, 0, Word.toInt max)
         |   _ =>
@@ -1103,50 +1113,21 @@ struct
    copyCode cvec
  end (* codegen *);
 
-
-  fun gencode (pt: backendIC, parameters, _) : (unit -> machineWord) * Universal.universal list =
-    case pt of
-      BICLambda lam => (* We are compiling a function. *)
-      let
-        (* It is not essential to treat this specially, but it saves generating
-           a piece of code whose only function is to return the address of the
-           function. *)
+    fun gencodeLambda({ name, body, argLifetimes, ...}:bicLambdaForm, parameters, closure) =
+    let
         (* make the code buffer for the new function. *)
-        val newCode : code = codeCreate (false, #name lam, parameters);
+        val newCode : code = codeCreate (true, name, parameters)
 
         (* The only global references are recursive ones (?) *)
-        fun loadRecLink (_ : int, _ : int) : slValue =
-          Recursive newCode;
+        fun loadRecLink (_ : int, _ : int) : slValue = Recursive newCode
 
         (* This function must have no non-local references. *)
-        val closureAddr : address =
-          codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
-            
-        val res : machineWord = toMachineWord closureAddr;
-      in
-        (* Result is a function which returns the address of the function. *)
-        (fn () => res, [])
-      end
-      
-   | _ =>
-     let (* Compile a top-level expression. *)
-       val newCode : code = codeCreate(false, "<top level>", parameters);
-
-        (* There ane *no*  global references at all *)
-        fun loadRecLink (_ : int, _ : int) : slValue =
-          raise InternalError "top level reached";
-
-       val closureAddr : address =
-        codegen (pt, newCode, loadRecLink, 0, parameters)
-        (* Call this with callcode-tupled.  We mustn't cast it because the code does
-           not expect any arguments on the stack at all and that's not the same
-           as calling it with a single unit value. *)
-         val call: (Address.address * machineWord) -> machineWord =
-            RunCall.run_call1 RuntimeCalls.POLY_SYS_callcode_tupled
+        val codeAddr =
+            codegen (body, newCode, loadRecLink, List.length argLifetimes, parameters)
     in
-       (* Result is a function to execute the code. *)
-       (fn () => call (closureAddr, toMachineWord ()), [])
-     end; (* gencode *)
+        assignWord(closure, 0w0, toMachineWord codeAddr);
+        lock closure
+    end
 end (* GCODE functor body *)
 
 end; (* structure-level let *)
