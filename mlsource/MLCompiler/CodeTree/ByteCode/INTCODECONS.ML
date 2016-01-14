@@ -290,7 +290,7 @@ struct
     val opcode_containerW        = Opcode 4; (* Added DCJM 5/10/05. *)
     val opcode_delHandler        = Opcode 5;
     val opcode_jumpIFalse        = Opcode 7;
-    val opcode_set_containerW    = Opcode 8; (* Added DCJM 5/10/05. *)
+    (*val opcode_set_containerW    = Opcode 8;*) (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
     val opcode_caseSwitch        = Opcode 10;
     val opcode_callSl            = Opcode 11;
