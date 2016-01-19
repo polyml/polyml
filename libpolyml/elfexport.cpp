@@ -382,6 +382,10 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_AARCH64;
     directReloc = R_AARCH64_ABS64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_MIPS)
+    fhdr.e_machine = EM_MIPS;
+    directReloc = R_MIPS_32;
+    useRela = true;
 #else
 #error "No support for exporting on this architecture"
 #endif

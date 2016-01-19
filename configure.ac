@@ -447,6 +447,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
             polyarch=interpret
         ;;
+      mips)
+            AC_DEFINE([HOSTARCHITECTURE_MIPS], [1], [Define if the host is Mips (32-bit)])
+             polyarch=interpret
+        ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 

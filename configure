@@ -21811,6 +21811,12 @@ $as_echo "#define HOSTARCHITECTURE_IA64 1" >>confdefs.h
 
             polyarch=interpret
         ;;
+      mips)
+
+$as_echo "#define HOSTARCHITECTURE_MIPS 1" >>confdefs.h
+
+             polyarch=interpret
+        ;;
       *) as_fn_error $? "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 
