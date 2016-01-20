@@ -991,6 +991,7 @@ distcleancheck: distclean
 	       $(distcleancheck_listfiles) ; \
 	       exit 1; } >&2
 check-am: all-am
+	$(MAKE) $(AM_MAKEFLAGS) check-local
 check: check-recursive
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(HEADERS) config.h
 installdirs: installdirs-recursive
@@ -1105,10 +1106,10 @@ uninstall-am: uninstall-binPROGRAMS uninstall-dist_binSCRIPTS \
 
 uninstall-man: uninstall-man1
 
-.MAKE: $(am__recursive_targets) all install-am install-strip
+.MAKE: $(am__recursive_targets) all check-am install-am install-strip
 
 .PHONY: $(am__recursive_targets) CTAGS GTAGS TAGS all all-am \
-	am--refresh check check-am clean clean-binPROGRAMS \
+	am--refresh check check-am check-local clean clean-binPROGRAMS \
 	clean-cscope clean-generic clean-libtool clean-local cscope \
 	cscopelist-am ctags ctags-am dist dist-all dist-bzip2 \
 	dist-gzip dist-hook dist-lzip dist-shar dist-tarZ dist-xz \
@@ -1167,8 +1168,11 @@ clean-local:
 	rm -f *.obj polytemp.txt polyc
 
 # Run tests
-tests: all
+check-local: all
 	echo "val () = use \"$(srcdir)/Tests/RunTests\"; val () = OS.Process.exit(if runTests \"$(srcdir)/Tests\" then OS.Process.success else OS.Process.failure):unit;" | ./poly
+
+# Retain this target for backwards compatibility
+tests: check
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
