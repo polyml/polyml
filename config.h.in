@@ -563,6 +563,9 @@
 /* Define if the host is Itanium */
 #undef HOSTARCHITECTURE_IA64
 
+/* Define if the host is Mips (32-bit) */
+#undef HOSTARCHITECTURE_MIPS
+
 /* Define if the host is a Power PC (32 bit) */
 #undef HOSTARCHITECTURE_PPC
 

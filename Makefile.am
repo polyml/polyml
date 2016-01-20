@@ -135,6 +135,8 @@ clean-local:
 	rm -f *.obj polytemp.txt polyc
 
 # Run tests
-tests: all
+check-local: all
 	echo "val () = use \"$(srcdir)/Tests/RunTests\"; val () = OS.Process.exit(if runTests \"$(srcdir)/Tests\" then OS.Process.success else OS.Process.failure):unit;" | ./poly
 
+# Retain this target for backwards compatibility
+tests: check
