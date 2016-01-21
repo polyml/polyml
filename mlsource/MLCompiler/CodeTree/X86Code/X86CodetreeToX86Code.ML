@@ -18,41 +18,55 @@
 functor X86CodetreeToX86Code(
 
     structure BACKENDTREE: BackendIntermediateCodeSig
-    
-	structure X86CODE: X86CODESIG
 
-	structure X86OPTIMISE:
-	sig
-	    type operation
-	    type code
-	    type operations = operation list
+    structure X86CODE: X86CODESIG
 
-	    val optimise: code * operations -> operations
+    structure X86OPTIMISE:
+    sig
+        type operation
+        type code
+        type operations = operation list
 
-	    structure Sharing:
-	    sig
-	        type operation = operation
-	        type code = code
-	    end
-	end
+        val optimise: code * operations -> operations
+
+        structure Sharing:
+        sig
+            type operation = operation
+            type code = code
+        end
+    end
 
     structure DEBUG: DEBUGSIG
-    
+
     sharing X86CODE.Sharing = X86OPTIMISE.Sharing
 ):
 sig
-    type backendIC
-    type machineWord = Address.machineWord
-    val gencode: backendIC * Universal.universal list * int -> (unit -> machineWord) * Universal.universal list
-    structure Sharing: sig type backendIC = backendIC end
-end
-=
+    type backendIC and argumentType and machineWord
+    type bicLambdaForm =
+    {
+        body          : backendIC,
+        name          : string,
+        closure       : backendIC list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        closureRefs   : int,
+        localCount    : int,
+        heapClosure   : bool,
+        argLifetimes  : int list
+    }
+    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
+    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
+end =
 struct
     open X86CODE
     open BACKENDTREE
     open Address
+    exception InternalError = Misc.InternalError
 
-    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation;
+    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+
+    val argRegs = if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx]
+    val numArgRegs = List.length argRegs
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -64,8 +78,56 @@ struct
         uses := 1;
         ([ConditionalBranch{test=test, predict=predict, label=label}], label)
     end
+    
+    and uncondBranch() =
+    let
+        val label as Labels{uses, ...} = mkLabel()
+    in
+        uses := 1;
+        ([UncondBranch label], label)
+    end
+
+    and backJumpLabel() =
+    let
+        val loopLabel = mkLabel()
+    in
+        ([JumpLabel loopLabel], loopLabel)
+    end
 
     and forwardJumpLabel v = [JumpLabel v]
+
+    and jumpBackwards (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
+
+    fun loadMemory(reg, base, offset) =
+        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=reg}]
+    and loadStack(reg, offset) = loadMemory(reg, esp, offset)
+    and storeMemory(reg, base, offset) =
+        [StoreRegToMemory{toStore=reg, address=BaseOffset{base=base, offset=offset, index=NoIndex}}]
+
+    fun allocStore{size, flags, output} =
+    if isX64 andalso flags <> 0w0
+    then
+        [AllocStore{size=size, output=output},
+         StoreConstToMemory{toStore=size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+         StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}} ]
+    else
+    let
+        val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
+    in
+        [AllocStore{size=size, output=output},
+         StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}}]
+    end
+
+    val allocationComplete = [StoreInitialised]
+
+    fun createProfileObject _ (*functionName*) =
+    let
+        (* The profile object is a single mutable with the F_bytes bit set. *)
+        open Address
+        val profileObject = alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0);
+    in
+        toMachineWord profileObject
+    end
 
     local
         (* The stack limit register is set at least twice this far from the
@@ -113,26 +175,187 @@ struct
             createCodeSegment(X86OPTIMISE.optimise(cvec, preludeCode @ operations), registerSet, cvec)
         end
     end
-
-    fun codeFunctionToX86(code, localCount, context) =
+    
+    fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
+        val profileObject = createProfileObject name
+        val newCode = codeCreate (name, profileObject, debugSwitches)
         (* This gives the offset in the stack for each binding. *) 
-        val stackOffsetArray = Array.array(localCount, ~1)
-        val stackCount = ref 0
+        val stackOffsetArray = Array.array(localCount, NONE: int option)
+        val stackCount = ref 0 (* Count of number of items *)
+        val maxStack = ref 0
+
+        fun push reg =
+            (stackCount := ! stackCount + 1; maxStack := Int.max(!maxStack, !stackCount); [PushR reg])
+        and pop reg =
+            (stackCount := ! stackCount - 1; [PopR reg])
+        and resetStack oldStack =
+            if oldStack = ! stackCount then []
+            else if oldStack > ! stackCount then raise InternalError "resetStack"
+            else let val c = [ResetStack(! stackCount - oldStack)] in stackCount := oldStack; c end
+
+        (* Push the closure register and any arguments on entry. *)
+        val pushClosureReg = case closure of [] => [] | _ => push edx
+        val closureRegAddr = !stackCount
+
+        val numArgs = List.length argTypes
+        local
+            fun pushArg(argReg::argRegs, _::aTypes) =
+                push argReg @ pushArg(argRegs, aTypes)
+            |   pushArg _ = []
+        in
+            (* Push all the arguments that have been passed in registers. *)
+            val pushArgs = pushArg(argRegs, argTypes)
+        end
+
+        fun allocateHeap(size, flag, toReg) =
+        let
+            val addAllocatingFunction =
+                DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
+        in
+            (* If we need to add the profile object *)
+            if addAllocatingFunction
+            then
+                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg} @
+                    [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
+            else allocStore {size=size, flags=flag, output=toReg}
+        end
 
         (* This is a naive code-generator that simply evaluates everything to eax. *)
-        fun codeToX86(BICNewenv (bindings, exp), context) = raise Fail "TODO: BICNewenv"
+        fun codeToX86(BICNewenv (bindings, exp), context) =
+            let
+                val startStack = !stackCount
+                fun doBinding(BICDeclar{value, addr, ...}, l) =
+                    let
+                        val code = codeToX86(value, context)
+                        val pushR = push eax
+                        val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
+                    in
+                        l @ code @ pushR
+                    end
+
+                |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
+                    (* This should really happen but seems to occur at the moment. *)
+                    let
+                        val code = codeToX86(BICLambda lambda, context)
+                        val pushR = push eax
+                        val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
+                    in
+                        l @ code @ pushR
+                    end
+
+                |   doBinding(BICRecDecs decs, l) =
+                    let
+                        (* First build the closures as mutable cells containing zeros.  Set the
+                           entry in the address table to the address of the cell. *)
+                        fun buildClosure({lambda={closure, ...}, addr, ...}, l) =
+                        let
+                            val sizeClosure = List.length closure + 1
+                            val mem = allocStore{size=sizeClosure, flags=Address.F_mutable, output=eax}
+                            val pushR = push eax
+                            val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
+                            fun clearAll n =
+                                if n = sizeClosure
+                                then []
+                                else StoreConstToMemory{toStore=tag 0, address=BaseOffset{offset=n*wordSize, base=eax, index=NoIndex}} ::
+                                        clearAll (n+1)
+                            val clear = clearAll 0
+                        in
+                            l @ mem @ pushR @ clear @ allocationComplete
+                        end
+                        val allocClosures = List.foldl buildClosure [] decs
+                        (* Evaluate the closure entries, store them and lock the closure. *)
+                        fun setClosure({lambda as {closure, ...}, addr, ...}, l) =
+                        let
+                            val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                            (* Basically the same as tuple except we load the address of
+                               the closure we've made.  *)
+                            fun loadFields([], _) =
+                                    loadStack(eax, (!stackCount - valOf(Array.sub(stackOffsetArray, addr)))*wordSize)
+                            |   loadFields(f :: rest, n) =
+                                let
+                                    val code = codeToX86(f, context) @ push eax
+                                    val restAndAlloc = loadFields(rest, n+1)
+                                    val storeValue =
+                                        pop ebx @ storeMemory(ebx, eax, n * wordSize)
+                                in
+                                    code @ restAndAlloc @ storeValue
+                                end
+                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: closure, 0)
+                        in
+                            l @ setFields @ [LockMutableSegment eax]
+                        end
+                        val setClosures = List.foldl setClosure [] decs
+                    in
+                        l @ allocClosures @ setClosures
+                    end
+
+                |   doBinding(BICNullBinding exp, l) =
+                        l @ codeToX86(exp, context) (* And discard result. *)
+                val code =
+                    List.foldl doBinding [] bindings @ codeToX86(exp, context)
+            in
+                code @ resetStack startStack
+            end
 
         |   codeToX86(BICConstnt(value, _), _) =
                 if isShort value
                 then [MoveConstR{source=tag(Word.toIntX(toShort value)), output=eax}]
                 else [MoveLongConstR{source=value, output=eax}]
+
+        |   codeToX86(BICExtract(BICLoadLocal l, _(*lastRef*)), _) =
+                loadStack(eax, (!stackCount - valOf(Array.sub(stackOffsetArray, l)))*wordSize)
+
+        |   codeToX86(BICExtract(BICLoadArgument a, _(*lastRef*)), _) =
+            if a < numArgRegs
+            then (* It was originally in a register. *) loadStack(eax, (!stackCount - closureRegAddr - 1 - a)*wordSize)
+            else (* Pushed before call. *) loadStack(eax, (!stackCount + List.length argTypes - a)*wordSize)
+
+        |   codeToX86(BICExtract(BICLoadClosure c, _(*lastRef*)), _) =
+            (* N.B.  We need to add one to the closure entry because zero is the code address. *)
+            if c >= List.length closure then raise InternalError "BICExtract: closure"
+            else loadStack(eax, (!stackCount - closureRegAddr)*wordSize) @
+                    loadMemory(eax, eax, (c+1) * wordSize)
+
+        |   codeToX86(BICExtract(BICLoadRecursive, _(*lastRef*)), _) =
+            (
+                (* If the closure is empty we must use the constant.  We can't guarantee that
+                   the caller will actually load the closure register if it knows the closure
+                   is empty. *)
+                case closure of
+                    [] => [MoveLongConstR{source=toMachineWord(valOf closureOpt), output=eax}]
+                |   _ => loadStack(eax, (!stackCount - closureRegAddr)*wordSize)
+            )
+
+        |   codeToX86(BICField{base, offset}, context) =
+                codeToX86(base, context) @ loadMemory(eax, eax, offset * wordSize)
     
-        |   codeToX86(BICExtract(load, _(*lastRef*)), context) = raise Fail "TODO: BICExtract"
-    
-        |   codeToX86(BICField{base, offset}, context) = raise Fail "TODO: BICField"
-    
-        |   codeToX86(BICEval{function, argList, resultType}, context) = raise Fail "TODO: BICEval"
+        |   codeToX86(BICEval{function, argList, ...}, context) =
+            let
+                val startStack = !stackCount
+                (* Codegenerate the closure and the arguments and push everything to
+                   the stack. *)
+                val codeArgs =
+                    List.foldl(fn (arg, l) => l @ codeToX86(arg, context) @ push eax) []
+                        (function :: List.map #1 argList)
+                (* Load the earlier arguments into registers. *)
+                (* Load until we've done all the arguments or all the registers whichever is earlier. *)
+                fun loadArgRegs(_ :: args, argReg :: argRegs, argOffset) =
+                    loadStack(argReg, argOffset) @ loadArgRegs(args, argRegs, argOffset-wordSize)
+                |   loadArgRegs _ = []
+                val numArgs = List.length argList
+                val loadRegs = loadArgRegs(argList, argRegs, (numArgs-1)*wordSize)
+                (* The later arguments are already on the stack. *)
+                val loadClosure = loadStack(edx, numArgs*wordSize)
+                val callFunction = [CallFunction FullCall]
+                (* The caller will remove the stack arguments. *)
+                val numStackArgs =
+                    if numArgs > numArgRegs then numArgs - numArgRegs else 0
+                val () = stackCount := ! stackCount - numStackArgs
+                (* Remove the saved arguments. *)
+            in
+                codeArgs @ loadRegs @ loadClosure @ callFunction @ resetStack startStack
+            end
 
         |   codeToX86(BICBuiltIn(rtsNo, args), context) =
                 (* For the moment just call the RTS function. *)
@@ -140,15 +363,99 @@ struct
                     BICEval{function=BICConstnt(ioOp rtsNo, []),
                             argList = map (fn c => (c, GeneralType)) args, resultType=GeneralType}, context)
 
-        |   codeToX86(BICLambda lambda, context) = raise Fail "TODO: BICLambda"
+        |   codeToX86(BICLambda(lambda as { closure = [], ...}), _) =
+            (* Empty closure - create a constant closure for any recursive calls. *)
+            let
+                val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+                val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
+                open Address
+            in
+                assignWord(closure, 0w0, toMachineWord codeAddr);
+                lock closure;
+                [MoveLongConstR{source=toMachineWord closure, output=eax}]
+            end
 
-        |   codeToX86(BICCond(test, thenPt, elsePt), context) = raise Fail "TODO: BICCond"
+        |   codeToX86(BICLambda(lambda as { closure, ...}), context) =
+            (* Non-empty closure.  Ignore stack closure option at the moment. *)
+            let
+                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+            in
+                (* Treat it as a tuple with the code as the first field. *)
+                codeToX86(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: closure), context)
+            end
+
+        |   codeToX86(BICCond(test, thenPt, elsePt), context) =
+            let
+                val startStack = ! stackCount
+                val testCode = codeToX86(test, context)
+                val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 }
+                val (condJump, startElse) = condBranch(JE, PredictNeutral)
+                val (skipToEnd, endIf) = uncondBranch()
+                val thenCode = codeToX86(thenPt, context)
+                val _ = !stackCount = startStack orelse raise InternalError "Check stack- then"
+                val elseCode = codeToX86(elsePt, context)
+                val _ = !stackCount = startStack orelse raise InternalError "Check stack- else"
+            in
+                (* Evaluate the test.  See if it is zero and go to ELSE if it is.
+                   If non-zero execute the then-part and branch to the end.  If it
+                   is zero execute the else-part. *)
+                testCode @ [testIt] @ condJump @ thenCode @ skipToEnd @
+                    forwardJumpLabel startElse @ elseCode @ forwardJumpLabel endIf
+            end
 
         |   codeToX86(BICCase{ cases, test, caseType, default}, context) = raise Fail "TODO: BICCase"
 
-        |   codeToX86(BICBeginLoop{loop, arguments}, context) = raise Fail "TODO: BICBeginLoop"
+        |   codeToX86(BICBeginLoop{loop, arguments}, context) =
+            let
+                val startStack = !stackCount
+                (* Evaluate the arguments and push them to the stack. *)
+                fun pushArg(({addr, value, ...}, _), l) =
+                let
+                    val code = codeToX86(value, context)
+                    val pushR = push eax
+                    val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
+                in
+                    l @ code @ pushR
+                end
 
-        |   codeToX86(BICLoop args, context) = raise Fail "TODO: BICLoop"
+                val pushLoop = List.foldl pushArg [] arguments
+                val (startLoopCode, startLoop) = backJumpLabel()
+                val loopBody = codeToX86(loop, {loopAddr=SOME {startStack=startStack, startLoop=startLoop}})
+            in
+                pushLoop @ startLoopCode @ loopBody @ resetStack startStack
+            end
+
+        |   codeToX86(BICLoop args, context as {loopAddr=SOME {startStack=startStack, startLoop=startLoop}, ...}) =
+            let
+                (* Evaluate the arguments and push them to the stack.  Then pop them off
+                   and store them to the loop argument locations. *)
+                val nArgs = List.length args
+                val loopStart = ! stackCount
+                fun evalArgs [] = []
+                |   evalArgs((arg, _) :: argRest) =
+                    let
+                        val codeArg = codeToX86(arg, context) @ push eax
+                        val codeRest = evalArgs argRest
+                        val popArg = pop eax
+                        (* The offset here does not depend on the number of args or the count
+                           because as we pop each argument we move sp so that the offset for each
+                           argument is the same *)
+                        val storeArg = storeMemory(eax, esp, (loopStart - startStack - 1)*wordSize)
+                    in
+                        codeArg @ codeRest @ popArg @ storeArg
+                    end
+                val codeArgs = evalArgs args
+                (* We may be inside a newEnv block with items pushed.  We have to remove
+                   them before we jump back.  We don't use resetStack because that changes
+                   stackCount and messes up our checks. *)
+                val reset = [ResetStack(!stackCount - (startStack+nArgs))]
+            in
+                (* Finally jump back to the start of the loop. *)
+                codeArgs @ reset @ jumpBackwards startLoop
+            end
+
+        |   codeToX86(BICLoop _, {loopAddr=NONE, ...}) =
+                raise InternalError "BICLoop without BICBeginLoop"
 
         |   codeToX86(BICKillItems{expression, ...}, context) =
                 codeToX86(expression, context)
@@ -158,24 +465,121 @@ struct
 
         |   codeToX86(BICLdexc, _) = [] (* Do nothing - the packet is in eax. *)
 
-        |   codeToX86(BICHandle{exp, handler}, context) = raise Fail "TODO: BICHandle"
+        |   codeToX86(BICHandle{exp, handler}, context) =
+            let
+                fun storeToHandler reg =
+                    [StoreRegToMemory{
+                        toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
+                val startStack = ! stackCount
+                val pushCurrentHandler = [PushMem{base=ebp, offset=memRegHandlerRegister}]
+                val () = stackCount := ! stackCount + 1
+                val labelRef = ref addrZero
+                (* Load the address of the handler into a register. *)
+                val loadCode = [LoadHandlerAddress{ handlerLab=labelRef, output=eax}]
+                (* Push the address of the start of the handler. *)
+                val pushR = push eax
+                (* Set the handler to the current stack pointer. *)
+                val setCurrentHandler = storeToHandler esp
+                (* Process the expression to be "handled". *)
+                val codeExp = codeToX86(exp, context)
+                (* Pop the handler and restore the old handler. *)
+                val restoreHandle =
+                    resetStack(startStack+1) @ pop eax @ storeToHandler eax
+                (* Jump round the handler code. *)
+                val (skipHandler, toExit) = uncondBranch()
 
-        |   codeToX86(BICTuple fields, context) = raise Fail "TODO: BICTuple"
+                (* Start of handler.  Set the label, reload esp from the handler register, remove the handler
+                   address and restore old handler. *)
+                val startHandler =
+                    [StartHandler{handlerLab=labelRef},
+                     LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp },
+                     LoadMemR{ source=BaseOffset{base=esp, offset=wordSize, index=NoIndex}, output=ebx }, ResetStack 2] @
+                    storeToHandler ebx
+                val codeHandler = codeToX86(handler, context)
+            in
+                pushCurrentHandler @ loadCode @ pushR @ setCurrentHandler @ codeExp @ restoreHandle @
+                skipHandler @ startHandler @ codeHandler @ forwardJumpLabel toExit
+            end
 
-        |   codeToX86(BICContainer size, context) = raise Fail "TODO: BICContainer"
+        |   codeToX86(BICTuple fields, context) =
+            let
+                (* Generate the fields and push to the stack. *)
+                fun loadFields([], n) =
+                        allocateHeap(n, 0w0, eax)
+                |   loadFields(f :: rest, n) =
+                    let
+                        val code = codeToX86(f, context) @ push eax
+                        val restAndAlloc = loadFields(rest, n+1)
+                        val storeValue =
+                            pop ebx @ storeMemory(ebx, eax, n * wordSize)
+                    in
+                        code @ restAndAlloc @ storeValue
+                    end
+            in
+                loadFields(fields, 0) @ allocationComplete
+            end
 
-        |   codeToX86(BICSetContainer{container, tuple, filter}, context) = raise Fail "TODO: BICSetContainer"
+        |   codeToX86(BICContainer size, _) =
+            (* Reserve a section of memory on the stack.  It must be zeroed. *)
+            let
+                fun pushZero 0 = []
+                |   pushZero n = PushConst(tag 0) :: pushZero(n-1)
+                val pushAll = pushZero size
+                val () = stackCount := !stackCount + size
+            in
+                pushAll @ [MoveRR{source=esp, output=eax}]
+            end
 
-        |   codeToX86(BICTagTest{test, tag, maxTag}, context) = raise Fail "TODO: BICBuiltIn"
+        |   codeToX86(BICSetContainer{container, tuple, filter}, context) =
+            let
+                val containerAddr = codeToX86(container, context)
+                val pushC = push eax
+                val tupleAddr = codeToX86(tuple, context)
+                val loadContainer = pop ebx
+                (* The source (tuple) address is in eax and the destination (container) address in ebx.
+                   Copy the required fields using ecx as a work register. *)
+                fun copyContainer(sourceWord, destWord) =
+                    if sourceWord = BoolVector.length filter
+                    then []
+                    else if BoolVector.sub(filter, sourceWord)
+                    then
+                    let
+                        val loadSource = loadMemory(ecx, eax, sourceWord*wordSize)
+                        val storeDest = storeMemory(ecx, ebx, destWord*wordSize)
+                    in
+                        loadSource @ storeDest @ copyContainer(sourceWord+1, destWord+1)
+                    end
+                    else copyContainer(sourceWord+1, destWord)
+            in
+                containerAddr @ pushC @ tupleAddr @ loadContainer @ copyContainer(0, 0)
+            end
 
+        |   codeToX86(BICTagTest{test, tag, ...}, context) =
+            let
+                (* Convert this into a simple equality function. *)
+                val code =
+                    BICEval {
+                        function = BICConstnt(ioOp RuntimeCalls.POLY_SYS_word_eq, []),
+                        argList=[(test, GeneralType), (BICConstnt(Address.toMachineWord tag, []), GeneralType)],
+                        resultType=GeneralType }
+            in
+                codeToX86 (code, context)
+            end
+
+        val ops =
+            pushClosureReg @ pushArgs @ codeToX86(body, {loopAddr=NONE}) @
+                [ResetStack(!stackCount), ReturnFromFunction(Int.max(0, numArgs-numArgRegs))]
     in
-        codeToX86(code, context)
+        buildCode (newCode, ops, ! maxStack, (*regList*)RegSet.allRegisters, (*callsAFunction*) true)
     end
 
-    fun gencode(code, debugSwitches, localCount) =
+    fun gencodeLambda(lambda, debugSwitches, closure) =
     let
-        val ops = codeFunctionToX86(code, localCount, {debugSwitches=debugSwitches})
+        val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
+        open Address
     in
-        raise Fail "TODO"
+        assignWord(closure, 0w0, toMachineWord codeAddr);
+        lock closure
     end
+
 end;
