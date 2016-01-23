@@ -98,6 +98,48 @@ struct
 
     and jumpBackwards (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
 
+    and indexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive } =
+    let
+        val defaultLab as Labels{uses=defUses, ...} = mkLabel()
+        fun makeLab _ =
+        let
+            val lab as Labels{uses, ...} = mkLabel()
+        in
+            uses := 1;
+            lab
+        end
+        val indexLabels =
+            List.tabulate(Word.toInt(maxCase-minCase+0w1), makeLab)
+        val testCode =
+            if isExhaustive
+            then []
+            else
+            let
+                (* If this is an arbitrary precision int we need to check it's short
+                   and go to the default if it isn't. *)
+                val testTag =
+                    if isArbitrary
+                    then
+                    (
+                        defUses := 3;
+                        [TestTagR testReg,
+                         ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLab}]
+                    )
+                    else (defUses := 2; [])
+                (* Range checks. *)
+                val range1 =
+                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) },
+                     ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab}]
+                val range2 =
+                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt maxCase) },
+                     ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab}]
+            in
+                testTag @ range1 @ range2
+            end
+        val code = testCode @ [IndexedCase{testReg=testReg, workReg=workReg, min=minCase, cases=indexLabels}]
+    in
+        (code, indexLabels, defaultLab)
+    end
     fun loadMemory(reg, base, offset) =
         [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=reg}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
@@ -235,7 +277,7 @@ struct
                     end
 
                 |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
-                    (* This should really happen but seems to occur at the moment. *)
+                    (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
                     let
                         val code = codeToX86(BICLambda lambda, context)
                         val pushR = push eax
@@ -403,10 +445,114 @@ struct
                     forwardJumpLabel startElse @ elseCode @ forwardJumpLabel endIf
             end
 
-        |   codeToX86(BICCase{ cases, test, caseType, default}, context) = raise Fail "TODO: BICCase"
+        |   codeToX86(BICCase{ cases, test, caseType, default}, context) =
+            let (* Indexed case.  This is produced from if-then-else. *)
+                
+                (* Sort the cases into ascending order.  It's possible that we may have
+                   duplicates if this came from an if-then-else construction so we
+                   need to retain the ordering for items with the same case label. *)
+                (* TODO: This should be done in the higher level. *)
+                local
+                    val labelCount = List.length cases
+                    (* Add an extra field before sorting which retains the ordering for
+                       equal labels. *)
+                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                        if w1 = w2 then n1 <= n2 else w1 < w2
+                    val sorted = List.map #1 (Misc.quickSort leq ordered)
+                    (* Filter out any duplicates. *)
+                    fun filter [] = []
+                    |   filter [p] = [p]
+                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                            if lab1 = lab2
+                            then p :: filter tl
+                            else p :: filter (q :: tl)
+                in
+                    val cases = filter sorted
+                end
+
+                val (isExhaustive, min, max) =
+                    case caseType of
+                        CaseTag max => (true, 0w0, max)
+                    |   _ =>
+                        let
+                            val (_, aLabel) = hd cases
+                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                        in
+                            (false, min, max)
+                        end
+                (* The value to test. *)
+                val testValue = codeToX86(test, context)
+
+                (* Check the range and branch into the table. *)
+                val (indexCaseInstr, caseLabels, defaultLabel) =
+                    indexedCase{testReg=eax, workReg=ebx, minCase=min, maxCase=max, 
+                            isArbitrary = case caseType of CaseInt => true | _ => false,
+                            isExhaustive=isExhaustive}
+
+                (* Put in the default case.  Even when the case is exhaustive one entry is
+                   always treated as a default and not included in the list of cases. *)
+                local
+                    val startDefault = forwardJumpLabel defaultLabel
+                    (* Go down the list of cases and fix up any default labels to come here.
+                       Default entries are represented by "holes" in the case list. *)
+                    fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
+                        if indexVal = caseLabel
+                        then genDefaults(indexVal+0w1, labelList, cps)
+                        else forwardJumpLabel label @
+                            genDefaults(indexVal+0w1, labelList, cl)
+
+                    |   genDefaults(indexVal, label :: labelList, []) =
+                            forwardJumpLabel label @
+                            genDefaults(indexVal+0w1, labelList, [])
+
+                    |   genDefaults(_, [], _) = []
+                    
+                    val otherDefaults = genDefaults(min, caseLabels, cases)
+                    
+                    val defaultCode = codeToX86(default, context)
+                    
+                    val (branchCode, lab) = uncondBranch()
+                in
+                    val defaultCode = startDefault @ otherDefaults @ defaultCode @ branchCode
+                    val exitDefault = lab
+                end
+
+                (* Generate the cases. *)
+                fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps) =
+                    if indexVal <> caseLabel
+                    then (* We have a hole.  Skip this item. *)
+                        genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps)
+                    else (* The index value corresponds to a label. *)
+                    let
+                        val startCode = forwardJumpLabel label
+
+                        (* Generate this case. *)
+                        val expCode = codeToX86(caseExp, context)
+                    in
+                        if null cps
+                        then (*  Finished. *) startCode @ expCode
+                        else
+                        let
+                            val (branchCode, lab) = uncondBranch()
+                            val otherCases = genCases(indexVal+0w1, labelList, cps)
+                            val fixUp = forwardJumpLabel lab
+                        in
+                            startCode @ expCode @ branchCode @ otherCases @ fixUp
+                        end
+                    end
+                | genCases _ = raise InternalError "genCase - null case list"
+
+                val caseResult = genCases(min, caseLabels, cases)
+            in
+                testValue @ indexCaseInstr @ defaultCode @ caseResult @ forwardJumpLabel exitDefault
+            end
 
         |   codeToX86(BICBeginLoop{loop, arguments}, context) =
-            let
+            let (* Begin a loop.  This is produced from tail-recursive inline functions.  The loop variables
+                   are initialised and the loop is entered.  There will be at least one Loop instruction
+                   which computes new values for the loop variables and jumps back to the start. *)
                 val startStack = !stackCount
                 (* Evaluate the arguments and push them to the stack. *)
                 fun pushArg(({addr, value, ...}, _), l) =
@@ -482,9 +628,10 @@ struct
                 val setCurrentHandler = storeToHandler esp
                 (* Process the expression to be "handled". *)
                 val codeExp = codeToX86(exp, context)
+                (* We have our result in eax so we mustn't use it here. *)
                 (* Pop the handler and restore the old handler. *)
                 val restoreHandle =
-                    resetStack(startStack+1) @ pop eax @ storeToHandler eax
+                    resetStack(startStack+1) @ pop ebx @ storeToHandler ebx
                 (* Jump round the handler code. *)
                 val (skipHandler, toExit) = uncondBranch()
 
