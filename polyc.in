@@ -43,9 +43,9 @@ link()
 {
     if [ X"$2" = "X" ]
     then
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -L${LIBDIR} -Wl,-R${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -L${LIBDIR} -Wl,-rpath,${LIBDIR} -lpolymain -lpolyml ${LIBS}
     else
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" -L${LIBDIR} -Wl,-R${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" -L${LIBDIR} -Wl,-rpath,${LIBDIR} -lpolymain -lpolyml ${LIBS}
     fi
 }
 

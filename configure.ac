@@ -141,7 +141,7 @@ AC_PATH_X
 if test "x${with_x}" = "xyes"; then
 
     AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
-    
+
     if test "$x_includes" != "" ; then
     if test  "$x_includes" != "NONE" ; then
         CFLAGS="$CFLAGS -I$x_includes"
@@ -157,7 +157,7 @@ if test "x${with_x}" = "xyes"; then
     AC_CHECK_LIB(X11, XCreateGC)
     AC_CHECK_LIB(Xt, XtMalloc)
     AC_CHECK_LIB(Xext, XextAddDisplay)
-    
+
     if test "$xm_includes" != "" ; then
     if test "$xm_includes" != "NONE" ; then
         CFLAGS="$CFLAGS -I$xm_includes"
@@ -250,8 +250,8 @@ if test "x$with_system_libffi" = "xyes"; then
                      [ AC_MSG_FAILURE([--with-system-libffi was given, but ffi.h header file cannot be found]) ])
              ],
              [AC_MSG_FAILURE([--with-system-libffi was given, but the ffi library is not installed])]
-       ) 
-       ] 
+       )
+       ]
     )
 else
 # Use internal libffi
@@ -416,33 +416,41 @@ AC_ARG_ENABLE([native-codegeneration],
 
 case "${host_cpu}" in
       i[[3456]]86*)
-            AC_DEFINE([HOSTARCHITECTURE_X86], [1], [Define if the host is an X86 (32 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_X86], [1], [Define if the host is an X86 (32-bit)])
             polyarch=i386
             ;;
       x86_64* | amd64*)
-            AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
             polyarch=x86_64
             ;;
       sparc*)
-            AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32-bit)])
+            polyarch=interpret
+            ;;
+      powerpc64* | ppc64*)
+            AC_DEFINE([HOSTARCHITECTURE_PPC64], [1], [Define if the host is a PowerPC (64-bit)])
             polyarch=interpret
             ;;
       power* | ppc*)
-            AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a PowerPC (32-bit)])
             polyarch=interpret
             ;;
       arm*)
-            AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32-bit)])
             polyarch=interpret
             ;;
       aarch64*)
-            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64 bit)])
+            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
             polyarch=interpret
             ;;
       ia64*)
-            AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
+            AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is an Itanium])
             polyarch=interpret
-        ;;
+            ;;
+      mips*)
+            AC_DEFINE([HOSTARCHITECTURE_MIPS], [1], [Define if the host is a MIPS (32-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 

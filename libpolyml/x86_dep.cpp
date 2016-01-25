@@ -382,11 +382,311 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
 
+    // The entry points to assembly code functions.
+    extern byte CallPOLY_SYS_exit, CallPOLY_SYS_chdir, alloc_store, alloc_uninit, raisex,
+        get_length_a, CallPOLY_SYS_get_flags, str_compare, teststrgtr, teststrlss,
+        teststrgeq, teststrleq, CallPOLY_SYS_exception_trace_fn, locksega, CallPOLY_SYS_network,
+        CallPOLY_SYS_os_specific, eq_longword, neq_longword, geq_longword, leq_longword, gt_longword,
+        lt_longword,  CallPOLY_SYS_io_dispatch, CallPOLY_SYS_signal_handler, atomic_reset, atomic_increment,
+        atomic_decrement, thread_self, CallPOLY_SYS_thread_dispatch, plus_longword, minus_longword,
+        mul_longword, div_longword, mod_longword, andb_longword, orb_longword, xorb_longword,
+        CallPOLY_SYS_kill_self, shift_left_longword, shift_right_longword, shift_right_arith_longword,
+        CallPOLY_SYS_profiler, longword_to_tagged, signed_to_longword, unsigned_to_longword,
+        CallPOLY_SYS_full_gc, CallPOLY_SYS_stack_trace, CallPOLY_SYS_timing_dispatch, CallPOLY_SYS_objsize,
+        CallPOLY_SYS_showsize, quotrem_long, is_shorta, add_long, sub_long, mult_long, div_long, rem_long,
+        neg_long, xor_long, equal_long, or_long, and_long, CallPOLY_SYS_Real_str, real_geq, real_leq,
+        real_gtr, real_lss, real_eq, real_neq, CallPOLY_SYS_Real_Dispatch, real_add, real_sub, real_mul,
+        real_div, real_abs, real_neg, CallPOLY_SYS_conv_real, CallPOLY_SYS_real_to_int, real_from_int,
+        CallPOLY_SYS_sqrt_real, CallPOLY_SYS_sin_real, CallPOLY_SYS_cos_real, CallPOLY_SYS_arctan_real,
+        CallPOLY_SYS_exp_real, CallPOLY_SYS_ln_real, CallPOLY_SYS_process_env, set_string_length_a,
+        get_first_long_word_a, CallPOLY_SYS_poly_specific, bytevec_eq, cmem_load_asm_8, cmem_load_asm_16,
+        cmem_load_asm_32, cmem_load_asm_float, cmem_load_asm_double, cmem_store_asm_8, cmem_store_asm_16,
+        cmem_store_asm_32,  cmem_store_asm_float,  cmem_store_asm_double,  CallPOLY_SYS_io_operation,
+        CallPOLY_SYS_ffi,  move_words, CallPOLY_SYS_set_code_constant, move_words, shift_right_arith_word,
+        int_to_word,  move_bytes, CallPOLY_SYS_code_flags, CallPOLY_SYS_shrink_stack,
+        CallPOLY_SYS_callcode_tupled, CallPOLY_SYS_foreign_dispatch, CallPOLY_SYS_XWindows, is_big_endian,
+        bytes_per_word,  offset_address,  shift_right_word,  word_neq,  not_bool,  string_length,
+        touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
+        div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
+        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word;
+#ifdef HOSTARCHITECTURE_X86_64
+        extern byte cmem_load_asm_64, cmem_store_asm_64;
+#endif
 };
 
 // GCC doesn't seem to like these inside the brackets above.
-extern "C" POLYUNSIGNED entryPointVector[];
 extern "C" int registerMaskVector[];
+
+// This vector could perfectly well be in x86asm.asm except that it would be more
+// complicated to make the code position independent.  Mac OS X wants PIC for dynamic
+// libraries.
+static byte *entryPointVector[256] =
+{
+    0,
+    &CallPOLY_SYS_exit, // 1
+    0, // 2 is unused
+    0, // 3 is unused
+    0, // 4 is unused
+    0, // 5 is unused
+    0, // 6 is unused
+    0, // 7 is unused
+    0, // 8 is unused
+    &CallPOLY_SYS_chdir, // 9
+    0, // 10 is unused
+    &alloc_store, // 11
+    &alloc_uninit, // 12
+    0, // 13 is unused
+    &raisex, // raisex = 14
+    &get_length_a, // 15
+    0, // 16 is unused
+    &CallPOLY_SYS_get_flags, // 17
+    0, // 18 is no longer used
+    0, // 19 is no longer used
+    0, // 20 is no longer used
+    0, // 21 is unused
+    0, // 22 is unused
+    &str_compare, // 23
+    0, // 24 is unused
+    0, // 25 is unused
+    &teststrgtr, // 26
+    &teststrlss, // 27
+    &teststrgeq, // 28
+    &teststrleq, // 29
+    0, // 30
+    0, // 31 is no longer used
+    &CallPOLY_SYS_exception_trace_fn, // 32
+    0, // 33 - exception trace
+    0, // 34 is no longer used
+    0, // 35 is no longer used
+    0, // 36 is no longer used
+    0, // 37 is unused
+    0, // 38 is unused
+    0, // 39 is unused
+    0, // 40 is unused
+    0, // 41 is unused
+    0, // 42
+    0, // 43
+    0, // 44 is no longer used
+    0, // 45 is no longer used
+    0, // 46
+    &locksega, // 47
+    0, // nullorzero = 48
+    0, // 49 is no longer used
+    0, // 50 is no longer used
+    &CallPOLY_SYS_network, // 51
+    &CallPOLY_SYS_os_specific, // 52
+    &eq_longword, // 53
+    &neq_longword, // 54
+    &geq_longword, // 55
+    &leq_longword, // 56
+    &gt_longword, // 57
+    &lt_longword, // 58
+    0, // 59 is unused
+    0, // 60 is unused
+    &CallPOLY_SYS_io_dispatch, // 61
+    &CallPOLY_SYS_signal_handler, // 62
+    0, // 63 is unused
+    0, // 64 is unused
+    0, // 65 is unused
+    0, // 66 is unused
+    0, // 67 is unused
+    0, // 68 is unused
+    &atomic_reset, // 69
+    &atomic_increment, // 70
+    &atomic_decrement, // 71
+    &thread_self, // 72
+    &CallPOLY_SYS_thread_dispatch, // 73
+    &plus_longword, // 74
+    &minus_longword, // 75
+    &mul_longword, // 76
+    &div_longword, // 77
+    &mod_longword, // 78
+    &andb_longword, // 79
+    &orb_longword, // 80
+    &xorb_longword, // 81
+    0, // 82 is unused
+    0, // 83 is now unused
+    &CallPOLY_SYS_kill_self, // 84
+    &shift_left_longword, // 85
+    &shift_right_longword, // 86
+    &shift_right_arith_longword, // 87
+    &CallPOLY_SYS_profiler, // 88
+    &longword_to_tagged, // 89
+    &signed_to_longword, // 90
+    &unsigned_to_longword, // 91
+    &CallPOLY_SYS_full_gc, // 92
+    &CallPOLY_SYS_stack_trace, // 93
+    &CallPOLY_SYS_timing_dispatch, // 94
+    0, // 95 is unused
+    0, // 96 is unused
+    0, // 97 is unused
+    0, // 98 is unused
+    &CallPOLY_SYS_objsize, // 99
+    &CallPOLY_SYS_showsize, // 100
+    0, // 101 is unused
+    0, // 102 is unused
+    0, // 103 is unused
+    &quotrem_long, // 104
+    &is_shorta, // 105
+    &add_long, // 106
+    &sub_long, // 107
+    &mult_long, // 108
+    &div_long, // 109
+    &rem_long, // 110
+    &neg_long, // 111
+    &xor_long, // 112
+    &equal_long, // 113
+    &or_long, // 114
+    &and_long, // 115
+    0, // 116 is unused
+    &CallPOLY_SYS_Real_str, // 117
+    &real_geq, // 118
+    &real_leq, // 119
+    &real_gtr, // 120
+    &real_lss, // 121
+    &real_eq, // 122
+    &real_neq, // 123
+    &CallPOLY_SYS_Real_Dispatch, // 124
+    &real_add, // 125
+    &real_sub, // 126
+    &real_mul, // 127
+    &real_div, // 128
+    &real_abs, // 129
+    &real_neg, // 130
+    0, // 131 is unused
+    0, // 132 is no longer used
+    &CallPOLY_SYS_conv_real, // 133
+    &CallPOLY_SYS_real_to_int, // 134
+    &real_from_int, // 135
+    &CallPOLY_SYS_sqrt_real, // 136
+    &CallPOLY_SYS_sin_real, // 137
+    &CallPOLY_SYS_cos_real, // 138
+    &CallPOLY_SYS_arctan_real, // 139
+    &CallPOLY_SYS_exp_real, // 140
+    &CallPOLY_SYS_ln_real, // 141
+    0, // 142 is no longer used
+    0, // 143 is unused
+    0, // 144 is unused
+    0, // 145 is unused
+    0, // 146 is unused
+    0, // 147 is unused
+    0, // stdin = 148
+    0, // stdout = 149
+    &CallPOLY_SYS_process_env, // 150
+    &set_string_length_a, // 151
+    &get_first_long_word_a, // 152
+    &CallPOLY_SYS_poly_specific, // 153
+    &bytevec_eq, // 154
+    0, // 155 is unused
+    0, // 156 is unused
+    0, // 157 is unused
+    0, // 158 is unused
+    0, // 159 is unused
+    &cmem_load_asm_8, // 160
+    &cmem_load_asm_16, // 161
+    &cmem_load_asm_32, // 162
+#ifdef HOSTARCHITECTURE_X86_64
+    &cmem_load_asm_64, // 163
+#else
+    0, // 163
+#endif
+    &cmem_load_asm_float, // 164
+    &cmem_load_asm_double, // 165
+    &cmem_store_asm_8, // 166
+    &cmem_store_asm_16, // 167
+    &cmem_store_asm_32, // 168
+#ifdef HOSTARCHITECTURE_X86_64
+    &cmem_store_asm_64, // 169
+#else
+    0, // 169
+#endif
+    &cmem_store_asm_float, // 170
+    &cmem_store_asm_double, // 171
+    0, // 172 is unused
+    0, // 173 is unused
+    0, // 174 is unused
+    0, // 175 is unused
+    0, // 176 is unused
+    0, // 177 is unused
+    0, // 178 is unused
+    0, // 179 is unused
+    0, // 180 is unused
+    0, // 181 is unused
+    0, // 182 is unused
+    0, // 183 is unused
+    0, // 184 is unused
+    0, // 185 is unused
+    0, // 186 is unused
+    0, // 187 is unused
+    0, // 188 is unused
+    &CallPOLY_SYS_io_operation, // 189
+    &CallPOLY_SYS_ffi, // 190
+    0, // 191 is no longer used
+    0, // 192 is unused
+    &move_words, // move_words_overlap = 193
+    &CallPOLY_SYS_set_code_constant, // 194
+    &move_words, // 195
+    &shift_right_arith_word, // 196
+    &int_to_word, // 197
+    &move_bytes, // 198
+    &move_bytes, // move_bytes_overlap = 199
+    &CallPOLY_SYS_code_flags, // 200
+    &CallPOLY_SYS_shrink_stack, // 201
+    0, // stderr = 202
+    0, // 203 now unused
+    &CallPOLY_SYS_callcode_tupled, // 204
+    &CallPOLY_SYS_foreign_dispatch, // 205
+    0, // 206 - foreign null
+    0, // 207 is unused
+    0, // 208 now unused
+    &CallPOLY_SYS_XWindows, // 209
+    0, // 210 is unused
+    0, // 211 is unused
+    0, // 212 is unused
+    &is_big_endian, // 213
+    &bytes_per_word, // 214
+    &offset_address, // 215
+    &shift_right_word, // 216
+    &word_neq, // 217
+    &not_bool, // 218
+    0, // 219 is unused
+    0, // 220 is unused
+    0, // 221 is unused
+    0, // 222 is unused
+    &string_length, // 223
+    0, // 224 is unused
+    0, // 225 is unused
+    0, // 226 is unused
+    0, // 227 is unused
+    &touch_final, // 228
+    0, // 229 is no longer used
+    0, // 230 is no longer used
+    &int_geq, // 231
+    &int_leq, // 232
+    &int_gtr, // 233
+    &int_lss, // 234
+    &load_byte, // load_byte_immut = 235
+    &load_word, // load_word_immut = 236
+    0, // 237 is unused
+    &mul_word, // 238
+    &plus_word, // 239
+    &minus_word, // 240
+    &div_word, // 241
+    &or_word, // 242
+    &and_word, // 243
+    &xor_word, // 244
+    &shift_left_word, // 245
+    &mod_word, // 246
+    &word_geq, // 247
+    &word_leq, // 248
+    &word_gtr, // 249
+    &word_lss, // 250
+    &word_eq, // 251
+    &load_byte, // 252
+    &load_word, // 253
+    &assign_byte, // 254
+    &assign_word
+};
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
@@ -2281,7 +2581,7 @@ void X86Dependent::InitInterfaceVector(void)
     for (int i = 0; i < POLY_SYS_vecsize; i++)
     {
         if (entryPointVector[i] != 0)
-            add_word_to_io_area(i, PolyWord::FromUnsigned(entryPointVector[i]));
+            add_word_to_io_area(i, PolyWord::FromCodePtr(entryPointVector[i]));
     }
 
     // Entries for special cases.  These are generally, but not always, called from

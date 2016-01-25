@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-6 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -825,6 +825,15 @@ bool PImport::DoImport()
 
                         do ch = getc(f); while (ch == ' ');
                     }
+                }
+                // Adjust the byte count.  This is only necessary when importing the interpreted
+                // code into a machine with a different endian-ness from the exporter.
+                {
+                    POLYUNSIGNED l = 0;
+                    while (l < length && p->Get(l) != PolyWord::FromUnsigned(0)) l++;
+                    ASSERT(l < length);
+                    l++;
+                    p->Set(l, PolyWord::FromUnsigned(l*sizeof(PolyWord)));
                 }
                 break;
             }
