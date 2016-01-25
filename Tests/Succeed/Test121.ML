@@ -2,7 +2,7 @@
    and compiled code. *)
 fun check x = if x then () else raise Fail "Wrong";
 open IEEEReal;
-setRoundingMode(TO_POSINF);
+setRoundingMode(TO_POSINF) handle Fail _ => raise Fail "Skip Test";
 check(getRoundingMode() = TO_POSINF);
 val pos = 1.0/3.0;
 check(pos * 3.0 > 1.0);
