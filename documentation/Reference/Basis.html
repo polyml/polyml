@@ -404,9 +404,12 @@ structure <a name="Bool"></a>Bool: BOOL</pre>
 </div>
 <div class="entryblock"> 
   <pre class="entrycode">signature <a name="INTEGER"></a>INTEGER
+signature <a name="INT_INF"></a>INT_INF
+structure <a name="Int"></a>Int: INTEGER
 structure <a name="LargeInt"></a>LargeInt: INTEGER
 structure <a name="Position"></a>Position: INTEGER
-structure <a name="IntInf"></a>IntInf: INTEGER</pre>
+structure <a name="Int32"></a>Position: INTEGER
+structure <a name="IntInf"></a>IntInf: INT_INF</pre>
   <div class="entrytext">
     <p><tt>Int</tt>, <tt>LargeInt</tt> and <tt>Position</tt> are the same structure 
       and provide operations on type <tt>int</tt>. In Poly/ML that is an 
@@ -414,6 +417,9 @@ structure <a name="IntInf"></a>IntInf: INTEGER</pre>
       integers. <tt>IntInf</tt> provides additional functions, such as logical 
       operations on integers. Note: there are functions to compute LCM and GCD 
       in <a href="PolyMLStructure.html#IntInf"><span class="identifier">PolyML.IntInf</span></a>.</p>
+	  
+    <p><span class="identifier">Int32</span> provides a fixed precision 32-bit 
+      integer</p>
   </div>
 </div>
 <div class="entryblock"> 
@@ -494,6 +500,13 @@ structure <a name="Substring"></a>Substring: SUBSTRING</pre>
   </div>
 </div>
 <div class="entryblock"> 
+  <pre class="entrycode">signature <a name="TEXT"></a>TEXT
+structure <a name="Text"></a>Text: TEXT</pre>
+  <div class="entrytext">
+    <p>The Text structure collects together various structures related to characters.</p>
+  </div>
+</div>
+<div class="entryblock"> 
   <pre class="entrycode">signature <a name="LIST"></a>LIST
 signature <a name="LIST_PAIR"></a>LIST_PAIR
 structure <a name="List"></a>List: LIST
@@ -546,6 +559,30 @@ structure <a name="RealArray2"></a>RealArray2: MONO_ARRAY2</pre>
   </div>
 </div>
 <div class="entryblock"> 
+  <pre class="entrycode">signature <a name="VECTOR_SLICE"></a>VECTOR_SLICE
+signature <a name="ARRAY_SLICE"></a>ARRAY_SLICE
+structure <a name="VectorSlice"></a>VectorSlice: VECTOR_SLICE
+structure <a name="ArraySlice"></a>ArraySlice: ARRAY_SLICE</pre>
+  <div class="entrytext">
+    <p>Polymorphic subvectors and subarrays.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="MONO_VECTOR_SLICE"></a>MONO_VECTOR_SLICE
+signature <a name="MONO_ARRAY_SLICE"></a>MONO_ARRAY_SLICE
+structure <a name="Word8VectorSlice"></a>Word8VectorSlice: MONO_VECTOR_SLICE
+structure <a name="CharVectorSlice"></a>CharVectorSlice: MONO_VECTOR_SLICE
+structure <a name="IntVectorSlice"></a>IntVectorSlice: MONO_VECTOR_SLICE
+structure <a name="RealVectorSlice"></a>RealVectorSlice: MONO_VECTOR_SLICE
+structure <a name="Word8ArraySlice"></a>Word8ArraySlice: MONO_ARRAY_SLICE
+structure <a name="CharArraySlice"></a>CharArraySlice: MONO_ARRAY_SLICE
+structure <a name="IntArraySlice"></a>IntArraySlice: MONO_ARRAY_SLICE
+structure <a name="RealArraySlice"></a>RealArraySlice: MONO_ARRAY_SLICE</pre>
+  <div class="entrytext">
+    <p>Monomorphic subvectors and subarrays.</p>
+  </div>
+</div>
+<div class="entryblock"> 
   <pre class="entrycode">signature <a name="BYTE"></a>BYTE
 structure <a name="Byte"></a>Byte: BYTE</pre>
   <div class="entrytext">
@@ -585,12 +622,12 @@ structure <a name="Timer"></a>Timer: TIMER</pre>
 </div>
 <div class="entryblock"> 
   <pre class="entrycode">signature <a name="PACK_WORD"></a>PACK_WORD
-structure <a name="Pack8Big"></a>Pack8Big: PACK_WORD
-structure <a name="Pack8Little"></a>Pack8Little: PACK_WORD
-structure <a name="Pack16Big"></a>Pack16Big: PACK_WORD
-structure <a name="Pack16Little"></a>Pack16Little: PACK_WORD
-structure <a name="Pack32Big"></a>Pack32Big: PACK_WORD
-structure <a name="Pack32Little"></a>Pack32Little: PACK_WORD
+structure <a name="PackWord8Big"></a>PackWord8Big: PACK_WORD
+structure <a name="PackWord8Little"></a>PackWord8Little: PACK_WORD
+structure <a name="PackWord16Big"></a>PackWord16Big: PACK_WORD
+structure <a name="PackWord16Little"></a>PackWord16Little: PACK_WORD
+structure <a name="PackWord32Big"></a>PackWord32Big: PACK_WORD
+structure <a name="PackWord32Little"></a>PackWord32Little: PACK_WORD
 signature <a name="PACK_REAL"></a>PACK_REAL
 structure <a name="PackRealBig"></a>PackRealBig: PACK_REAL
 structure <a name="PackRealLittle"></a>PackRealLittle: PACK_REAL</pre>
@@ -677,6 +714,16 @@ structure <a name="OS"></a>OS: OS</pre>
   functions to terminate the current ML program with various results, examine 
   the environment and to run sub-processes. <tt>OS.IO</tt> provides the 
   ability to poll a set of file descriptors.</p>
+  </div>
+</div>
+<div class="entryblock"> 
+  <pre class="entrycode">signature <a name="COMMAND_LINE"></a>COMMAND_LINE
+structure <a name="CommandLine"></a>CommandLine: COMMAND_LINE</pre>
+  <div class="entrytext">
+    <p><span class="identifier">CommandLine</span> provides access to the command 
+      line arguments. Note that the Poly/ML run-time system recognises and removes 
+      various arguments and these are not included in the arguments available 
+      to the ML program.</p>
   </div>
 </div>
 <div class="entryblock"> 
