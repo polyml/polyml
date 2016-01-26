@@ -6,6 +6,8 @@ let
 
     fun runTests (dirName, expectSuccess) =
     let
+        datatype test_result = TEST_PASS | TEST_FAIL | TEST_SKIP;
+
         (* Run a file.  Returns true if it succeeds, false if it fails. *)
         fun runTest fileName =
         let
@@ -79,6 +81,7 @@ let
             (* The tests in the Fail directory should all raise exceptions
                in the compiler as a result of detecting errors. *)
             exception CompilerException
+            exception SkipTestException
         in
             (
                 while not (TextIO.StreamIO.endOfStream(!stream)) do
@@ -90,14 +93,18 @@ let
                         PolyML.compiler(getChar, [CPOutStream discardOut, CPNameSpace localNameSpace])
                             handle Fail "Static Errors" => raise CompilerException
                 in
-                    code()
+                    code() handle Fail "Skip Test" => raise SkipTestException
                 end;
                 (* Normal termination: close the stream. *)
                 TextIO.StreamIO.closeIn (! stream);
-                expectSuccess (* OK if we expected success. *)
+                if expectSuccess then TEST_PASS else TEST_FAIL (* OK if we expected success. *)
             ) handle
-                CompilerException => (TextIO.StreamIO.closeIn(!stream); not expectSuccess)
-                | exn => (TextIO.StreamIO.closeIn(!stream); false)
+                CompilerException => (
+                    TextIO.StreamIO.closeIn(!stream);
+                    if expectSuccess then TEST_FAIL else TEST_PASS
+                )
+                | SkipTestException => (TextIO.StreamIO.closeIn(!stream); TEST_SKIP)
+                | exn => (TextIO.StreamIO.closeIn(!stream); TEST_FAIL)
 
         end;
 
@@ -112,9 +119,10 @@ let
                 then
                 (
                     print f; print " => ";
-                    if runTest(joinDirFile{dir=testPath, file=f})
-                    then (print "Passed\n"; runDir fails)
-                    else (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
+                    case runTest(joinDirFile{dir=testPath, file=f}) of
+                        TEST_PASS => (print "Passed\n"; runDir fails)
+                    |   TEST_FAIL => (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
+                    |   TEST_SKIP => (print "Skipped\n"; runDir fails)
                 )
                 else runDir fails
         val failedTests = runDir []
