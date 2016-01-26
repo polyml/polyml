@@ -553,7 +553,6 @@ TryAgain: // Used for various retries.
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             int proto = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned long onOff = 1;
             SOCKET skt = socket(af, type, proto);
             if (skt == INVALID_SOCKET)
             {
@@ -574,8 +573,10 @@ TryAgain: // Used for various retries.
             }
             /* Set the socket to non-blocking mode. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+            unsigned long onOff = 1;
             if (ioctlsocket(skt, FIONBIO, &onOff) != 0)
 #else
+            int onOff = 1;
             if (ioctl(skt, FIONBIO, &onOff) < 0)
 #endif
             {
@@ -759,12 +760,13 @@ TryAgain: // Used for various retries.
     case 44: /* Find number of bytes available. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            unsigned long readable;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+            unsigned long readable;
             if (ioctlsocket(strm->device.sock, FIONREAD, &readable) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
+            int readable;
             if (ioctl(strm->device.sock, FIONREAD, &readable) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
@@ -774,12 +776,13 @@ TryAgain: // Used for various retries.
     case 45: /* Find out if we are at the mark. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            unsigned long atMark;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+            unsigned long atMark;
             if (ioctlsocket(strm->device.sock, SIOCATMARK, &atMark) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
+            int atMark;
             if (ioctl(strm->device.sock, SIOCATMARK, &atMark) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif

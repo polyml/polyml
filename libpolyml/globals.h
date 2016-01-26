@@ -399,7 +399,7 @@ typedef PolyException poly_exn;
 class StreamToken: public PolyObject
 {
 public:
-    unsigned    streamNo;
+    POLYUNSIGNED streamNo;
 };
 
 /* Macro to round a number of bytes up to a number of words. */
