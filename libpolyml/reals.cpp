@@ -310,7 +310,11 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     }
         
     /* Now convert it */
+#ifdef HAVE_STRTOD
+    result = strtod(string_buffer, &finish);
+#else
     result = poly_strtod(string_buffer, &finish);
+#endif
     bool isError = *finish != '\0'; // Test before deallocating
     free(string_buffer);
     // We no longer detect overflow and underflow and instead return

@@ -2541,6 +2541,7 @@ retlow1:
     }
 #endif /* NO_STRTOD_BIGCOMP */
 
+#ifndef HAVE_STRTOD
  double
 poly_strtod
 #ifdef KR_headers
@@ -3613,6 +3614,8 @@ poly_strtod
         *se = (char *)s;
     return sign ? -dval(&rv) : dval(&rv);
     }
+
+#endif // HAVE_STRTOD
 
 #ifndef MULTIPLE_THREADS
  static char *dtoa_result;
