@@ -2558,7 +2558,7 @@ poly_strtod
     U aadj2, adj, rv, rv0;
     ULong y, z;
     BCinfo bc;
-    Bigint *bb=0, *bb1, *bd=0, *bd0, *bs=0, *delta=0;
+    Bigint *bb, *bb1, *bd, *bd0, *bs, *delta;
 #ifdef Avoid_Underflow
     ULong Lsb, Lsb1;
 #endif
@@ -2630,7 +2630,7 @@ poly_strtod
     for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++)
         if (nd < 9)
             y = 10*y + c - '0';
-        else if (nd < 16)
+        else if (nd < DBL_DIG + 2)
             z = 10*z + c - '0';
     nd0 = nd;
     bc.dp0 = bc.dp1 = s - s0;
@@ -2680,11 +2680,11 @@ poly_strtod
                 for(i = 1; i < nz; i++)
                     if (nd++ < 9)
                         y *= 10;
-                    else if (nd <= DBL_DIG + 1)
+                    else if (nd <= DBL_DIG + 2)
                         z *= 10;
                 if (nd++ < 9)
                     y = 10*y + c;
-                else if (nd <= DBL_DIG + 1)
+                else if (nd <= DBL_DIG + 2)
                     z = 10*z + c;
                 nz = nz1 = 0;
                 }
@@ -2773,7 +2773,7 @@ poly_strtod
 
     if (!nd0)
         nd0 = nd;
-    k = nd < DBL_DIG + 1 ? nd : DBL_DIG + 1;
+    k = nd < DBL_DIG + 2 ? nd : DBL_DIG + 2;
     dval(&rv) = y;
     if (k > 9) {
 #ifdef SET_INEXACT
@@ -3472,8 +3472,7 @@ poly_strtod
                     goto undfl;
 #else
                     {
-                    if (bc.nd > nd)
-                        bc.dsign = 1;
+                    req_bigcomp = 1;
                     break;
                     }
 #endif
@@ -3767,7 +3766,7 @@ poly_dtoa
     int denorm;
     ULong x;
 #endif
-    Bigint *b, *b1, *delta, *mlo=0, *mhi, *S;
+    Bigint *b, *b1, *delta, *mlo, *mhi, *S;
     U d2, eps, u;
     double ds;
     char *s, *s0;
