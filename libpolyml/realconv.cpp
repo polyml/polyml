@@ -721,6 +721,7 @@ multadd
     return b;
     }
 
+#ifndef HAVE_STRTOD
  static Bigint *
 s2b
 #ifdef KR_headers
@@ -758,6 +759,8 @@ s2b
         b = multadd(b, 10, *s++ - '0');
     return b;
     }
+
+#endif // HAVE_STRTOD
 
  static int
 hi0bits
@@ -1214,6 +1217,8 @@ diff
     return c;
     }
 
+#ifndef HAVE_STRTOD
+
  static double
 ulp
 #ifdef KR_headers
@@ -1325,6 +1330,8 @@ b2d
 #endif
     return dval(&d);
     }
+
+#endif // HAVE_STRTOD
 
  static Bigint *
 d2b
@@ -1460,6 +1467,7 @@ d2b
 #undef d0
 #undef d1
 
+#ifndef HAVE_STRTOD
  static double
 ratio
 #ifdef KR_headers
@@ -1500,6 +1508,7 @@ ratio
 #endif
     return dval(&da) / dval(&db);
     }
+#endif // HAVE_STRTOD
 
  static CONST double
 tens[] = {
@@ -1604,6 +1613,7 @@ static unsigned char hexdig[256] = {
 #define NAN_WORD1 0
 #endif
 
+#ifndef HAVE_STRTOD
  static int
 match
 #ifdef KR_headers
@@ -1693,6 +1703,8 @@ hexnan
     }
 #endif /*No_Hex_NaN*/
 #endif /* INFNAN_CHECK */
+
+#endif // HAVE_STRTOD
 
 #ifdef Pack_32
 #define ULbits 32
@@ -2309,6 +2321,8 @@ quorem
     return q;
     }
 
+#ifndef HAVE_STRTOD
+
 #if defined(Avoid_Underflow) || !defined(NO_STRTOD_BIGCOMP) /*{*/
  static double
 sulp
@@ -2541,7 +2555,6 @@ retlow1:
     }
 #endif /* NO_STRTOD_BIGCOMP */
 
-#ifndef HAVE_STRTOD
  double
 poly_strtod
 #ifdef KR_headers
@@ -3759,7 +3772,7 @@ poly_dtoa
     */
 
     int bbits, b2, b5, be, dig, i, ieps, ilim, ilim0, ilim1,
-        j, j1, k, k0, k_check, leftright, m2, m5, s2, s5,
+        j, j1=0, k, k0, k_check, leftright, m2, m5, s2, s5,
         spec_case, try_quick;
     Long L;
 #ifndef Sudden_Underflow
