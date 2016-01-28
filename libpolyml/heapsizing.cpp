@@ -576,8 +576,8 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     if (sizeMin < minForAllocation) sizeMin = minForAllocation;
 
     double costMin = costFunction(sizeMin, withSharing, true);
-    if (costMin < userGCRatio)
-        // If the cost of the minimum is below the target we
+    if (costMin <= userGCRatio)
+        // If the cost of the minimum is below or at the target we
         // use that and don't need to look further.
         isBounded = true;
     else
@@ -599,7 +599,7 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
                 sizeMin = sizeNext;
                 costMin = cost;
             }
-            ASSERT(costMin > userGCRatio);
+            ASSERT(costMin >= userGCRatio);
         }
     }
     ASSERT(sizeMin >= minHeapSize && sizeMin <= maxHeapSize);
