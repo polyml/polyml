@@ -548,8 +548,9 @@ TryAgain: // Used for various retries.
     case 14: /* Create a socket */
         {
             Handle str_token = make_stream_entry(taskData);
+            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             PIOSTRUCT strm;
-            unsigned stream_no = STREAMID(str_token);
+            POLYUNSIGNED stream_no = STREAMID(str_token);
             int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             int proto = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
@@ -798,18 +799,17 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(args->WordP());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             else {
-                SOCKET sock = strm->device.sock, result;
+                SOCKET sock = strm->device.sock;
                 struct sockaddr resultAddr;
-                socklen_t addrLen;
                 Handle addrHandle, pair;
-                Handle str_token;
                 PIOSTRUCT newStrm;
                 /* Get a token for the new socket - may raise an
                    exception if it fails. */
-                str_token = make_stream_entry(taskData);
-                unsigned stream_no = STREAMID(str_token);
-                addrLen = sizeof(resultAddr);
-                result = accept(sock, &resultAddr, &addrLen);
+                Handle str_token = make_stream_entry(taskData);
+                if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                POLYUNSIGNED stream_no = STREAMID(str_token);
+                socklen_t addrLen = sizeof(resultAddr);
+                SOCKET result = accept(sock, &resultAddr, &addrLen);
 
                 if (result == INVALID_SOCKET)
                 {
@@ -1184,7 +1184,9 @@ TryAgain: // Used for various retries.
 #else
         {
             Handle str_token1 = make_stream_entry(taskData);
+            if (str_token1 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             Handle str_token2 = make_stream_entry(taskData);
+            if (str_token2 == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             Handle pair;
             PIOSTRUCT strm1, strm2;
             unsigned stream_no1 = STREAMID(str_token1);

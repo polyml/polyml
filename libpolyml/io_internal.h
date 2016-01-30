@@ -106,7 +106,7 @@ class TaskData;
 extern PIOSTRUCT get_stream(PolyObject *obj);
 
 extern Handle make_stream_entry(TaskData *mdTaskData);
-extern void free_stream_entry(unsigned stream_no);
+extern void free_stream_entry(POLYUNSIGNED stream_no);
 extern void close_stream(PIOSTRUCT str);
 
 extern PIOSTRUCT basic_io_vector;

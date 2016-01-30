@@ -255,7 +255,7 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
 
 #endif
 
-static unsigned max_streams;
+static POLYUNSIGNED max_streams;
 
 /* If we try opening a stream and it fails with EMFILE (too many files
    open) we may be able to recover by garbage-collecting and closing some
@@ -326,7 +326,7 @@ Handle make_stream_entry(TaskData *taskData)
    deleted if there is a garbage collection (Entries in the stream vector
    itself are "weak". */ 
 {
-    unsigned stream_no;
+    POLYUNSIGNED stream_no;
 
     ioLock.Lock();
     // Find an unused entry.
@@ -337,10 +337,12 @@ Handle make_stream_entry(TaskData *taskData)
     /* Check we have enough space. */
     if (stream_no >= max_streams)
     { /* No space. */
-        int oldMax = max_streams;
+        POLYUNSIGNED oldMax = max_streams;
         max_streams += max_streams/2;
-        basic_io_vector =
+        PIOSTRUCT newVector =
             (PIOSTRUCT)realloc(basic_io_vector, max_streams*sizeof(IOSTRUCT));
+        if (newVector == NULL) return NULL;
+        basic_io_vector = newVector;
         /* Clear the new space. */
         memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
     }
@@ -375,7 +377,7 @@ Handle make_stream_entry(TaskData *taskData)
    run out and must perform a full garbage collection to recover
    the unused ones. SPF 12/9/95
 */ 
-void free_stream_entry(unsigned stream_no)
+void free_stream_entry(POLYUNSIGNED stream_no)
 {
     ASSERT(0 <= stream_no && stream_no < max_streams);
 
@@ -410,7 +412,8 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
         TempString cFileName(filename->Word()); // Get file name
         if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
         Handle str_token = make_stream_entry(taskData);
-        unsigned stream_no = STREAMID(str_token);
+        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        POLYUNSIGNED stream_no = STREAMID(str_token);
         int stream = _topen(cFileName, mode, access);
 
         if (stream >= 0)
@@ -464,7 +467,7 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
 static Handle close_file(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
-    unsigned stream_no = STREAMID(stream);
+    POLYUNSIGNED stream_no = STREAMID(stream);
 
     if (strm != NULL && stream_no > 2)
         /* Ignore closed streams, stdin, stdout or stderr. */
@@ -1057,7 +1060,8 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
     while (1) // Only certain errors
     {
         Handle str_token = make_stream_entry(taskData);
-        unsigned stream_no    = STREAMID(str_token);
+        if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        POLYUNSIGNED stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         {
@@ -1608,7 +1612,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             }
             /* Have to make a new entry. */
             Handle str_token = make_stream_entry(taskData);
-            unsigned stream_no    = STREAMID(str_token);
+            if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            POLYUNSIGNED stream_no    = STREAMID(str_token);
             str = &basic_io_vector[stream_no];
             str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
             /* We don't know whether it's open for read, write or even if
