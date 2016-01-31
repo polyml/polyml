@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-16
     
     Based on original code:    
     Copyright (c) 2000
@@ -141,7 +141,6 @@ struct
 
     datatype const =
         WVal of machineWord        (* an existing constant *)
-    |   CVal of code        (* a forward-reference to another function *)
     |   HVal of addrs ref   (* a handler *)
 
     and ConstPosn =
@@ -3281,7 +3280,7 @@ Calling conventions:
     end
 
 
-    fun printCode (Code{procName, numOfConsts, constVec, printStream, ...}) seg endcode =
+    fun printCode (Code{procName, printStream, ...}) seg endcode =
     let
         val print = printStream
         val ptr = ref 0w0;
@@ -3296,25 +3295,8 @@ Calling conventions:
             val valu = get32s (!ptr, seg); 
             val () = (ptr +:= 0w4);
         in
-            if valu = tag 0 andalso !numOfConsts <> 0w0
-            then
-                (* May be a reference to a code-segment we haven't generated yet.
-                   In that case we try to print the name of the function rather
-                   than simply printing "1".  It might be nice to print the
-                   function name in other cases but that might be complicated. *)
-            let
-                val caddr = !ptr - 0w4
-                fun findRef [] = (* Not there - probably really tagged 0 *) printHex valu
-                |  findRef ({const = CVal(Code{procName, ...}), addrs, ...} :: rest) =
-                        if caddr = addrs
-                        then print("=" ^ procName)
-                        else findRef rest
-                |  findRef (_ :: rest) = findRef rest
-            in
-                findRef(! constVec)
-            end
-            else printHex valu
-        end;
+            printHex valu
+        end
 
         fun print64 () =
         let
@@ -3899,7 +3881,7 @@ Calling conventions:
         val () = codeGenerate(operations, cvec)
 
         (* After code generation get the final values of some refs. *)
-        val Code{codeVec, numOfConsts, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
+        val Code{codeVec, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
                  resultSeg, procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
@@ -3966,7 +3948,7 @@ Calling conventions:
             (* Next the profile object. *)
             val () = csegPutWord (seg, endOfCode + 0w2, profileObject)
         end
-    in 
+    in
         let
 
             (* constLabels - fill in a constant in the code. *)
@@ -3992,10 +3974,8 @@ Calling conventions:
 
             (* and then copy the objects from the constant list. *)
             fun putConst {const = WVal c, addrs, posn, ...} =
-                ( (* Can put these in now. *)
-                    constLabels (cvec, addrs, c, posn);
-                    numOfConsts := ! numOfConsts - 0w1
-                )
+                (* Can put these in now. *)
+                    constLabels (cvec, addrs, c, posn)
 
             |   putConst {const = HVal(ref hv), addrs, posn, ...} =
                 let
@@ -4007,19 +3987,13 @@ Calling conventions:
                         RunCall.run_call2 RuntimeCalls.POLY_SYS_offset_address
                     val handlerAddr = offsetAddr (csegAddr seg, handlerByteOffset);
                 in
-                    constLabels (cvec, addrs, handlerAddr, posn);
-                    numOfConsts := ! numOfConsts - 0w1
+                    constLabels (cvec, addrs, handlerAddr, posn)
                 end
-
-                (* forward-reference - fix up later when we compile
-                    the referenced code *) 
-            |   putConst {const = CVal _, ...} = ()
 
             val () = List.app putConst constVec
     
-            (* Switch off "mutable" bit now if we have no
-               forward or recursive references to fix-up *)
-            val _ = if ! numOfConsts = 0w0 then csegLock seg else ()
+            (* Switch off "mutable" bit now. *)
+            val _ = csegLock seg
 
             val () = 
                 if printAssemblyCode
@@ -4034,17 +4008,7 @@ Calling conventions:
         in
             csegAddr seg 
         end (* the result *)
-    end (* copyCode *);
-
-    fun codeAddress (cvec: code) : address option =
-    (* This is used to find the register set for a function which was
-       originally a forward reference.  If it has now been compiled we
-       can get the code. *)
-    case cvec of
-        Code {resultSeg = ref (Set cseg), ...} => SOME(csegAddr cseg)
-    |   Code {resultSeg = ref Unset, ...} =>
-         (* We haven't compiled this yet: assume worst case. *) NONE
-
+    end (* copyCode *)
  
     structure Sharing =
     struct
