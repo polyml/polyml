@@ -348,6 +348,14 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_PPC64;
     directReloc = R_PPC64_ADDR64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_S390)
+    fhdr.e_machine = EM_S390;
+    directReloc = R_390_32;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_S390X)
+    fhdr.e_machine = EM_S390;
+    directReloc = R_390_64;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_SPARC)
     fhdr.e_machine = EM_SPARC;
     directReloc = R_SPARC_32;
@@ -381,6 +389,10 @@ void ELFExport::exportStore(void)
 #elif defined(HOSTARCHITECTURE_AARCH64)
     fhdr.e_machine = EM_AARCH64;
     directReloc = R_AARCH64_ABS64;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_MIPS)
+    fhdr.e_machine = EM_MIPS;
+    directReloc = R_MIPS_32;
     useRela = true;
 #else
 #error "No support for exporting on this architecture"

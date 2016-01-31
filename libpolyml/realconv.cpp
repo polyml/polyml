@@ -721,6 +721,7 @@ multadd
     return b;
     }
 
+#ifndef HAVE_STRTOD
  static Bigint *
 s2b
 #ifdef KR_headers
@@ -758,6 +759,8 @@ s2b
         b = multadd(b, 10, *s++ - '0');
     return b;
     }
+
+#endif // HAVE_STRTOD
 
  static int
 hi0bits
@@ -1214,6 +1217,8 @@ diff
     return c;
     }
 
+#ifndef HAVE_STRTOD
+
  static double
 ulp
 #ifdef KR_headers
@@ -1325,6 +1330,8 @@ b2d
 #endif
     return dval(&d);
     }
+
+#endif // HAVE_STRTOD
 
  static Bigint *
 d2b
@@ -1460,6 +1467,7 @@ d2b
 #undef d0
 #undef d1
 
+#ifndef HAVE_STRTOD
  static double
 ratio
 #ifdef KR_headers
@@ -1500,6 +1508,7 @@ ratio
 #endif
     return dval(&da) / dval(&db);
     }
+#endif // HAVE_STRTOD
 
  static CONST double
 tens[] = {
@@ -1604,6 +1613,7 @@ static unsigned char hexdig[256] = {
 #define NAN_WORD1 0
 #endif
 
+#ifndef HAVE_STRTOD
  static int
 match
 #ifdef KR_headers
@@ -1693,6 +1703,8 @@ hexnan
     }
 #endif /*No_Hex_NaN*/
 #endif /* INFNAN_CHECK */
+
+#endif // HAVE_STRTOD
 
 #ifdef Pack_32
 #define ULbits 32
@@ -2309,6 +2321,8 @@ quorem
     return q;
     }
 
+#ifndef HAVE_STRTOD
+
 #if defined(Avoid_Underflow) || !defined(NO_STRTOD_BIGCOMP) /*{*/
  static double
 sulp
@@ -2557,7 +2571,7 @@ poly_strtod
     U aadj2, adj, rv, rv0;
     ULong y, z;
     BCinfo bc;
-    Bigint *bb=0, *bb1, *bd=0, *bd0, *bs=0, *delta=0;
+    Bigint *bb, *bb1, *bd, *bd0, *bs, *delta;
 #ifdef Avoid_Underflow
     ULong Lsb, Lsb1;
 #endif
@@ -2629,7 +2643,7 @@ poly_strtod
     for(nd = nf = 0; (c = *s) >= '0' && c <= '9'; nd++, s++)
         if (nd < 9)
             y = 10*y + c - '0';
-        else if (nd < 16)
+        else if (nd < DBL_DIG + 2)
             z = 10*z + c - '0';
     nd0 = nd;
     bc.dp0 = bc.dp1 = s - s0;
@@ -2679,11 +2693,11 @@ poly_strtod
                 for(i = 1; i < nz; i++)
                     if (nd++ < 9)
                         y *= 10;
-                    else if (nd <= DBL_DIG + 1)
+                    else if (nd <= DBL_DIG + 2)
                         z *= 10;
                 if (nd++ < 9)
                     y = 10*y + c;
-                else if (nd <= DBL_DIG + 1)
+                else if (nd <= DBL_DIG + 2)
                     z = 10*z + c;
                 nz = nz1 = 0;
                 }
@@ -2772,7 +2786,7 @@ poly_strtod
 
     if (!nd0)
         nd0 = nd;
-    k = nd < DBL_DIG + 1 ? nd : DBL_DIG + 1;
+    k = nd < DBL_DIG + 2 ? nd : DBL_DIG + 2;
     dval(&rv) = y;
     if (k > 9) {
 #ifdef SET_INEXACT
@@ -3471,8 +3485,7 @@ poly_strtod
                     goto undfl;
 #else
                     {
-                    if (bc.nd > nd)
-                        bc.dsign = 1;
+                    req_bigcomp = 1;
                     break;
                     }
 #endif
@@ -3613,6 +3626,8 @@ poly_strtod
         *se = (char *)s;
     return sign ? -dval(&rv) : dval(&rv);
     }
+
+#endif // HAVE_STRTOD
 
 #ifndef MULTIPLE_THREADS
  static char *dtoa_result;
@@ -3757,7 +3772,7 @@ poly_dtoa
     */
 
     int bbits, b2, b5, be, dig, i, ieps, ilim, ilim0, ilim1,
-        j, j1, k, k0, k_check, leftright, m2, m5, s2, s5,
+        j, j1=0, k, k0, k_check, leftright, m2, m5, s2, s5,
         spec_case, try_quick;
     Long L;
 #ifndef Sudden_Underflow

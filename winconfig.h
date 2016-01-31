@@ -448,7 +448,7 @@
 
 /* Define to 1 if you have the `sysctlbyname' function. */
 #undef HAVE_SYSCTLBYNAME
- 
+
 /* Define to 1 if the system has the type
    `SYSTEM_LOGICAL_PROCESSOR_INFORMATION'. */
 #undef HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION
@@ -593,22 +593,37 @@
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
-/* Define if the host is an ARM (32 bit) */
+/* Define if the host is an ARM (64-bit) */
+/*#undef HOSTARCHITECTURE_AARCH64*/
+
+/* Define if the host is an ARM (32-bit) */
 /*#undef HOSTARCHITECTURE_ARM*/
 
-/* Define if the host is Itanium */
+/* Define if the host is an Itanium */
 /*#undef HOSTARCHITECTURE_IA64*/
 
-/* Define if the host is a Power PC (32 bit) */
+/* Define if the host is a MIPS (32-bit) */
+/*#undef HOSTARCHITECTURE_MIPS*/
+
+/* Define if the host is a PowerPC (32-bit) */
 /*#undef HOSTARCHITECTURE_PPC*/
 
-/* Define if the host is a Sparc (32 bit) */
+/* Define if the host is a PowerPC (64-bit) */
+/*#undef HOSTARCHITECTURE_PPC64*/
+
+/* Define if the host is an S/390 (32-bit) */
+/*#undef HOSTARCHITECTURE_S390*/
+
+/* Define if the host is an S/390 (64-bit) */
+/*#undef HOSTARCHITECTURE_S390X*/
+
+/* Define if the host is a Sparc (32-bit) */
 /*#undef HOSTARCHITECTURE_SPARC*/
 
-/* Define if the host is an X86 (32 bit) */
+/* Define if the host is an X86 (32-bit) */
 /*#undef HOSTARCHITECTURE_X86*/
 
-/* Define if the host is an X86 (64 bit) */
+/* Define if the host is an X86 (64-bit) */
 /*#undef HOSTARCHITECTURE_X86_64*/
 
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
@@ -727,7 +742,7 @@
 #undef size_t
 
 /* Define to `int' if <sys/types.h> does not define. */
-// There is an SSIZE_T 
+// There is an SSIZE_T
 #undef ssize_t
 
 #if defined(_MSC_VER)

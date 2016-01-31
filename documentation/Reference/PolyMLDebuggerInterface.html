@@ -29,10 +29,11 @@
      <strong>type</strong> debugState
      <strong>val</strong> debugState: Thread.Thread.thread -> debugState list
      <strong>val</strong> debugFunction: debugState -> string
-     <strong>val</strong> debugFunctionArg: debugState -> PolyML.NameSpace.valueVal
-     <strong>val</strong> debugFunctionResult: debugState -&gt; PolyML.NameSpace.valueVal
+     <strong>val</strong> debugFunctionArg: debugState -> NameSpace.Values.value
+     <strong>val</strong> debugFunctionResult: debugState -&gt; NameSpace.Values.value
      <strong>val</strong> debugLocation: debugState -> location
-     <strong>val</strong> debugNameSpace: debugState -> nameSpace
+     <strong>val</strong> debugNameSpace: debugState -> NameSpace.nameSpace
+     <strong>val</strong> debugLocalNameSpace: debugState -&gt; NameSpace.nameSpace
   <strong>end</strong></PRE>
 <p>The Poly/ML compiler will add debugging information to a program if <span class="identifier">PolyML.Compiler.debug</span> 
   is set to <span class="identifier">true</span> or <span class="identifier">CPDebug</span> 

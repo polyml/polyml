@@ -10,7 +10,7 @@
 
 <body bgcolor="#FFFFFF">
 <ul class="nav">
-	<li><a href="PolyMLNameSpace.html">Previous</a></li>
+	<li><a href="PolyMLProfiling.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
 	<li><a href="PolyMLStatistics.html">Next</a></li>
 </ul>
@@ -32,6 +32,29 @@
     <strong>val</strong> renameParent : {child: string, newParent: string} -&gt; unit
     <strong>val</strong> showHierarchy : unit -&gt; string list
     <strong>val</strong> showParent : string -&gt; string option
+    <strong>val</strong> loadHierarchy: string list -&gt; unit
+        <strong>structure</strong> Tags:
+          <strong>sig</strong>
+            <strong>val</strong> fixityTag: (string * NameSpace.Infixes.fixity) Universal.tag
+            <strong>val</strong> functorTag:
+               (string * NameSpace.Functors.functorVal) Universal.tag
+            <strong>val</strong> signatureTag:
+               (string * NameSpace.Signatures.signatureVal) Universal.tag
+            <strong>val</strong> startupTag: (unit -> unit) Universal.tag
+            <strong>val</strong> structureTag:
+               (string * NameSpace.Structures.structureVal) Universal.tag
+            <strong>val</strong> typeTag:
+               (string * NameSpace.TypeConstrs.typeConstr) Universal.tag
+            <strong>val</strong> valueTag: (string * NameSpace.Values.value) Universal.tag
+          <strong>end</strong>
+    <strong>val</strong> loadModule: string -&gt; unit
+    <strong>val</strong> loadModuleBasic: string -&gt; Universal.universal list
+    <strong>val</strong> saveModule:
+           string *
+           {functors: string list,
+             onStartup: (unit -> unit) option,
+             sigs: string list, structs: string list} -&gt; unit
+    <strong>val</strong> saveModuleBasic: string * Universal.universal list -&gt; unit
 <strong>end</strong></PRE>
 <h3><font face="Arial, Helvetica, sans-serif">Simple Saved State</font></h3>
 <p>For many purposes the simple saved state is sufficient. This is created with 
@@ -122,7 +145,7 @@
 <ul class="nav">
 	<li><a href="PolyMLNameSpace.html">Previous</a></li>
 	<li><a href="PolyMLStructure.html">Up</a></li>
-	<li><a href="PolyMLStatistics.html">Next</a></li>
+	<li><a href="PolyMLProfiling.html">Next</a></li>
 </ul>
 </body>
 </html>

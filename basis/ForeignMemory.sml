@@ -172,7 +172,7 @@ struct
            itself.  For the moment we don't do that.
            The free list is the list of chunks ordered by increasing
            address.  That allows us to merge adjacent free blocks. *)
-        val freeList: {address: SysWord.word, size: word} list ref = ref nil
+        val freeList: {address: SysWord.word, size: word} list ref = LibrarySupport.noOverwriteRef nil
         (* Clear it once on entry. *)
         val () = PolyML.onEntry (fn _ => freeList := nil)
 

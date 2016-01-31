@@ -310,7 +310,11 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     }
         
     /* Now convert it */
+#ifdef HAVE_STRTOD
+    result = strtod(string_buffer, &finish);
+#else
     result = poly_strtod(string_buffer, &finish);
+#endif
     bool isError = *finish != '\0'; // Test before deallocating
     free(string_buffer);
     // We no longer detect overflow and underflow and instead return
@@ -370,9 +374,28 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
 #define POLY_ROUND_UPWARD       2
 #define POLY_ROUND_TOZERO       3
 
+#if defined(__SOFTFP__)
+// soft-float lacks proper rounding mode support
+// While some systems will support fegetround/fesetround, it will have no
+// effect on the actual rounding performed, as the software implementation only
+// ever rounds to nearest.
+static int getrounding(TaskData *)
+{
+    return POLY_ROUND_TONEAREST;
+}
+
+static void setrounding(TaskData *taskData, Handle args)
+{
+    switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
+    {
+    case POLY_ROUND_TONEAREST: return; // The only mode supported
+    }
+    raise_exception_string(taskData, EXC_Fail, "setRound: Not implemented");
+}
+
 // It would be nice to be able to use autoconf to test for these as functions
 // but they are frequently inlined 
-#if defined(HAVE_FENV_H)
+#elif defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
 static int getrounding(TaskData *)
 {

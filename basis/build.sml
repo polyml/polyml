@@ -120,9 +120,6 @@ in
     else ()
 end;
 
-(* Build the Process structure for backwards compatibility. *)
-val () = Bootstrap.use "basis/processes.ML";
-
 val () = Bootstrap.use "basis/HashArray.ML";
 val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)

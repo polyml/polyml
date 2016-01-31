@@ -1583,7 +1583,7 @@ in
                 print "--error-exit         Exit shell on unhandled exception\n";
                 print "--with-markup        Include extra mark-up information when printing\n";
                 print "--ideprotocol[=v2]   Run the IDE communications protocol\n";
-                print "--script             The input is a script.  Skips the first line if it begins with #!";
+                print "--script FILE        The input is a script.  Skips the first line if it begins with #!.";
                 print "\nRun time system arguments:\n";
                 print (rtsHelp())
                )
@@ -1594,10 +1594,13 @@ in
             else if switchOption "--script"
             then
             let
-                (* The last argument is the file name.  Open it but skip 
+                (* The next argument is the file name.  Open it but skip 
                    the first line if it's #!.   The rest of this code is
                    largely copied from PolyML.use.  *)
-                val fileName = List.last argList (* We know there's at least one *)
+                fun getFileName("--script" :: fileName :: _) = fileName
+                |   getFileName [] = (print "Missing file name after --script\n"; OS.Process.exit OS.Process.failure)
+                |   getFileName(_ :: tail) = getFileName tail
+                val fileName = getFileName argList
                 open TextIO
                 val inStream = getInstream(TextIO.openIn fileName)
                 open StreamIO
