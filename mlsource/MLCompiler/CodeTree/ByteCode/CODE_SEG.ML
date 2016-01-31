@@ -29,10 +29,7 @@
   "csegMake" constructs and returns a segment of the specified size with
   give flag codes.
   The segment can be read and written a byte at a time using the "csegGet"
-  procedure, and the code can be entered using "csegCall" (this is only used
-  if the code is an "early" procedure which must be called by the compiler
-  or is a declaration or expression at the outer level. More usually
-  "csegAddr" is used to return the address of the segment which is then
+  function. "csegAddr" is used to return the address of the segment which is then
   compiled into another procedure as a constant.
   When a procedure has been compiled "csegLock" is called to remove the
   "mutable" bit. The segment then becomes a constant and cannot be
