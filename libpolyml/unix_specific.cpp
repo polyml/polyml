@@ -135,7 +135,7 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 /* Table of constants returned by call 4. */
-static int unixConstVec[] =
+static unsigned unixConstVec[] =
 {
     /* Error codes. */
     E2BIG, /* 0 */
