@@ -1154,6 +1154,7 @@ struct
         
             val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
+            val () = Address.lock closure
             val result = pushConst (transtable, Address.toMachineWord closure)
             (* Handle any other recursive functions. *)
             val () = mutualRecursive result
