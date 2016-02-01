@@ -1,2 +1,3 @@
 (* This crashed in the Power PC version. *)
-Process.fork(fn () => ());
+(* Changed because Process has been removed. *)
+Thread.Thread.fork(fn () => (), []);
