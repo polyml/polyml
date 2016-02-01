@@ -1606,7 +1606,7 @@ struct
          
             else if wordEq (oper,ioOp POLY_SYS_word_neq)
             then genCompare ([arg1, arg2], testNeqW, testEqW)
-
+(*
             else if wordEq (oper,ioOp POLY_SYS_equala)
             then genCompare ([arg1, arg2], testEqA, testNeqA)
 
@@ -1621,7 +1621,7 @@ struct
 
             else if wordEq (oper,ioOp POLY_SYS_int_lss)
             then genCompare ([arg1, arg2], testLtA, testGeqA)
-
+*)
             else if wordEq (oper,ioOp POLY_SYS_word_geq)
             then genCompare ([arg1, arg2], testGeqW, testLtW)
 
@@ -2174,7 +2174,7 @@ struct
 
                         else if wordEq (oper,ioOp POLY_SYS_set_string_length)
                         then codeRTSFunction(instrSetStringLength, args, whereto)
-
+(*
                         else if wordEq (oper,ioOp POLY_SYS_aplus)
                         then codeRTSFunction(instrAddA, args, whereto)
 
@@ -2187,7 +2187,7 @@ struct
                         (* Negation is coded as 0 - X. *)
                         else if wordEq (oper,ioOp POLY_SYS_aneg)
                         then codeRTSFunction(instrSubA, constntZero :: args, whereto)
-
+*)
                         (* Boolean "not" is coded as xor with "true" *)
                         else if wordEq (oper,ioOp POLY_SYS_not_bool)
                         then codeRTSFunction(instrXorW, args @ [constntTrue], whereto)
