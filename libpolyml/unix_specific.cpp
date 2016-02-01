@@ -135,6 +135,9 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 /* Table of constants returned by call 4. */
+// This is currently unsigned because that's necessary on the PowerPC for
+// NOFLUSH.  Perhaps there should be separate tables for different kinds
+// of constants.
 static unsigned unixConstVec[] =
 {
     /* Error codes. */
