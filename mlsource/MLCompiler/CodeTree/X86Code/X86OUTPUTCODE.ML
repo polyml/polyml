@@ -3953,10 +3953,10 @@ Calling conventions:
 
             (* constLabels - fill in a constant in the code. *)
             fun constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineAbsolute) =
-                    csegPutConstant (scSet rseg, addr, value, false)
+                    csegPutConstant (scSet rseg, addr, value, 0w0)
 
             |   constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineRelative) =
-                    csegPutConstant (scSet rseg, addr, value, true)
+                    csegPutConstant (scSet rseg, addr, value, 0w1)
 
             |   constLabels (_, _, _, NonAddrArea) = () (* Already done. *)
 
@@ -3968,7 +3968,7 @@ Calling conventions:
                         val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1) * wordSize
                         val seg       = scSet rseg (* The address of the segment. *)
                     in
-                        csegPutConstant (seg, addrOfConst, value, false);
+                        csegPutConstant (seg, addrOfConst, value, 0w0);
                         set32s(Word.toInt(addrOfConst - constAddr - 0w4), constAddr, seg)
                     end
 
@@ -3991,9 +3991,6 @@ Calling conventions:
                 end
 
             val () = List.app putConst constVec
-    
-            (* Switch off "mutable" bit now. *)
-            val _ = csegLock seg
 
             val () = 
                 if printAssemblyCode
@@ -4006,7 +4003,7 @@ Calling conventions:
                 )
             else ()
         in
-            csegAddr seg 
+            csegCopyToCode seg 
         end (* the result *)
     end (* copyCode *)
  

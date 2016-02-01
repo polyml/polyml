@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015 David C. J. Matthews
+    Copyright (c) 2006, 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -320,6 +320,16 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 }
 #endif
 
+// Used when copying code into its new location.  Adjusts any relative addresses and
+// also moves any pointers to the code itself.
+class PSCopyCode: public ScanAddress {
+public:
+    PSCopyCode (PolyObject *olda, PolyObject *newa): oldAddr(olda), newAddr(newa) {}
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return (base == oldAddr) ? newAddr: base; }
+private:
+    PolyObject *oldAddr, *newAddr;
+};
+
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
@@ -569,6 +579,22 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 else return SAVE(name);
             }
             else raise_syscall(taskData, "Not a code pointer", 0);
+        }
+
+    case 106: // Copy a compiled code segment into the code area
+        {
+            POLYUNSIGNED segLength = args->WordP()->Length();
+            // Initially just allocate some local memory and copy the code.
+            Handle newMem = alloc_and_save(taskData, segLength, F_CODE_OBJ);
+            memcpy(newMem->WordP(), args->WordP(), segLength * sizeof(PolyWord));
+            PSCopyCode psCopy(args->WordP(), newMem->WordP());
+            machineDependent->FlushInstructionCache(newMem->WordP(), segLength * sizeof(PolyWord));
+            // We have to update any relative addresses in the code.
+            machineDependent->ScanConstantsWithinCode(newMem->WordP(), args->WordP(), segLength, &psCopy);
+            // Temporarily clobber the old data
+            args->WordP()->SetLengthWord(segLength, F_BYTE_OBJ);
+            memset(args->WordP(), 0, segLength * sizeof(PolyWord));
+            return newMem;
         }
 
     default:
