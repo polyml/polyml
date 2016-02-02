@@ -169,6 +169,10 @@
 #define POLY_SYS_shift_right_word    216
 #define POLY_SYS_word_neq            217
 #define POLY_SYS_not_bool            218
+#define POLY_SYS_fixed_geq           219
+#define POLY_SYS_fixed_leq           220
+#define POLY_SYS_fixed_gtr           221
+#define POLY_SYS_fixed_lss           222
 #define POLY_SYS_string_length       223
 #define POLY_SYS_touch_final         228
 #define POLY_SYS_int_geq             231

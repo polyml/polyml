@@ -515,6 +515,18 @@ int IntTaskData::SwitchToPoly()
                     case POLY_SYS_word_lss:
                         u = *sp++; *sp = ((*sp).AsUnsigned() < u.AsUnsigned())?True:False; break;
 
+                    case POLY_SYS_fixed_geq:
+                        u = *sp++; *sp = (UNTAGGED(*sp) >= UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_leq:
+                        u = *sp++; *sp = (UNTAGGED(*sp) <= UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_gtr:
+                        u = *sp++; *sp = (UNTAGGED(*sp) > UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_lss:
+                        u = *sp++; *sp = (UNTAGGED(*sp) < UNTAGGED(u))?True:False; break;
+
                     case POLY_SYS_or_word:
                         u = *sp++; *sp = TAGGED(UNTAGGED(*sp) | UNTAGGED(u)); break; 
 
@@ -2032,6 +2044,10 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_shift_right_word, TAGGED(POLY_SYS_shift_right_word));
     add_word_to_io_area(POLY_SYS_word_neq, TAGGED(POLY_SYS_word_neq));
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
+    add_word_to_io_area(POLY_SYS_fixed_geq, TAGGED(POLY_SYS_fixed_geq));
+    add_word_to_io_area(POLY_SYS_fixed_leq, TAGGED(POLY_SYS_fixed_leq));
+    add_word_to_io_area(POLY_SYS_fixed_gtr, TAGGED(POLY_SYS_fixed_gtr));
+    add_word_to_io_area(POLY_SYS_fixed_lss, TAGGED(POLY_SYS_fixed_lss));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
     add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
     add_word_to_io_area(POLY_SYS_int_geq, TAGGED(POLY_SYS_int_geq));

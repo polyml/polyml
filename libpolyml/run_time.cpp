@@ -766,6 +766,34 @@ Handle word_lss_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
 }
 
+Handle fixed_geq_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_leq_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_gtr_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_lss_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
+}
+
 Handle and_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them

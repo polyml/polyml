@@ -139,6 +139,10 @@ sig
     val testGtA:   'a tests
     val testLeqA:  'a tests
     val testLtA:   'a tests
+    val testGeqS:  'a tests
+    val testGtS:   'a tests
+    val testLeqS:  'a tests
+    val testLtS:   'a tests
     val Short:     'a tests
     val Long:      'a tests
     val testNeqFP: 'a tests

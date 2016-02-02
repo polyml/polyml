@@ -1622,6 +1622,18 @@ struct
             else if wordEq (oper,ioOp POLY_SYS_int_lss)
             then genCompare ([arg1, arg2], testLtA, testGeqA)
 *)
+            else if wordEq (oper,ioOp POLY_SYS_fixed_geq)
+            then genCompare ([arg1, arg2], testGeqS, testLtS)
+
+            else if wordEq (oper,ioOp POLY_SYS_fixed_leq)
+            then genCompare ([arg1, arg2], testLeqS, testGtS)
+
+            else if wordEq (oper,ioOp POLY_SYS_fixed_gtr)
+            then genCompare ([arg1, arg2], testGtS, testLeqS)
+
+            else if wordEq (oper,ioOp POLY_SYS_fixed_lss)
+            then genCompare ([arg1, arg2], testLtS, testGeqS)
+
             else if wordEq (oper,ioOp POLY_SYS_word_geq)
             then genCompare ([arg1, arg2], testGeqW, testLtW)
 
@@ -2344,6 +2356,10 @@ struct
                          wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
                          wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
                          wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                         wordEq (oper,ioOp POLY_SYS_fixed_geq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_fixed_leq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_fixed_gtr)  orelse
+                         wordEq (oper,ioOp POLY_SYS_fixed_lss) orelse
                          wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
                          wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
                          wordEq (oper,ioOp POLY_SYS_Real_geq) orelse

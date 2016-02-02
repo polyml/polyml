@@ -2164,6 +2164,30 @@ CALLMACRO   RegMask word_gtr,(M_Reax)
     jmp     RetFalse
 CALLMACRO   RegMask word_lss,(M_Reax)
 
+CALLMACRO INLINE_ROUTINE fixed_geq
+    CMPL    Rebx,Reax
+    jge     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_geq,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_leq
+    CMPL    Rebx,Reax
+    jle     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_leq,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_gtr
+    CMPL    Rebx,Reax
+    jg      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_gtr,(M_Reax)
+
+ CALLMACRO INLINE_ROUTINE fixed_lss
+    CMPL    Rebx,Reax
+    jl      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_lss,(M_Reax)
+
 ;# Atomically increment the value at the address of the arg and return the
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to increment it.
@@ -3524,10 +3548,10 @@ ENDIF
     dd  Mask_shift_right_word    ;# 216
     dd  Mask_word_neq            ;# 217
     dd  Mask_not_bool            ;# 218
-    dd  Mask_all                 ;# 219 is unused
-    dd  Mask_all                 ;# 220 is unused
-    dd  Mask_all                 ;# 221 is unused
-    dd  Mask_all                 ;# 222 is unused
+    dd  Mask_fixed_geq           ;# 219
+    dd  Mask_fixed_leq           ;# 220
+    dd  Mask_fixed_gtr           ;# 221
+    dd  Mask_fixed_lss           ;# 222
     dd  Mask_string_length       ;# 223
     dd  Mask_all                 ;# 224 is unused
     dd  Mask_all                 ;# 225 is unused

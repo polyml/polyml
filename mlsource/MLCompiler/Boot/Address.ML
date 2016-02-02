@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
  
-    Further development copyright David C.J. Matthews 2000-2015
+    Further development copyright David C.J. Matthews 2000-2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -358,6 +358,10 @@ struct
             (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
             (POLY_SYS_word_neq,"POLY_SYS_word_neq"),
             (POLY_SYS_not_bool,"POLY_SYS_not_bool"),
+            (POLY_SYS_fixed_geq,"POLY_SYS_fixed_geq"),
+            (POLY_SYS_fixed_leq,"POLY_SYS_fixed_leq"),
+            (POLY_SYS_fixed_gtr,"POLY_SYS_fixed_gtr"),
+            (POLY_SYS_fixed_lss,"POLY_SYS_fixed_lss"),
             (POLY_SYS_string_length,"POLY_SYS_string_length"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
             (POLY_SYS_int_geq,"POLY_SYS_int_geq"),

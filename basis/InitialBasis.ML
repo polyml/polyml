@@ -51,33 +51,62 @@ infix  0  before
   (* Comparisons.  These are overloaded on strings, chars and word as well as int and real. *)
   
   (* N.B.  We have to bind these overloads in separate top-level declarations
-     because of limitations in addOverload.   This has the unfortunate side-effect
-     of leaving "it" bound to something but it's cleared out when we copy
-     everything to the final top-level name space. *)
+     because of limitations in addOverload.  If we use a single local binding
+     the code of the function will not be inlined.
+     This has the unfortunate side-effect of leaving "it" bound to something
+     but it's cleared out when we copy everything to the final top-level
+     name space. *)
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_geq;
-  RunCall.addOverload it ">=";
+    local
+        open RuntimeCalls
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
+
+        val arbGeq: int*int->bool = RunCall.run_call2 POLY_SYS_int_geq
+        val shortGeq: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_geq
+        fun geq(i, j) = if isShort i andalso isShort j then shortGeq(i, j) else arbGeq(i, j)
+    in
+        val it = geq
+    end;
+  val () = RunCall.addOverload it ">=";
   val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgeq;
-  RunCall.addOverload it ">=";
+  val () = RunCall.addOverload it ">=";
   val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_geq;
-  RunCall.addOverload it ">=";
+  val () = RunCall.addOverload it ">=";
   val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq;
-  RunCall.addOverload it ">=";
+  val () = RunCall.addOverload it ">=";
   val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq;
-  RunCall.addOverload it ">=";
+  val () = RunCall.addOverload it ">=";
+ 
+    local
+        open RuntimeCalls
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_leq;
-  RunCall.addOverload it "<=";
+        val arbLeq: int*int->bool = RunCall.run_call2 POLY_SYS_int_leq
+        val shortLeq: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_leq
+        fun leq(i, j) = if isShort i andalso isShort j then shortLeq(i, j) else arbLeq(i, j)
+    in
+        val it = leq
+    end;
+  val () = RunCall.addOverload it "<=";
   val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrleq;
-  RunCall.addOverload it "<=";
+  val () = RunCall.addOverload it "<=";
   val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_leq;
-  RunCall.addOverload it "<=";
+  val () = RunCall.addOverload it "<=";
   val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq;
-  RunCall.addOverload it "<=";
+  val () = RunCall.addOverload it "<=";
   val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq;
-  RunCall.addOverload it "<=";
+  val () = RunCall.addOverload it "<=";
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_gtr;
+    local
+        open RuntimeCalls
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
+
+        val arbGtr: int*int->bool = RunCall.run_call2 POLY_SYS_int_gtr
+        val shortGtr: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_gtr
+        fun gtr(i, j) = if isShort i andalso isShort j then shortGtr(i, j) else arbGtr(i, j)
+    in
+        val it = gtr
+    end;
   RunCall.addOverload it ">";
   val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgtr;
   RunCall.addOverload it ">";
@@ -88,7 +117,16 @@ infix  0  before
   val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr;
   RunCall.addOverload it ">";
   
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_lss;
+    local
+        open RuntimeCalls
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
+
+        val arbLss: int*int->bool = RunCall.run_call2 POLY_SYS_int_lss
+        val shortLss: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_lss
+        fun lss(i, j) = if isShort i andalso isShort j then shortLss(i, j) else arbLss(i, j)
+    in
+        val it = lss
+    end;
   RunCall.addOverload it "<";
   val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrlss;
   RunCall.addOverload it "<";

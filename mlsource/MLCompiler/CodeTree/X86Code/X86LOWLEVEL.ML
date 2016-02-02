@@ -1832,6 +1832,10 @@ struct
             and testGtA(args, mapper)    = checkShort(JG, testTagsForComparison)(args, mapper)
             and testLeqA(args, mapper)   = checkShort(JLE, testTagsForComparison)(args, mapper)
             and testLtA(args, mapper)    = checkShort(JL, testTagsForComparison)(args, mapper)
+            fun testGeqS(args, _) = SOME(makeBranch(JGE, noTagTest), args) (* These are signed. *)
+            fun testGtS (args, _) = SOME(makeBranch(JG, noTagTest), args)
+            fun testLeqS(args, _) = SOME(makeBranch(JLE, noTagTest), args)
+            fun testLtS(args, _)  = SOME(makeBranch(JL, noTagTest), args)
             fun Short(args, _)    = SOME(lengthTest JNE, args)
             fun Long(args, _)     = SOME(lengthTest JE, args)
         end

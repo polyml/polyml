@@ -408,7 +408,8 @@ extern "C" {
         bytes_per_word,  offset_address,  shift_right_word,  word_neq,  not_bool,  string_length,
         touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
         div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
-        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word;
+        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
+        fixed_geq, fixed_leq, fixed_gtr, fixed_lss;
 #ifdef HOSTARCHITECTURE_X86_64
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
@@ -649,10 +650,10 @@ static byte *entryPointVector[256] =
     &shift_right_word, // 216
     &word_neq, // 217
     &not_bool, // 218
-    0, // 219 is unused
-    0, // 220 is unused
-    0, // 221 is unused
-    0, // 222 is unused
+    &fixed_geq, // 219
+    &fixed_leq, // 220
+    &fixed_gtr, // 221
+    &fixed_lss, // 222
     &string_length, // 223
     0, // 224 is unused
     0, // 225 is unused
@@ -1437,6 +1438,22 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_word_lss:
                 CallIO2(this, &word_lss_c);
+                break;
+
+            case POLY_SYS_fixed_geq:
+                CallIO2(this, &fixed_geq_c);
+                break;
+
+            case POLY_SYS_fixed_leq:
+                CallIO2(this, &fixed_leq_c);
+                break;
+
+            case POLY_SYS_fixed_gtr:
+                CallIO2(this, &fixed_gtr_c);
+                break;
+
+            case POLY_SYS_fixed_lss:
+                CallIO2(this, &fixed_lss_c);
                 break;
 
             case POLY_SYS_io_dispatch:
