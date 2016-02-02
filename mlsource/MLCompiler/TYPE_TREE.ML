@@ -319,8 +319,33 @@ struct
         in
             val stringEquality = genCode(stringEquality, [], 0) ()
         end
+
+        local
+            val intEquality =
+                mkInlproc(
+                    mkCor( (* Either they're equal... *)
+                        mkEval(wordEq, [mkLoadArgument 0, mkLoadArgument 1]),
+                        (* ... or they're both long and ...*)
+                        mkCand(
+                            mkCand(
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
+                            ),
+                            (* ... they are equal arbitrary precision values.
+                               This could use bytewise equality.  That would be correct whether
+                               we are using GMP or the internal byte-based arbitrary precision package. *)
+                            mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
+                        )
+                    ),
+                    2, "intEquality", [], 0)
+        in
+            val intEquality = genCode(intEquality, [], 0) ()
+        end
+        
     in
-        val intConstr    = makeConstr("int",    CODETREE.rtsFunction POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
+        val intConstr    = makeConstr("int",    intEquality, boxedEither) (* Need arbitrary precision equality *)
         val charConstr   = makeConstr("char",   wordEq, boxedNever) (* Always short *)
         val stringConstr = makeConstr("string", stringEquality, boxedEither (* Single chars are unboxed. *))
         val wordConstr   = makeConstr("word",   wordEq, boxedNever)
