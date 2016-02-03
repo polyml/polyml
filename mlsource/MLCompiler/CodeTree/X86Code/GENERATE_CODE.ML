@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2009-10, 2012, 2013, 2015
+    Copyright David C. J. Matthews 1991, 2009-10, 2012, 2013, 2015-16
 
     Title:      General purpose code generator.
     Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
@@ -1601,7 +1601,7 @@ struct
            
         | [(arg1, _), (arg2, _)] =>
             (* binary special cases *)
-            if wordEq (oper,ioOp POLY_SYS_word_eq)
+            if wordEq (oper, ioOp POLY_SYS_word_eq) orelse wordEq (oper, ioOp POLY_SYS_equal_short_arb)
             then genCompare ([arg1, arg2], testEqW, testNeqW)
          
             else if wordEq (oper,ioOp POLY_SYS_word_neq)
@@ -2346,6 +2346,7 @@ struct
                            avoid that. *)
                         else if primBoolOps andalso
                         (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
+                         wordEq (oper,ioOp POLY_SYS_equal_short_arb)  orelse
                          wordEq (oper,ioOp POLY_SYS_word_neq) orelse
                          wordEq (oper,ioOp POLY_SYS_equala)   orelse
                          wordEq (oper,ioOp POLY_SYS_int_geq)  orelse

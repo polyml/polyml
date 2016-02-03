@@ -1137,7 +1137,7 @@ struct
                 (* then we may be able to use a case statement. *)
                 fun findCase (P2Eval{ function=P2Constnt(cv, _), argList, ... }) =
                 let
-                    val isArbitrary = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_equala)
+                    val isArbitrary = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_equal_short_arb)
                     val isWord = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_word_eq)
                 in
                     if isArbitrary orelse isWord
@@ -1250,7 +1250,7 @@ struct
                                 val test =
                                     case caseType of
                                         CaseInt =>
-                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equala, []),
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
                                                    [test, P2Constnt(toMachineWord t, [])])
                                     |   CaseWord =>
                                             mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq, []),

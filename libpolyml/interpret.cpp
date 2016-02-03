@@ -493,7 +493,8 @@ int IntTaskData::SwitchToPoly()
                             goto CALL_CLOSURE;
                         }
  
-                    case POLY_SYS_word_eq: 
+                    case POLY_SYS_word_eq:
+                    case POLY_SYS_equal_short_arb:
                        u = *sp++;
                        *sp = u == *sp ? True : False;
                        break;
@@ -1972,6 +1973,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
     add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
     add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
+    add_word_to_io_area(POLY_SYS_equal_short_arb, TAGGED(POLY_SYS_equal_short_arb));
     add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
     add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
     add_word_to_io_area(POLY_SYS_aplus, TAGGED(POLY_SYS_aplus));

@@ -524,7 +524,7 @@ static byte *entryPointVector[256] =
     0, // 98 is unused
     &CallPOLY_SYS_objsize, // 99
     &CallPOLY_SYS_showsize, // 100
-    0, // 101 is unused
+    &word_eq, // 101.  This can be the same as 251
     0, // 102 is unused
     0, // 103 is unused
     &quotrem_long, // 104
@@ -1252,6 +1252,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_word_eq:
+            case POLY_SYS_equal_short_arb:
                 CallIO2(this, &word_eq_c);
                 break;
 

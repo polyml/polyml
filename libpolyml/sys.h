@@ -92,6 +92,7 @@
 #define POLY_SYS_timing_dispatch     94   /* DCJM 10/4/00 */
 #define POLY_SYS_objsize             99   /* MJC 27/04/88 */
 #define POLY_SYS_showsize            100  /* MJC 09/03/89 */
+#define POLY_SYS_equal_short_arb     101
 #define POLY_SYS_quotrem             104  /* DCJM 05/03/10 */
 #define POLY_SYS_is_short            105
 #define POLY_SYS_aplus               106
