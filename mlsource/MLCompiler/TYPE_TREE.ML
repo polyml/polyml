@@ -344,10 +344,8 @@ struct
                         )
                     ),
                     2, "intEquality", [], 0)
-            fun stopHere () = ()
-            val _ = stopHere()
         in
-            val intEquality = genCode(intEquality, [Universal.tagInject DEBUG.codetreeTag true, Universal.tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70))], 0) ()
+            val intEquality = genCode(intEquality, [], 0) ()
         end
         
     in
