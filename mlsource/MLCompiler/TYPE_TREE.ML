@@ -317,7 +317,7 @@ struct
                     ),
                     2, "stringEquality", [], 0)
         in
-            val stringEquality = genCode(stringEquality, [], 0) ()
+            val stringEquality = stringEquality
         end
 
         local
@@ -345,7 +345,7 @@ struct
                     ),
                     2, "intEquality", [], 0)
         in
-            val intEquality = genCode(intEquality, [], 0) ()
+            val intEquality = intEquality
         end
         
     in
