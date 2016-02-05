@@ -32,7 +32,6 @@
 	<source name="basis\Int32.sml" />
 	<source name="basis\IntArray.sml" />
 	<source name="basis\IntArray2.sml" />
-	<source name="basis\INTEGER.sml" />
 	<source name="basis\IntInf.sml" />
 	<source name="basis\IO.sml" />
 	<source name="basis\LargeWord.sml" />

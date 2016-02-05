@@ -2,7 +2,7 @@
 ;#  Title:  Assembly code routines for the poly system.
 ;#  Author:    David Matthews
 ;#  Copyright (c) Cambridge University Technical Services Limited 2000
-;#  Further development David C. J. Matthews 2000-2015
+;#  Further development David C. J. Matthews 2000-2016
 ;#
 ;#  This library is free software; you can redistribute it and/or
 ;#  modify it under the terms of the GNU Lesser General Public
@@ -484,7 +484,7 @@ B_mutable   EQU         40h
 IFNDEF HOSTARCHITECTURE_X86_64
 Max_Length  EQU         00ffffffh
 ELSE
-Max_Length  EQU         00ffffffffffffffh
+Max_Length  EQU        00ffffffffffffffh              
 ENDIF
 
 ELSE
@@ -499,9 +499,9 @@ ELSE
 .set    B_mutable,  0x40
 .set    B_mutablebytes, 0x41
 IFNDEF HOSTARCHITECTURE_X86_64
-.set    Max_Length, 0x00ffffff
+.set    Max_Length,0x00ffffff
 ELSE
-.set    Max_Length, 0x00ffffffffffffff
+.set    Max_Length,0x00ffffffffffffff
 ENDIF
 
 ENDIF
@@ -527,6 +527,7 @@ RaiseDiv            EQU     52  ;# Call to raise the Div exception
 ArbEmulation        EQU     56  ;# Arbitrary precision emulation
 ThreadId            EQU     60  ;# My thread id
 RealTemp            EQU     64 ;# Space for int-real conversions
+RaiseOverflow       EQU     68  ;# Call to raise the Overflow exception
 
 ELSE
 HandlerRegister     EQU     8
@@ -547,6 +548,7 @@ RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
 ThreadId            EQU     120 ;# My thread id
 RealTemp            EQU     128 ;# Space for int-real conversions
+RaiseOverflow       EQU     136  ;# Call to raise the Overflow exception
 ENDIF
 
 ELSE
@@ -565,6 +567,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    ArbEmulation,56
 .set    ThreadId,60
 .set    RealTemp,64
+.set    RaiseOverflow,68
 ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
@@ -584,6 +587,7 @@ ELSE
 .set    ArbEmulation,112
 .set    ThreadId,120
 .set    RealTemp,128
+.set    RaiseOverflow,136
 ENDIF
 
 ENDIF
@@ -689,6 +693,7 @@ RETURN_RAISE_DIV            EQU 4
 RETURN_ARB_EMULATION        EQU 5
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
+RETURN_RAISE_OVERFLOW       EQU 8
 
 ELSE
 #include "sys.h"
@@ -700,6 +705,7 @@ ELSE
 #define RETURN_ARB_EMULATION        5
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
+#define RETURN_RAISE_OVERFLOW       8
 
 
 ENDIF
@@ -2182,11 +2188,74 @@ CALLMACRO INLINE_ROUTINE fixed_gtr
     jmp     RetFalse
 CALLMACRO   RegMask fixed_gtr,(M_Reax)
 
- CALLMACRO INLINE_ROUTINE fixed_lss
+CALLMACRO INLINE_ROUTINE fixed_lss
     CMPL    Rebx,Reax
     jl      RetTrue
     jmp     RetFalse
 CALLMACRO   RegMask fixed_lss,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_add
+	LEAL    (-TAG)[Reax],Reax
+	ADDL	Rebx,Reax
+    jo      raiseOverflowEx
+	ret
+CALLMACRO   RegMask fixed_add,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_sub
+	SUBL	Rebx,Reax
+	jo      raiseOverflowEx
+	ADDL    CONST TAG,Reax      ;# Put back the tag
+	ret
+CALLMACRO   RegMask fixed_sub,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_mul
+    SARL    CONST TAGSHIFT,Rebx ;# Untag the multiplier
+    SUBL    CONST TAG,Reax      ;# Remove the tag from the multiplicand
+    IMULL   Rebx,Reax           ;# signed multiplication
+	jo      raiseOverflowEx
+    ADDL    CONST TAG,Reax      ;# Add back the tag, but don`t shift
+    MOVL    Reax,Redx           ;# clobber this which has the high-end result
+    MOVL    Reax,Rebx           ;# and the other bad result.
+    ret
+CALLMACRO   RegMask fixed_mul,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_quot
+;# Checking for overflow and zero is done in ML
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv    Rebx
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_quot,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_rem
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv     Rebx
+CALLMACRO   MAKETAGGED  Redx,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_rem,(M_Reax OR M_Rebx OR M_Redx)
+
+raiseOverflowEx:
+IFDEF WINDOWS
+    jmp     FULLWORD ptr [RaiseOverflow+Rebp]
+ELSE
+    jmp     *RaiseOverflow[Rebp]
+ENDIF
 
 ;# Atomically increment the value at the address of the arg and return the
 ;# updated value.  Since the xadd instruction returns the original value
@@ -3307,6 +3376,7 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
 CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
+CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
@@ -3509,12 +3579,12 @@ ENDIF
     dd  Mask_all                 ;# 177 is unused
     dd  Mask_all                 ;# 178 is unused
     dd  Mask_all                 ;# 179 is unused
-    dd  Mask_all                 ;# 180 is unused
-    dd  Mask_all                 ;# 181 is unused
-    dd  Mask_all                 ;# 182 is unused
-    dd  Mask_all                 ;# 183 is unused
-    dd  Mask_all                 ;# 184 is unused
-    dd  Mask_all                 ;# 185 is unused
+    dd  Mask_fixed_add           ;# 180
+    dd  Mask_fixed_sub           ;# 181
+    dd  Mask_fixed_mul           ;# 182
+    dd  Mask_fixed_quot          ;# 183
+    dd  Mask_fixed_rem           ;# 184
+    dd  Mask_all				 ;# 185 is unused
     dd  Mask_all                 ;# 186 is unused
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused

@@ -399,12 +399,31 @@ struct
     in
         val precision = SOME wordSize
         val maxInt = SOME(fromLarge(maxIntP1-1))
-        val minInt = SOME(fromLarge(~ maxIntP1))
+        val smallestInt = fromLarge(~ maxIntP1)
+        val minInt = SOME smallestInt
     end
 
     infix 7 quot rem
-    val op quot: int * int -> int = RunCall.run_call2 POLY_SYS_adiv
-    and op rem:  int * int -> int = RunCall.run_call2 POLY_SYS_amod
+
+    local
+        val q: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_quot
+    in
+        fun _ quot 0 = raise Div
+        |   x quot y = 
+                if y = ~1 andalso x = smallestInt
+                then raise Overflow
+                else q(x,y)
+    end
+    
+    local
+        val r: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_rem
+    in
+        fun _ rem 0 = raise Div
+        |   x rem y = 
+                if y = ~1 andalso x = smallestInt
+                then raise Overflow
+                else r(x,y)
+    end
 
     (* mod and div as for arbitrary precision . *)
     fun x mod y =
@@ -487,6 +506,9 @@ struct
     and op <= : int*int->bool = op <=
     and op >= : int*int->bool = op >=
 end;
+
+val () = RunCall.addOverload Int.div "div"
+and () = RunCall.addOverload Int.mod "mod";
 
 (* Add extra overloadings for arbitrary precision. *)
 val () = RunCall.addOverload LargeInt.abs "abs"

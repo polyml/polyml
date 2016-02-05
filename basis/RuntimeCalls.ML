@@ -135,6 +135,11 @@ struct
   val POLY_SYS_cmem_store_64       = 169
   val POLY_SYS_cmem_store_float    = 170
   val POLY_SYS_cmem_store_double   = 171
+  val POLY_SYS_fixed_add           = 180
+  val POLY_SYS_fixed_sub           = 181
+  val POLY_SYS_fixed_mul           = 182
+  val POLY_SYS_fixed_quot          = 183
+  val POLY_SYS_fixed_rem           = 184
   val POLY_SYS_io_operation        = 189
   val POLY_SYS_ffi                 = 190
   val POLY_SYS_move_words_overlap  = 193

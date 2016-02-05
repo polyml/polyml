@@ -150,7 +150,7 @@ infix  0  before
   RunCall.addOverload it "<";
   
   (* Binary operations. *)
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aplus;
+  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_add;
   RunCall.addOverload it "+";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aplus;
   RunCall.addOverload it "+";
@@ -159,7 +159,7 @@ infix  0  before
   val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_plus_word;
   RunCall.addOverload it "+";
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aminus;
+  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_sub;
   RunCall.addOverload it "-";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aminus;
   RunCall.addOverload it "-";
@@ -178,7 +178,7 @@ infix  0  before
   RunCall.addOverload it "*";
 
   (* Unary operations. *)
-  val it: int->int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg;
+  fun it x = 0 - x;
   RunCall.addOverload it "~";
   val it: LargeInt.int->LargeInt.int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg;
   RunCall.addOverload it "~";
@@ -205,49 +205,15 @@ infix  0  before
   (* div, mod and / are overloaded in ML97.  *)
   val it: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real;
   RunCall.addOverload it "/";
-  
-    local
-      infix 7 quot
-      val op quot: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_adiv;
-    in
-      fun it (x, y) =
-      let
-        (* If the signs differ the normal quot operation will give the wrong
-           answer. We have to round the result down by subtracting either y-1 or
-           y+1. This will round down because it will have the opposite sign to x *)
-        
-    (* ...
-        val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
-    ... *)
-        val xpos = x >= 0;
-        val ypos = y >= 0;
-    
-        val d =
-          if xpos = ypos 
-            then x
-          else if ypos
-            then (x - (y - 1))
-            else (x - (y + 1))
-      in
-        d quot y (* may raise Div for divide-by-zero *)
-      end;
-    end;
-  RunCall.addOverload it "div";
- 
-    local
-      infix 7 rem
-      val op rem:  int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amod;
-    in
-      fun it(x, y) =
-      let
-        val r = (x rem y) (* must handle divide-by-zero *)
-          (* handle Div => raise Mod; *)
-      in
-        if r = 0 orelse (y >= 0) = (r >= 0) then r else r + y
-      end;
-    
-    end;
-  RunCall.addOverload it "mod";
+
+    (* These are replaced later on.  We need some of these for e.g. String
+       They neither check for zero or overflow not are they the correct
+       ML definitions. *)
+
+    val it: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot;
+    RunCall.addOverload it "div";
+    val it: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem;
+    RunCall.addOverload it "mod";
 
   val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word;
   RunCall.addOverload it "div";

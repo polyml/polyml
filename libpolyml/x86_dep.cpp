@@ -4,12 +4,11 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-14
+    Further work copyright David C. J. Matthews 2011-14, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
 
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -226,6 +225,7 @@ typedef struct _MemRegisters {
     byte        *arbEmulation;      // This address is called to emulate an arbitrary precision op
     PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
     POLYSIGNED  real_temp;          // Space used to convert integers to reals.
+    byte        *raiseOverflow;     // Called to raise the Overflow exception.
 } MemRegisters;
 
 class X86TaskData: public TaskData {
@@ -302,10 +302,6 @@ public:
 #endif /* HOSTARCHITECTURE_X86_64 */
 };
 
-
-// Entry code sequences - copied to memRegisters before entering ML.
-static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmulation;
-
 /**********************************************************************
  *
  * Register fields in the stack. 
@@ -356,7 +352,8 @@ enum RETURN_REASON {
     RETURN_RAISE_DIV,
     RETURN_ARB_EMULATION,
     RETURN_CALLBACK_RETURN,
-    RETURN_CALLBACK_EXCEPTION
+    RETURN_CALLBACK_EXCEPTION,
+    RETURN_RAISE_OVERFLOW
 };
 
 extern "C" {
@@ -381,6 +378,7 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_ARB_EMULATION(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
+    extern int X86AsmCallExtraRETURN_RAISE_OVERFLOW(void);
 
     // The entry points to assembly code functions.
     extern byte CallPOLY_SYS_exit, CallPOLY_SYS_chdir, alloc_store, alloc_uninit, raisex,
@@ -409,7 +407,8 @@ extern "C" {
         touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
         div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
         word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
-        fixed_geq, fixed_leq, fixed_gtr, fixed_lss;
+        fixed_geq, fixed_leq, fixed_gtr, fixed_lss, fixed_add, fixed_sub, fixed_mul,
+        fixed_quot, fixed_rem;
 #ifdef HOSTARCHITECTURE_X86_64
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
@@ -611,11 +610,11 @@ static byte *entryPointVector[256] =
     0, // 177 is unused
     0, // 178 is unused
     0, // 179 is unused
-    0, // 180 is unused
-    0, // 181 is unused
-    0, // 182 is unused
-    0, // 183 is unused
-    0, // 184 is unused
+    &fixed_add, // 180
+    &fixed_sub, // 181
+    &fixed_mul, // 182
+    &fixed_quot, // 183
+    &fixed_rem, // 184
     0, // 185 is unused
     0, // 186 is unused
     0, // 187 is unused
@@ -697,11 +696,12 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
-    memRegisters.heapOverflow = heapOverflow;
-    memRegisters.stackOverflow = stackOverflow;
-    memRegisters.stackOverflowEx = stackOverflowEx;
-    memRegisters.raiseDiv = raiseDiv;
-    memRegisters.arbEmulation = arbEmulation;
+    memRegisters.heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    memRegisters.stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    memRegisters.stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    memRegisters.raiseDiv = (byte*)X86AsmCallExtraRETURN_RAISE_DIV;
+    memRegisters.arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
+    memRegisters.raiseOverflow = (byte*)X86AsmCallExtraRETURN_RAISE_OVERFLOW;
     memRegisters.fullRestore = 1; // To force the floating point to 64-bit
 }
 
@@ -1637,11 +1637,10 @@ int X86TaskData::SwitchToPoly()
             return -1; // We're in a safe state to handle any interrupts.
 
         case RETURN_RAISE_DIV:
+        case RETURN_RAISE_OVERFLOW:
             try {
-                // Generally arithmetic operations don't raise exceptions.  Overflow
-                // is either ignored, for Word operations, or results in a call to
-                // the arbitrary precision emulation code.  This is the exception
-                // (no pun intended).
+                // This is included here to ensure the registers are cleared and also because
+                // it provides a way to raise the exception from compiled code.
                 PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
                 // Set all the registers to a safe value here.  We will almost certainly
                 // have shifted a value in one of the registers before testing it for zero.
@@ -1650,7 +1649,8 @@ int X86TaskData::SwitchToPoly()
                     PolyWord *pr = (&this->stack->stack()->p_eax)+i;
                     *pr = TAGGED(0);
                 }
-                raise_exception0(this, EXC_divide);
+                raise_exception0(this,
+                    this->memRegisters.returnReason == RETURN_RAISE_DIV ? EXC_divide : EXC_overflow);
             }
             catch (IOException &) {
                 // Handle the C++ exception.
@@ -2601,14 +2601,6 @@ void X86Dependent::InitInterfaceVector(void)
         if (entryPointVector[i] != 0)
             add_word_to_io_area(i, PolyWord::FromCodePtr(entryPointVector[i]));
     }
-
-    // Entries for special cases.  These are generally, but not always, called from
-    // compiled code.
-    heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
-    stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
-    stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
-    raiseDiv = (byte*)X86AsmCallExtraRETURN_RAISE_DIV;
-    arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
 }
 
 // We need the kill-self code in a little function.

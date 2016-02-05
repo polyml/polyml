@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015.
+    Further development Copyright David C.J. Matthews 2015-16.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -813,6 +813,51 @@ int IntTaskData::SwitchToPoly()
                                 break;
                             }
                             else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_fixed_add:
+                        {
+                            PolyWord x = *sp++;
+                            PolyWord y = *sp;
+                            POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
+                        }
+
+                    case POLY_SYS_fixed_sub:
+                        {
+                            PolyWord x = *sp++;
+                            PolyWord y = *sp;
+                            POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
+                        }
+
+                    case POLY_SYS_fixed_mul:
+                        {
+                            PolyWord x = *sp++;
+                            PolyWord y = *sp;
+                            POLYSIGNED t = UNTAGGED(y) * UNTAGGED(x);
+                            // TODO: This isn't how to check for overflow.
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
+                        }
+
+                    case POLY_SYS_fixed_quot:
+                        {
+                            POLYUNSIGNED u = UNTAGGED(*sp++);
+                            if (u == 0)
+                                raise_exception0(this, EXC_divide);
+                            PolyWord y = *sp;
+                            if (u == -1 && 
+
+                            POLYSIGNED t = UNTAGGED(y) / UNTAGGED(x);
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
                         }
 
                     default:
@@ -2026,6 +2071,11 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_cmem_store_64, TAGGED(POLY_SYS_cmem_store_64));
     add_word_to_io_area(POLY_SYS_cmem_store_float, TAGGED(POLY_SYS_cmem_store_float));
     add_word_to_io_area(POLY_SYS_cmem_store_double, TAGGED(POLY_SYS_cmem_store_double));
+    add_word_to_io_area(POLY_SYS_fixed_add, TAGGED(POLY_SYS_fixed_add));
+    add_word_to_io_area(POLY_SYS_fixed_sub, TAGGED(POLY_SYS_fixed_sub));
+    add_word_to_io_area(POLY_SYS_fixed_mul, TAGGED(POLY_SYS_fixed_mul));
+    add_word_to_io_area(POLY_SYS_fixed_quot, TAGGED(POLY_SYS_fixed_quot));
+    add_word_to_io_area(POLY_SYS_fixed_rem, TAGGED(POLY_SYS_fixed_rem));
     add_word_to_io_area(POLY_SYS_io_operation, TAGGED(POLY_SYS_io_operation));
     add_word_to_io_area(POLY_SYS_ffi, TAGGED(POLY_SYS_ffi));
     add_word_to_io_area(POLY_SYS_move_words_overlap, TAGGED(POLY_SYS_move_words_overlap));

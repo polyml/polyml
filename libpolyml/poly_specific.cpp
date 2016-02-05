@@ -206,6 +206,11 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
 #endif
     case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_add: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_sub: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_mul: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_quot: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_rem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;
