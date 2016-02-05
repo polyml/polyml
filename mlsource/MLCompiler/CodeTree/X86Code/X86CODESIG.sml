@@ -1,10 +1,9 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012
+    Copyright David C. J. Matthews 2010, 2012, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -108,20 +107,20 @@ sig
 
     datatype operation =
         MoveRR of { source: reg, output: reg }
-    |   MoveConstR of { source: int, output: reg }
+    |   MoveConstR of { source: LargeInt.int, output: reg }
     |   MoveLongConstR of { source: machineWord, output: reg }
     |   LoadMemR of { source: memoryAddress, output: reg }
     |   LoadByteR of { source: memoryAddress, output: reg }
     |   PushR of reg
-    |   PushConst of int
+    |   PushConst of LargeInt.int
     |   PushLongConst of machineWord
     |   PushMem of { base: reg, offset: int }
     |   PopR of reg
     |   ArithRR of { opc: arithOp, output: reg, source: reg }
-    |   ArithRConst of { opc: arithOp, output: reg, source: int }
+    |   ArithRConst of { opc: arithOp, output: reg, source: LargeInt.int }
     |   ArithRLongConst of { opc: arithOp, output: reg, source: machineWord }
     |   ArithRMem of { opc: arithOp, output: reg, offset: int, base: reg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: int }
+    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: LargeInt.int }
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
@@ -133,7 +132,7 @@ sig
     |   TestByteMem of { base: reg, offset: int, bits: word }
     |   CallRTS of int
     |   StoreRegToMemory of { toStore: reg, address: memoryAddress }
-    |   StoreConstToMemory of { toStore: int, address: memoryAddress }
+    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
     |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }

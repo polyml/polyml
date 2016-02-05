@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012
+    Copyright David C. J. Matthews 2010, 2012, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -106,11 +106,11 @@ struct
     if isX64 andalso flags <> 0w0
     then
         [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
-         StoreConstToMemory{toStore=size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+         StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
     else
     let
-        val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
+        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
     in
         [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
@@ -232,10 +232,10 @@ struct
                 (* Range checks. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) }]
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt minCase) }]
                 val range2 =
                     [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt maxCase) }]
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt maxCase) }]
             in
                 range2 @ range1 @ testTag
             end
@@ -278,7 +278,7 @@ struct
 
     and moveConstantToRegister(lit, output as GenReg _) =
         if isShort lit
-        then [MoveConstR{source=tag(Word.toIntX(toShort lit)), output=output}]
+        then [MoveConstR{source=tag(Word.toLargeIntX(toShort lit)), output=output}]
         else [MoveLongConstR{source=lit, output=output}]
 
     |   moveConstantToRegister(source, output as FPReg _) =
@@ -305,7 +305,7 @@ struct
     in
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
         else if isShort lit
-        then [StoreConstToMemory{toStore=tag(Word.toIntX(toShort lit)), address=addr}]
+        then [StoreConstToMemory{toStore=tag(Word.toLargeIntX(toShort lit)), address=addr}]
         else [StoreLongConstToMemory{toStore=lit, address=addr}]
     end
  
@@ -314,7 +314,7 @@ struct
     
     fun pushConstantToStack lit =
         if is31bitSigned lit (* Push only allows a 32-bit literal *)
-        then [PushConst(tag(Word.toIntX(toShort lit)))]
+        then [PushConst(tag(Word.toLargeIntX(toShort lit)))]
         else [PushLongConst lit]
 
     fun resetStack 0 = []
@@ -617,7 +617,7 @@ struct
                         [StoreRegToMemory{toStore=storeReg, address=address}]
                 |   LiteralSource storeConst =>
                         if isShort storeConst
-                        then [StoreConstToMemory{ toStore=tag(Word.toIntX(toShort storeConst)), address=address}]
+                        then [StoreConstToMemory{ toStore=tag(Word.toLargeIntX(toShort storeConst)), address=address}]
                         else [StoreLongConstToMemory{ toStore=storeConst, address=address}]
                 |   BaseOffsetSource _ => raise InternalError "genStoreWord"
             end
@@ -1042,7 +1042,7 @@ struct
                 if isShort lit
                 then
                 let
-                    val intArg = Word.toIntX(toShort lit)
+                    val intArg = Word.toLargeIntX(toShort lit)
                     val source =
                         case opcode of
                             ADD => semitag intArg (* Shift but don't tag. *)
@@ -1313,8 +1313,8 @@ struct
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
                         ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
                     ] @ forwardJumpLabel lab @
-                    [ MoveConstR{ source=tag(Word.toInt maxShift), output=ecx } ] @ test @
-                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
+                    [ MoveConstR{ source=tag(Word.toLargeInt maxShift), output=ecx } ] @ test @
+                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toLargeInt maxShift) }
                     ] @
                     (
                         (* If this is a left shift we have to remove the tag.  That isn't needed
@@ -1572,7 +1572,7 @@ struct
                                 val shortLit = toShort lit
                             in
                                 if shortLit = 0w0 then [] else
-                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
                             end
                         |   getOffset _ = raise InternalError "getOffset"
                 in
@@ -1597,7 +1597,7 @@ struct
                             val shortLit = toShort lit
                         in
                             if shortLit = 0w0 then [] else
-                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit * wordSize}]
+                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit * LargeInt.fromInt wordSize}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                 in
@@ -1673,7 +1673,7 @@ struct
                                            [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithRConst{opc=CMP, output=reg1,
-                                                            source=tag(Word.toIntX(toShort constnt))}
+                                                            source=tag(Word.toLargeIntX(toShort constnt))}
                                            else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
                                            InRegister reg1, LiteralSource constnt, testType, destLabel) }
                 end
@@ -1692,7 +1692,7 @@ struct
                                                 { test=revTest, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithRConst{opc=CMP, output=reg2,
-                                                            source=tag(Word.toIntX(toShort constnt))}
+                                                            source=tag(Word.toLargeIntX(toShort constnt))}
                                            else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
                                            InRegister reg2, LiteralSource constnt, revTest, destLabel) }
                 end
@@ -1743,7 +1743,7 @@ struct
                                            [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                              source=tag(Word.toIntX(toShort constnt))}
+                                                              source=tag(Word.toLargeIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
                                            testType, destLabel)}
@@ -1767,7 +1767,7 @@ struct
                                                 { test=revTest, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                              source=tag(Word.toIntX(toShort constnt))}
+                                                              source=tag(Word.toLargeIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
                                            revTest, destLabel) }
@@ -1861,7 +1861,7 @@ struct
                             val shortLit = toShort lit
                         in
                             if shortLit = 0w0 then []
-                            else [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                            else [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                     val () = uses := !uses+1
@@ -1975,11 +1975,11 @@ struct
                        Do we need to put something in to indicate to an optimiser
                        that we're using the condition code "result" here? *)
                     (if opc = JE orelse opc = JNE
-                    then [ArithRConst{ opc=XOR, output=eax, source=Word.toInt c3 }]
+                    then [ArithRConst{ opc=XOR, output=eax, source=Word.toLargeInt c3 }]
                     else []) @
                     [
                         (* Mask and set the condition codes. *)
-                        ArithRConst{ opc=AND, output=eax, source=Word.toInt mask },
+                        ArithRConst{ opc=AND, output=eax, source=Word.toLargeInt mask },
                         FPStatusToEAX,
                         fpOperation, (* Compare and pop. *)
                         loadToStack (* First arg to stack*)
