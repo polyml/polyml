@@ -69,10 +69,12 @@ struct
     (* Int is just the short form of an arbitrary precision int. *)
     val fromInt: Int.int -> LargeInt.int = RunCall.unsafeCast (* Just a cast. *)
 
-    fun toInt(i: LargeInt.int): Int.int =
-        if RunCall.run_call1 POLY_SYS_is_short i
-        then RunCall.unsafeCast i
-        else raise Overflow
+    val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
+
+    val fixedIntAsWord: Int.int -> word = RunCall.unsafeCast
+ 
+    fun toInt(i: int): Int.int =
+        if isShortInt i then RunCall.unsafeCast i else raise Overflow
 
     val precision = NONE (* Arbitrary precision. *)
     and minInt = NONE
@@ -81,40 +83,6 @@ struct
     val zero = fromInt 0 (* Avoids repeated use of fromInt. *)
 
     fun abs (i: int): int = if i >= zero then i else ~ i
-
-    infix 7 quot rem
-    val op quot: int * int -> int = RunCall.run_call2 POLY_SYS_adiv
-    and op rem:  int * int -> int = RunCall.run_call2 POLY_SYS_amod
-
-    fun x mod y =
-    let
-        val r = x rem y (* must handle divide-by-zero *)
-        (* NB: Unlike ML 90 this function raises Div if y is zero, not Mod *)
-    in
-        if r = fromInt 0 orelse (y >= fromInt 0) = (r >= fromInt 0) then r else r + y
-    end
-
-    fun x div y =
-    let
-        (* If the signs differ the normal quot operation will give the wrong
-           answer. We have to round the result down by subtracting either y-1 or
-           y+1. This will round down because it will have the opposite sign to x *)
-        
-        (* ...
-        val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
-        ... *)
-        val xpos = x >= zero
-        val ypos = y >= zero
-        
-        val d =
-            if xpos = ypos 
-            then x
-            else if ypos
-            then (x - (y - fromInt 1))
-            else (x - (y + fromInt 1))
-    in
-        d quot y (* may raise Div for divide-by-zero *)
-    end
 
     fun compare (i, j) =
         if i < j then General.LESS
@@ -125,8 +93,6 @@ struct
     
     fun sign i : Int.int = if i = zero then 0 else if i < zero then ~1 else 1
     
-    (* It might be possible to do something clever by xor-ing the 
-       words together when both values are short. *)
     fun sameSign(i, j) =
         if i = zero then j = zero
         else if i < zero then j < zero
@@ -135,12 +101,11 @@ struct
     local
         (* To reduce the need for arbitrary precision arithmetic we can try to
            process values in groups. *)
-        val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
         (* Return the largest short value and the number of digits. *)
         fun maxShort(n, radix, acc) =
             if isShortInt(acc * radix)
             then maxShort(n+1, radix, acc*radix)
-            else (acc, (*Word.fromInt*) RunCall.unsafeCast n)
+            else (acc, fixedIntAsWord n)
         val (maxB, lenB) = maxShort(0, fromInt 2, fromInt 1)
         and (maxO, lenO) = maxShort(0, fromInt 8, fromInt 1)
         and (maxD, lenD) = maxShort(0, fromInt 10, fromInt 1)
@@ -167,19 +132,19 @@ struct
            value is long.  Instead of reducing it by the radix each time we take off
            chunks of up to the maximum value that can be represented as a short precision
            value. *)
-        
+
         fun toChar (digit: Int.int): char =
             if digit < 10 then Char.chr(Char.ord(#"0") + digit)
             else (* Hex *) Char.chr(Char.ord(#"A") + digit - 10)
-        val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
     in
         fun fmt radix i =
         let
             val (base, maxShort, shortChars) = baseOf radix
-            val negative = i < fromInt 0
+            val negative = i < zero
 
-            fun toChars(i, chars, continuation, pad) =
-                if i = zero andalso continuation = zero
+            fun toChars(0, chars, continuation, pad) =
+                (* Finished the group. *)
+                if continuation = zero
                 then
                 (
                     (* Really finished.  Allocate the string. *)
@@ -193,8 +158,7 @@ struct
                     end
                     else (* Positive *) (allocString chars, wordSize)
                 )
-                else if i = zero
-                then (* Finished this group but have at least one more group. *)
+                else (* Finished this group but have at least one more group. *)
                 let
                     val (result, pos) = toCharGroup(continuation, chars + pad)
                     fun addZeros n =
@@ -204,14 +168,16 @@ struct
                     addZeros 0w0;
                     (result, pos+pad)
                 end
-                else
+
+            |   toChars(i, chars, continuation, pad) =
                 (* More to do in this group. *)
                 let
-                    val (q, digit) = quotRem(i, fromInt base)
-                    val ch = toChar (toInt digit)
+                    (* TODO: We haven't defined Int.quot and Int.rem yet although they 
+                       would be faster since we know this is short. *)
+                    val ch = toChar (i mod base)
                     (* Get the string. *)
                     val (result, pos) =
-                        toChars(q, chars+0w1, continuation, pad-0w1)
+                        toChars(i div base, chars+0w1, continuation, pad-0w1)
                 in
                     System_setb(result, pos, ch);
                     (result, pos+0w1)
@@ -221,12 +187,12 @@ struct
                precision number. *)
             and toCharGroup(i, chars) =
                 if isShortInt i
-                then toChars(i, chars, zero, 0w0)
+                then toChars(toInt i, chars, zero, 0w0)
                 else
                 let
                     val (q, r) = quotRem(i, maxShort)
                 in
-                    toChars(r, chars, q, shortChars)
+                    toChars(toInt r, chars, q, shortChars)
                 end
         in
             if i >= zero andalso i < fromInt base
@@ -362,6 +328,39 @@ struct
     in
         (* Add a conversion function. *)
         val () = RunCall.addOverload convInt "convInt"
+    end
+
+    infix 7 quot rem
+    val op quot: int * int -> int = RunCall.run_call2 POLY_SYS_adiv
+    and op rem:  int * int -> int = RunCall.run_call2 POLY_SYS_amod
+
+    fun x mod y =
+    let
+        val r = x rem y
+    in
+        if r = zero orelse (y >= zero) = (r >= zero) then r else r + y
+    end
+
+    fun x div y =
+    let
+        (* If the signs differ the normal quot operation will give the wrong
+           answer. We have to round the result down by subtracting either y-1 or
+           y+1. This will round down because it will have the opposite sign to x *)
+        
+        (* ...
+        val d = x - (if (y >= 0) = (x >= 0) then 0 else if y > 0 then y-1 else y+1)
+        ... *)
+        val xpos = x >= zero
+        val ypos = y >= zero
+        
+        val d =
+            if xpos = ypos 
+            then x
+            else if ypos
+            then (x - (y - fromInt 1))
+            else (x - (y + fromInt 1))
+    in
+        d quot y (* may raise Div for divide-by-zero *)
     end
 
     val ~ : int->int = ~
