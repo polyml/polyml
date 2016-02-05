@@ -329,8 +329,8 @@ local
 
             fun notb x = xorb(maxWordAsWord, x)
             
-            (* We can format the result using the integer format function. *)
-            fun fmt radix i = Int.fmt radix (toInt i)
+            (* We can format the result using the large integer format function. *)
+            fun fmt radix i = LargeInt.fmt radix (toLargeInt i)
             val toString = fmt StringCvt.HEX
             
             val op > : word*word->bool = RunCall.run_call2 POLY_SYS_word_gtr
@@ -453,8 +453,9 @@ local
             fun min (i, j) = if i < j then i else j
             and max (i, j) = if i > j then i else j
 
-            (* We can format the result using the integer format function. *)
-            fun fmt radix i = Int.fmt radix (toInt i)
+            (* We can format the result using the large integer format function.
+               Large unsigned values may be outside the short integer range. *)
+            fun fmt radix i = LargeInt.fmt radix (toLargeInt i)
             val toString = fmt StringCvt.HEX
         end;
     
