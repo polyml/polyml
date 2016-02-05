@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2015 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -319,37 +319,8 @@ struct
         in
             val stringEquality = stringEquality
         end
-
-        local
-            (* We can't use wordEq here.  If one of the arguments is a constant this will
-               reduce down to a bitwise equality but if we then turn it back into an
-               indexed case we have to reinstate the tag check. *)
-            val shortEq = CODETREE.rtsFunction POLY_SYS_equal_short_arb
-            val intEquality =
-                mkInlproc(
-                    mkCor( (* Either they're equal... *)
-                        mkEval(shortEq, [mkLoadArgument 0, mkLoadArgument 1]),
-                        (* ... or they're both long and ...*)
-                        mkCand(
-                            mkCand(
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
-                            ),
-                            (* ... they are equal arbitrary precision values.
-                               This could use bytewise equality.  That would be correct whether
-                               we are using GMP or the internal byte-based arbitrary precision package. *)
-                            mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
-                        )
-                    ),
-                    2, "intEquality", [], 0)
-        in
-            val intEquality = intEquality
-        end
-        
     in
-        val intConstr    = makeConstr("int",    intEquality, boxedEither) (* Need arbitrary precision equality *)
+        val intConstr    = makeConstr("int",    wordEq, boxedNever) (* Always short now we have fixed precision *)
         val charConstr   = makeConstr("char",   wordEq, boxedNever) (* Always short *)
         val stringConstr = makeConstr("string", stringEquality, boxedEither (* Single chars are unboxed. *))
         val wordConstr   = makeConstr("word",   wordEq, boxedNever)
