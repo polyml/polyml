@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: Vector Structure
-    Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,8 +19,7 @@
 (* G&R 2004 status: updated.  Added VectorSlice and VECTOR_SLICE. *)
 
 signature VECTOR =
-  sig
-
+sig
     eqtype  'a vector
     val maxLen : int
     val fromList : 'a list -> 'a vector
@@ -48,7 +45,7 @@ signature VECTOR =
     val exists: ('a -> bool) -> 'a vector -> bool
     val all: ('a -> bool) -> 'a vector -> bool
     val collate: ('a * 'a -> order) -> 'a vector * 'a vector -> order
-  end;
+end;
   
 local
     open RuntimeCalls
@@ -110,7 +107,7 @@ struct
     let
         val v = vecAsWord vec
     in
-        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length v
+        if intAsWord i >= System_length v
         then raise General.Subscript
         else RunCall.unsafeCast(System_loadw (v, intAsWord i))
     end

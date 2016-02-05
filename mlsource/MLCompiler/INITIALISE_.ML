@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -510,6 +510,57 @@ struct
                 ]
         end
 
+        (* LargeInt.  We need to create the arbitrary precision int type here and
+           the easiest way is to create the structure.  It's then filled out in the
+           basis library. *)
+        local
+            (* We can't use wordEq here.  If one of the arguments is a constant this will
+               reduce down to a bitwise equality but if we then turn it back into an
+               indexed case we have to reinstate the tag check. *)
+            val shortEq = CODETREE.rtsFunction POLY_SYS_equal_short_arb
+            val intEquality =
+                mkInlproc(
+                    mkCor( (* Either they're equal... *)
+                        mkEval(shortEq, [mkLoadArgument 0, mkLoadArgument 1]),
+                        (* ... or they're both long and ...*)
+                        mkCand(
+                            mkCand(
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
+                                mkEval(rtsFunction POLY_SYS_not_bool,
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
+                            ),
+                            (* ... they are equal arbitrary precision values.
+                               This could use bytewise equality.  That would be correct whether
+                               we are using GMP or the internal byte-based arbitrary precision package. *)
+                            mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
+                        )
+                    ),
+                    2, "intEquality", [], 0)
+            val intEquality = genCode(intEquality, [], 0) ()
+
+            local
+                open TypeValue
+                fun monoTypePrinter _ = PRETTY.PrettyString "?"
+                val code =
+                    createTypeValue{
+                            eqCode=intEquality,
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode = boxedEither, (* May be short or long *)
+                            sizeCode = singleWord
+                            }
+            in
+                val idCode = Global (genCode(code, [], 0) ())
+            end
+
+            val intInfConstr =
+                makeTypeConstructor ("int",
+                    makeFreeId(0, idCode, true, basisDescription "LargeInt.int"),
+                    [DeclaredAt inBasis])
+            val largeIntEnv = makeStructure(globalEnv, "LargeInt")
+        in
+            val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+        end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
         

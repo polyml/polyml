@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: IO Support functions
-    Copyright   David C.J. Matthews 2000, 2015
+    Copyright   David C.J. Matthews 2000, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -86,6 +86,10 @@ struct
             doIo(26, strm, len)
     end
 
+    fun unsignedShortOrRaiseSubscript (i: int): word =
+        if i >= 0
+        then RunCall.unsafeCast i
+        else raise Subscript
 
     local
         val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
@@ -94,11 +98,26 @@ struct
         and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
         and sys_can_output(strm: fileDescr): int = doIo(28, strm, 0)
         and sys_avail(strm: fileDescr): int = doIo(17, strm, 0)
-        and sys_get_pos(strm: fileDescr): int = doIo(18, strm, 0)
-        and sys_set_pos(strm: fileDescr, p: int): unit =
-            (doIo(19, strm, p); ())
-        and sys_end_pos(strm: fileDescr): int = doIo(20, strm, 0)
         and sys_get_iodesc(strm: fileDescr): int = doIo(30, strm, 0)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_get_pos(strm: fileDescr): Position.int = doIo(18, strm, 0) (* N.B. large int *)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_end_pos(strm: fileDescr): Position.int = doIo(20, strm, 0) (* N.B. large int *)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_set_pos(strm: fileDescr, p: Position.int): unit =
+            (doIo(19, strm, p); ()) (* N.B. large int *)
     end
 
     local
@@ -146,8 +165,8 @@ struct
     let
         val (buf, i, len) = Word8ArraySlice.base slice
         val LibrarySupport.Word8Array.Array(_, v) = buf
-        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+        val iW = unsignedShortOrRaiseSubscript i
+        val lenW = unsignedShortOrRaiseSubscript len
     in
         sys_write_bin(n, (v, iW, lenW))
     end
@@ -156,8 +175,8 @@ struct
     let
         val (buf, i, len) = Word8ArraySlice.base slice
         val LibrarySupport.Word8Array.Array(_, v) = buf
-        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
-        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+        val lenW = unsignedShortOrRaiseSubscript len
+        val iW = unsignedShortOrRaiseSubscript i
     in
         sys_read_bin(n, (v, iW, lenW))
     end
@@ -170,8 +189,8 @@ struct
     fun writeBinVec (n: fileDescr, slice: Word8VectorSlice.slice): int =
     let
         val (buf, i, len) = Word8VectorSlice.base slice
-        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+        val iW = unsignedShortOrRaiseSubscript i
+        val lenW = unsignedShortOrRaiseSubscript len
     in
         sys_write_bin(n, (LibrarySupport.w8vectorAsAddress buf, iW+wordSize, lenW))
     end
@@ -188,8 +207,8 @@ struct
         let
             val (buf, i, len) = CharArraySlice.base slice
             val LibrarySupport.CharArray.Array(_, v) = buf
-            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+            val iW = unsignedShortOrRaiseSubscript i
+            val lenW = unsignedShortOrRaiseSubscript len
         in
             sys_read_text(fd, (v, iW, lenW))
         end
@@ -252,8 +271,8 @@ struct
         let
             val (buf, i, len) = CharArraySlice.base slice
             val LibrarySupport.CharArray.Array(_, v) = buf
-            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+            val iW = unsignedShortOrRaiseSubscript i
+            val lenW = unsignedShortOrRaiseSubscript len
         in
             sys_write_text(fd, (v, iW, lenW))
         end
@@ -267,8 +286,8 @@ struct
         let
             val (buf, i, len) = CharVectorSlice.base slice
             val v = LibrarySupport.stringAsAddress buf
-            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+            val iW = unsignedShortOrRaiseSubscript i
+            val lenW = unsignedShortOrRaiseSubscript len
         in
             sys_write_text(fd, (v, iW+wordSize, lenW))
         end

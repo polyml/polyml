@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: BoolArray and BoolVector Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -42,10 +42,7 @@ local
 
     val bitsPerWord = wordAsInt wordSize * 8
 
-    (* Limit the size to the maximum value of Word.word.  This is actually
-       a long integer but since we always do the arithmetic as integers
-       it will be fine. *)
-    val maxLen = IntInf.pow(2, Word.wordSize) - 1
+    val maxLen = Array.maxLen * bitsPerWord
 
     local
         val F_mutable_bytes : int = 65;
@@ -54,7 +51,7 @@ local
            and then initialised. If the length is zero a one-word object
            is created.  In the case of vectors this will remain all zeros
            and will be locked so that two zero-sized vectors will be equal. *)
-        fun alloc bits =
+        fun alloc (bits: int) =
             let
                 val System_alloc  = RunCall.run_call3 POLY_SYS_alloc_store
                 val words : word =
@@ -62,7 +59,7 @@ local
                     then 0w1 (* Zero-sized objects are not allowed. *)
                     else if bits < 0 orelse bits > maxLen
                     then raise General.Size
-                    else intAsWord(Int.quot((bits + (bitsPerWord - 1)), bitsPerWord))
+                    else Word.fromInt(Int.quot((bits + (bitsPerWord - 1)), bitsPerWord))
             in
                 System_alloc(words, F_mutable_bytes, 0)
             end
@@ -84,7 +81,7 @@ local
             val System_setb = RunCall.run_call3 POLY_SYS_assign_byte
             val length = List.length l
             (* Make a array initialised to zero. *)
-            val vec = alloc length;
+            val vec = alloc length
             
             (* Accumulate the list elements into bytes and store
                them in the vector. *)
@@ -137,10 +134,10 @@ local
        the index has already been checked for validity. *)
     fun uncheckedSub (v, i: int): bool =
         let
+            val iW = Word.fromInt i
             val System_loadb = RunCall.run_call2 POLY_SYS_load_byte
-            val (byteOffset, bitOffset) = IntInf.quotRem(i, 8)
-            val byte = System_loadb(v, intAsWord byteOffset);
-            val mask = 0w1 << intAsWord bitOffset
+            val byte = System_loadb(v, iW >> 0w3)
+            val mask = 0w1 << (iW andb 0w7)
         in
             byte andb mask <> 0w0
         end
@@ -377,10 +374,10 @@ in
            checks have already been done. *)
         fun uncheckedUpdate(v, i, new): unit =
         let
-            val (byteOffset, bitOffset) = IntInf.quotRem(i, 8)
-            val byteOffsetW = intAsWord byteOffset
+            val iW = Word.fromInt i
+            val byteOffsetW = iW >> 0w3
             val byte = System_loadbA(v, byteOffsetW);
-            val mask = 0w1 << intAsWord bitOffset
+            val mask = 0w1 << (iW andb 0w7)
             val newByte =
                 if new then byte orb mask
                 else byte andb (notb mask)

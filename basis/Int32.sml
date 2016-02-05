@@ -1,13 +1,12 @@
 (*
     Title:      Standard Basis Library: Int32 Structure
     Author:     Vesa Karvonen
-    Copyright   David Matthews 1999
+    Copyright   David Matthews 1999, 2016
                 Vesa Karvonen 2007
 
         This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
 
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,11 +23,12 @@
   PolyML 5. It's neither well tested nor efficiently implemented.
 *)
 
-structure Int32 :> INTEGER = struct
-   open Int
+structure Int32 :> INTEGER =
+struct
+   open LargeInt (* We need LargeInt on 32-bits. *)
 
-   val precision = 32
-   val minInt = ~(IntInf.<< (1, Word.fromInt (precision - 1)))
+   val precision:Int.int = 32
+   val minInt = ~(IntInf.<< (1, Word.fromInt (Int.- (precision, 1))))
    val maxInt = ~1-minInt
 
    fun check i =

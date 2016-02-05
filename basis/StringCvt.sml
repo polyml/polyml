@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: StringCvt Structure
-    Author:     David Matthews
-    Copyright   David Matthews 1999
+    Copyright   David Matthews 1999, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,10 +16,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: checked, no change required. *)
-
 signature STRING_CVT =
-  sig
+sig
     datatype radix = BIN | OCT | DEC | HEX
 
     datatype realfmt
@@ -41,7 +37,7 @@ signature STRING_CVT =
     type  cs
     val scanString : ((char, cs) reader -> ('a, cs) reader) -> string -> 'a option
 
-  end;
+end;
 
 structure StringCvt : STRING_CVT =
     struct
@@ -67,7 +63,7 @@ structure StringCvt : STRING_CVT =
       | GEN of int option
       | EXACT
       
-    type  ('a, 'b) reader = 'b -> ('a * 'b) option        
+    type  ('a, 'b) reader = 'b -> ('a * 'b) option
 
     fun padLeft c i s =
     if i <= 0 (* unsignedShortOrRaiseSize raises Size if i < 0 which isn't right here. *)
@@ -75,7 +71,7 @@ structure StringCvt : STRING_CVT =
     else
     let
         val len: word = sizeAsWord s
-        val iW = unsignedShortOrRaiseSize i (* checks that i is a short. *)
+        val iW: word = RunCall.unsafeCast i
     in
         if len >= iW then s
         else if iW = 0w1 (* and therefore size s = 0 *)
@@ -105,7 +101,7 @@ structure StringCvt : STRING_CVT =
     else
     let
         val len = sizeAsWord s
-        val iW = unsignedShortOrRaiseSize i (* checks that i is a short. *)
+        val iW: word = RunCall.unsafeCast i
     in
         if len >= iW then s
         else if iW = 0w1 (* and therefore size s = 0 *)

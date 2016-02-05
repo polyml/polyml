@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: OS Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015
+    Copyright   David Matthews 2000, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -823,7 +823,7 @@ struct
         end
 
         local
-            val doIo: int*unit*string -> int
+            val doIo: int*unit*string -> Position.int (* This can be larger than 32-bits. *)
                  = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
         in
             (* Get file size. *)

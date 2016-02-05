@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: Vector and Array slice functor
-    Copyright   David C.J. Matthews 2005
+    Copyright   David C.J. Matthews 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -61,6 +60,12 @@ functor VectorSliceOperations(
 struct
         val wordAsInt: word -> int = RunCall.unsafeCast
 
+        (* TODO: We could avoid the test in many cases by simply treating the
+           int as a word.  Negative values when then test as too large *)
+        fun unsignedShortOrRaiseSubscript i : word =
+            if i < 0 then raise Subscript
+            else RunCall.unsafeCast i
+
         type elem = elem
         type vector = vector
         datatype slice = Slice of { vector: vector,  start: word, length: word };
@@ -70,7 +75,7 @@ struct
         fun op sub (Slice{vector, start, length}, i: int) =
         let
             (* Check that the value is non-negative and short and cast it to word. *)
-            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val iW = unsignedShortOrRaiseSubscript i
         in
             if iW >= length then raise General.Subscript
             else unsafeVecSub(vector, iW+start)
@@ -81,7 +86,7 @@ struct
         fun update(Slice{vector, start, length}, i: int, x: elem) =
         let
             (* Check that the value is non-negative and short and cast it to word. *)
-            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val iW = unsignedShortOrRaiseSubscript i
         in
             if iW >= length then raise General.Subscript
             else unsafeVecUpdate(vector, iW+start, x)
@@ -93,7 +98,7 @@ struct
         (* Create a slice from a vector. *)
         fun slice(vec: vector, i: int, NONE) =
             let
-                val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+                val iW = unsignedShortOrRaiseSubscript i
                 val len = vecLength vec
             in
                 if iW <= len
@@ -103,8 +108,8 @@ struct
          |  slice(vec: vector, i: int, SOME l) =
             let
                 val len = vecLength vec
-                val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-                val lW = LibrarySupport.unsignedShortOrRaiseSubscript l
+                val iW = unsignedShortOrRaiseSubscript i
+                val lW = unsignedShortOrRaiseSubscript l
             in
                 if iW+lW <= len
                 then Slice{vector=vec, start=iW, length=lW} (* Length is as given. *)
@@ -114,7 +119,7 @@ struct
         (* Slice from existing slice *)
         fun subslice(Slice{vector, start, length}, i: int, NONE) =
             let
-                val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+                val iW = unsignedShortOrRaiseSubscript i
             in
                 if iW <= length
                 then Slice{vector=vector, start=iW+start, length=length-iW} (* Length is rest of array. *)
@@ -123,8 +128,8 @@ struct
     
          |  subslice(Slice{vector, start, length}, i: int, SOME l) =
             let
-                val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
-                val lW = LibrarySupport.unsignedShortOrRaiseSubscript l
+                val iW = unsignedShortOrRaiseSubscript i
+                val lW = unsignedShortOrRaiseSubscript l
             in
                 if iW+lW <= length
                 then Slice{vector=vector, start=iW+start, length=lW} (* Length is as given. *)

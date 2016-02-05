@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: Date Signature and structure.
-    Author:     David Matthews
-    Copyright   David Matthews 2000
+    Copyright   David Matthews 2000, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,9 +15,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: Signature checked.  No change.  Probably needs the structure checking to
-   see whether the implementation is correct. *)
 
 signature DATE =
 sig
@@ -87,17 +82,17 @@ struct
 
     exception Date
 
-    val secsPerHour = 60*60
-    val secsPerDay = 24*secsPerHour
+    val secsPerHour: LargeInt.int = 60*60
+    val secsPerDay: LargeInt.int = 24*secsPerHour
     val monthVec =
         Vector.fromList [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec];
     val dayOfWkVec =
         Vector.fromList [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
 
     (* Vector of days from the beginning of the year. *)
-    val dayVec =
+    val dayVec: int Vector.vector =
         Vector.fromList [~1, 30, 58, 89, 119, 150, 180, 211, 242, 272, 303, 333, 365];
-    val dayInLeapYearVec =
+    val dayInLeapYearVec: int Vector.vector =
         Vector.fromList [~1, 30, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 366];
 
     (* Days of the week and months in abbreviated English form. *)
@@ -111,7 +106,7 @@ struct
     fun monthNoToMonth n =
         Vector.sub(monthVec, n) handle Subscript => raise Date (* Should never happen *)
 
-    fun isLeapYear l =
+    fun isLeapYear(l: int): bool =
         if l mod 100 = 0 then (l div 100) mod 4 = 0 else l mod 4 = 0
 
     (* Convert the enumerated type to a month number. *)
@@ -140,7 +135,7 @@ struct
        it avoids having to multiply and divide arbitrary precision values
        in the RTS.  May raise Size if the value is too large (or small).  In
        that case we use the current time offset. *)
-    fun localOffsetApplying (t: int) : int =
+    fun localOffsetApplying (t: LargeInt.int) : LargeInt.int =
         callTiming 4 t 
             handle General.Size => callTiming 4 (Time.toSeconds(Time.now()))
 
@@ -150,8 +145,8 @@ struct
 
     local
         (* Time values are since 1st January of this year. *)
-        val baseYear: int = callTiming 2 0
-        val yearOffset: int = callTiming 3 0 (* The offset of zeroTime within that year. *)
+        val baseYear: int = callTiming 2 0 (* 1601 or 1970 *)
+        val yearOffset: int = callTiming 3 0 (* The offset of zeroTime within that year. 0 on both Unix and Windows *)
 
         (* Get the day in the year.  Either of day or year may be unnormalised
            but that shouldn't affect the result (except if year is negative???) *)
@@ -205,12 +200,12 @@ struct
         (* Convert a number of seconds to a date. *)
         fun fromSeconds t (tzOffset: Time.time option) : date =
         let
-            val tsecs = t - yearOffset
-            val secs = tsecs mod 60
-            val mins = (tsecs div 60) mod 60
-            val hrs  = (tsecs div secsPerHour) mod 24
+            val tsecs = t - LargeInt.fromInt yearOffset
+            val secs = LargeInt.toInt(tsecs mod 60)
+            val mins = LargeInt.toInt((tsecs div 60) mod 60)
+            val hrs  = LargeInt.toInt((tsecs div secsPerHour) mod 24)
             (* Get the day and year.  The day is a value between 0 and 364/365. *)
-            val (year, days) = daysToYears (tsecs div secsPerDay)
+            val (year, days) = daysToYears(LargeInt.toInt(tsecs div secsPerDay))
             (* Convert the day into a month+day *)
             val isLeap = isLeapYear year
             fun dayToMonth dy mth =
@@ -234,9 +229,9 @@ struct
         let
             (* Compute the seconds. *)
             val secs =
-                second + minute*60 + hour*secsPerHour + 
-                    (yearDay date + yearToDays year)*secsPerDay +
-                    yearOffset;
+                LargeInt.fromInt second + LargeInt.fromInt minute * 60 + LargeInt.fromInt hour * secsPerHour + 
+                    LargeInt.fromInt(yearDay date + yearToDays year) * secsPerDay +
+                    LargeInt.fromInt yearOffset
         in
             case offset of
                 SOME t => Time.+(t, Time.fromSeconds secs)
@@ -266,7 +261,7 @@ struct
                     SOME tz =>
                         let
                             open Time
-                            val excess = Int.quot(Time.toSeconds tz, secsPerDay)*secsPerDay;
+                            val excess = LargeInt.quot(Time.toSeconds tz, secsPerDay)*secsPerDay;
                         in
                             (excess, SOME(tz-Time.fromSeconds excess))
                         end
@@ -274,9 +269,9 @@ struct
             (* Convert it to the number of seconds since the epoch which will
                normalise it. *)
             val secs =
-                second + minute*60 + hour*secsPerHour + 
-                    (dayInYear(day, monthToMonthNo month, year) + yearToDays year)*secsPerDay +
-                    yearOffset + tzDays;
+                LargeInt.fromInt second + LargeInt.fromInt minute * 60 + LargeInt.fromInt hour * secsPerHour + 
+                    LargeInt.fromInt (dayInYear(day, monthToMonthNo month, year) + yearToDays year) * secsPerDay +
+                    LargeInt.fromInt yearOffset + tzDays
         in
             (* Convert it into a date. *)
             fromSeconds secs normTz

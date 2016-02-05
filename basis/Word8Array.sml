@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Word8Array, Word8Vector and Byte Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2015
+    Copyright   David Matthews 1999, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,16 @@ local
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
+
+    fun unsignedShortOrRaiseSize (i: int): word =
+        if i >= 0
+        then intAsWord i
+        else raise Size
+
+    fun unsignedShortOrRaiseSubscript (i: int): word =
+        if i >= 0
+        then intAsWord i
+        else raise Subscript
 
     infix 9 sub (* For what it's worth *)
 

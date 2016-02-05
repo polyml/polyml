@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: String Structure
-    Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,8 +20,6 @@
     This file declares Char, String and CharVector.  String and CharVector
     are simply different views on the same underlying structure.
 *)
-
-(* G&R 2004 status: Done *)
 
 structure Char = struct type char = char end; (* We need this for "scan". *)
 structure String = struct type string = string end; (* Needed for toString, fromString etc. *)
@@ -174,7 +170,7 @@ signature SUBSTRING =
   
 local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
-    open LibrarySupport;
+    open LibrarySupport
 
     val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
     val System_loadb: string*word->char = RunCall.run_call2 POLY_SYS_load_byte;
@@ -207,6 +203,16 @@ local
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
+
+    fun unsignedShortOrRaiseSize (i: int): word =
+        if i >= 0
+        then intAsWord i
+        else raise Size
+
+    fun unsignedShortOrRaiseSubscript (i: int): word =
+        if i >= 0
+        then intAsWord i
+        else raise Subscript
 
     (* String concatenation is currently built into the RTS although
        it doesn't need to be. *)
@@ -1089,21 +1095,16 @@ in
     
         fun op sub (Array(l, v), i: int): elem =
         let
-            val iW =
-                if isShortInt i andalso i >= 0
-                then intAsWord i
-                else raise General.Subscript
+            val iW = intAsWord i
         in
+            (* Negative values will always be >= l when compared unsigned. *)
             if iW >= l then raise General.Subscript
             else System_loadbA (v, iW)
         end
     
         fun update (Array (l, v), i: int, new) : unit =
         let
-            val iW =
-                if isShortInt i andalso i >= 0
-                then intAsWord i
-                else raise General.Subscript
+            val iW = intAsWord i
         in
             if iW >= l
             then raise General.Subscript
@@ -1114,14 +1115,14 @@ in
         local
             fun fromList' (l : char list) : word*address =
             let
-                val length = unsignedShortOrRaiseSize (List.length l);
+                val length = intAsWord(List.length l)
                     
                 (* Make a array initialised to zero. *)
-                val vec = alloc length;
+                val vec = alloc length
                 
                 (* Copy the list elements into the array. *)
                 fun init (v, i, a :: l) = (System_setbA(v, i, a); init(v, i + 0w1, l))
-                |  init (_, _, []) = ();
+                |  init (_, _, []) = ()
                 
             in
                 init(vec, 0w0, l);
@@ -1211,75 +1212,75 @@ in
     end;
 
     structure Substring :>
-            sig
-            type  substring
-            eqtype char
-            eqtype string
-            val size : substring -> int
-            val base : substring -> (string * int * int)
-            val isEmpty : substring -> bool
+    sig
+        type  substring
+        eqtype char
+        eqtype string
+        val size : substring -> int
+        val base : substring -> (string * int * int)
+        val isEmpty : substring -> bool
+    
+        val sub : (substring * int) -> char
+        val getc : substring -> (char * substring) option
+        val first : substring -> char option
         
-            val sub : (substring * int) -> char
-            val getc : substring -> (char * substring) option
-            val first : substring -> char option
-            
-            val extract : (string * int * int option) -> substring
-            val substring : (string * int * int) -> substring
-            (*val slice : (substring * int * int option) -> substring*)
-            val full: string -> substring
-            val string : substring -> string
-            
-            val concat: substring list ->string
-            val concatWith: string -> substring list ->string
+        val extract : (string * int * int option) -> substring
+        val substring : (string * int * int) -> substring
+        (*val slice : (substring * int * int option) -> substring*)
+        val full: string -> substring
+        val string : substring -> string
         
-            val explode : substring -> char list
-            val translate : (char -> string) -> substring -> string
-            val app : (char -> unit) -> substring -> unit
-            val foldl : ((char * 'a) -> 'a) -> 'a -> substring -> 'a
-            val foldr : ((char * 'a) -> 'a) -> 'a -> substring -> 'a
-            val tokens : (char -> bool) -> substring -> substring list
-            val fields : (char -> bool) -> substring -> substring list
-            val isPrefix: string -> substring -> bool
-            val isSubstring: string -> substring -> bool
-            val isSuffix: string -> substring -> bool
-        
-            val compare : (substring * substring) -> General.order
-            val collate : ((char * char) -> General.order) ->
-                             (substring * substring) -> General.order
-        
-            val triml : int -> substring -> substring
-            val trimr : int -> substring -> substring
-            val splitl : (char -> bool) -> substring -> (substring * substring)
-            val splitr : (char -> bool) -> substring -> (substring * substring)
-            val splitAt : (substring * int) -> (substring * substring)
-            val dropl : (char -> bool) -> substring -> substring
-            val dropr : (char -> bool) -> substring -> substring
-            val takel : (char -> bool) -> substring -> substring
-            val taker : (char -> bool) -> substring -> substring
-            val position : string -> substring -> (substring * substring)
-            val span : (substring * substring) -> substring
+        val concat: substring list ->string
+        val concatWith: string -> substring list ->string
+    
+        val explode : substring -> char list
+        val translate : (char -> string) -> substring -> string
+        val app : (char -> unit) -> substring -> unit
+        val foldl : ((char * 'a) -> 'a) -> 'a -> substring -> 'a
+        val foldr : ((char * 'a) -> 'a) -> 'a -> substring -> 'a
+        val tokens : (char -> bool) -> substring -> substring list
+        val fields : (char -> bool) -> substring -> substring list
+        val isPrefix: string -> substring -> bool
+        val isSubstring: string -> substring -> bool
+        val isSuffix: string -> substring -> bool
+    
+        val compare : (substring * substring) -> General.order
+        val collate : ((char * char) -> General.order) ->
+                         (substring * substring) -> General.order
+    
+        val triml : int -> substring -> substring
+        val trimr : int -> substring -> substring
+        val splitl : (char -> bool) -> substring -> (substring * substring)
+        val splitr : (char -> bool) -> substring -> (substring * substring)
+        val splitAt : (substring * int) -> (substring * substring)
+        val dropl : (char -> bool) -> substring -> substring
+        val dropr : (char -> bool) -> substring -> substring
+        val takel : (char -> bool) -> substring -> substring
+        val taker : (char -> bool) -> substring -> substring
+        val position : string -> substring -> (substring * substring)
+        val span : (substring * substring) -> substring
 
-            type vector
-            type elem
-            type slice
-            
-            val length : slice -> int
-            val subslice: slice * int * int option -> slice
-            val slice: vector * int * int option -> slice
-            val vector: slice -> vector
-            val getItem: slice -> (elem * slice) option
-            val appi : ((int * elem) -> unit) -> slice -> unit
-            val mapi : ((int * elem) -> elem) -> slice -> vector
-            val map : (elem -> elem) -> slice -> vector
-            val foldli : ((int * elem * 'a) -> 'a) -> 'a -> slice -> 'a
-            val foldri : ((int * elem * 'a) -> 'a) -> 'a -> slice -> 'a
-            val findi: (int * elem -> bool) -> slice -> (int * elem) option
-            val find: (elem -> bool) -> slice -> elem option
-            val exists: (elem -> bool) -> slice -> bool
-            val all: (elem -> bool) -> slice -> bool
-            sharing type slice = substring
-            end
-            where type elem = char where type vector = string where type char = char where type string = string =
+        type vector
+        type elem
+        type slice
+        
+        val length : slice -> int
+        val subslice: slice * int * int option -> slice
+        val slice: vector * int * int option -> slice
+        val vector: slice -> vector
+        val getItem: slice -> (elem * slice) option
+        val appi : ((int * elem) -> unit) -> slice -> unit
+        val mapi : ((int * elem) -> elem) -> slice -> vector
+        val map : (elem -> elem) -> slice -> vector
+        val foldli : ((int * elem * 'a) -> 'a) -> 'a -> slice -> 'a
+        val foldri : ((int * elem * 'a) -> 'a) -> 'a -> slice -> 'a
+        val findi: (int * elem -> bool) -> slice -> (int * elem) option
+        val find: (elem -> bool) -> slice -> elem option
+        val exists: (elem -> bool) -> slice -> bool
+        val all: (elem -> bool) -> slice -> bool
+        sharing type slice = substring
+    end
+        where type elem = char where type vector = string where type char = char where type string = string =
     struct
         type vector = string and elem = char
 

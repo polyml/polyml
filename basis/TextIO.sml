@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: Text IO
-    Copyright   David C.J. Matthews 2000, 2005
+    Copyright   David C.J. Matthews 2000, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,8 +15,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: updated.  It's possible that there are subtleties that haven't been addressed. *)
 
 signature TEXT_STREAM_IO =
 sig
@@ -384,7 +381,7 @@ structure TextIO :> TEXT_IO = struct
     fun openString (s: string) : instream =
     let
         val stringLength = String.size s
-        val posN = ref 0
+        val posN: int ref = ref 0
 
         (* We can read from the string until it is exhausted. *)
         fun readVec (len: int): vector =
@@ -402,9 +399,9 @@ structure TextIO :> TEXT_IO = struct
         and readVecNB l = SOME(readVec l)
         and block () = ()
         and canInput () = true
-        and getPos () = !posN
-        and setPos n = posN := n
-        and endPos () = stringLength
+        and getPos () = Position.fromInt(!posN)
+        and setPos n = posN := Position.toInt n
+        and endPos () = Position.fromInt stringLength
 
         val textPrimRd =
             TextPrimIO.RD {

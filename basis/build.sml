@@ -57,7 +57,6 @@ val () =
     else ();
 
 val () = Bootstrap.use "basis/Word8.sml";
-val () = Bootstrap.use "basis/INTEGER.sml";
 val () = Bootstrap.use "basis/IntInf.sml";
 val () = Bootstrap.use "basis/Int32.sml";
 val () = Bootstrap.use "basis/Word8Array.sml";
@@ -128,7 +127,7 @@ val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML struct
 val () = Bootstrap.use "basis/ForeignConstants.sml";
 val () = Bootstrap.use "basis/ForeignMemory.sml";
 (*val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";*)
-val () = Bootstrap.use "basis/Foreign.sml";
+(* val () = Bootstrap.use "basis/Foreign.sml";*) (* Too complicated at the moment. *)
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 

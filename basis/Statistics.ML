@@ -1,7 +1,7 @@
 (*
     Title:      Poly/ML Statistics parser.
     Author:     David Matthews
-    Copyright   David Matthews 2013, 2015
+    Copyright   David Matthews 2013, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -105,9 +105,9 @@ local
                                 (
                                     case decodeItem p of
                                         SOME {tag = Application(0x9, Primitive), data, remainder} =>
-                                            parseTime(t + Time.fromSeconds(decodeInt data), remainder)
+                                            parseTime(t + Time.fromSeconds(LargeInt.fromInt(decodeInt data)), remainder)
                                     |   SOME {tag = Application(0xa, Primitive), data, remainder} =>
-                                            parseTime(t + Time.fromMicroseconds(decodeInt data), remainder)
+                                            parseTime(t + Time.fromMicroseconds(LargeInt.fromInt(decodeInt data)), remainder)
                                     |   SOME {remainder, ...} => parseTime(t, remainder) (* Unknown *)
                                     |   NONE => t
                                 )

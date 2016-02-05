@@ -47,9 +47,6 @@ sig
     val stringImplode: char list -> string
     val stringExplode: string * word * word -> char list
     val isShortString   : string -> bool
-    val isShortInt      : int -> bool
-    val unsignedShortOrRaiseSize: int -> word
-    val unsignedShortOrRaiseSubscript: int -> word
     val sizeAsWord      : string -> word
     val stringAsAddress : string -> address
     val w8vectorAsAddress : Word8Array.vector -> address
@@ -136,41 +133,29 @@ struct
            fit in the length field of a segment. *)
         val maxAllocation = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env(100, ())
 
-        val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
-
         (* The length of a string is always a short integer so we
            can simply cast the result of "size". *)
         fun sizeAsWord(s: string) : word = RunCall.unsafeCast (size s)
 
-        fun unsignedShortOrRaiseSize (i: int): word =
-            if isShortInt i andalso i >= 0
-            then RunCall.unsafeCast i
-            else raise Size
-
-        fun unsignedShortOrRaiseSubscript (i: int): word =
-            if isShortInt i andalso i >= 0
-            then RunCall.unsafeCast i
-            else raise Subscript
-
         fun allocBytes bytes : address =
-            let
-                val System_alloc_array: word*word*word->address  =
-                    RunCall.run_call3 POLY_SYS_alloc_store
-                val words : word =
-                    if bytes = 0w0
-                    then 0w1 (* Zero-sized objects are not allowed. *)
-                    else if bytes > maxString
-                    (* The maximum string size is slightly smaller than the
-                       maximum array size because strings have a length word.
-                       That means that System_alloc will not raise Size if "bytes"
-                       size is between maxString and maxString+3. It seems best to
-                       use the same maximum size for CharArray/Word8Array and
-                       for String/Word8Vector so we need to check here. *) 
-                    then raise Size
-                    else (bytes + wordSize - 0w1) div wordSize
-            in
-                System_alloc_array(words, F_mutable_bytes, 0w0)
-            end
+        let
+            val System_alloc_array: word*word*word->address  =
+                RunCall.run_call3 POLY_SYS_alloc_store
+            val words : word =
+                if bytes = 0w0
+                then 0w1 (* Zero-sized objects are not allowed. *)
+                else if bytes > maxString
+                (* The maximum string size is slightly smaller than the
+                   maximum array size because strings have a length word.
+                   That means that System_alloc will not raise Size if "bytes"
+                   size is between maxString and maxString+3. It seems best to
+                   use the same maximum size for CharArray/Word8Array and
+                   for String/Word8Vector so we need to check here. *) 
+                then raise Size
+                else (bytes + wordSize - 0w1) div wordSize
+        in
+            System_alloc_array(words, F_mutable_bytes, 0w0)
+        end
 
         (* Allocate store for the string and set the first word to contain
            the length and the rest zero. *)
@@ -206,14 +191,12 @@ struct
             let
                 (* How many characters do we have to implode? *)
                 val listLength = length L
-                (* In practice we could never make a list with a
-                   combined length which was a long integer but
-                   we still check it here in unsignedShortOrRaiseSize. *)
-                val chars: word = unsignedShortOrRaiseSize listLength
+                val chars: word = RunCall.unsafeCast listLength
             in
                 if chars = 0w1 then str H
-                else let
-                    val dest = allocString chars;
+                else
+                let
+                    val dest = allocString chars
           
                     fun copy (_, []:char list) = ()
                       | copy (i, H :: T) =
