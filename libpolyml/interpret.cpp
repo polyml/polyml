@@ -823,6 +823,7 @@ int IntTaskData::SwitchToPoly()
                             if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
                                 *sp = TAGGED(t);
                             else raise_exception0(this, EXC_overflow);
+                            break;
                         }
 
                     case POLY_SYS_fixed_sub:
@@ -833,32 +834,29 @@ int IntTaskData::SwitchToPoly()
                             if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
                                 *sp = TAGGED(t);
                             else raise_exception0(this, EXC_overflow);
-                        }
-
-                    case POLY_SYS_fixed_mul:
-                        {
-                            PolyWord x = *sp++;
-                            PolyWord y = *sp;
-                            POLYSIGNED t = UNTAGGED(y) * UNTAGGED(x);
-                            // TODO: This isn't how to check for overflow.
-                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
-                                *sp = TAGGED(t);
-                            else raise_exception0(this, EXC_overflow);
+                            break;
                         }
 
                     case POLY_SYS_fixed_quot:
                         {
-                            POLYUNSIGNED u = UNTAGGED(*sp++);
-                            if (u == 0)
-                                raise_exception0(this, EXC_divide);
+                            // Zero and overflow are checked for in ML.
+                            POLYSIGNED u = UNTAGGED(*sp++);
                             PolyWord y = *sp;
-                            if (u == -1 && 
-
-                            POLYSIGNED t = UNTAGGED(y) / UNTAGGED(x);
-                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
-                                *sp = TAGGED(t);
-                            else raise_exception0(this, EXC_overflow);
+                            *sp = TAGGED(UNTAGGED(y) / u);
+                            break;
                         }
+
+                    case POLY_SYS_fixed_rem:
+                        {
+                            // Zero and overflow are checked for in ML.
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            PolyWord y = *sp;
+                            *sp = TAGGED(UNTAGGED(y) % u);
+                            break;
+                        }
+
+                        // We can't do POLY_SYS_fixed_mul here because of the difficulty of
+                        // determining overflow.
 
                     default:
                     FullRTSCall:
@@ -1473,6 +1471,14 @@ static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
+static Handle fixedMult(TaskData *taskData, Handle y, Handle x)
+{
+    // Fixed precision multiply.  This is the only way to detect overflow.
+    Handle result = mult_longc(taskData, y, x);
+    if (! result->Word().IsTagged()) raise_exception0(taskData, EXC_overflow);
+    return result;
+}
+
 Handle IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -1836,6 +1842,10 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_cmem_store_double:
                 CallIO4(this, &cmem_store_double);
+                break;
+
+            case POLY_SYS_fixed_mul:
+                CallIO2(this, &fixedMult);
                 break;
 
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
