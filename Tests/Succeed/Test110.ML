@@ -1,7 +1,7 @@
 (* Check integer conversion. *)
 
 fun verifyBase radix n =
-    valOf(StringCvt.scanString (Int.scan radix)(Int.fmt radix n)) = n
+    valOf(StringCvt.scanString (LargeInt.scan radix)(LargeInt.fmt radix n)) = n
 
 fun verify n =
     if verifyBase StringCvt.DEC n andalso verifyBase StringCvt.HEX n andalso
@@ -22,7 +22,7 @@ in
         val r = rmod (a * ! random_seed) m
     in
         random_seed := r;
-        Real.floor r
+        Real.toLargeInt IEEEReal.TO_NEGINF r
     end
 end;
 

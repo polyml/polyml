@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1237,7 +1237,7 @@ struct
                                 val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
                                 val numberOfCases = List.length cases
                             in
-                                numberOfCases > 7 andalso numberOfCases >= (Word.toInt max - Word.toInt min) div 3
+                                numberOfCases > 7 andalso Word.fromInt numberOfCases >= (max - min) div 0w3
                             end
                 in
                     if useIndexedCase
