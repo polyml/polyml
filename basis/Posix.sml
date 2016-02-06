@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: Posix structure and signature.
-    Author:     David Matthews
-    Copyright   David Matthews 2000
+    Copyright   David Matthews 2000, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1068,7 +1066,7 @@ struct
         structure ST =
         struct
             type stat = { mode: S.mode, kind: int, ino: ino, dev: dev,
-                      nlink: int, uid: uid, gid: gid, size: int,
+                      nlink: int, uid: uid, gid: gid, size: Position.int,
                       atime: Time.time, mtime: Time.time, ctime: Time.time }
             (* The "kind" information is encoded by "stat" *)
             fun isDir({ kind, ...} : stat) = kind = 1
