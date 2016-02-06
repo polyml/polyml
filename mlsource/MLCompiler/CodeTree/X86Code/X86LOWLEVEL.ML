@@ -681,10 +681,15 @@ struct
                     ActionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
                                     next=loadIndex (pref, isWord, whenDone) opAndResults }
 
-            fun genLoadInstr isWord ([LiteralSource base, LiteralSource offset], SOME destReg) =
+            fun genLoadInstr true (* Word *) ([LiteralSource base, LiteralSource offset], SOME destReg) =
                     if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                    then [(if isWord then LoadMemR else LoadByteR)
-                            {source=ConstantAddress base, output=destReg}]
+                    then [LoadMemR {source=ConstantAddress base, output=destReg}]
+                    else raise InternalError "genLoadWord: not zero"
+            
+            |   genLoadInstr false (* Byte*) ([LiteralSource base, LiteralSource offset], SOME destReg) =
+                    if isShort offset andalso toShort offset = 0w0 andalso not isX64
+                    then [TagValue{source=destReg, output=destReg},
+                          LoadByteR{source=ConstantAddress base, output=destReg}]
                     else raise InternalError "genLoadWord: not zero"
 
             |   genLoadInstr true (*Word*) ([InRegister base, LiteralSource offset], SOME destReg) =
