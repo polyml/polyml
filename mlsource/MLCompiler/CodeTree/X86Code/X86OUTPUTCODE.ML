@@ -62,8 +62,7 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
 
-    val exp2_16 =     0x10000
-    val exp2_30 =        0x40000000
+    val exp2_16 =        0x10000
     val exp2_31 =        0x80000000: LargeInt.int
     val exp2_56 = 0x100000000000000: LargeInt.int
     val exp2_64 = 0x10000000000000000: LargeInt.int
@@ -353,12 +352,6 @@ struct
              * 0x100 + b2) * 0x100) + b1) * 0x100) + b0
     end
 
-    (* Test whether a tagged value will fit into a 32-bit signed constant. *)
-    fun isTagged32bitS(a: machineWord) =
-    if isShort a
-    then let val aI = Word.toIntX(toShort a) in ~exp2_30 <= aI andalso aI < exp2_30 end
-    else false
- 
     (* Code-generate a byte. *)
     fun gen8u (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
     let
@@ -2598,8 +2591,8 @@ Calling conventions:
                     if source = 0 then ()
                     else genImmed (ADD, output, source, code)
                 )
-                else if isX64 andalso isTagged32bitS(toMachineWord source)
-                then (* This is better on X64 but longer than a 32 bit immediate on i386 *)
+                else if isX64 andalso source >= ~0x40000000 andalso source < 0x40000000
+                then (* Signed 32-bits.  This is better on X64 but longer than a 32 bit immediate on i386 *)
                 (
                     genOpRegPlus2 (MOVL_32_A, output, 0w0, code);
                     gen32s (source, code)
