@@ -526,3 +526,6 @@ end;
 
 (* For the moment use arbitrary precision here. *)
 structure Position = LargeInt;
+
+(* We're supposed to define this.  There should also be an Int31/Int63 structure. *)
+structure FixedInt = Int;
