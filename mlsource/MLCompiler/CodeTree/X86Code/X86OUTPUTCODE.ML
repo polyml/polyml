@@ -1308,6 +1308,10 @@ SS-relative addressing modes:
         |   SOME rxx =>
             if isX64 then gen8u(rex rxx, cvec)
             else raise InternalError "genop: rex prefix in 32 bit mode";
+        (* Generate escape code if necessary. *)
+        case opb of
+            MOVZX => gen8u(opToInt ESCAPE, cvec)
+        |   _     => ();
         gen8u (opToInt opb, cvec)
     )
 
