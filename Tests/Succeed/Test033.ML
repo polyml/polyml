@@ -5,10 +5,10 @@
 fun verify true = ()
 |   verify false = raise Fail "wrong";
 
-verify(Real.round(valOf(Real.fromString "1234567890.12345678901234")) = 1234567890);
-verify(Real.round(valOf(Real.fromString "1234567890.123456789012345")) = 1234567890);
-verify(Real.round(valOf(Real.fromString "1234567890.1234567890123456")) = 1234567890);
-verify(Real.round(valOf(Real.fromString "1234567890.1234567890123456789")) = 1234567890);
+verify(Real.toLargeInt IEEEReal.TO_NEAREST (valOf(Real.fromString "1234567890.12345678901234")) = 1234567890);
+verify(Real.toLargeInt IEEEReal.TO_NEAREST(valOf(Real.fromString "1234567890.123456789012345")) = 1234567890);
+verify(Real.toLargeInt IEEEReal.TO_NEAREST(valOf(Real.fromString "1234567890.1234567890123456")) = 1234567890);
+verify(Real.toLargeInt IEEEReal.TO_NEAREST(valOf(Real.fromString "1234567890.1234567890123456789")) = 1234567890);
 
 verify(not(Real.signBit 0.0));
 verify(Real.signBit (Real.~ 0.0));

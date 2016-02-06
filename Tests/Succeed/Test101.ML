@@ -6,7 +6,7 @@ fun check x = x orelse raise Fail "Test failed";
 (* This is used to avoid constant folding in the compiler. *)
 fun I x = let val x = ref x in ! x end;
 (* The maximum short precision number. *)
-val maxShort = Word.toInt(Word.<<(0w1, Word.fromInt (Word.wordSize-1))-0w1);
+val maxShort = Word.toLargeInt(Word.<<(0w1, Word.fromInt (Word.wordSize-1))-0w1);
 val minShort = ~maxShort-1;
 val aLong = maxShort+1; (* A long precision number. *)
 check(PolyML.objSize maxShort = 0 andalso PolyML.objSize minShort = 0 andalso PolyML.objSize aLong <> 0);
