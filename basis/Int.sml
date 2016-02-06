@@ -428,24 +428,24 @@ struct
     (* mod and div as for arbitrary precision . *)
     fun x mod y =
     let
-        val r = x rem y (* must handle divide-by-zero *)
+        val r = x rem y
     in
-        if r = 0 orelse (y >= 0) = (r >= 0) then r else r + y
+        (* It makes the code slightly simpler if we use orelse and andalso
+           here and in div.  That could be fixed with better optimisation. *)
+        if r = 0 orelse y >= 0 andalso r >= 0 orelse y < 0 andalso r < 0
+        then r else r + y
     end
 
     fun x div y =
     let
-        val xpos = x >= 0;
-        val ypos = y >= 0;
-        
         val d =
-            if xpos = ypos 
+            if x >= 0 andalso y >= 0 orelse x < 0 andalso y < 0
             then x
-            else if ypos
+            else if y >= 0
             then (x - (y - 1))
             else (x - (y + 1))
     in
-        d quot y (* may raise Div for divide-by-zero *)
+        d quot y
     end
 
     fun compare (i, j) =
