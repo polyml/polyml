@@ -57,12 +57,10 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
 
-    val exp2_30 =  0x40000000
-
     (* This actually checks that the value will fit in 31 bits because we normally have to
        tag it later. *)
     fun is31bitSigned a =
-        isShort a andalso let val aI = Word.toIntX(toShort a) in ~exp2_30 <= aI andalso aI < exp2_30 end
+        isShort a andalso let val aI = Word.toLargeIntX(toShort a) in ~0x40000000 <= aI andalso aI < 0x40000000 end
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
