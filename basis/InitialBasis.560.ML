@@ -229,10 +229,18 @@ infix  0  before
     end;
   RunCall.addOverload it "mod";
 
-  val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word;
-  RunCall.addOverload it "div";
-  val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word;
-  RunCall.addOverload it "mod";
+    local
+        val d: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word
+    in
+        fun it(_, 0w0) = raise RunCall.Div | it(x, y) = d(x, y)
+    end;
+    RunCall.addOverload it "div";
+    local
+        val m: word * word -> word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word
+    in
+        fun it(_, 0w0) = raise RunCall.Div | it(x, y) = m(x, y)
+    end;
+    RunCall.addOverload it "mod";
 
     (* We need to use the same identifier for this that we used when
        compiling the compiler, particularly "make". *)

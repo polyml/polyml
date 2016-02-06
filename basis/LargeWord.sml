@@ -307,18 +307,20 @@ local
 
             infix >> << ~>>
 
-            val op + : word*word->word = RunCall.run_call2 POLY_SYS_plus_word
-            and op - : word*word->word = RunCall.run_call2 POLY_SYS_minus_word
-            and op * : word*word->word = RunCall.run_call2 POLY_SYS_mul_word
-            and op div : word*word->word = RunCall.run_call2 POLY_SYS_div_word
-            and op mod : word*word->word = RunCall.run_call2 POLY_SYS_mod_word
-            and orb : word*word->word = RunCall.run_call2 POLY_SYS_or_word
+            (* Pick up overloads already set. *)
+            val op + : word*word->word = op +
+            and op - : word*word->word = op -
+            and op * : word*word->word = op *
+            and op div : word*word->word = op div
+            and op mod : word*word->word = op mod
+            
+            val orb : word*word->word = RunCall.run_call2 POLY_SYS_or_word
             and andb : word*word->word = RunCall.run_call2 POLY_SYS_and_word
             and xorb : word*word->word = RunCall.run_call2 POLY_SYS_xor_word
             and op >> : word*word->word = RunCall.run_call2 POLY_SYS_shift_right_word
             and op << : word*word->word = RunCall.run_call2 POLY_SYS_shift_left_word
             and op ~>> : word*word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_word
-            
+
             val toLargeWord: word->largeword = RunCall.run_call1 POLY_SYS_unsigned_to_longword
             and toLargeWordX: word->largeword = RunCall.run_call1 POLY_SYS_signed_to_longword
             and fromLargeWord: largeword->word = RunCall.run_call1 POLY_SYS_longword_to_tagged
@@ -435,9 +437,15 @@ local
             val op + : word*word->word = RunCall.run_call2 POLY_SYS_plus_longword
             and op - : word*word->word = RunCall.run_call2 POLY_SYS_minus_longword
             and op * : word*word->word = RunCall.run_call2 POLY_SYS_mul_longword
-            and op div : word*word->word = RunCall.run_call2 POLY_SYS_div_longword
-            and op mod : word*word->word = RunCall.run_call2 POLY_SYS_mod_longword
             
+            local
+                val d: word*word->word = RunCall.run_call2 POLY_SYS_div_longword
+                and m: word*word->word = RunCall.run_call2 POLY_SYS_mod_longword
+            in
+                fun x div y = if x = zero then raise Div else d(x, y)
+                and x mod y = if x = zero then raise Div else m(x, y)
+            end
+
             fun ~ x = zero - x
             fun notb x = xorb(maxLargeWordAsLargeWord, x)
 
