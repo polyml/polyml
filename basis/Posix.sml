@@ -596,7 +596,7 @@ structure Posix :>
 struct
     open RuntimeCalls;
 
-    fun getConst i : SysWord.word = RunCall.run_call2 POLY_SYS_os_specific (4, i))
+    fun getConst i : SysWord.word = RunCall.run_call2 POLY_SYS_os_specific (4, i)
 
     structure BitFlags =
     (* This structure is used as the basis of all the BIT_FLAGS structures. *)
@@ -1056,11 +1056,11 @@ struct
             and chmod(name, mode) = doCall(59, (name, SysWord.toInt mode))
         end
 
-        type dev = int and ino = int
-        val wordToDev = SysWord.toInt
-        and devToWord = SysWord.fromInt
-        and wordToIno = SysWord.toInt
-        and inoToWord = SysWord.fromInt
+        type dev = LargeInt.int and ino = LargeInt.int
+        val wordToDev = SysWord.toLargeInt
+        and devToWord = SysWord.fromLargeInt
+        and wordToIno = SysWord.toLargeInt
+        and inoToWord = SysWord.fromLargeInt
 
         structure ST =
         struct

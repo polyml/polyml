@@ -1379,7 +1379,7 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
 {
     int kind;
     /* Get the protection mode, masking off the file type info. */
-    modeHandle =
+    Handle modeHandle =
         Make_fixed_precision(taskData, buf->st_mode & (S_IRWXU|S_IRWXG|S_IRWXO|S_ISUID|S_ISGID));
     if (S_ISDIR(buf->st_mode)) kind = 1;
     else if (S_ISCHR(buf->st_mode)) kind = 2;
@@ -1389,8 +1389,8 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     else if ((buf->st_mode & S_IFMT) == S_IFSOCK) kind = 6;
     else /* Regular. */ kind = 0;
     Handle kindHandle = Make_fixed_precision(taskData, kind);
-    Handle inoHandle = Make_fixed_precision(taskData, buf->st_ino);
-    Handle devHandle = Make_fixed_precision(taskData, buf->st_dev);
+    Handle inoHandle = Make_arbitrary_precision(taskData, buf->st_ino);
+    Handle devHandle = Make_arbitrary_precision(taskData, buf->st_dev);
     Handle linkHandle = Make_fixed_precision(taskData, buf->st_nlink);
     Handle uidHandle = Make_fixed_precision(taskData, buf->st_uid);
     Handle gidHandle = Make_fixed_precision(taskData, buf->st_gid);

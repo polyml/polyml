@@ -868,9 +868,9 @@ struct
            a Unix inode.  That concept doesn't exist in Windows so
            we use a canonical file name instead. *)
         datatype file_id =
-            INODE of int | FILENAME of string
+            INODE of LargeInt.int | FILENAME of string
 
-        fun compare(INODE i, INODE j) = Int.compare(i, j)
+        fun compare(INODE i, INODE j) = LargeInt.compare(i, j)
           | compare(FILENAME s, FILENAME t) = String.compare(s, t)
           | (* These cases shouldn't happen but we'll define them
                anyway. *)
@@ -884,7 +884,7 @@ struct
             let
                 open Word
                 infix xorb <<
-                val w = Word.fromInt i
+                val w = Word.fromLargeInt i
             in
                 w xorb (w << 0w8) xorb (w << 0w16) xorb (w << 0w24)
             end
@@ -895,7 +895,7 @@ struct
                 CharVector.foldl
                     (fn(c, a) => a * 0w7 + Word.fromInt(Char.ord c)) 0w0 s
         local
-            val doIo: int*unit*string -> int
+            val doIo: int*unit*string -> LargeInt.int
                  = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
         in
             (* Get file id (inode).  Returns negative value if inodes aren't

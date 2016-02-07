@@ -1823,7 +1823,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (stat(fileName, &fbuff) != 0)
                 raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
-            return Make_fixed_precision(taskData, fbuff.st_ino);
+            return Make_arbitrary_precision(taskData, fbuff.st_ino);
 #endif
         }
 
