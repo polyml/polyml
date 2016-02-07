@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: main part
     Author:     David Matthews
-    Copyright   David Matthews 2015
+    Copyright   David Matthews 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -213,16 +213,16 @@ sig
     val cUchar: Word8.word conversion
     val cInt16: int conversion
     val cUint16: int conversion
-    val cInt32: int conversion
-    val cUint32: int conversion
-    val cInt64: int conversion
-    val cUint64: int conversion
+    val cInt32: LargeInt.int conversion
+    val cUint32: LargeInt.int conversion
+    val cInt64: LargeInt.int conversion
+    val cUint64: LargeInt.int conversion
     val cShort: int conversion
     val cUshort: int conversion
-    val cInt: int conversion
-    val cUint: int conversion
-    val cLong: int conversion
-    val cUlong: int conversion
+    val cInt: LargeInt.int conversion
+    val cUint: LargeInt.int conversion
+    val cLong: LargeInt.int conversion
+    val cUlong: LargeInt.int conversion
     val cString: string conversion
     val cByteArray: Word8Vector.vector conversion
     val cFloat: real conversion
@@ -747,7 +747,8 @@ struct
     (* Conversions *)
     local
         open LibFFI Memory LowLevel
-        fun checkRange(i, min, max) = if i < min orelse i > max then raise Overflow else i
+        fun checkRangeShort(i, min, max) = if i < min orelse i > max then raise Overflow else i
+        fun checkRangeLong(i: LargeInt.int, min, max) = if i < min orelse i > max then raise Overflow else i
         fun noFree _ = () (* None of these allocate extra memory or need to update. *)
     in
         val cVoid: unit conversion =
@@ -761,7 +762,7 @@ struct
         local
             fun load(m: voidStar): int = Word8.toIntX(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set8(m, 0w0, Word8.fromInt(checkRange(i, ~128, 127))); noFree)
+                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, ~128, 127))); noFree)
         in
             val cInt8: int conversion =
                 makeConversion { load=load, store=store, ctype = cTypeInt8 }
@@ -789,7 +790,7 @@ struct
         local
             fun load(m: voidStar): int = Word8.toInt(get8(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set8(m, 0w0, Word8.fromInt(checkRange(i, 0, 255))); noFree)
+                (set8(m, 0w0, Word8.fromInt(checkRangeShort(i, 0, 255))); noFree)
         in
             val cUint8: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint8 }
@@ -798,7 +799,7 @@ struct
         local
             fun load(m: voidStar): int = Word.toIntX(get16(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set16(m, 0w0, Word.fromInt(checkRange(i, ~32768, 32767))); noFree)
+                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, ~32768, 32767))); noFree)
         in
             val cInt16: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt16 }
@@ -807,93 +808,93 @@ struct
         local
             fun load(m: voidStar): int = Word.toInt(get16(m, 0w0))
             fun store(m: voidStar, i: int) =
-                (set16(m, 0w0, Word.fromInt(checkRange(i, 0, 65535))); noFree)
+                (set16(m, 0w0, Word.fromInt(checkRangeShort(i, 0, 65535))); noFree)
         in
             val cUint16: int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint16 }
         end
 
         local
-            fun load(m: voidStar): int = Word32.toIntX(get32(m, 0w0))
-            fun store(m: voidStar, i: int) =
-                (set32(m, 0w0, Word32.fromInt(checkRange(i, ~2147483648, 2147483647))); noFree)
+            fun load(m: voidStar): LargeInt.int = Word32.toLargeIntX(get32(m, 0w0))
+            fun store(m: voidStar, i: LargeInt.int) =
+                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, ~2147483648, 2147483647))); noFree)
         in
-            val cInt32: int conversion =
+            val cInt32: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt32 }
         end
 
         local
-            fun load(m: voidStar): int = Word32.toInt(get32(m, 0w0))
-            fun store(m: voidStar, i: int) =
-                (set32(m, 0w0, Word32.fromInt(checkRange(i, 0, 4294967295))); noFree)
+            fun load(m: voidStar): LargeInt.int = Word32.toLargeInt(get32(m, 0w0))
+            fun store(m: voidStar, i: LargeInt.int) =
+                (set32(m, 0w0, Word32.fromLargeInt(checkRangeLong(i, 0, 4294967295))); noFree)
         in
-            val cUint32: int conversion =
+            val cUint32: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint32 }
         end
 
         local
-            fun load(m: voidStar): int =
+            fun load(m: voidStar): LargeInt.int =
                 if wordSize = 0w4
                 then
                 let
                     val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
                 in
                     if bigEndian
-                    then IntInf.<<(Word32.toIntX v1, 0w32) + Word32.toInt v2
-                    else IntInf.<<(Word32.toIntX v2, 0w32) + Word32.toInt v1
+                    then IntInf.<<(Word32.toLargeIntX v1, 0w32) + Word32.toLargeInt v2
+                    else IntInf.<<(Word32.toLargeIntX v2, 0w32) + Word32.toLargeInt v1
                 end
-                else SysWord.toIntX(get64(m, 0w0))
+                else SysWord.toLargeIntX(get64(m, 0w0))
 
             val max = IntInf.<<(1, 0w63) - 1 and min = ~ (IntInf.<<(1, 0w63))
 
-            fun store(m: voidStar, i: int) =
+            fun store(m: voidStar, i: LargeInt.int) =
                 if wordSize = 0w4
                 then
                 let
-                    val _ = checkRange(i, min, max)
-                    val lo = Word32.fromInt i and hi = Word32.fromInt (IntInf.~>>(i, 0w32))
+                    val _ = checkRangeLong(i, min, max)
+                    val lo = Word32.fromLargeInt i and hi = Word32.fromLargeInt (IntInf.~>>(i, 0w32))
                 in
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
                     else (set32(m, 0w0, lo); set32(m, 0w1, hi));
                     noFree
                 end
-                else (set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max))); noFree)
+                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, min, max))); noFree)
         in
-            val cInt64: int conversion =
+            val cInt64: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeInt64 }
         end
 
         local
-            fun load(m: voidStar): int =
+            fun load(m: voidStar): LargeInt.int =
                 if wordSize = 0w4
                 then
                 let
                     val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
                 in
                     if bigEndian
-                    then IntInf.<<(Word32.toInt v1, 0w32) + Word32.toInt v2
-                    else IntInf.<<(Word32.toInt v2, 0w32) + Word32.toInt v1
+                    then IntInf.<<(Word32.toLargeInt v1, 0w32) + Word32.toLargeInt v2
+                    else IntInf.<<(Word32.toLargeInt v2, 0w32) + Word32.toLargeInt v1
                 end
-                else SysWord.toInt(get64(m, 0w0))
+                else SysWord.toLargeInt(get64(m, 0w0))
 
             val max = IntInf.<<(1, 0w64) - 1
 
-            fun store(m: voidStar, i: int) =
+            fun store(m: voidStar, i: LargeInt.int) =
                 if wordSize = 0w4
                 then
                 let
-                    val _ = checkRange(i, 0, max)
-                    val lo = Word32.fromInt i and hi = Word32.fromInt (IntInf.~>>(i, 0w32))
+                    val _ = checkRangeLong(i, 0, max)
+                    val lo = Word32.fromLargeInt i and hi = Word32.fromLargeInt (IntInf.~>>(i, 0w32))
                 in
                     if bigEndian
                     then (set32(m, 0w0, hi); set32(m, 0w1, lo))
                     else (set32(m, 0w0, lo); set32(m, 0w1, hi));
                     noFree
                 end
-                else (set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max))); noFree)
+                else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, 0, max))); noFree)
         in
-            val cUint64: int conversion =
+            val cUint64: LargeInt.int conversion =
                 makeConversion{ load=load, store=store, ctype = cTypeUint64 }
         end
 
@@ -915,35 +916,35 @@ struct
 
         val cShort =
             if #size saSShort = #size saSint16 then cInt16
-            else if #size saSShort = #size saSint32 then cInt32
+            (*else if #size saSShort = #size saSint32 then cInt32*)
             else raise Foreign "Unable to find type for short"
 
         val cUshort = 
             if #size saUShort = #size saUint16 then cUint16
-            else if #size saUShort = #size saUint32 then cUint32
+            (*else if #size saUShort = #size saUint32 then cUint32*)
             else raise Foreign "Unable to find type for unsigned"
 
         val cInt =
-            if #size saSint = #size saSint16 then cInt16
-            else if #size saSint = #size saSint32 then cInt32
+            (*if #size saSint = #size saSint16 then cInt16
+            else *)if #size saSint = #size saSint32 then cInt32
             else if #size saSint = #size saSint64 then cInt64
             else raise Foreign "Unable to find type for int"
 
         val cUint = 
-            if #size saUint = #size saUint16 then cUint16
-            else if #size saUint = #size saUint32 then cUint32
+            (*if #size saUint = #size saUint16 then cUint16
+            else *)if #size saUint = #size saUint32 then cUint32
             else if #size saUint = #size saUint64 then cUint64
             else raise Foreign "Unable to find type for unsigned"
 
         val cLong =
-            if #size saSlong = #size saSint16 then cInt16
-            else if #size saSlong = #size saSint32 then cInt32
+            (*if #size saSlong = #size saSint16 then cInt16
+            else *)if #size saSlong = #size saSint32 then cInt32
             else if #size saSlong = #size saSint64 then cInt64
             else raise Foreign "Unable to find type for long"
 
         val cUlong = 
-            if #size saUlong = #size saUint16 then cUint16
-            else if #size saUlong = #size saUint32 then cUint32
+            (*if #size saUlong = #size saUint16 then cUint16
+            else *)if #size saUlong = #size saUint32 then cUint32
             else if #size saUlong = #size saUint64 then cUint64
             else raise Foreign "Unable to find type for unsigned long"
 

@@ -126,8 +126,7 @@ val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
 val () = Bootstrap.use "basis/ForeignConstants.sml";
 val () = Bootstrap.use "basis/ForeignMemory.sml";
-(*val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";*)
-(* val () = Bootstrap.use "basis/Foreign.sml";*) (* Too complicated at the moment. *)
+val () = Bootstrap.useWithParms [Bootstrap.Universal.tagInject Bootstrap.maxInlineSizeTag 1000] "basis/Foreign.sml";
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 
