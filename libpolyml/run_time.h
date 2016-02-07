@@ -3,11 +3,11 @@
 
     Copyright (c) 2000-9
         Cambridge University Technical Services Limited
+    Further development Copyright David C.J. Matthews 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -157,5 +157,19 @@ extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
 extern Handle stack_trace_c(TaskData *taskData);
 extern Handle shrink_stack_c(TaskData *taskData, Handle reserved_space);
+
+// Create fixed precision values.
+extern Handle Make_fixed_precision(TaskData *taskData, long);
+extern Handle Make_fixed_precision(TaskData *taskData, unsigned long);
+
+extern Handle Make_fixed_precision(TaskData *taskData, int);
+extern Handle Make_fixed_precision(TaskData *taskData, unsigned);
+
+#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+extern Handle Make_fixed_precision(TaskData *taskData, long long);
+extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
+#endif
+
+extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
 
 #endif /* _RUNTIME_H_DEFINED */

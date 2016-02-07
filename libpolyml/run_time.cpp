@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2009, 2012, 2015
+    Further work copyright David C. J. Matthews 2009, 2012, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -328,7 +328,7 @@ void raise_exception_string(TaskData *taskData, int id, const char *str)
 // The string part must match the result of OS.errorMsg
 void raiseSyscallError(TaskData *taskData, int err)
 {
-    Handle errornum = Make_arbitrary_precision(taskData, err);
+    Handle errornum = Make_fixed_precision(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
     DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
     Handle pushed_name = errorMsg(taskData, err); // Generate the string.
@@ -1087,6 +1087,57 @@ Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
     gMem.GrowOrShrinkStack(taskData, new_len);
 
     return SAVE(TAGGED(0));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, int val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, long val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned long uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+
+#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+Handle Make_fixed_precision(TaskData *taskData, long long val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+#endif
+
+Handle Make_sysword(TaskData *taskData, uintptr_t p)
+{
+    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    *(uintptr_t*)(result->Word().AsCodePtr()) = p;
+    return result;
 }
 
 static unsigned long rtsCallCounts[POLY_SYS_vecsize];
