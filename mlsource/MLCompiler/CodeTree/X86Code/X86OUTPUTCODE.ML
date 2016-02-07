@@ -206,6 +206,7 @@ struct
     and memRegRaiseDiv            = wordSize*13
     and memRegArbEmulation        = wordSize*14
     and memRegThreadSelf          = wordSize*15
+    and memRegRaiseOverflow       = wordSize*17
 
   (* Several operations are not generated immediately but recorded and
      generated later.  Labels (i.e. the destination of a branch) are recorded

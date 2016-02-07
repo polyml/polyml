@@ -69,14 +69,12 @@ struct
     val word0 = toMachineWord 0;
     val word1 = toMachineWord 1;
 
-    val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
-    val False : machineWord = word0;     (* false *)
-    val True  : machineWord = word1;     (* true *)
-    val Zero  : machineWord = word0;     (* 0 *)
+    val DummyValue : machineWord = word0 (* used as result of "raise e" etc. *)
+    val False : machineWord = word0     (* false *)
+    val True  : machineWord = word1     (* true *)
 
     val constntTrue  = BICConstnt(True, [])
     val constntFalse = BICConstnt(False, [])
-    val constntZero  = BICConstnt(Zero, [])
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
@@ -1606,33 +1604,18 @@ struct
          
             else if wordEq (oper,ioOp POLY_SYS_word_neq)
             then genCompare ([arg1, arg2], testNeqW, testEqW)
-(*
-            else if wordEq (oper,ioOp POLY_SYS_equala)
-            then genCompare ([arg1, arg2], testEqA, testNeqA)
 
-            else if wordEq (oper,ioOp POLY_SYS_int_geq)
-            then genCompare ([arg1, arg2], testGeqA, testLtA)
-
-            else if wordEq (oper,ioOp POLY_SYS_int_leq)
-            then genCompare ([arg1, arg2], testLeqA, testGtA)
-
-            else if wordEq (oper,ioOp POLY_SYS_int_gtr)
-            then genCompare ([arg1, arg2], testGtA, testLeqA)
-
-            else if wordEq (oper,ioOp POLY_SYS_int_lss)
-            then genCompare ([arg1, arg2], testLtA, testGeqA)
-*)
             else if wordEq (oper,ioOp POLY_SYS_fixed_geq)
-            then genCompare ([arg1, arg2], testGeqS, testLtS)
+            then genCompare ([arg1, arg2], testGeqI, testLtI)
 
             else if wordEq (oper,ioOp POLY_SYS_fixed_leq)
-            then genCompare ([arg1, arg2], testLeqS, testGtS)
+            then genCompare ([arg1, arg2], testLeqI, testGtI)
 
             else if wordEq (oper,ioOp POLY_SYS_fixed_gtr)
-            then genCompare ([arg1, arg2], testGtS, testLeqS)
+            then genCompare ([arg1, arg2], testGtI, testLeqI)
 
             else if wordEq (oper,ioOp POLY_SYS_fixed_lss)
-            then genCompare ([arg1, arg2], testLtS, testGeqS)
+            then genCompare ([arg1, arg2], testLtI, testGeqI)
 
             else if wordEq (oper,ioOp POLY_SYS_word_geq)
             then genCompare ([arg1, arg2], testGeqW, testLtW)
@@ -2186,20 +2169,22 @@ struct
 
                         else if wordEq (oper,ioOp POLY_SYS_set_string_length)
                         then codeRTSFunction(instrSetStringLength, args, whereto)
-(*
-                        else if wordEq (oper,ioOp POLY_SYS_aplus)
-                        then codeRTSFunction(instrAddA, args, whereto)
 
-                        else if wordEq (oper,ioOp POLY_SYS_aminus)
-                        then codeRTSFunction(instrSubA, args, whereto)
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_add)
+                        then codeRTSFunction(instrAddI, args, whereto)
 
-                        else if wordEq (oper,ioOp POLY_SYS_amul)
-                        then codeRTSFunction(instrMulA, args, whereto)
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_sub)
+                        then codeRTSFunction(instrSubI, args, whereto)
 
-                        (* Negation is coded as 0 - X. *)
-                        else if wordEq (oper,ioOp POLY_SYS_aneg)
-                        then codeRTSFunction(instrSubA, constntZero :: args, whereto)
-*)
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_mul)
+                        then codeRTSFunction(instrMulI, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_quot)
+                        then codeRTSFunction(instrQuotI, args, whereto)
+
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_rem)
+                        then codeRTSFunction(instrRemI, args, whereto)
+
                         (* Boolean "not" is coded as xor with "true" *)
                         else if wordEq (oper,ioOp POLY_SYS_not_bool)
                         then codeRTSFunction(instrXorW, args @ [constntTrue], whereto)

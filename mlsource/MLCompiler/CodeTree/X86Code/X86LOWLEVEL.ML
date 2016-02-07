@@ -55,7 +55,6 @@ struct
     val op andb8 = Word8.andb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
-    and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
 
     (* This actually checks that the value will fit in 31 bits because we normally have to
        tag it later. *)
@@ -134,23 +133,6 @@ struct
     end
 
     datatype implement = ImplementGeneral | ImplementLiteral of machineWord
-
-(* 
-        |   checkAndReduce(InstrMulA, args as [arg1, arg2], mapper) =
-            (
-                (* The only special case we recognise is multiplication by 2. *)
-                case List.map mapper args of
-                    [_, SOME lit] =>
-                        if isShort lit  andalso toShort lit = 0w2
-                        then SOME(InstrMulAConst2, [arg1])
-                        else SOME(InstrMulA, args)
-                |   [SOME lit, _] =>
-                        if isShort lit  andalso toShort lit = 0w2
-                        then SOME(InstrMulAConst2, [arg2])
-                        else SOME(InstrMulA, args)
-                |   _ => SOME(InstrMulA, args)
-            )
-*)
 
     (* Argument negotiation.  The idea is to get the arguments into the "best" locations
        for the instruction. *)
@@ -841,120 +823,19 @@ struct
             |   instrAllocStore _ = raise InternalError "instrAllocStore: Wrong number of args"
         end
 
-        local
-            fun makeTest(InRegister reg) = TestTagR reg
-            |   makeTest(BaseOffsetSource{base, offset}) = TestByteMem{base=base, offset=offset,bits=0w1}
-            |   makeTest _ = raise InternalError "makeTest"
+        fun reverseTestOp JE = JE
+        |   reverseTestOp JNE = JNE
+        |   reverseTestOp JA = JB
+        |   reverseTestOp JB = JA
+        |   reverseTestOp JNA = JNB
+        |   reverseTestOp JNB = JNA
+        |   reverseTestOp JL = JG
+        |   reverseTestOp JG = JL
+        |   reverseTestOp JLE = JGE
+        |   reverseTestOp JGE = JLE
+        |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
 
-            (* Test tags for the arguments and call the emulator if either is long. Unless the
-               operation is just a comparison check for overflow and jump to the emulator
-               if the operation overflowed.  Rather than try to follow the static pattern
-               we just generate the shortest code. *)
-
-           fun testTags checkOverflow (operations, tag1, tag2) =
-                let
-                    fun checkTag(LiteralSource l) =
-                        if isShort l then ([], [])
-                        else (* Long constant - shouldn't be code-generating. *)
-                             raise InternalError "testTags: long constant"
-                    |   checkTag tag =
-                        let
-                            val (code, lab) = condBranch(JE, PredictNotTaken)
-                        in
-                            (code @ [makeTest tag], forwardJumpLabel lab)
-                        end
-                    val (tag1Check, tag1Lab) = checkTag tag1
-                    and (tag2Check, tag2Lab) = checkTag tag2
-                                
-                    val (overflowCheck, overflowLab) =
-                        if checkOverflow
-                        then
-                        let
-                            val (code2, lab2) = condBranch(JO, PredictNotTaken)
-                        in
-                            (code2, (* Emulate if overflow. *) forwardJumpLabel lab2)
-                        end
-                        else ([], [])
-                    val (skipEmulatorCode, skipEmulatorLabel) = uncondBranch()
-                    val (backToInstrCode, backToInstrLabel) = backJumpLabel()
-                in
-                    forwardJumpLabel skipEmulatorLabel @ jumpBack backToInstrLabel @ [CallRTS memRegArbEmulation] @
-                    overflowLab @ tag2Lab @ tag1Lab @ skipEmulatorCode @ (* Skip the emulator call. *)
-                    overflowCheck @ operations (* The actual instruction *) @
-                    backToInstrCode @ tag2Check @ tag1Check
-                end
-        in
-            val testTagsForArithmetic = testTags true
-
-            fun reverseTestOp JE = JE
-            |   reverseTestOp JNE = JNE
-            |   reverseTestOp JA = JB
-            |   reverseTestOp JB = JA
-            |   reverseTestOp JNA = JNB
-            |   reverseTestOp JNB = JNA
-            |   reverseTestOp JL = JG
-            |   reverseTestOp JG = JL
-            |   reverseTestOp JLE = JGE
-            |   reverseTestOp JGE = JLE
-            |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
-
-            (* If we're comparing a value with a short constant we don't need to
-               emulate the comparison even if the value is actually long.  We just
-               need to look at the sign to decide if it's less or greater because
-               every positive long form value is greater than any short value and
-               every negative long form value is less than any short value. *)
-            fun testTagsForComparison (shortTestAndJump, tag1, LiteralSource tag2Const, opc, destLab) =
-                let
-                    (* The constant should always be short. *)
-                    val _ = isShort tag2Const orelse raise InternalError "testTagsForComparison: long"
-                    val (jumpOnLongCode, longLab) = condBranch(JE, PredictNotTaken)
-                    val (skipLongCode, skipLongLabel) = uncondBranch()
-                    val tag1Reg =
-                        case tag1 of
-                            InRegister reg => reg
-                        |   _ => raise InternalError "testTagsForComparison: not reg"
-                    (* If we're jumping on greater (equal) we jump if the value is
-                       positive (sign bit clear).  If less (equal) we jump if it's
-                       negative.  We need to increment the reference count for the
-                       destination label. *)
-                    val Labels{uses, ...} = destLab
-                    val () = uses := !uses + 1
-                    val skipOnSign =
-                        case opc of
-                            JG => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
-                        |   JGE => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
-                        |   JL => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
-                        |   JLE => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
-                        |   _ => raise InternalError "testTagsForComparison: opc"
-                in
-                    forwardJumpLabel skipLongLabel @
-                    [skipOnSign, TestByteMem{base=tag1Reg, offset= ~1, bits=word8ToWord F_negative}] @
-                    forwardJumpLabel longLab @ skipLongCode @ shortTestAndJump @ jumpOnLongCode @ [makeTest tag1]
-                end
-            |   testTagsForComparison (operations, tag1 as LiteralSource _, tag2, opc, destLab) =
-                    (* First argument is the constant - reverse the arguments and the test. *)
-                    testTagsForComparison(operations, tag2, tag1, reverseTestOp opc, destLab)
-            |   testTagsForComparison (operations, tag1, tag2, _, _) =
-                    testTags false (operations, tag1, tag2)
-
-            (* Because short integers are normalised we can skip the tag tests
-               completely when comparing short constants for equality.  Otherwise we
-               only need emulation if both arguments are long. *)
-            fun eqTestTags(operations, LiteralSource l1, _, _, _) =
-                    if isShort l1 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, _, LiteralSource l2, _, _) =
-                    if isShort l2 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, tag1, tag2, _, _) =
-                let
-                    val (code1, lab1) = condBranch(JNE, PredictTaken)
-                    and (code2, lab2) = condBranch(JNE, PredictTaken)
-                in
-                    operations @ forwardJumpLabel lab1 @ forwardJumpLabel lab2 @
-                    [CallRTS memRegArbEmulation] @ code2 @ [makeTest tag2] @ code1 @ [makeTest tag1]
-                end
-
-            fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
-        end
+        fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
 
         local
             (* Various instructions also affect the tag and that has to be reinstated after
@@ -1081,18 +962,19 @@ struct
                                    next = wordSelectedRight opRes }
 
             |   wordSelectedRight opRes args = wordSelectedLeft opRes (List.rev args)
-
-            (* If either of the arguments are long constants we don't code-generate and
-               instead fall back to the RTS.  This is likely to be more efficient. *)
-            fun checkShort (opc, args, mapper) =
-                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
-                then NONE
-                else SOME(wordSelectDest(opc, testTagsForArithmetic), args)
+            
+            fun overflowTest (operations, _, _) =
+            let
+                val (overflowCheck, skipRaiseOverflowLabel) = condBranch(JNO, PredictNotTaken)
+            in
+                forwardJumpLabel skipRaiseOverflowLabel @ [CallRTS memRegRaiseOverflow] @
+                overflowCheck @ operations (* The actual instruction *)
+            end
         in
-            val instrAddA = fn (args, mapper) => checkShort(ADD, args, mapper)
-            and instrSubA = fn (args, mapper) => checkShort(SUB, args, mapper)
-            and instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
+            val instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
             and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
+            and instrAddI = fn (args, _) => SOME(wordSelectDest(ADD, overflowTest), args)
+            and instrSubI = fn (args, _) => SOME(wordSelectDest(SUB, overflowTest), args)
             and instrOrW  = fn (args, _)  => SOME(wordSelectDest(OR, noTagTest), args)
             and instrAndW = fn (args, _) => SOME(wordSelectDest(AND, noTagTest), args)
             and instrXorW = fn (args, _) => SOME(wordSelectDest(XOR, noTagTest), args)
@@ -1401,7 +1283,7 @@ struct
 
             (* The only case we treat specially is multiplication by two because the overflow
                flag isn't defined for larger shifts. *)
-            fun genAddSelf(_, SOME output) =
+(*            fun genAddSelf(_, SOME output) =
                 let
                     val (skipEmulator, skipEmulatorLab) = uncondBranch()
                     val (lab1Code, lab1) = condBranch(JE, PredictNotTaken)
@@ -1415,9 +1297,8 @@ struct
                     [ArithRR{opc=ADD, source=output, output=output}] @ backToInstr @ lab1Code @
                     [TestTagR output]
                 end
-            |   genAddSelf _ = raise InternalError "genAddSelf"
+            |   genAddSelf _ = raise InternalError "genAddSelf"*)
 
-            fun mulAConst2 pref = sharedSingleArgNegotiator(genAddSelf, pref)
          in
             fun instrUpshiftW am = shiftInstr SLL am
             and instrDownshiftW am = shiftInstr SRL am
@@ -1434,7 +1315,7 @@ struct
                 )
             |   instrMulW _ = raise InternalError "instrMulW"
 
-            fun instrMulA(args as [arg1, arg2], mapper) =
+(*            fun instrMulA(args as [arg1, arg2], mapper) =
             (
                 (* The only special case we recognise is multiplication by 2. *)
                 case List.map mapper args of
@@ -1448,7 +1329,9 @@ struct
                         else NONE(*SOME(InstrMulA, args)*)
                 |   _ => NONE(*SOME(InstrMulA, args)*)
             )
-            |   instrMulA _ = raise InternalError "instrMulA"
+            |   instrMulA _ = raise InternalError "instrMulA" *)
+            
+            fun instrMulI _ = NONE (* Temporarily *)
 
             local (* Unsigned word div and mod. *)
                 (* Division by a power of two is just a right shift. *)
@@ -1520,6 +1403,9 @@ struct
             in
                 fun instrDivW(args, mapper) = checkPower2(shiftDown, divModCode true, args, mapper)
                 and instrModW(args, mapper) = checkPower2(maskBits, divModCode false, args, mapper)
+                
+                fun instrQuotI _ = NONE
+                and instrRemI _ = NONE
             end
         end
 
@@ -1815,12 +1701,6 @@ struct
                 (testActions: nextAction, destLabel)
             end
 
-            (* If either of the arguments are long constants we don't code-generate and
-               instead fall back to the RTS.  This is likely to be more efficient. *)
-            fun checkShort (opc, test) (args, mapper) =
-                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
-                then NONE
-                else SOME(makeBranch(opc, test), args)
             fun noTagTest (operations, _, _, _, _) = operations (* When we don't need a test. *)
          in
             fun testNeqW(args, _) = SOME(makeBranch(JNE, noTagTest), args)
@@ -1829,16 +1709,10 @@ struct
             fun testGtW (args, _) = SOME(makeBranch(JA, noTagTest), args)
             fun testLeqW(args, _) = SOME(makeBranch(JNA, noTagTest), args)
             fun testLtW(args, _)  = SOME(makeBranch(JB, noTagTest), args)
-            fun testNeqA(args, mapper)   = checkShort(JNE, eqTestTags)(args, mapper)
-            and testEqA(args, mapper)    = checkShort(JE, eqTestTags)(args, mapper)
-            and testGeqA(args, mapper)   = checkShort(JGE, testTagsForComparison)(args, mapper)
-            and testGtA(args, mapper)    = checkShort(JG, testTagsForComparison)(args, mapper)
-            and testLeqA(args, mapper)   = checkShort(JLE, testTagsForComparison)(args, mapper)
-            and testLtA(args, mapper)    = checkShort(JL, testTagsForComparison)(args, mapper)
-            fun testGeqS(args, _) = SOME(makeBranch(JGE, noTagTest), args) (* These are signed. *)
-            fun testGtS (args, _) = SOME(makeBranch(JG, noTagTest), args)
-            fun testLeqS(args, _) = SOME(makeBranch(JLE, noTagTest), args)
-            fun testLtS(args, _)  = SOME(makeBranch(JL, noTagTest), args)
+            fun testGeqI(args, _) = SOME(makeBranch(JGE, noTagTest), args) (* These are signed. *)
+            fun testGtI (args, _) = SOME(makeBranch(JG, noTagTest), args)
+            fun testLeqI(args, _) = SOME(makeBranch(JLE, noTagTest), args)
+            fun testLtI(args, _)  = SOME(makeBranch(JL, noTagTest), args)
             fun Short(args, _)    = SOME(lengthTest JNE, args)
             fun Long(args, _)     = SOME(lengthTest JE, args)
         end

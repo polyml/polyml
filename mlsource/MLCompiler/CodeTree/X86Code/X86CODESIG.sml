@@ -186,6 +186,7 @@ sig
     val memRegHandlerRegister: int
     and memRegRaiseDiv: int
     and memRegArbEmulation: int
+    and memRegRaiseOverflow: int
     and memRegThreadSelf: int
     and memRegStackLimit: int
     and memRegStackOverflowCall: int

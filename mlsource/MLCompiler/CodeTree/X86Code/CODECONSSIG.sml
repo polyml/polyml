@@ -1,5 +1,5 @@
 (*
-    Copyright (c) David C.J. Matthews 2009, 2012
+    Copyright (c) David C.J. Matthews 2009, 2012, 2016
     
     Derived from original code:
 
@@ -8,8 +8,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -78,9 +77,11 @@ sig
     val instrGetFirstLong: 'a instrs
     val instrStringLength: 'a instrs
 
-    val instrAddA: 'a instrs
-    and instrSubA: 'a instrs
-    and instrMulA: 'a instrs
+    val instrAddI: 'a instrs
+    and instrSubI: 'a instrs
+    and instrMulI: 'a instrs
+    and instrQuotI:'a instrs
+    and instrRemI: 'a instrs
     and instrAddW: 'a instrs
     and instrSubW: 'a instrs
     and instrMulW: 'a instrs
@@ -133,16 +134,10 @@ sig
     val testGtW:   'a tests
     val testLeqW:  'a tests
     val testLtW:   'a tests
-    val testNeqA:  'a tests
-    val testEqA:   'a tests
-    val testGeqA:  'a tests
-    val testGtA:   'a tests
-    val testLeqA:  'a tests
-    val testLtA:   'a tests
-    val testGeqS:  'a tests
-    val testGtS:   'a tests
-    val testLeqS:  'a tests
-    val testLtS:   'a tests
+    val testGeqI:  'a tests
+    val testGtI:   'a tests
+    val testLeqI:  'a tests
+    val testLtI:   'a tests
     val Short:     'a tests
     val Long:      'a tests
     val testNeqFP: 'a tests
