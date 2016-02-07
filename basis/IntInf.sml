@@ -43,7 +43,7 @@ struct
     (* Return the position of the highest bit set in the value. *)
     local
         val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
-        val loadByte: LargeInt.int * Int.int -> word = RunCall.run_call2 POLY_SYS_load_byte
+        val loadByte: LargeInt.int * Int.int -> word = RunCall.run_call2 POLY_SYS_load_byte_immut
         val segLength: LargeInt.int -> Int.int = RunCall.run_call1 POLY_SYS_get_length
 
         (* Compute log2 for a short value.  The top bit of i will always be

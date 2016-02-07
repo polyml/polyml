@@ -2240,10 +2240,10 @@ struct
                         else if wordEq (oper,ioOp POLY_SYS_mod_word)
                         then codeRTSFunction(instrModW, args, whereto)
         
-                        else if wordEq (oper,ioOp POLY_SYS_load_byte)
+                        else if wordEq (oper,ioOp POLY_SYS_load_byte) orelse wordEq (oper,ioOp POLY_SYS_load_byte_immut)
                         then codeRTSFunction(instrLoadB, args, whereto)
 
-                        else if wordEq (oper,ioOp POLY_SYS_load_word)
+                        else if wordEq (oper,ioOp POLY_SYS_load_word) orelse wordEq (oper,ioOp POLY_SYS_load_word_immut)
                         then codeRTSFunction(instrLoad, args, whereto)
 
                         else if wordEq (oper,ioOp POLY_SYS_atomic_incr)
