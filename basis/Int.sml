@@ -407,25 +407,36 @@ struct
 
     local
         val q: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_quot
+        val r: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_rem
     in
         fun _ quot 0 = raise Div
         |   x quot y = 
                 if y = ~1 andalso x = smallestInt
                 then raise Overflow
                 else q(x,y)
-    end
-    
-    local
-        val r: int * int -> int = RunCall.run_call2 POLY_SYS_fixed_rem
-    in
+ 
+        (* This should return zero when dividing minInt by ~1.  Since we
+           are working with 31/63 bits this won't overflow and will return
+           the correct answer. *)
         fun _ rem 0 = raise Div
-        |   x rem y = 
-                if y = ~1 andalso x = smallestInt
-                then raise Overflow
-                else r(x,y)
+        |   x rem y = r (x, y)
+        
+        (* This is particularly complicated.  At the very least we should
+           implement a quotrem instruction. *)
+        fun _ div 0 = raise Div
+        |   x div y =
+            if y = ~1 andalso x = smallestInt
+            then raise Overflow
+            else
+            let
+                val (q, r) = (q(x, y), r(x,y))
+            in
+                if r = 0 orelse y >= 0 andalso r >= 0 orelse y < 0 andalso r < 0
+                then q
+                else q-1 (* Round to negative infinity. *)
+            end
     end
 
-    (* mod and div as for arbitrary precision . *)
     fun x mod y =
     let
         val r = x rem y
@@ -434,18 +445,6 @@ struct
            here and in div.  That could be fixed with better optimisation. *)
         if r = 0 orelse y >= 0 andalso r >= 0 orelse y < 0 andalso r < 0
         then r else r + y
-    end
-
-    fun x div y =
-    let
-        val d =
-            if x >= 0 andalso y >= 0 orelse x < 0 andalso y < 0
-            then x
-            else if y >= 0
-            then (x - (y - 1))
-            else (x - (y + 1))
-    in
-        d quot y
     end
 
     fun compare (i, j) =

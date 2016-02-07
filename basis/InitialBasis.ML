@@ -168,7 +168,7 @@ infix  0  before
   val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_minus_word;
   RunCall.addOverload it "-";
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amul;
+  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul;
   RunCall.addOverload it "*";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amul;
   RunCall.addOverload it "*";
