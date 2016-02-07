@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2016 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -541,7 +541,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
             err = errno;
         }
         if (haveRead >= 0)
-            return Make_arbitrary_precision(taskData, haveRead); // Success.
+            return Make_fixed_precision(taskData, haveRead); // Success.
         // If it failed because it was interrupted keep trying otherwise it's an error.
         if (err != EINTR)
             raise_syscall(taskData, "Error while reading", err);
@@ -655,7 +655,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
 
-    return Make_arbitrary_precision(taskData, haveWritten);
+    return Make_fixed_precision(taskData, haveWritten);
 }
 
 // Test whether we can write without blocking.  Returns false if it will block,
@@ -708,7 +708,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
     long endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
     if (seekStream(taskData, strm, original, SEEK_SET) != original) 
         raise_syscall(taskData, "Position error", errno);
-    return Make_arbitrary_precision(taskData, endOfStream-original);
+    return Make_fixed_precision(taskData, endOfStream-original);
 }
 
 
@@ -733,15 +733,15 @@ static Handle fileKind(TaskData *taskData, Handle stream)
             // Stdin is special.  The actual handle is to a pipe whether we are using our
             // own console or we were provided with a stdin.
             if (hOldStdin == INVALID_HANDLE_VALUE)
-                return Make_arbitrary_precision(taskData, FILEKIND_TTY); // We've made our own console
+                return Make_fixed_precision(taskData, FILEKIND_TTY); // We've made our own console
             hTest = hOldStdin;
         }
         else hTest = (HANDLE)_get_osfhandle(strm->device.ioDesc);
         switch (GetFileType(hTest))
         {
-        case FILE_TYPE_PIPE: return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
-        case FILE_TYPE_CHAR: return Make_arbitrary_precision(taskData, FILEKIND_TTY); // Or a device?
-        default: return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+        case FILE_TYPE_PIPE: return Make_fixed_precision(taskData, FILEKIND_PIPE);
+        case FILE_TYPE_CHAR: return Make_fixed_precision(taskData, FILEKIND_TTY); // Or a device?
+        default: return Make_fixed_precision(taskData, FILEKIND_FILE);
         }
     }
 #else
@@ -751,22 +751,22 @@ static Handle fileKind(TaskData *taskData, Handle stream)
         switch (statBuff.st_mode & S_IFMT)
         {
         case S_IFIFO:
-            return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
+            return Make_fixed_precision(taskData, FILEKIND_PIPE);
         case S_IFCHR:
         case S_IFBLK:
             if (isatty(strm->device.ioDesc))
-                return Make_arbitrary_precision(taskData, FILEKIND_TTY);
-            else return Make_arbitrary_precision(taskData, FILEKIND_DEV);
+                return Make_fixed_precision(taskData, FILEKIND_TTY);
+            else return Make_fixed_precision(taskData, FILEKIND_DEV);
         case S_IFDIR:
-            return Make_arbitrary_precision(taskData, FILEKIND_DIR);
+            return Make_fixed_precision(taskData, FILEKIND_DIR);
         case S_IFREG:
-            return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+            return Make_fixed_precision(taskData, FILEKIND_FILE);
         case S_IFLNK:
-            return Make_arbitrary_precision(taskData, FILEKIND_LINK);
+            return Make_fixed_precision(taskData, FILEKIND_LINK);
         case S_IFSOCK:
-            return Make_arbitrary_precision(taskData, FILEKIND_SKT);
+            return Make_fixed_precision(taskData, FILEKIND_SKT);
         default:
-            return Make_arbitrary_precision(taskData, -1);
+            return Make_fixed_precision(taskData, -1);
         }
     }
 #endif
@@ -786,12 +786,12 @@ Handle pollTest(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     int nRes = 0;
-    if (strm == NULL) return Make_arbitrary_precision(taskData, 0);
+    if (strm == NULL) return Make_fixed_precision(taskData, 0);
     /* Allow for the possibility of both being set in the future. */
     if (isRead(strm)) nRes |= POLL_BIT_IN;
     if (isWrite(strm)) nRes |= POLL_BIT_OUT;
         /* For the moment we don't allow POLL_BIT_PRI.  */
-    return Make_arbitrary_precision(taskData, nRes);
+    return Make_fixed_precision(taskData, nRes);
 }
 
 /* Do the polling.  Takes a vector of io descriptors, a vector of bits to test
@@ -1570,7 +1570,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (isAvailable(taskData, str))
-                return Make_arbitrary_precision(taskData, 0);
+                return Make_fixed_precision(taskData, 0);
             WaitStream waiter(str);
             processes->ThreadPauseForIO(taskData, &waiter);
         }

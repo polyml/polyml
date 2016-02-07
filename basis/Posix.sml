@@ -596,8 +596,7 @@ structure Posix :>
 struct
     open RuntimeCalls;
 
-    fun getConst i =
-        SysWord.fromInt(RunCall.run_call2 POLY_SYS_os_specific (4, i))
+    fun getConst i : SysWord.word = RunCall.run_call2 POLY_SYS_os_specific (4, i))
 
     structure BitFlags =
     (* This structure is used as the basis of all the BIT_FLAGS structures. *)
