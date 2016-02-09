@@ -851,7 +851,7 @@ struct
             |   preTagAdjust _ = []
 
             (* TODO: If we have the same argument on both sides (e.g. a+a) this seems to
-               force them into different registers.  That also involves a double tag test. *)
+               force them into different registers. *)
 
             (* First select an output register.  Unless this is a SUB instruction we can choose
                a modifiable register from either argument. *)
@@ -963,13 +963,7 @@ struct
 
             |   wordSelectedRight opRes args = wordSelectedLeft opRes (List.rev args)
             
-            fun overflowTest (operations, _, _) =
-            let
-                val (overflowCheck, skipRaiseOverflowLabel) = condBranch(JNO, PredictNotTaken)
-            in
-                forwardJumpLabel skipRaiseOverflowLabel @ [CallRTS memRegRaiseOverflow] @
-                overflowCheck @ operations (* The actual instruction *)
-            end
+            fun overflowTest (operations, _, _) = TestOverflow :: operations
         in
             val instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
             and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
@@ -1331,7 +1325,63 @@ struct
             )
             |   instrMulA _ = raise InternalError "instrMulA" *)
             
-            fun instrMulI _ = NONE (* Temporarily *)
+            (* Unlike unsigned multiplication the IMUL instruction will work on any
+               registers.  Both registers have to modifiable and we have to clobber
+               the multiplier afterwards. *)
+            local
+                fun genMultiplySigned([InRegister m1, InRegister m2], SOME outReg) =
+                    let
+                        val _ = outReg = m1 orelse raise InternalError "genMultiplySigned"
+                    in
+                        [
+                            MakeSafe m2,
+                            (* Add back the tag, but don't shift. *)
+                            ArithRConst{opc=ADD, output=m1, source=1},
+                            TestOverflow,
+                            SignedMultiply{source=m2, output=m1},
+                            (* Shift down the multiplier. *)
+                            ShiftConstant{shiftType=SRA, output=m2, shift=0w1 },
+                            (* Untag, but don't shift the multiplicand. *)
+                            ArithRConst{opc=SUB, output=m1, source=1}
+                        ]
+                    end
+                |   genMultiplySigned _ = raise InternalError "genMultiplySigned"
+
+                val eaxSet = singleton eax and edxSet = singleton edx
+
+                fun loadArg1 instr [(ActInRegisterSet{ modifiable, ...}), _] =
+                    if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                    then ActionLockRegister{argNo=0, reg=eax, willOverwrite=true, next=loadArg2 instr}
+                    else (* Not in the right register - move it. *)
+                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+                |   loadArg1 instr [_, _] =
+                        ActionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr}
+
+                |   loadArg1 _ _ = raise InternalError "loadArg1: bad arguments"
+            
+                and loadArg2 instr [_, (ActInRegisterSet{ modifiable, ...})] =
+                    if regSetIntersect(modifiable, edxSet) <> noRegisters
+                    then ActionLockRegister{argNo=1, reg=edx, willOverwrite=true, next=finished instr}
+                    else (* Not in the right register - move it. *)
+                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+                    
+                |   loadArg2 instr [_, _] =
+                        ActionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr}
+
+                |   loadArg2 _ _ = raise InternalError "loadArg1: bad arguments"
+
+                and finished genInstr _ =
+                    ActionDone{
+                        outReg=SOME eax,
+                        operation=genInstr([InRegister eax, InRegister edx], SOME eax)
+                        }
+
+                val multiplyNegotiator = loadArg1
+            in
+                fun instrMulI(args, _) = (* TODO: use shift for multiplication by two. *)
+                    SOME(fn _ => multiplyNegotiator genMultiplySigned, args)
+            end
 
             local (* Unsigned word div and mod. *)
                 (* Division by a power of two is just a right shift. *)

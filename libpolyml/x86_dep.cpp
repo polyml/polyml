@@ -2970,6 +2970,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 {
                 case 0xb6: /* movzl */
                 case 0xc1: /* xaddl */
+                case 0xaf: // imul
                     pt++; skipea(&pt, process, false); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:

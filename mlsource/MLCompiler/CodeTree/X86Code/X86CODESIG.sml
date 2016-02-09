@@ -170,6 +170,8 @@ sig
     |   FPLoadIntAndPop
     |   FPFree of reg
     |   PreAddDetag of reg
+    |   TestOverflow
+    |   SignedMultiply of { source: reg, output: reg }
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit

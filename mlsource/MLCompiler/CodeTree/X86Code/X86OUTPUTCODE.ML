@@ -827,6 +827,7 @@ struct
   | REP (* Rep prefix *)
   | SAHF
   | MOVZX (* Needs escape code. *)
+  | IMULRR (* Needs escape code. *)
 
   fun opToInt opn: Word8.word =
     case opn of
@@ -868,6 +869,7 @@ struct
     |   REP         => 0wxf3
     |   SAHF        => 0wx9e
     |   MOVZX       => 0wxb6 (* Needs escape code. *)
+    |   IMULRR      => 0wxaf (* Needs escape code. *)
 
 (* ...
 
@@ -1299,6 +1301,12 @@ SS-relative addressing modes:
        enough for a comparison and the following conditional
        branch. *)
     val maxInstrSize = if isX64 then 15 else 12
+    
+    (* A few instructions require an escape. *)
+    fun genEscape(MOVZX, cvec) = gen8u(opToInt ESCAPE, cvec)
+    |   genEscape(LOCK_XADD, cvec) = gen8u(opToInt ESCAPE, cvec)
+    |   genEscape(IMULRR, cvec) = gen8u(opToInt ESCAPE, cvec)
+    |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
     fun genop(opb:opCode, rx, cvec) =
@@ -1310,9 +1318,7 @@ SS-relative addressing modes:
             if isX64 then gen8u(rex rxx, cvec)
             else raise InternalError "genop: rex prefix in 32 bit mode";
         (* Generate escape code if necessary. *)
-        case opb of
-            MOVZX => gen8u(opToInt ESCAPE, cvec)
-        |   _     => ();
+        genEscape(opb, cvec);
         gen8u (opToInt opb, cvec)
     )
 
@@ -1422,10 +1428,7 @@ SS-relative addressing modes:
         (* For the moment always put in a REX prefix. *)
         if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x = false}, cvec) else ();
         (* Generate the escape codes for the opcodes that need them. *)
-        case opb of
-            MOVZX => gen8u(opToInt ESCAPE, cvec)
-        |   LOCK_XADD => gen8u(opToInt ESCAPE, cvec)
-        |   _     => ();
+        genEscape(opb, cvec);
         (*if offset < 0 andalso rb = esp then raise InternalError "Negative stack offset" else ();*)
         gen8u(opToInt opb, cvec);
         genEACode(offset, rbC, rrC, cvec)
@@ -1465,6 +1468,7 @@ SS-relative addressing modes:
         doPending (cvec, maxInstrSize);
         (* For the moment always put in a REX prefix. *)
         if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x = false}, cvec) else ();
+        genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
         genmodrm(Register, rrC, rbC, cvec)
     end
@@ -1516,10 +1520,7 @@ SS-relative addressing modes:
         (* For the moment always put in a REX prefix. *)
         if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x=riX}, cvec) else ();
 
-        (* Generate the ESCAPE code if needed. *)
-        case opb of
-            MOVZX => gen8u(opToInt ESCAPE, cvec)
-        |   _     => ();
+        genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
 
         genmodrm (offsetCode, rrC, 0w4 (* s-i-b *), cvec);
@@ -1733,7 +1734,7 @@ Calling conventions:
                 (* Ensure the return address is aligned on
                    a word + 2 byte boundary.  *)
                 align (0w0, cvec);
-         
+
                 genop (Group5, NONE, cvec);
                 genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
             )
@@ -1915,23 +1916,6 @@ Calling conventions:
         exited := true (* We're not coming back. *)
     )
 
-    (* Backwards jump for loops. *)
-
-    (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
-    fun stackCheck cvec =
-    let
-        (* cmp reg,16(%ebp)*)
-        val () = genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegStackLimit, ebp, esp, cvec)
-        (* jnb 3 *)
-        val lab = [putConditional (JNB, cvec)]
-    in
-        (* call *)
-        genop(Group5, NONE, cvec);
-        genmodrm (Based8, 0w2 (* call *), #1 (getReg ebp), cvec);
-        gen8u (Word8.fromInt memRegStackOverflowCall, cvec);
-        fixup (lab, cvec)
-    end
-
     fun genFloatingPt({escape, md, nnn, rm}, code) =
     (
         genop(FPESC escape, NONE, code);
@@ -2009,9 +1993,7 @@ Calling conventions:
             in
                 (* If we don't have enough store for this allocation we call this
                    function. *)
-                genop (Group5, NONE, cvec);
-                genmodrm(Based8, 0w2 (* call *), #1 (getReg ebp), cvec);
-                gen8s (memRegHeapOverflowCall, cvec);
+                genOpPlus2(Group5, LargeInt.fromInt memRegHeapOverflowCall, ebp, 0w2 (* call *), cvec);
                 fixup (lab, cvec)
             end;
             (* Update the heap pointer now we have the store.  This is also
@@ -2156,6 +2138,8 @@ Calling conventions:
     |   FPLoadIntAndPop
     |   FPFree of reg
     |   PreAddDetag of reg
+    |   TestOverflow
+    |   SignedMultiply of { source: reg, output: reg }
 
     type operations = operation list
 
@@ -2312,6 +2296,7 @@ Calling conventions:
                 else if entry = memRegRaiseException then stream "RaiseException"
                 else if entry = memRegRaiseDiv then stream "RaiseDiv"
                 else if entry = memRegArbEmulation then stream "ArbEmulation"
+                else if entry = memRegRaiseOverflow then stream "RaiseOverflow"
                 else stream(Int.toString entry)
             )
 
@@ -2378,6 +2363,8 @@ Calling conventions:
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
         |   FPFree reg => (stream "FPFree "; printReg reg)
         |   PreAddDetag reg => (stream "Detag "; printReg reg)
+        |   TestOverflow => stream "TestOverflow"
+        |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printReg source; stream " *=>"; printReg output)
         ;
  
         stream "\n"
@@ -2521,51 +2508,6 @@ Calling conventions:
     
         fun cgOp [] = ()
 
-        (*
-        |   cgOp(DataOp{ instr=InstrMulA, operands=[InRegister r1, InRegister r2], output=SOME rd } :: remainder) =
-            (* Arbitrary precision multiplication. *)
-            let
-                val _ = checkSources[r1, r2]; val _ = addDests[rd];
-                val addr = tagTest2 (rd, r1, r2, code) (* generates code *)
-            in
-                (* This is a bit complicated because the result is always placed
-                   in the EDX:EAX register pair so we have to save one or both. *)
-                 (* If the multiply overflows we need to be able to recover the
-                    original arguments in order to emulate the instruction. *)
-                if rd <> eax then genPush(eax, code) else ();
-                if rd <> edx then genPush(edx, code) else ();
-                if r2 = edx
-                then
-                (
-                    (* Untag, but don't shift the multiplicand. *)
-                    genLeal (eax, r1, ~1, code);
-                    (* Shift down the multiplier to remove the tag. *)
-                    genop (Group2_1_A, code);
-                    genmodrm(Register, 0w7 (* sar *), getReg edx, code)
-                )
-                else (* r2 <> edx *)
-                (
-                    (* Shift down the multiplier. *)
-                    if r1 <> edx then genMove(edx, r1, code) else ();
-                    genop (Group2_1_A, code);
-                    genmodrm(Register, 0w7 (* sar *), getReg edx, code);
-                    (* Untag, but don't shift the multiplicand. *)
-                    genLeal (eax, r2, ~1, code)
-                );
-                (* Do the multiplication. *)
-                genop (Group3_A, code);
-                genmodrm(Register, 0w5 (* imull *), getReg edx, code);
-                (* Add back the tag, but don't shift. *)
-                genLeal (rd, eax, 1, code);
-                (* Restore the saved registers.  N.B. This also has
-                   the effect of making sure that both eax and edx contain
-                   valid values. *)
-                if rd <> edx then genop(POP_R edx, code) else ();
-                if rd <> eax then genop(POP_R eax, code) else ();
-                genJO8  (addr, code) (* Check for overflow. *);
-                cgOp remainder
-            end
-*) 
         |   cgOp(LockMutableSegment baseReg :: remainder) =
                 (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
             (
@@ -2853,9 +2795,7 @@ Calling conventions:
 
         |   cgOp(CallRTS entry :: remainder) =
             (
-                genop(Group5, NONE, code);
-                genmodrm (Based8, 0w2 (* call *), #1 (getReg ebp), code);
-                gen8u (Word8.fromInt entry(*memRegArbEmulation*), code);
+                genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), code);
                 cgOp remainder
             )
 
@@ -3205,7 +3145,21 @@ Calling conventions:
                 cgOp remainder
             end
         
-        |   cgOp(InterruptCheck :: remainder) = (stackCheck code; cgOp remainder)
+        |   cgOp(InterruptCheck :: remainder) =
+            (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
+            let
+                (* cmp reg,16(%ebp)*)
+                val () = genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegStackLimit, ebp, esp, code)
+                (* jnb 3 *)
+                val lab = [putConditional (JNB, code)]
+            in
+                (* call *)
+                genop(Group5, NONE, code);
+                genmodrm (Based8, 0w2 (* call *), #1 (getReg ebp), code);
+                gen8u (Word8.fromInt memRegStackOverflowCall, code);
+                fixup (lab, code);
+                cgOp remainder
+            end
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output } :: remainder) =
             (
@@ -3383,6 +3337,25 @@ Calling conventions:
                    of the arguments.  Use LEAL here because if there is a trap
                    the emulation code needs to treat it specially. *)
                 genLeal(reg, reg, ~1, code);
+                cgOp remainder
+            )
+            
+       |    cgOp (TestOverflow :: remainder) =
+            let
+                (* For the moment put the trap here and skip it if there is no overflow.
+                   It would be better to jump only on overflow and put in a single trap.
+                   The default branch prediction is not to take forward jumps. *)
+                val lab = [putConditional(JNO, code)]
+            in
+                genOpPlus2(Group5, LargeInt.fromInt memRegRaiseOverflow, ebp, 0w2 (* call *), code);
+                fixup(lab, code);
+                cgOp remainder
+            end
+
+        |   cgOp (SignedMultiply {source, output} :: remainder) =
+            (
+                checkSources[source, output]; addDests[output];
+                genOpReg(IMULRR (* 2 byte opcode *), output, source, code);
                 cgOp remainder
             )
     in
@@ -3858,15 +3831,15 @@ Calling conventions:
             let
                 (* Opcode is in next byte. *)
                 val opByte2  = Word8.toInt (csegGet (seg, !ptr));
-                val () = (ptr +:= 0w1);
+                val () = (ptr +:= 0w1)
             in
-                if opByte2 = 0xB6 orelse opByte2 = 0xC1
+                if opByte2 = 0xB6 orelse opByte2 = 0xC1 orelse opByte2 = 0xAF
                 then
                 let
                     val nb = Word8.toInt (csegGet (seg, !ptr));
                     val reg = (nb div 8) mod 8;
                 in
-                    print (if opByte2 = 0xB6 then "movzl\t" else "xaddl\t");
+                    print (if opByte2 = 0xB6 then "movzl\t" else if opByte2 = 0xC1 then "xaddl\t" else "imull\t");
                     printEA rex;
                     print ",";
                     print (regRepr (mkReg(Word8.fromInt reg, rexR)))
@@ -3895,7 +3868,7 @@ Calling conventions:
                         );
                     printHex (Word.toLargeInt(!ptr) + valu)
                 end
-       
+
                 else (print "esc\t"; printHex(LargeInt.fromInt opByte2))
             end (* ESCAPE *)
          
