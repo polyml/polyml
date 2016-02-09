@@ -1260,7 +1260,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 
 // Module system
 #define MODULESIGNATURE "POLYMODU"
-#define MODULEVERSION   1
+#define MODULEVERSION   2
 
 typedef struct _moduleHeader
 {
@@ -1274,10 +1274,7 @@ typedef struct _moduleHeader
     // These entries contain the real data.
     off_t       segmentDescr;           // Position of segment descriptor table
     unsigned    segmentDescrCount;      // Number of segment descriptors in the table
-    off_t       stringTable;            // Pointer to the string table (zero if none)
-    size_t      stringTableSize;        // Size of string table
     time_t      timeStamp;              // The time stamp for this file.
-    uintptr_t   fileSignature;          // The signature for this file.
     time_t      executableTimeStamp;    // The time stamp for the parent executable.
     // Root
     uintptr_t   rootSegment;
