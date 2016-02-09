@@ -144,7 +144,7 @@ private:
  */
 
 #define SAVEDSTATESIGNATURE "POLYSAVE"
-#define SAVEDSTATEVERSION   1
+#define SAVEDSTATEVERSION   2
 
 // File header for a saved state file.  This appears as the first entry
 // in the file.
@@ -164,9 +164,7 @@ typedef struct _savedStateHeader
     size_t      stringTableSize;        // Size of string table
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
     time_t      timeStamp;            // The time stamp for this file.
-    uintptr_t   fileSignature;        // The signature for this file.
     time_t      parentTimeStamp;      // The time stamp for the parent.
-    uintptr_t   parentSignature;      // The signature for the parent.
 } SavedStateHeader;
 
 // Entry for segment table.  This describes the segments on the disc that
