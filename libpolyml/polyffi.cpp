@@ -641,7 +641,7 @@ static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
     uintptr_t cbIndex = (uintptr_t)data;
-    ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
+    ASSERT(cbIndex < callBackEntries);
     // We should get the task data for the thread that is running this code.
     // If this thread has been created by the foreign code we will have to
     // create a new one here.

@@ -58,7 +58,7 @@
 #include "diagnostics.h"
 
 /*
-This code was largely written by Simon Finn as a database improver for the the
+This code was largely written by Simon Finn as a database improver for the
 memory-mapped persistent store version.  The aim is that where two immutable
 objects (cells) contain the same data (i.e. where ML equality would say they
 were equal) they should be merged so that only a single object is retained.
