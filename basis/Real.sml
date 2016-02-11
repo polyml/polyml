@@ -241,7 +241,7 @@ struct
         else if isNan x then raise General.Div else raise General.Overflow
 
     val fromLargeInt: LargeInt.int -> real = RunCall.run_call1 POLY_SYS_int_to_real
-    val fromInt: int  -> real = fromLargeInt o LargeInt.fromInt
+    val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_fixed_to_real
 
     val radixAsReal (* Not exported *) = fromInt radix
     val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))

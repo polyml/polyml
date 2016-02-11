@@ -1404,7 +1404,6 @@ struct
                    register.  We get EDX as a work register and put the divisor in EAX. *)
                 fun genDivMod isDiv ([_, InRegister dividend], _) =
                     let
-                        val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
                         (* The instruction to add back the tag to "dividend" was missing and this caused
                            a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
                            that dividend cannot be either eax or edx.  This next test to just to make sure. *)
@@ -1423,11 +1422,11 @@ struct
                             (* Clear the high order of the accumulator and do the division. *)
                             Group3Ops(dividend, DIV),
                             ArithRR{opc=XOR, source=edx, output=edx},
-                            (* Untag, but don't shift, the divisor and dividend.  At the
-                               same time check for zero and raise an exception if it is. *)
-                            ArithRConst{opc=SUB, source=1, output=eax}
-                        ] @ forwardJumpLabel notZeroLab @ [CallRTS memRegRaiseDiv ] @ notZero @
-                        [ArithRConst{opc=SUB, source=1, output=dividend}]
+                            (* Untag, but don't shift, the divisor and dividend.
+                               Checking for zero is done in ML code. *)
+                            ArithRConst{opc=SUB, source=1, output=eax},
+                            ArithRConst{opc=SUB, source=1, output=dividend}
+                        ]
                     end
 
                 |   genDivMod _ _ = raise InternalError "genDivMod"
@@ -2015,16 +2014,13 @@ struct
                 fun genIntToFPInstr([InRegister source], SOME output) =
                     let
                          (* This is a bit complicated because we can only load from memory
-                            but the memory needs to be modifiable. We have a special location
-                            we can load from. *)
-                        val (test, skipEmulator) = condBranch(JNE, PredictTaken)
+                            but the memory needs to be modifiable.  We push the value
+                            to the stack and load from there; *)
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            FPLoadIntAndPop (* Do instr. *)
-                        ] @ forwardJumpLabel skipEmulator @
-                        [ CallRTS memRegArbEmulation ] @
-                        test @ [TestTagR source, PushR source (* Push and test tag. *) ]
+                            FPLoadIntAndPop ,(* Do instr.  This shifts the value on the stack and pops it.*)
+                            PushR source (* Push to the stack. *) ]
                     end
                 |   genIntToFPInstr _ = raise InternalError "genIntToFPInstr"
                 fun genIntToFP pref =

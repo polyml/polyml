@@ -203,8 +203,6 @@ struct
     and memRegStackOverflowCall   = wordSize*9
     and memRegStackOverflowCallEx = wordSize*10
     and memRegRaiseException      = wordSize*11
-    and memRegRaiseDiv            = wordSize*13
-    and memRegArbEmulation        = wordSize*14
     and memRegThreadSelf          = wordSize*15
     and memRegRaiseOverflow       = wordSize*17
 
@@ -2294,8 +2292,6 @@ Calling conventions:
                 else if entry = memRegHeapOverflowCall then stream "HeapOverflow"
                 else if entry = memRegStackOverflowCallEx then stream "StackOverflowCallEx"
                 else if entry = memRegRaiseException then stream "RaiseException"
-                else if entry = memRegRaiseDiv then stream "RaiseDiv"
-                else if entry = memRegArbEmulation then stream "ArbEmulation"
                 else if entry = memRegRaiseOverflow then stream "RaiseOverflow"
                 else stream(Int.toString entry)
             )
@@ -3316,9 +3312,10 @@ Calling conventions:
         |   cgOp (FPLoadIntAndPop :: remainder) =
             (
                 (* There are some constraints here: We need to load from memory but the
-                   value has to be shifted first.  We need to be able to emulate
-                   the instruction. The easiest way to do this is
-                   to push the value to the stack. *)
+                   value has to be shifted first.  This currently shifts the value
+                   on the stack itself because that was the easiest way to deal with
+                   arbitrary precision values.  Now this is only used for fixed
+                   precision there might be better alternatives. *)
                 (* Shift the value we pushed to untag it now we've done any trapping. *)
                 genOpPlus2 (Group2_1_A, 0, esp, 0w7 (* sar *), code);
                 (* fildl (esp) in 32-bit mode or fildq (esp) in 64-bit mode. *)

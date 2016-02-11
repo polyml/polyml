@@ -2294,7 +2294,7 @@ struct
                         else if wordEq (oper,ioOp POLY_SYS_Neg_real)
                         then codeRTSFunction(instrNegFP, args, whereto)
 
-                        else if wordEq (oper,ioOp POLY_SYS_int_to_real)
+                        else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
                         then codeRTSFunction(instrIntToRealFP, args, whereto)
 
                         else if wordEq (oper,ioOp POLY_SYS_real_to_int)

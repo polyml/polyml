@@ -186,8 +186,6 @@ sig
     val procName:   code -> string      (* Name of the procedure. *)
 
     val memRegHandlerRegister: int
-    and memRegRaiseDiv: int
-    and memRegArbEmulation: int
     and memRegRaiseOverflow: int
     and memRegThreadSelf: int
     and memRegStackLimit: int
