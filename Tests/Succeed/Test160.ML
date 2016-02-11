@@ -11,7 +11,7 @@ case Int.maxInt of SOME m => check(m div ~2, dv(m, ~2)) | NONE => (); (* Should 
 case Int.minInt of SOME m => check(m mod ~1, 0) | NONE => (); (* Should not overflow. *)
 
 (* Dividing the minimum int by ~1 should raise overflow. *)
-case Int.minInt of SOME m => ((dv(m, ~1); raise Fail "wrong") handle Overflow => ());
+case Int.minInt of SOME m => ((dv(m, ~1); raise Fail "wrong") handle Overflow => ()) | NONE => ();
 
 (* Random number generator. *)
 local
