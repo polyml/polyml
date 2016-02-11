@@ -260,21 +260,10 @@ struct
             val () = enterGlobalValue ("false", falseCons);
         end;
         
-        val () = enterGlobalType ("int", TypeConstrSet(intConstr, []));
-        val () = enterGlobalType ("char", TypeConstrSet(charConstr, []));
-        val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []));
-
-        (* chr - define it as an identity function for now. It is redefined in
-           the prelude to check that the value is a valid character. *)
-        local
-            val chrCode = identityFunction "chr";
-            val chrType = Int ->> String;
-            val chrVal  = mkGvar ("chr", chrType, chrCode, declInBasis);
-        in
-            val () = enterGlobalValue ("chr", chrVal);
-        end
-
-        val () = enterGlobalType ("real", TypeConstrSet(realConstr, []));
+        val () = enterGlobalType ("int", TypeConstrSet(intConstr, []))
+        val () = enterGlobalType ("char", TypeConstrSet(charConstr, []))
+        val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []))
+        val () = enterGlobalType ("real", TypeConstrSet(realConstr, []))
 
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
