@@ -2083,9 +2083,8 @@ static unsigned LinuxNumPhysicalProcessors(void)
     unsigned nProcs = NumberOfProcessors();
     // If there's only one we don't need to check further.
     if (nProcs <= 1) return nProcs;
-    long *cpus = (long*)malloc(nProcs * sizeof(long));
+    long *cpus = (long*)calloc(nProcs, sizeof(long));
     if (cpus == 0) return 0;
-    memset(cpus, 0, nProcs * sizeof(long));
 
     FILE *cpuInfo = fopen("/proc/cpuinfo", "r");
     if (cpuInfo == NULL) { free(cpus); return 0; }
