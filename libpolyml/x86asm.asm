@@ -661,6 +661,7 @@ POLY_SYS_cos_real            EQU 138
 POLY_SYS_arctan_real         EQU 139
 POLY_SYS_exp_real            EQU 140
 POLY_SYS_ln_real             EQU 141
+POLY_SYS_fixed_to_real       EQU 142
 POLY_SYS_process_env         EQU 150
 POLY_SYS_poly_specific       EQU 153
 ;# Define these for the moment.
@@ -2250,6 +2251,52 @@ CALLMACRO   MAKETAGGED  Redx,Reax
     ret
 CALLMACRO   RegMask fixed_rem,(M_Reax OR M_Rebx OR M_Redx)
 
+;# TODO: This needs to be fixed.
+CALLMACRO INLINE_ROUTINE fixed_div
+;# Checking for overflow and zero is done in ML
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv    Rebx
+	CMPL	CONST 0,Redx
+	jz		fixed_div1		;# If the remainder if non-zero ...
+	XORL	Redx,Rebx		;# and has a different sign from the divisor ...
+	jns		fixed_div1
+	SUBL	CONST 1,Reax	;# subtract one to round to -infinity rather than zero.
+fixed_div1:
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_div,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_mod
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv     Rebx
+;# Result is in Redx.  We have to change the result so that it has the sign as the divisor.
+	CMPL	CONST 0,Redx
+	jz      fixed_mod1	;# Result is zero - no change
+	XORL    Redx,Rebx
+	jns		fixed_mod1	;# Skip if they had the same signs
+	XORL	Redx,Rebx	;# Restore the original divisor
+	ADDL	Rebx,Redx	;# And add it in
+fixed_mod1:
+CALLMACRO   MAKETAGGED  Redx,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_mod,(M_Reax OR M_Rebx OR M_Redx)
+
 raiseOverflowEx:
 IFDEF WINDOWS
     jmp     FULLWORD ptr [RaiseOverflow+Rebp]
@@ -2656,6 +2703,30 @@ real_float_1:
     CALLMACRO   CALL_IO    POLY_SYS_int_to_real
 
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+
+CALLMACRO INLINE_ROUTINE fixed_to_real
+    call    mem_for_real
+    jb      fixed_to_real_1     ;# Not enough space - call RTS.
+    SARL    CONST TAGSHIFT,Reax ;# Untag the value
+    MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
+IFDEF WINDOWS
+    FILD    FULLWORD ptr RealTemp[Rebp]
+    FSTP    qword ptr [Recx]
+ELSE
+IFDEF HOSTARCHITECTURE_X86_64
+    FILDQ   RealTemp[Rebp]
+ELSE
+    FILDL   RealTemp[Rebp]
+ENDIF
+    FSTPL   [Recx]
+ENDIF
+    MOVL    Recx,Reax
+    ret
+
+fixed_to_real_1:
+    CALLMACRO   CALL_IO    POLY_SYS_fixed_to_real
+
+CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 ;# Additional assembly code routines
 
@@ -3533,7 +3604,7 @@ ENDIF
     dd  Mask_all                 ;# 139
     dd  Mask_all                 ;# 140
     dd  Mask_all                 ;# 141
-    dd  Mask_all                 ;# 142 is no longer used
+    dd  Mask_fixed_to_real       ;# 142
     dd  Mask_all                 ;# 143 is unused
     dd  Mask_all                 ;# 144 is unused
     dd  Mask_all                 ;# 145 is unused
@@ -3584,8 +3655,8 @@ ENDIF
     dd  Mask_fixed_mul           ;# 182
     dd  Mask_fixed_quot          ;# 183
     dd  Mask_fixed_rem           ;# 184
-    dd  Mask_all				 ;# 185 is unused
-    dd  Mask_all                 ;# 186 is unused
+    dd  Mask_fixed_div           ;# 185
+    dd  mask_fixed_mod           ;# 186
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused
     dd  Mask_all                 ;# 189

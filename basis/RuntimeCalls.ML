@@ -116,6 +116,7 @@ struct
   val POLY_SYS_arctan_real         = 139
   val POLY_SYS_exp_real            = 140
   val POLY_SYS_ln_real             = 141
+  val POLY_SYS_fixed_to_real       = 142
   val POLY_SYS_stdin               = 148
   val POLY_SYS_stdout              = 149
   val POLY_SYS_process_env         = 150  (* DCJM 25/4/00 *)
@@ -140,6 +141,8 @@ struct
   val POLY_SYS_fixed_mul           = 182
   val POLY_SYS_fixed_quot          = 183
   val POLY_SYS_fixed_rem           = 184
+  val POLY_SYS_fixed_div           = 185
+  val POLY_SYS_fixed_mod           = 186
   val POLY_SYS_io_operation        = 189
   val POLY_SYS_ffi                 = 190
   val POLY_SYS_move_words_overlap  = 193

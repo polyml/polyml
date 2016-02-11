@@ -858,6 +858,30 @@ int IntTaskData::SwitchToPoly()
                         // We can't do POLY_SYS_fixed_mul here because of the difficulty of
                         // determining overflow.
 
+                    case POLY_SYS_fixed_div:
+                        {
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            POLYSIGNED y = UNTAGGED(*sp);
+                            POLYSIGNED d = y / u, r = y % u;
+                            // Have to adjust the divisor if the remainder is 
+                            // non-zero and has a different sign from the divisor.
+                            if (r != 0 && (r ^ u) < 0) d--;
+                            *sp = TAGGED(d);
+                            break;
+                        }
+
+                    case POLY_SYS_fixed_mod:
+                        {
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            POLYSIGNED y = UNTAGGED(*sp);
+                            POLYSIGNED t = y % u;
+                            // If the result is non-zero and has a different sign from the divisor
+                            // we have to add in the divisor.
+                            if (t != 0 && (t ^ u) < 0) t += u;
+                            *sp = TAGGED(t);
+                            break;
+                        }
+
                     default:
                     FullRTSCall:
                         // For all the calls that aren't built in ...
@@ -1668,8 +1692,9 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &Real_intc);
                 break;
 
-            case POLY_SYS_int_to_real:
-                CallIO1(this, &Real_floatc);
+            case POLY_SYS_int_to_real: // Arbitrary precision to real
+            case POLY_SYS_fixed_to_real: // Fixed precision to real
+                CallIO1(this, &Real_from_arbitrary_precision);
                 break;
 
             case POLY_SYS_sqrt_real:
@@ -2064,6 +2089,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_arctan_real, TAGGED(POLY_SYS_arctan_real));
     add_word_to_io_area(POLY_SYS_exp_real, TAGGED(POLY_SYS_exp_real));
     add_word_to_io_area(POLY_SYS_ln_real, TAGGED(POLY_SYS_ln_real));
+    add_word_to_io_area(POLY_SYS_fixed_to_real, TAGGED(POLY_SYS_fixed_to_real));
     add_word_to_io_area(POLY_SYS_process_env, TAGGED(POLY_SYS_process_env));
     add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
     add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
@@ -2086,6 +2112,8 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_fixed_mul, TAGGED(POLY_SYS_fixed_mul));
     add_word_to_io_area(POLY_SYS_fixed_quot, TAGGED(POLY_SYS_fixed_quot));
     add_word_to_io_area(POLY_SYS_fixed_rem, TAGGED(POLY_SYS_fixed_rem));
+    add_word_to_io_area(POLY_SYS_fixed_div, TAGGED(POLY_SYS_fixed_div));
+    add_word_to_io_area(POLY_SYS_fixed_mod, TAGGED(POLY_SYS_fixed_mod));
     add_word_to_io_area(POLY_SYS_io_operation, TAGGED(POLY_SYS_io_operation));
     add_word_to_io_area(POLY_SYS_ffi, TAGGED(POLY_SYS_ffi));
     add_word_to_io_area(POLY_SYS_move_words_overlap, TAGGED(POLY_SYS_move_words_overlap));

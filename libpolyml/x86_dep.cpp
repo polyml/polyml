@@ -408,7 +408,7 @@ extern "C" {
         div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
         word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
         fixed_geq, fixed_leq, fixed_gtr, fixed_lss, fixed_add, fixed_sub, fixed_mul,
-        fixed_quot, fixed_rem;
+        fixed_quot, fixed_rem, fixed_to_real, fixed_div, fixed_mod;
 #ifdef HOSTARCHITECTURE_X86_64
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
@@ -564,7 +564,7 @@ static byte *entryPointVector[256] =
     &CallPOLY_SYS_arctan_real, // 139
     &CallPOLY_SYS_exp_real, // 140
     &CallPOLY_SYS_ln_real, // 141
-    0, // 142 is no longer used
+    &fixed_to_real, // 142
     0, // 143 is unused
     0, // 144 is unused
     0, // 145 is unused
@@ -615,8 +615,8 @@ static byte *entryPointVector[256] =
     &fixed_mul, // 182
     &fixed_quot, // 183
     &fixed_rem, // 184
-    0, // 185 is unused
-    0, // 186 is unused
+    &fixed_div, // 185
+    &fixed_mod, // 186
     0, // 187 is unused
     0, // 188 is unused
     &CallPOLY_SYS_io_operation, // 189
@@ -1150,7 +1150,8 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_int_to_real:
-                CallIO1(this, &Real_floatc);
+            case POLY_SYS_fixed_to_real: // This is used if we have run out of memory
+                CallIO1(this, &Real_from_arbitrary_precision);
                 break;
 
             case POLY_SYS_sqrt_real:
@@ -2533,7 +2534,7 @@ bool X86TaskData::emulate_instrs()
 #endif /* HOSTARCHITECTURE_X86_64 */
                 // The operand is on the stack.
                 union { double dble; byte bytes[sizeof(double)]; } dValue;
-                dValue.dble = get_C_real(this, stack->p_sp[0]);
+                dValue.dble = get_arbitrary_precision_as_real(this, stack->p_sp[0]);
                 unsigned top = (stack->p_fp.sw >> 11) & 7;
                 top = (top-1) & 0x7;
                 stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);

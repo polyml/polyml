@@ -39,7 +39,7 @@ extern Handle Real_absc (TaskData *mdTaskData, Handle);
 extern Handle Real_negc (TaskData *mdTaskData, Handle);
 extern Handle Real_convc (TaskData *mdTaskData, Handle);
 extern Handle Real_intc (TaskData *mdTaskData, Handle);
-extern Handle Real_floatc (TaskData *mdTaskData, Handle);
+extern Handle Real_from_arbitrary_precision (TaskData *mdTaskData, Handle);
 extern Handle Real_sqrtc (TaskData *mdTaskData, Handle);
 extern Handle Real_sinc (TaskData *mdTaskData, Handle);
 extern Handle Real_cosc (TaskData *mdTaskData, Handle);

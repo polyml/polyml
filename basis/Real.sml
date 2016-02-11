@@ -272,6 +272,10 @@ struct
             else fromManAndExp(man, exp)
     end
 
+    (* Convert to integer.  Ideally this would do the rounding/truncation as part of the
+       conversion but it doesn't seem to be possible to detect overflow properly.
+       Instead we use the real rounding/truncation, convert to arbitrary
+       precision and then check for overflow if necessary.  *)
     local
         (* The RTS function converts to at most a 64-bit value (even on 
            32-bits).  That will convert all the bits of the mantissa

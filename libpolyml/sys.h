@@ -129,6 +129,7 @@
 #define POLY_SYS_arctan_real         139
 #define POLY_SYS_exp_real            140
 #define POLY_SYS_ln_real             141
+#define POLY_SYS_fixed_to_real       142
 #define POLY_SYS_stdin               148
 #define POLY_SYS_stdout              149
 #define POLY_SYS_process_env         150  /* DCJM 25/4/00 */
@@ -153,6 +154,8 @@
 #define POLY_SYS_fixed_mul           182
 #define POLY_SYS_fixed_quot          183
 #define POLY_SYS_fixed_rem           184
+#define POLY_SYS_fixed_div           185
+#define POLY_SYS_fixed_mod           186
 #define POLY_SYS_io_operation        189
 #define POLY_SYS_ffi                 190
 #define POLY_SYS_move_words_overlap  193
