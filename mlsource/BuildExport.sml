@@ -32,7 +32,7 @@ let
        the basis library and exports the compiler along with the basis library
        as an operating-system specific object file. *)
     val globalTable : Make.gEnv = Make.makeGEnv ()
-    val test = List.exists (fn "--intIsIntInf" => true || _ => false) (CommandLine.arguments())
+    val test = List.exists (fn "--intIsIntInf" => true | _ => false) (CommandLine.arguments())
     val () = Initialise.initGlobalEnv{globalTable=globalTable, intIsArbitraryPrecision=test}
 in
     Make.shellProc globalTable()
