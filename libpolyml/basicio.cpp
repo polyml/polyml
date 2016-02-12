@@ -379,7 +379,7 @@ Handle make_stream_entry(TaskData *taskData)
 */ 
 void free_stream_entry(POLYUNSIGNED stream_no)
 {
-    ASSERT(0 <= stream_no && stream_no < max_streams);
+    ASSERT(stream_no < max_streams);
 
     ioLock.Lock();
     basic_io_vector[stream_no].token  = 0;
