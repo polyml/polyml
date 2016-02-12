@@ -360,3 +360,9 @@ in
     val () = addPrettyPrinter print_list
     val () = addPrettyPrinter print_int
 end;
+
+
+structure LargeInt = struct type int = int end
+and FixedInt = struct type int = int end;
+
+structure Bootstrap = struct open Bootstrap val intIsArbitraryPrecision = true end;

@@ -433,3 +433,6 @@ signature INTEGER =
     val fromString : string -> int option
     val scan : StringCvt.radix -> (char, 'a) StringCvt.reader -> (int, 'a) StringCvt.reader
   end;
+
+(* This isn't correct but provides it for the rest of the build. *)
+structure FixedInt = Int;
