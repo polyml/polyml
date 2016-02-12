@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000, 2015
+    Copyright   David C.J. Matthews 2000, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -42,11 +42,11 @@ sig
     val bigEndian: bool
     val allocString: word -> string (* Create a mutable string. *)
     val allocBytes: word -> address
-    val unsafeStringSub: string*word -> char
+    val isShortInt      : int -> bool
+    val largeIntIsSmall: LargeInt.int -> bool
     val unsafeSubstring: string*word*word -> string
-    val stringImplode: char list -> string
-    val stringExplode: string * word * word -> char list
-    val isShortString   : string -> bool
+    val unsignedShortOrRaiseSubscript: int -> word
+    val unsignedShortOrRaiseSize: int -> word
     val sizeAsWord      : string -> word
     val stringAsAddress : string -> address
     val w8vectorAsAddress : Word8Array.vector -> address
@@ -96,18 +96,12 @@ struct
 
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open MachineConstants;
-    (* If a vector/string is short (i.e. has an integer tag) it must be the character
-       itself rather than a pointer to a segment. *)
-    val isShortString: string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
     local
         val F_mutable_bytes : word = 0wx41;
 
         val System_alloc: word*word*word->string  =
             RunCall.run_call3 POLY_SYS_alloc_store
-
-        val System_setb: string * word * char -> unit =
-            RunCall.run_call3 POLY_SYS_assign_byte;
 
         val System_lock: string -> unit =
             RunCall.run_call1 POLY_SYS_lockseg;
@@ -116,26 +110,39 @@ struct
             RunCall.run_call2 POLY_SYS_load_byte;
 
         val SetLengthWord: string * word -> unit =
-            RunCall.run_call2 POLY_SYS_set_string_length;
+            RunCall.run_call2 POLY_SYS_set_string_length
           
         val MemMove: string*word*string*word*word -> unit = 
             RunCall.run_call5 POLY_SYS_move_bytes
-
         val maxString = 
             RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
-
-        (* These two functions are used to convert between single character
-           strings and the character representation. *)
-        val vecAsChar: string->char = RunCall.unsafeCast
         val charAsVec: char->string = RunCall.unsafeCast
     in
         (* Get the maximum allocation size.  This is the maximum value that can
            fit in the length field of a segment. *)
         val maxAllocation = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env(100, ())
 
-        (* The length of a string is always a short integer so we
-           can simply cast the result of "size". *)
-        fun sizeAsWord(s: string) : word = RunCall.unsafeCast (size s)
+        (* This is always a short non-negative integer so can be cast as word or int. *)
+        val sizeAsWord: string -> word = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
+
+        (* Check that we have a short int.  This is only necessary if
+           int is arbitrary precision.  If int is fixed precision it will
+           always be true. *)
+        fun isShortInt(i: int): bool =
+            not Bootstrap.intIsArbitraryPrecision orelse RunCall.run_call1 POLY_SYS_is_short i
+
+        (* Test whether a large int will fit in the short format. *)
+        val largeIntIsSmall: LargeInt.int -> bool = RunCall.run_call1 POLY_SYS_is_short
+
+        fun unsignedShortOrRaiseSize (i: int): word =
+            if isShortInt i andalso i >= 0
+            then RunCall.unsafeCast i
+            else raise Size
+
+        fun unsignedShortOrRaiseSubscript (i: int): word =
+            if isShortInt i andalso i >= 0
+            then RunCall.unsafeCast i
+            else raise Subscript
 
         fun allocBytes bytes : address =
         let
@@ -184,51 +191,7 @@ struct
                 vec
             end
 
-        (* We need implode in StringCvt so we define it here rather
-           than in String. *)
-        fun stringImplode [] : string = ""
-          | stringImplode (L as (H::_)) =
-            let
-                (* How many characters do we have to implode? *)
-                val listLength = length L
-                val chars: word = RunCall.unsafeCast listLength
-            in
-                if chars = 0w1 then str H
-                else
-                let
-                    val dest = allocString chars
-          
-                    fun copy (_, []:char list) = ()
-                      | copy (i, H :: T) =
-                        (
-                        System_setb (dest, i, H);
-                        copy (i + 0w1, T)
-                        )
-                in
-                    copy (wordSize, L);
-                    System_lock dest; (* reset mutable flag *)
-                    dest
-                end
-            end
-
-        (* We use stringExplode in String and Substring. *)
-        fun stringExplode (s: string, i: word, l: word) : char list =
-        let 
-            fun exp_str (num, res) =
-                if num = 0w0
-                then res
-                else exp_str (num - 0w1, System_loadb(s, num+i-0w1+wordSize) :: res)
-        in
-            (* Handle the special case of a single character string which is
-               represented by the character itself.  N.B. because we use this
-               function to explode substrings as well as whole strings the test
-               here needs to be whether the base string is short not whether
-               l is one.  If l is zero we use exp_str which immediately returns nil. *)
-            if isShortString s andalso l <> 0w0 then [ vecAsChar s ]
-            else exp_str (l, [])
-        end
-
-        (* We want this in both String and Substring. *)
+        (* We want this in both String and Word8Array. *)
         fun unsafeSubstring(s: string, i: word, l: word) : string =
         let
             val baseLen = sizeAsWord s (* Length of base string. *)
@@ -247,12 +210,6 @@ struct
                     vec
                 end
         end
-
-        (* This can be used where we have already checked the range. *)
-        fun unsafeStringSub(s: string, i: word): char =
-            if isShortString s then RunCall.unsafeCast s
-            else System_loadb(s, i + wordSize)
-
         (* Create non-overwritable mutables for mutexes and condition variables.
            A non-overwritable mutable in the executable or a saved state is not
            overwritten when a saved state further down the hierarchy is loaded. 

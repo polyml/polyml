@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Pack Real structures and signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2015-16
+    Copyright   David Matthews 2000, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -33,11 +33,6 @@ local
     open LibrarySupport
     open RuntimeCalls
     open LibrarySupport.Word8Array
-
-    fun unsignedShortOrRaiseSubscript (i: int): word =
-        if i >= 0
-        then RunCall.unsafeCast i
-        else raise Subscript
 
     val realSize: word = RunCall.run_call2 POLY_SYS_Real_Dispatch (28, ())
     val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;

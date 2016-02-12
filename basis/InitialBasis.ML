@@ -1,11 +1,9 @@
 (*
-    Copyright (c) 2000-2010
-        Cambridge University Technical Services Limited
+    Copyright (c) 2000-2010, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,21 +15,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*
-    Title:      ML prelude file.
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
-    Copyright   Cambridge University 1985
-*)
-
-(* 10/2/94 SPF merged prelude files from AHL's v2.07X and Dave's v2.08 *)
-(* 10/2/94 SPF inlined signatures to avoid name-space pollution        *)
-
-(* For ML97 this prelude has been reduced to virtually nothing.  Almost
-   everything is defined in the Standard Basis library. *)
-
-(*****************************************************************************)
-(*                  Infixes                                                  *)
-(*****************************************************************************)
 infix  7  * / div mod
 infix  6  + - ^
 infixr 5  :: @
@@ -56,7 +39,7 @@ infix  0  before
      This has the unfortunate side-effect of leaving "it" bound to something
      but it's cleared out when we copy everything to the final top-level
      name space. *)
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_geq;
+  val it: FixedInt.int*FixedInt.int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_geq;
   val () = RunCall.addOverload it ">=";
     local
         open RuntimeCalls
@@ -80,7 +63,7 @@ infix  0  before
   val () = RunCall.addOverload it ">=";
  
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_leq;
+  val it: FixedInt.int*FixedInt.int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_leq;
   val () = RunCall.addOverload it "<=";
     local
         open RuntimeCalls
@@ -103,7 +86,7 @@ infix  0  before
   val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq;
   val () = RunCall.addOverload it "<=";
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_gtr;
+  val it: FixedInt.int*FixedInt.int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_gtr;
   RunCall.addOverload it ">";
     local
         open RuntimeCalls
@@ -126,7 +109,7 @@ infix  0  before
   val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr;
   RunCall.addOverload it ">";
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_lss;
+  val it: FixedInt.int*FixedInt.int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_lss;
   RunCall.addOverload it "<";
     local
         open RuntimeCalls
@@ -150,7 +133,7 @@ infix  0  before
   RunCall.addOverload it "<";
   
   (* Binary operations. *)
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_add;
+  val it: FixedInt.int*FixedInt.int->FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_add;
   RunCall.addOverload it "+";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aplus;
   RunCall.addOverload it "+";
@@ -159,7 +142,7 @@ infix  0  before
   val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_plus_word;
   RunCall.addOverload it "+";
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_sub;
+  val it: FixedInt.int*FixedInt.int->FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_sub;
   RunCall.addOverload it "-";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aminus;
   RunCall.addOverload it "-";
@@ -168,7 +151,7 @@ infix  0  before
   val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_minus_word;
   RunCall.addOverload it "-";
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul;
+  val it: FixedInt.int*FixedInt.int->FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_mul;
   RunCall.addOverload it "*";
   val it: LargeInt.int*LargeInt.int->LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amul;
   RunCall.addOverload it "*";
@@ -178,7 +161,7 @@ infix  0  before
   RunCall.addOverload it "*";
 
   (* Unary operations. *)
-  fun it x = 0 - x;
+  fun it (x: FixedInt.int) = 0 - x;
   RunCall.addOverload it "~";
   val it: LargeInt.int->LargeInt.int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg;
   RunCall.addOverload it "~";
@@ -191,7 +174,7 @@ infix  0  before
   end;
   RunCall.addOverload it "~";
 
-  fun it (i: int): int = if i >= 0 then i else ~ i;
+  fun it (i: FixedInt.int): FixedInt.int = if i >= 0 then i else ~ i;
   RunCall.addOverload it "abs";
   val it: real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real;
   RunCall.addOverload it "abs";
@@ -209,13 +192,26 @@ infix  0  before
     (* These are replaced later on.  We need some of these for e.g. String
        They neither check for overflow nor are they the correct ML definitions. *)
     local
-        val q: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
+        val q: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_quot
     in
         fun it(_, 0) = raise RunCall.Div | it(x,y) = q(x, y)
     end;
     RunCall.addOverload it "div";
     local
-        val r: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem
+        val r: FixedInt.int * FixedInt.int -> FixedInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_fixed_rem
+    in
+        fun it(_, 0) = raise RunCall.Div | it(x,y) = r(x,y)
+    end;
+    RunCall.addOverload it "mod";
+    
+    local
+        val q: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_adiv
+    in
+        fun it(_, 0) = raise RunCall.Div | it(x,y) = q(x, y)
+    end;
+    RunCall.addOverload it "div";
+    local
+        val r: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amod
     in
         fun it(_, 0) = raise RunCall.Div | it(x,y) = r(x,y)
     end;
@@ -240,20 +236,7 @@ infix  0  before
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
-
-(* This is built in because the length of a string is stored as
-   an untagged integer.  The result needs to be a tagged integer.  Actually
-   this might be better written using a separate function POLY_SYS_get_string_length
-   (by analogy with POLY_SYS_set_string_length) and then
-   fun size (s: string): int = if isShort s then 1 else POLY_SYS_get_string_length s;
-   The advantage would be that the . *)
-val size : string -> int =
-      RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length;
-
-val str: char ->string = RunCall.unsafeCast;
-val ord: char -> int = RunCall.unsafeCast;
 val not: bool -> bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_not_bool;
-val use: string -> unit = Bootstrap.use; (* This will be replaced. *)
 
 local
     val System_setw: (* 'a ref*int*'a*) word*int*word ->unit  =
@@ -338,7 +321,7 @@ local
 
     fun print_int _ _ (i: int) =
     let
-        fun pr i =
+        fun pr (i: int) =
            if i < 0 then PrettyString "~" :: pr (~ i)
            else if i < 10 then [PrettyString(RunCall.unsafeCast(i + RunCall.unsafeCast #"0"))]
            else pr(i div 10) @ [PrettyString(RunCall.unsafeCast(i mod 10 + 48))]

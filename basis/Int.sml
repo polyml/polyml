@@ -1,5 +1,5 @@
 (*
-    Title:      Standard Basis Library: Int and LargeInt structures
+    Title:      Standard Basis Library: LargeInt and FixedInt structures
     Copyright   David C.J. Matthews 1999, 2016
 
     This library is free software; you can redistribute it and/or
@@ -66,15 +66,14 @@ struct
 
     fun toLarge i = i and fromLarge i = i
     
-    (* Int is just the short form of an arbitrary precision int. *)
-    val fromInt: Int.int -> LargeInt.int = RunCall.unsafeCast (* Just a cast. *)
-
-    val isShortInt: int -> bool = RunCall.run_call1 POLY_SYS_is_short
-
-    val fixedIntAsWord: Int.int -> word = RunCall.unsafeCast
+    (* Whether int is short or long we can just cast it here. *)
+    val fromInt: Int.int -> int = RunCall.unsafeCast (* Just a cast. *)
  
+    (* If int is fixed precision we have to check that the value will fit.  *)
     fun toInt(i: int): Int.int =
-        if isShortInt i then RunCall.unsafeCast i else raise Overflow
+        if Bootstrap.intIsArbitraryPrecision orelse LibrarySupport.largeIntIsSmall i
+        then RunCall.unsafeCast i
+        else raise Overflow
 
     val precision = NONE (* Arbitrary precision. *)
     and minInt = NONE
@@ -99,11 +98,13 @@ struct
         else (* i > 0 *) j > zero
 
     local
+        val fixedIntAsWord: FixedInt.int -> word = RunCall.unsafeCast
+
         (* To reduce the need for arbitrary precision arithmetic we can try to
            process values in groups. *)
         (* Return the largest short value and the number of digits. *)
         fun maxShort(n, radix, acc) =
-            if isShortInt(acc * radix)
+            if LibrarySupport.largeIntIsSmall(acc * radix)
             then maxShort(n+1, radix, acc*radix)
             else (acc, fixedIntAsWord n)
         val (maxB, lenB) = maxShort(0, fromInt 2, fromInt 1)
@@ -186,7 +187,7 @@ struct
             (* Process a group of characters that will fit in a short
                precision number. *)
             and toCharGroup(i, chars) =
-                if isShortInt i
+                if LibrarySupport.largeIntIsSmall i
                 then toChars(toInt i, chars, zero, 0w0)
                 else
                 let
@@ -374,20 +375,32 @@ struct
     and op >= : int*int->bool = op >=
 end;
 
-structure Int: INTEGER =
+structure FixedInt: INTEGER =
 struct
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
 
     (* This is now a fixed precision int.  Currently it is the same as the short
        form of an arbitrary precision int i.e. 31 bits on 32-bit machines and
        63 bits on 63-bits. *)
-    type int = int (* Underlying type *)
-    
-    val toLarge = LargeInt.fromInt
-    and fromLarge = LargeInt.toInt
+    type int = FixedInt.int (* Defined in the basis *)
 
-    fun toInt i = i
-    and fromInt i = i
+    (* Whether int is fixed or arbitrary precision we can just cast it here. *)
+    val toInt: int -> Int.int = RunCall.unsafeCast (* Just a cast. *)
+
+    (* If int is arbitrary precision we have to check that the value will fit. *)
+    fun fromInt(i: Int.int): int =
+        if LibrarySupport.isShortInt i
+        then RunCall.unsafeCast i
+        else raise Overflow
+
+    (* Conversion from fixed int to large is just a cast.  It will always fit. *)
+    val toLarge: int -> LargeInt.int = RunCall.unsafeCast
+
+    (* When converting from arbitrary precision we have to check. *)
+    fun fromLarge(i: LargeInt.int): int =
+        if LibrarySupport.largeIntIsSmall i
+        then RunCall.unsafeCast i
+        else raise Overflow
 
     local
         fun power2' n 0 : LargeInt.int = n
@@ -397,7 +410,7 @@ struct
         val wordSize = bitsInWord - 1 (* 31 or 63 bits *)
         val maxIntP1 = power2(wordSize-1)
     in
-        val precision = SOME wordSize
+        val precision = SOME(toInt wordSize)
         val maxInt = SOME(fromLarge(maxIntP1-1))
         val smallestInt = fromLarge(~ maxIntP1)
         val minInt = SOME smallestInt
@@ -494,8 +507,8 @@ struct
     and op >= : int*int->bool = op >=
 end;
 
-val () = RunCall.addOverload Int.div "div"
-and () = RunCall.addOverload Int.mod "mod";
+val () = RunCall.addOverload FixedInt.div "div"
+and () = RunCall.addOverload FixedInt.mod "mod";
 
 (* Add extra overloadings for arbitrary precision. *)
 val () = RunCall.addOverload LargeInt.abs "abs"
@@ -504,15 +517,15 @@ and () = RunCall.addOverload LargeInt.mod "mod";
 
 local
     (* Install the pretty printer for int *)
-    fun prettyInt _ _ x = PolyML.PrettyString(Int.toString x)
+    fun prettyFixed _ _ x = PolyML.PrettyString(FixedInt.toString x)
     fun prettyLarge _ _ x = PolyML.PrettyString(LargeInt.toString x)
 in
-    val () = PolyML.addPrettyPrinter prettyInt
+    val () = PolyML.addPrettyPrinter prettyFixed
     and () = PolyML.addPrettyPrinter prettyLarge
 end;
 
 (* For the moment use arbitrary precision here. *)
 structure Position = LargeInt;
 
-(* We're supposed to define this.  There should also be an Int31/Int63 structure. *)
-structure FixedInt = Int;
+(* The actual Int structure is defined depending on what int is. *)
+

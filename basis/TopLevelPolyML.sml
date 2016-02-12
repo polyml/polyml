@@ -1,7 +1,7 @@
 (*
     Title:      Root function for the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2009, 2015
+    Copyright   David Matthews 2009, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -45,7 +45,7 @@ local
             result
         end
 
-        type basicLoc = (* Locations in request packets. *) { startOffset: int, endOffset: int }
+        type basicLoc = (* Locations in request packets. *) { startOffset: FixedInt.int, endOffset: FixedInt.int }
         type compileError = { hardError: bool, location: PolyML.location, message: PolyML.pretty }
 
         datatype request =
@@ -61,7 +61,7 @@ local
         |   RefRequest (* V *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   CompileRequest (* R *)
-                of { requestId: string, fileName: string, startPosition: int,
+                of { requestId: string, fileName: string, startPosition: FixedInt.int,
                      preludeCode: string, sourceCode: string }
         |   KillRequest (* K *)
                 of { requestId: string }
@@ -86,7 +86,7 @@ local
         |   RefResponse (* V *)
                 of { requestId: string, parseTreeId: string, location: basicLoc, references: basicLoc list }
         |   CompilerResponse (* R *)
-                of { requestId: string, parseTreeId: string, finalOffset: int, result: compileResult }
+                of { requestId: string, parseTreeId: string, finalOffset: FixedInt.int, result: compileResult }
         |   UnknownResponse (* Provided for upwards compatibility. *)
                 of { request: int, requestId: string }
 
@@ -177,8 +177,8 @@ local
                         |   NONE => protocolError "End of file"
 
                         (* Parse an integer.  Returns zero if it isn't a valid int. *)
-                        fun getInt termCh : int =
-                            case Int.fromString (readToEscape("", termCh)) of
+                        fun getInt termCh : FixedInt.int =
+                            case FixedInt.fromString (readToEscape("", termCh)) of
                                 NONE => 0
                             |   SOME i => i
 
@@ -203,9 +203,9 @@ local
                                 val preludeLength = getInt #","
                                 val sourceLength = getInt #","
                                 (* *)
-                                val preludeCode = TextIO.inputN(inStream, preludeLength)
+                                val preludeCode = TextIO.inputN(inStream, FixedInt.toInt preludeLength)
                                 val _ = readToEscape("", #",") (* Should be empty - check? *)
-                                val sourceText = TextIO.inputN(inStream, sourceLength)
+                                val sourceText = TextIO.inputN(inStream, FixedInt.toInt sourceLength)
                                 val _ = readToEscape("", #"r") (* Should be empty - check? *)
                             in
                                 CompileRequest { requestId = requestId, fileName = fileName, startPosition = startPosition,
@@ -339,14 +339,14 @@ local
                         fun printEsc ch = print (String.concat["\u001b", String.str ch])
 
                         fun printLocation {startOffset, endOffset } =
-                            print (String.concat[Int.toString startOffset, "\u001b,", Int.toString endOffset])
+                            print (String.concat[FixedInt.toString startOffset, "\u001b,", FixedInt.toString endOffset])
 
                         and printFullLocation { file, startLine, startPosition, endPosition, ...} =
                         (
                             print file; (* TODO double any escapes. *) printEsc #",";
-                            print (Int.toString startLine); printEsc #",";
-                            print (Int.toString startPosition); printEsc #",";
-                            print (Int.toString endPosition)
+                            print (FixedInt.toString startLine); printEsc #",";
+                            print (FixedInt.toString startPosition); printEsc #",";
+                            print (FixedInt.toString endPosition)
                         )
 
                         fun makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
@@ -439,7 +439,7 @@ local
                                     print (prettyMarkupAsString message); (* May include markup *)
                                     printEsc #"e"
                                 )
-                                fun printOffset() = (printEsc #","; print (Int.toString finalOffset))
+                                fun printOffset() = (printEsc #","; print (FixedInt.toString finalOffset))
                                 fun printErrors errors = (List.app printError errors)
                             in
                                 printEsc #"R";
@@ -598,7 +598,7 @@ local
                         fun findString tag list =
                             Option.map decodeString (findData tag list)
                         and findInt tag list =
-                            Option.map decodeInt (findData tag list)
+                            Option.map (FixedInt.fromInt o decodeInt) (findData tag list)
                     in
                         case requestTag of
                             Application(3, _) => (* Compilation request. *)
@@ -774,18 +774,18 @@ local
                             val encFile =
                                 if file = "" then [] else encodeItem(Context(1, Primitive), [encodeString file])
                             val encLine =
-                                if startLine = 0 then [] else encodeItem(Context(2, Primitive), [encodeInt startLine])
+                                if startLine = 0 then [] else encodeItem(Context(2, Primitive), [encodeInt(FixedInt.toInt startLine)])
                             val encStart =
-                                if startPosition = 0 then [] else encodeItem(Context(3, Primitive), [encodeInt startPosition])
+                                if startPosition = 0 then [] else encodeItem(Context(3, Primitive), [encodeInt(FixedInt.toInt startPosition)])
                             val encEnd =
-                                if endPosition = 0 then [] else encodeItem(Context(4, Primitive), [encodeInt endPosition])
+                                if endPosition = 0 then [] else encodeItem(Context(4, Primitive), [encodeInt(FixedInt.toInt endPosition)])
                         in
                             encFile @ encLine @ encStart @ encEnd
                         end
 
                         and encodeLocation {startOffset, endOffset } =
-                                encodeItem(Context(3, Primitive), [encodeInt startOffset]) @
-                                encodeItem(Context(4, Primitive), [encodeInt endOffset])
+                                encodeItem(Context(3, Primitive), [encodeInt(FixedInt.toInt startOffset)]) @
+                                encodeItem(Context(4, Primitive), [encodeInt(FixedInt.toInt endOffset)])
 
                         and encodeRequestId requestId =
                             encodeItem(Application(20, Primitive), [encodeString requestId])
@@ -832,8 +832,8 @@ local
                             in
                                 sendASN1(encodeItem(Application(3, Constructed),
                                     encodeRequestId requestId @ encodeParseId parseTreeId @
-                                    encodeItem(Context(1, Primitive), [encodeInt finalOffset]) @
-                                    encodeItem(Context(2, Primitive), [encodeInt resultCode]) @
+                                    encodeItem(Context(1, Primitive), [encodeInt(FixedInt.toInt finalOffset)]) @
+                                    encodeItem(Context(2, Primitive), [encodeInt(FixedInt.toInt resultCode)]) @
                                     resultData))
                             end
 
@@ -1014,7 +1014,7 @@ local
         end
 
         (* Move in the selected direction.  Returns the tree as the result of the move. *)
-        fun navigateTo(searchLocation as {startOffset, endOffset}, lastParsetree) =
+        fun navigateTo(searchLocation as {startOffset:FixedInt.int, endOffset:FixedInt.int}, lastParsetree) =
         case lastParsetree of
             NONE => NONE
         |   SOME({ startPosition, endPosition, ... }, tree) =>
@@ -1363,7 +1363,7 @@ local
                             end
 
                             (* Compile the main source code. *)
-                            fun compileString(stringInput, startPosition) =
+                            fun compileString(stringInput, startPosition: int) =
                             let
                                 val errorList = ref []
                                 val stringPosition = ref 0
@@ -1452,7 +1452,7 @@ local
                                     setAttributes [EnableBroadcastInterrupt true, InterruptState InterruptAsynch]
                             end;
                             val (result, finalPosition, resultTrees, errors) =
-                                compileString(sourceCode, startPosition)
+                                compileString(sourceCode, FixedInt.toInt startPosition)
                             fun makeErrorPacket
                                 {message: PolyML.pretty, hard: bool, location, ...} =
                                 {
@@ -1473,7 +1473,7 @@ local
                                             |   NONE => []
                                         val exceptionString =
                                             (PrettyBlock(0, false, exLoc,
-                                                [ prettyRepresentation(exn, !PolyML.Compiler.printDepth) ]))
+                                                [ prettyRepresentation(exn, FixedInt.fromInt(!PolyML.Compiler.printDepth)) ]))
                                     in
                                         RuntimeException(exceptionString, errorPackets)
                                     end
@@ -1489,7 +1489,7 @@ local
                             sendResponse(
                                 CompilerResponse {
                                     requestId = requestId, parseTreeId = parseTreeId,
-                                    finalOffset = finalPosition, result = compileResult
+                                    finalOffset = FixedInt.fromInt finalPosition, result = compileResult
                                 })
                         end
                         else () (* Prelude failed. *)

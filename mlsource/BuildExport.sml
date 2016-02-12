@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2006-10  David C. J. Matthews
+    Copyright (c) 2006-10, 2016  David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,7 +26,19 @@ PolyML.use "basis/RuntimeCalls";
 PolyML.make "mlsource/MLCompiler/Boot";
 PolyML.make "mlsource/MLCompiler";
 
-PolyML.shareCommonData MLCompiler.shell;
+fun compileBasisAndExport() =
+let
+    (* This function is the root of the "pre-built" compilers.  It compiles in
+       the basis library and exports the compiler along with the basis library
+       as an operating-system specific object file. *)
+    val globalTable : Make.gEnv = Make.makeGEnv ()
+    val test = List.exists (fn "--intIsIntInf" => true || _ => false) (CommandLine.arguments())
+    val () = Initialise.initGlobalEnv{globalTable=globalTable, intIsArbitraryPrecision=test}
+in
+    Make.shellProc globalTable()
+end;
+
+PolyML.shareCommonData compileBasisAndExport;
 
 PolyML.exportPortable("polytemp",
-    fn () => (MLCompiler.shell(); OS.Process.exit OS.Process.success) handle _ => OS.Process.exit OS.Process.failure);
+    fn () => (compileBasisAndExport (); OS.Process.exit OS.Process.success) handle _ => OS.Process.exit OS.Process.failure);

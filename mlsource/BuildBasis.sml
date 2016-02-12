@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008
+    Modified David C.J. Matthews 2008, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,7 +21,8 @@
 
 (* Install initial conversion functions. These can be replaced later on. *)
 val () = RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
-val () = RunCall.addOverload Bootstrap.convInt "convInt";
+val () = RunCall.addOverload Bootstrap.convIntInf "convInt";
+val () = RunCall.addOverload Bootstrap.convFixedInt "convInt";
 val () = RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)

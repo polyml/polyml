@@ -1,5 +1,6 @@
 (*
     Title:      Standard Basis Library: Vector Structure
+    Author:     David Matthews
     Copyright   David Matthews 1999, 2005, 2016
 
     This library is free software; you can redistribute it and/or
@@ -16,10 +17,9 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: updated.  Added VectorSlice and VECTOR_SLICE. *)
-
 signature VECTOR =
-sig
+  sig
+
     eqtype  'a vector
     val maxLen : int
     val fromList : 'a list -> 'a vector
@@ -45,7 +45,7 @@ sig
     val exists: ('a -> bool) -> 'a vector -> bool
     val all: ('a -> bool) -> 'a vector -> bool
     val collate: ('a * 'a -> order) -> 'a vector * 'a vector -> order
-end;
+  end;
   
 local
     open RuntimeCalls
@@ -107,7 +107,7 @@ struct
     let
         val v = vecAsWord vec
     in
-        if intAsWord i >= System_length v
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length v
         then raise General.Subscript
         else RunCall.unsafeCast(System_loadw (v, intAsWord i))
     end
@@ -251,8 +251,8 @@ struct
         (* Install the pretty printer for vectors *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(depth: int)
-                  (printElem: 'a * int -> PolyML.pretty)
+        fun pretty(depth: FixedInt.int)
+                  (printElem: 'a * FixedInt.int -> PolyML.pretty)
                   (x: 'a vector) =
             let
                 open PolyML
@@ -270,7 +270,7 @@ struct
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                     else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                )
             end
     in
@@ -459,8 +459,8 @@ local
     (* Install the pretty printer for vector slices *)
     (* We may have to do this outside the structure if we
        have opaque signature matching. *)
-    fun pretty(depth: int)
-              (printElem: 'a * int -> PolyML.pretty)
+    fun pretty(depth: FixedInt.int)
+              (printElem: 'a * FixedInt.int -> PolyML.pretty)
               (x: 'a slice) =
         let
             open PolyML
@@ -478,7 +478,7 @@ local
             PrettyBlock(3, false, [],
                 PrettyString "fromList[" ::
                 (if depth <= 0 then [PrettyString "...]"]
-                 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                 else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
            )
         end
 in

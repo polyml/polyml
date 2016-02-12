@@ -1,7 +1,7 @@
 (*
     Title:      Pretty Printer.
     Author:     David C. J. Matthews
-    Copyright (c) 2009, 2013, 2015
+    Copyright (c) 2009, 2013, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -57,8 +57,10 @@ structure PolyML =
 struct
     open PolyML
     fun prettyMarkup (beginContext: context list -> unit, endContext: context list -> unit)
-                     (stream : string -> unit, lineWidth : int) (pretty: pretty): unit =
+                     (stream : string -> unit, width: int) (pretty: pretty): unit =
     let
+        val lineWidth = FixedInt.fromInt width
+
         fun printBlanks n =
             if n > 0 then (stream " "; printBlanks(n-1)) else ()
 
@@ -73,7 +75,7 @@ struct
 
         |   getSize(PrettyString st, spaceLeft) =
             let
-                val size = String.size st
+                val size = FixedInt.fromInt(String.size st)
             in
                 if size <= spaceLeft
                 then SOME(spaceLeft-size)
@@ -146,7 +148,7 @@ struct
                         |   doPrint(PrettyString s :: rest, _, left) =
                             (
                                 stream s;
-                                doPrint(rest, 0, left-size s)
+                                doPrint(rest, 0, left - FixedInt.fromInt(size s))
                             )
  
                         |   doPrint(PrettyStringWithWidth(s, w) :: rest, _, left) =
@@ -174,13 +176,13 @@ struct
             end
 
         |   layOut (PrettyBreak (blanks, _), _, spaceLeft) =
-                ( printBlanks blanks; Int.max(spaceLeft-blanks, 0) )
+                ( printBlanks blanks; FixedInt.max(spaceLeft-blanks, 0) )
 
         |   layOut (PrettyString st, _, spaceLeft) =
-                ( stream st; Int.max(spaceLeft-String.size st, 0) )
+                ( stream st; FixedInt.max(spaceLeft- FixedInt.fromInt(String.size st), 0) )
 
         |   layOut (PrettyStringWithWidth(st, w), _, spaceLeft) =
-                ( stream st; Int.max(spaceLeft-w, 0) )
+                ( stream st; FixedInt.max(spaceLeft-w, 0) )
 
         |   layOut (PrettyLineBreak, _, spaceLeft) =
                 spaceLeft

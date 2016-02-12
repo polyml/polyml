@@ -86,10 +86,6 @@ struct
             doIo(26, strm, len)
     end
 
-    fun unsignedShortOrRaiseSubscript (i: int): word =
-        if i >= 0
-        then RunCall.unsafeCast i
-        else raise Subscript
 
     local
         val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
@@ -165,8 +161,8 @@ struct
     let
         val (buf, i, len) = Word8ArraySlice.base slice
         val LibrarySupport.Word8Array.Array(_, v) = buf
-        val iW = unsignedShortOrRaiseSubscript i
-        val lenW = unsignedShortOrRaiseSubscript len
+        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
     in
         sys_write_bin(n, (v, iW, lenW))
     end
@@ -175,8 +171,8 @@ struct
     let
         val (buf, i, len) = Word8ArraySlice.base slice
         val LibrarySupport.Word8Array.Array(_, v) = buf
-        val lenW = unsignedShortOrRaiseSubscript len
-        val iW = unsignedShortOrRaiseSubscript i
+        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
+        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
     in
         sys_read_bin(n, (v, iW, lenW))
     end
@@ -189,8 +185,8 @@ struct
     fun writeBinVec (n: fileDescr, slice: Word8VectorSlice.slice): int =
     let
         val (buf, i, len) = Word8VectorSlice.base slice
-        val iW = unsignedShortOrRaiseSubscript i
-        val lenW = unsignedShortOrRaiseSubscript len
+        val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+        val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
     in
         sys_write_bin(n, (LibrarySupport.w8vectorAsAddress buf, iW+wordSize, lenW))
     end
@@ -207,8 +203,8 @@ struct
         let
             val (buf, i, len) = CharArraySlice.base slice
             val LibrarySupport.CharArray.Array(_, v) = buf
-            val iW = unsignedShortOrRaiseSubscript i
-            val lenW = unsignedShortOrRaiseSubscript len
+            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
         in
             sys_read_text(fd, (v, iW, lenW))
         end
@@ -271,8 +267,8 @@ struct
         let
             val (buf, i, len) = CharArraySlice.base slice
             val LibrarySupport.CharArray.Array(_, v) = buf
-            val iW = unsignedShortOrRaiseSubscript i
-            val lenW = unsignedShortOrRaiseSubscript len
+            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
         in
             sys_write_text(fd, (v, iW, lenW))
         end
@@ -286,8 +282,8 @@ struct
         let
             val (buf, i, len) = CharVectorSlice.base slice
             val v = LibrarySupport.stringAsAddress buf
-            val iW = unsignedShortOrRaiseSubscript i
-            val lenW = unsignedShortOrRaiseSubscript len
+            val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
         in
             sys_write_text(fd, (v, iW+wordSize, lenW))
         end

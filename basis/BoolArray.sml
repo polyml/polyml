@@ -335,7 +335,7 @@ in
 
         local
             (* Install the pretty printer for BoolVector.vector *)
-            fun pretty(depth: int) _ (x: vector) =
+            fun pretty(depth: FixedInt.int) _ (x: vector) =
                 let
                     open PolyML
                     val last = length x - 1
@@ -352,7 +352,7 @@ in
                     PrettyBlock(3, false, [],
                         PrettyString "fromList[" ::
                         (if depth <= 0 then [PrettyString "...]"]
-                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                         else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                    )
                 end
         in
@@ -502,7 +502,7 @@ in
             (* Install the pretty printer for BoolArray.array *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-            fun pretty(depth: int) _ (x: array) =
+            fun pretty(depth: FixedInt.int) _ (x: array) =
                 let
                     open PolyML
                     val last = length x - 1
@@ -519,7 +519,7 @@ in
                     PrettyBlock(3, false, [],
                         PrettyString "fromList[" ::
                         (if depth <= 0 then [PrettyString "...]"]
-                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                         else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                    )
                 end
         in

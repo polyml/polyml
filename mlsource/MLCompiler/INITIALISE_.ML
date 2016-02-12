@@ -115,7 +115,7 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sh
 
 sig
   type gEnv
-  val initGlobalEnv : gEnv -> unit
+  val initGlobalEnv : {globalTable  : gEnv, intIsArbitraryPrecision: bool } -> unit
 end =
 
 struct
@@ -135,7 +135,7 @@ struct
     fun applyList _ []       = ()
     |   applyList f (h :: t) = (f h : unit; applyList f t);
 
-    fun initGlobalEnv(globalTable  : gEnv) =
+    fun initGlobalEnv{globalTable  : gEnv, intIsArbitraryPrecision: bool } =
     let
         val Env globalEnv = MAKE.gEnvAsEnv globalTable
    
@@ -160,7 +160,8 @@ struct
             fun a ** b = mkProductType [a, b];
             
             (* Type identifiers for the types of the declarations. *)
-            val Int    = intType;
+            val Int    =
+                if intIsArbitraryPrecision then intInfType else fixedIntType
             val String = stringType;
             val Bool   = boolType;
             val Unit   = unitType;
@@ -169,6 +170,8 @@ struct
             val Exn    = exnType
             
             val mkTypeConstruction = mkTypeConstruction;
+            
+            val () = setPreferredInt(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr)
         end;
 
         fun makePolymorphic(tvs, c) =
@@ -260,7 +263,7 @@ struct
             val () = enterGlobalValue ("false", falseCons);
         end;
         
-        val () = enterGlobalType ("int", TypeConstrSet(intConstr, []))
+        val () = enterGlobalType ("int", TypeConstrSet(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr, []))
         val () = enterGlobalType ("char", TypeConstrSet(charConstr, []))
         val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []))
         val () = enterGlobalType ("real", TypeConstrSet(realConstr, []))
@@ -503,52 +506,15 @@ struct
            the easiest way is to create the structure.  It's then filled out in the
            basis library. *)
         local
-            (* We can't use wordEq here.  If one of the arguments is a constant this will
-               reduce down to a bitwise equality but if we then turn it back into an
-               indexed case we have to reinstate the tag check. *)
-            val shortEq = CODETREE.rtsFunction POLY_SYS_equal_short_arb
-            val intEquality =
-                mkInlproc(
-                    mkCor( (* Either they're equal... *)
-                        mkEval(shortEq, [mkLoadArgument 0, mkLoadArgument 1]),
-                        (* ... or they're both long and ...*)
-                        mkCand(
-                            mkCand(
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
-                                mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
-                            ),
-                            (* ... they are equal arbitrary precision values.
-                               This could use bytewise equality.  That would be correct whether
-                               we are using GMP or the internal byte-based arbitrary precision package. *)
-                            mkEval(rtsFunction POLY_SYS_equala, [mkLoadArgument 0, mkLoadArgument 1])
-                        )
-                    ),
-                    2, "intEquality", [], 0)
-            val intEquality = genCode(intEquality, [], 0) ()
-
-            local
-                open TypeValue
-                fun monoTypePrinter _ = PRETTY.PrettyString "?"
-                val code =
-                    createTypeValue{
-                            eqCode=intEquality,
-                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode = boxedEither, (* May be short or long *)
-                            sizeCode = singleWord
-                            }
-            in
-                val idCode = Global (genCode(code, [], 0) ())
-            end
-
-            val intInfConstr =
-                makeTypeConstructor ("int",
-                    makeFreeId(0, idCode, true, basisDescription "LargeInt.int"),
-                    [DeclaredAt inBasis])
             val largeIntEnv = makeStructure(globalEnv, "LargeInt")
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+        end
+        
+        local
+            val fixedIntEnv = makeStructure(globalEnv, "FixedInt")
+        in
+            val () = #enterType fixedIntEnv ("int", TypeConstrSet(fixedIntConstr, []))
         end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
@@ -593,10 +559,13 @@ struct
                We can't even use a literal string until we have installed a
                basic converter. *)
             val () = addVal ("convStringName", "convString": string, String);
-            val () = addVal ("convInt", intOfString : string -> int, String ->> Int);
+            val () = addVal ("convIntInf", intOfString : string -> int, String ->> TYPETREE.intInfType);
+            val () = addVal ("convFixedInt", intOfString : string -> int, String ->> TYPETREE.fixedIntType);
             val () = addVal ("convWord", wordOfString : string -> word, String ->> Word);
             (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String);
+            (* Flag to indicate which version of Int to compile *)
+            val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
 
         end
 
@@ -993,7 +962,7 @@ struct
         end;
 
         local
-            val prettyType = let val a = makePrintTV () in a ** Int ->> PrettyType end;
+            val prettyType = let val a = makePrintTV () in a ** fixedIntType ->> PrettyType end;
             val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
         in
             val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
@@ -1004,7 +973,7 @@ struct
             val a = makeTV ()
             val b = makeTV ()
         
-            val addPrettyType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
+            val addPrettyType = (TYPETREE.fixedIntType ->> b ->> a ->> PrettyType) ->> Unit;
             val addPrettyVal  = mkSpecialFun("addPrettyPrinter", addPrettyType, AddPretty);
         in
             val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
@@ -1109,15 +1078,15 @@ struct
                [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
                  ("PTdeclaredAt",       Location),
-                 ("PTdefId",            Int),
+                 ("PTdefId",            fixedIntType),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
                  ("PTopenedAt",         Location),
                  ("PTparent",           Unit ->> ParseTree),
                  ("PTpreviousSibling",  Unit ->> ParseTree),
-                 ("PTprint",            Int ->> PrettyType),
+                 ("PTprint",            fixedIntType ->> PrettyType),
                  ("PTreferences",       Bool ** List Location),
-                 ("PTrefId",            Int),
+                 ("PTrefId",            fixedIntType),
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
@@ -1340,11 +1309,11 @@ struct
                     [
                         ("name",    toMachineWord (valName: values -> string), valueVal ->> String),
                         ("print",   toMachineWord (printValues: values * int -> pretty),
-                                        mkProductType[valueVal, Int] ->> PrettyType),
+                                        mkProductType[valueVal, fixedIntType] ->> PrettyType),
                         ("printWithType", toMachineWord (exportedDisplayValues: values * int * nameSpace option -> pretty),
-                                        mkProductType[valueVal, Int, Option nameSpaceType] ->> PrettyType),
+                                        mkProductType[valueVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                         ("printType",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace option -> pretty),
-                            mkProductType[Types, Int, Option nameSpaceType] ->> PrettyType),
+                            mkProductType[Types, fixedIntType, Option nameSpaceType] ->> PrettyType),
                         ("typeof",  toMachineWord (valTypeOf: values -> types), valueVal ->> Types),
                         ("code",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
                         ("properties",   toMachineWord (propsForValue: values ->ptProperties list),
@@ -1367,7 +1336,7 @@ struct
                     ("name", toMachineWord(nameForType: typeConstrSet -> string), typeVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace option -> pretty),
-                        mkProductType[typeVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[typeVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForTypeConstr: typeConstrSet ->ptProperties list),
                         typeVal ->> List PtProperties)
                     ]
@@ -1390,7 +1359,7 @@ struct
                     ("name", toMachineWord(nameForStruct: structVals -> string), structureVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayStructs: structVals * int * nameSpace option -> pretty),
-                        mkProductType[structureVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[structureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForStruct: structVals ->ptProperties list),
                         structureVal ->> List PtProperties)
@@ -1411,7 +1380,7 @@ struct
                     ("name", toMachineWord(nameForSig: signatures -> string), signatureVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplaySigs: signatures * int * nameSpace option -> pretty),
-                        mkProductType[signatureVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[signatureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForSig: signatures ->ptProperties list),
                         signatureVal ->> List PtProperties)
                    ]
@@ -1434,7 +1403,7 @@ struct
                     ("name", toMachineWord(nameForFunctor: functors -> string), functorVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayFunctors: functors * int * nameSpace option -> pretty),
-                        mkProductType[functorVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[functorVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForFunctor: functors ->ptProperties list),
                         functorVal ->> List PtProperties)

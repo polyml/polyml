@@ -953,7 +953,7 @@ struct
                         (* Check that the function tuple matches the arguments of the type
                            we're installing for. *)
                         (* Each entry should be a function of type 'a * int -> pretty *)
-                        fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.intType], pretty)
+                        fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.fixedIntType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
                         val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
                         val tupleType =

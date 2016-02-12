@@ -1,5 +1,6 @@
 (*
-    Copyright David C.J. Matthews 2016
+    Title:      Standard Basis Library: Int structure
+    Copyright   David C.J. Matthews 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,14 +16,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure MLCompiler =
-struct
-    local
-        (* Force Initialise to be built when using PolyML.make.
-           This builds pretty well everything. *)
-        structure S = Initialise
-    in
-        (* Build Make. *)
-        open Make
-    end
-end;
+(* Set Int to be FixedInt. *)
+
+structure Int: INTEGER = FixedInt;
