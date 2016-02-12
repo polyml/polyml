@@ -3656,7 +3656,7 @@ ENDIF
     dd  Mask_fixed_quot          ;# 183
     dd  Mask_fixed_rem           ;# 184
     dd  Mask_fixed_div           ;# 185
-    dd  mask_fixed_mod           ;# 186
+    dd  Mask_fixed_mod           ;# 186
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused
     dd  Mask_all                 ;# 189
