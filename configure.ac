@@ -525,6 +525,18 @@ AC_ARG_WITH([moduledir],
   [moduledir="\${libdir}/polyml/modules"])
 AC_SUBST([moduledir], [$moduledir])
 
+# Control whether to build the basis library with arbitrary precision as the default int
+AC_ARG_ENABLE([intinf-as-int],
+    [AS_HELP_STRING([--enable-intinf-as-int], [set arbitrary precision as the default int type])],
+    [case "${enableval}" in
+       no) intisintinf=no ;;
+       yes) intisintinf=yes ;;
+       *) AC_MSG_ERROR([bad value ${enableval} for --enable-intinf-as-int]) ;;
+        esac],
+        [intisintinf=no])
+
+AM_CONDITIONAL([INTINFISINT], [test "$intisintinf" = "yes"])
+
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])

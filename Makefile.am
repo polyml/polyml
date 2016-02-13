@@ -4,8 +4,13 @@ ACLOCAL_AMFLAGS= -I m4 --install
 AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 
-POLYIMPORT_OPTIONS = -H 50
-BOOTSTRAP_OPTIONS = -H 50
+BOOTSTRAP_OPTIONS =
+
+if INTINFISINT
+POLYIMPORT_OPTIONS = --intIsIntInf
+else
+POLYIMPORT_OPTIONS =
+endif
 
 DIST_SUBDIRS = libpolyml libpolymain libffi
 
