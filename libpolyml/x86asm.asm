@@ -2648,7 +2648,6 @@ CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_a
 
 CALLMACRO INLINE_ROUTINE fixed_to_real
     call    mem_for_real
-    jb      fixed_to_real_1     ;# Not enough space - call RTS.
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
     MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
 IFDEF WINDOWS
@@ -2665,10 +2664,7 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-fixed_to_real_1:
-    CALLMACRO   CALL_IO    POLY_SYS_fixed_to_real
-
-CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 ;# Additional assembly code routines
 
