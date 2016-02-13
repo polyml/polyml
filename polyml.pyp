@@ -153,6 +153,7 @@
 	<source name="mlsource\MLCompiler\LEXSIG.sml" />
 	<source name="mlsource\MLCompiler\Make.ML" />
 	<source name="mlsource\MLCompiler\MAKE_.ML" />
+	<source name="mlsource\MLCompiler\MAKESIG.sml" />
 	<source name="mlsource\MLCompiler\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\PARSE_DEC.ML" />
 	<source name="mlsource\MLCompiler\PARSE_TYPE.ML" />
@@ -177,6 +178,7 @@
 	<source name="mlsource\MLCompiler\PRETTYSIG.sml" />
 	<source name="mlsource\MLCompiler\PRINT_TABLE.ML" />
 	<source name="mlsource\MLCompiler\PrintTable.ML" />
+	<source name="mlsource\MLCompiler\PRINTTABLESIG.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURES.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURESSIG.sml" />
 	<source name="mlsource\MLCompiler\SignaturesStruct.sml" />

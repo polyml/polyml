@@ -34,4 +34,5 @@ structure Initialise =
     structure EXPORTTREE = ExportTreeStruct
     structure DATATYPEREP = DatatypeRep
     structure TYPEIDCODE = TypeIDCodeStruct
+  structure PRINTTABLE = PrintTable
 );

@@ -27,89 +27,35 @@
 functor INITIALISE_ (
 
 structure LEX: LEXSIG
-structure TYPETREE : TYPETREESIG;
-structure STRUCTVALS : STRUCTVALSIG;
-structure VALUEOPS : VALUEOPSSIG;
+structure TYPETREE : TYPETREESIG
+structure STRUCTVALS : STRUCTVALSIG
+structure VALUEOPS : VALUEOPSSIG
 structure CODETREE : CODETREESIG
 structure EXPORTTREE: EXPORTTREESIG
 structure DATATYPEREP: DATATYPEREPSIG
 structure TYPEIDCODE: TYPEIDCODESIG
-
-structure MAKE :
-sig
-    type gEnv
-    type env
-
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-
-    type nameSpace =
-    { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-    }
-  
-    val gEnvAsEnv    : gEnv -> env
-    val gEnvAsNameSpace: gEnv -> nameSpace
-    
-    val useIntoEnv   : gEnv -> Universal.universal list -> string -> unit
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    type exportTree = EXPORTTREE.exportTree
-
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * ( unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
-end;
-
+structure MAKE: MAKESIG
 structure ADDRESS : AddressSig
 structure DEBUG: DEBUGSIG
+structure DEBUGGER : DEBUGGERSIG
+structure PRETTY : PRETTYSIG
+structure PRINTTABLE: PRINTTABLESIG
 
 structure MISC :
 sig
   val unescapeString : string -> string
   exception Conversion of string;     (* string to int conversion failure *)
-end;
-
-structure DEBUGGER : DEBUGGERSIG
-structure PRETTY : PRETTYSIG
+end
 
 structure VERSION:
 sig
    val compilerVersion: string
    val versionNumber: int
-end;
+end
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
-        = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS = DATATYPEREP.Sharing
-        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing
+        = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
+        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
 
 ) : 
 
@@ -554,19 +500,29 @@ struct
                         NONE => raise Conversion "Invalid word constant"
                       | SOME res => res
                 end
+            
+            open PRINTTABLE
+            
+            val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
+            val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
+            val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
         in
-            (* When we start the compiler we don't have any conversion functions.
-               We can't even use a literal string until we have installed a
-               basic converter. *)
-            val () = addVal ("convStringName", "convString": string, String);
-            val () = addVal ("convIntInf", intOfString : string -> int, String ->> TYPETREE.intInfType);
-            val () = addVal ("convFixedInt", intOfString : string -> int, String ->> TYPETREE.fixedIntType);
-            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word);
+            (* Conversion overloads used to be set by the ML bootstrap code.  It's simpler
+               to do that here but to maintain compatibility with the 5.6 compiler we need
+               to define these.  Once we've rebuilt the compiler this can be removed
+               along with the code that uses it. *)
+            val () = addVal ("convStringName", "convString": string, String)
+            val () = addVal ("convInt", intOfString : string -> int, String ->> TYPETREE.intInfType)
+            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
             (* Convert a string, recognising and converting the escape codes. *)
-            val () = addVal ("convString", unescapeString: string -> string, String ->> String);
+            val () = addVal ("convString", unescapeString: string -> string, String ->> String)
             (* Flag to indicate which version of Int to compile *)
             val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
-
+            (* Install the overloads now. *)
+            val () = addOverload("convString", stringConstr, convstringCode)
+            val () = addOverload("convInt", fixedIntConstr, convintCode)
+            val () = addOverload("convInt", intInfConstr, convintCode)
+            val () = addOverload("convWord", wordConstr, convwordCode)
         end
 
     (* The only reason we have vector here is to get equality right.  We need

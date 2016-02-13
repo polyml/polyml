@@ -19,12 +19,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* Install initial conversion functions. These can be replaced later on. *)
-val () = RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
-val () = RunCall.addOverload Bootstrap.convIntInf "convInt";
-val () = RunCall.addOverload Bootstrap.convFixedInt "convInt";
-val () = RunCall.addOverload Bootstrap.convWord "convWord";
-
 (* Build the main basis library. *)
 val () = Bootstrap.use "basis/build.sml";
 

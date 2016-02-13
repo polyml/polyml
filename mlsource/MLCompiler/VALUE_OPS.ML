@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013, 2015.
+    Modified David C.J. Matthews 2008-9, 2013, 2015-16.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -30,16 +30,7 @@ structure LEX : LEXSIG;
 structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG;
 structure TYPESTRUCT : TYPETREESIG
-
-structure PRINTTABLE :
-sig
-    type typeConstrs
-    type codetree
-  
-    val addOverload: string * typeConstrs * codetree -> unit
-    val getOverload: string * typeConstrs * (unit->codetree) -> codetree
-    val getOverloads: string -> (typeConstrs * codetree) list
-end;
+structure PRINTTABLE : PRINTTABLESIG
 
 structure UNIVERSALTABLE:
 sig
