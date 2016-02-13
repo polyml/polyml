@@ -836,7 +836,7 @@ void MemMgr::AddTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uin
 
     const unsigned shift = (sizeof(void*)-1) * 8; // Takes the high-order byte
     uintptr_t r = startS >> shift;
-    ASSERT(r >= 0 && r < 256);
+    ASSERT(r < 256);
     const uintptr_t s = endS == 0 ? 256 : endS >> shift;
     ASSERT(s >= r && s <= 256);
 

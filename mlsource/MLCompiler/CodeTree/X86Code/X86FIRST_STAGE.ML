@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015
+    Copyright David C. J. Matthews 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -70,14 +70,13 @@ struct
     val op andb8 = Word8.andb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
-    and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
 
     val exp2_30 =  0x40000000
 
     (* This actually checks that the value will fit in 31 bits because we normally have to
        tag it later. *)
     fun is31bitSigned a =
-        isShort a andalso let val aI = Word.toIntX(toShort a) in ~exp2_30 <= aI andalso aI < exp2_30 end
+        isShort a andalso let val aI = Word.toLargeIntX(toShort a) in ~0x40000000 <= aI andalso aI < 0x40000000 end
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
@@ -288,11 +287,11 @@ struct
     if isX64 andalso flags <> 0w0
     then
         [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
-         StoreConstToMemory{toStore=size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+         StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
     else
     let
-        val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
+        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
     in
         [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
@@ -437,10 +436,10 @@ struct
                 (* Range checks. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) }]
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt minCase) }]
                 val range2 =
                     [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab},
-                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt maxCase) }]
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt maxCase) }]
             in
                 range2 @ range1 @ testTag
             end
@@ -483,7 +482,7 @@ struct
 
     and moveConstantToRegister(lit, output as GenReg _) =
         if isShort lit
-        then [MoveConstR{source=tag(Word.toIntX(toShort lit)), output=output}]
+        then [MoveConstR{source=tag(Word.toLargeIntX(toShort lit)), output=output}]
         else [MoveLongConstR{source=lit, output=output}]
 
     |   moveConstantToRegister(source, output as FPReg _) =
@@ -507,7 +506,7 @@ struct
     in
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
         else if isShort lit
-        then [StoreConstToMemory{toStore=tag(Word.toIntX(toShort lit)), address=addr}]
+        then [StoreConstToMemory{toStore=tag(Word.toLargeIntX(toShort lit)), address=addr}]
         else [StoreLongConstToMemory{toStore=lit, address=addr}]
     end
  
@@ -516,7 +515,7 @@ struct
     
     fun pushConstantToStack lit =
         if is31bitSigned lit (* Push only allows a 32-bit literal *)
-        then [PushConst(tag(Word.toIntX(toShort lit)))]
+        then [PushConst(tag(Word.toLargeIntX(toShort lit)))]
         else [PushLongConst lit]
 
     fun resetStack 0 = []
@@ -665,7 +664,7 @@ struct
           
       | Literal w =>
           if isShort w
-          then printStream(Int.toString (Word.toIntX (toShort w)))
+          then printStream(LargeInt.toString (Word.toLargeIntX (toShort w)))
           else printStream "?" (* ??? *)      
 
      | Direct {base, offset} =>
@@ -3645,7 +3644,7 @@ struct
                         [StoreRegToMemory{toStore=storeReg, address=address}]
                 |   LiteralSource storeConst =>
                         if isShort storeConst
-                        then [StoreConstToMemory{ toStore=tag(Word.toIntX(toShort storeConst)), address=address}]
+                        then [StoreConstToMemory{ toStore=tag(Word.toLargeIntX(toShort storeConst)), address=address}]
                         else [StoreLongConstToMemory{ toStore=storeConst, address=address}]
                 |   BaseOffsetSource _ => raise InternalError "genStoreWord"
             end
@@ -3819,10 +3818,15 @@ struct
                         actionLoadArg { argNo=1, regSet=generalRegisters, willOverwrite=true,
                                         next=loadIndex (isWord, whenDone) opAndResults } tArgs
 
-            fun genLoadInstr isWord ([LiteralSource base, LiteralSource offset], SOME destReg) =
+            fun genLoadInstr true (* Word *) ([LiteralSource base, LiteralSource offset], SOME destReg) =
                     if isShort offset andalso toShort offset = 0w0 andalso not isX64
-                    then [(if isWord then LoadMemR else LoadByteR)
-                            {source=ConstantAddress base, output=destReg}]
+                    then [LoadMemR {source=ConstantAddress base, output=destReg}]
+                    else raise InternalError "genLoadWord: not zero"
+            
+            |   genLoadInstr false (* Byte*) ([LiteralSource base, LiteralSource offset], SOME destReg) =
+                    if isShort offset andalso toShort offset = 0w0 andalso not isX64
+                    then [TagValue{source=destReg, output=destReg},
+                          LoadByteR{source=ConstantAddress base, output=destReg}]
                     else raise InternalError "genLoadWord: not zero"
 
             |   genLoadInstr true (*Word*) ([InRegister base, LiteralSource offset], SOME destReg) =
@@ -3884,120 +3888,19 @@ struct
             end
          end
 
-        local
-            fun makeTest(InRegister reg) = TestTagR reg
-            |   makeTest(BaseOffsetSource{base, offset}) = TestByteMem{base=base, offset=offset,bits=0w1}
-            |   makeTest _ = raise InternalError "makeTest"
+        fun reverseTestOp JE = JE
+        |   reverseTestOp JNE = JNE
+        |   reverseTestOp JA = JB
+        |   reverseTestOp JB = JA
+        |   reverseTestOp JNA = JNB
+        |   reverseTestOp JNB = JNA
+        |   reverseTestOp JL = JG
+        |   reverseTestOp JG = JL
+        |   reverseTestOp JLE = JGE
+        |   reverseTestOp JGE = JLE
+        |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
 
-            (* Test tags for the arguments and call the emulator if either is long. Unless the
-               operation is just a comparison check for overflow and jump to the emulator
-               if the operation overflowed.  Rather than try to follow the static pattern
-               we just generate the shortest code. *)
-
-           fun testTags checkOverflow (operations, tag1, tag2) =
-                let
-                    fun checkTag(LiteralSource l) =
-                        if isShort l then ([], [])
-                        else (* Long constant - shouldn't be code-generating. *)
-                             raise InternalError "testTags: long constant"
-                    |   checkTag tag =
-                        let
-                            val (code, lab) = condBranch(JE, PredictNotTaken)
-                        in
-                            (code @ [makeTest tag], forwardJumpLabel lab)
-                        end
-                    val (tag1Check, tag1Lab) = checkTag tag1
-                    and (tag2Check, tag2Lab) = checkTag tag2
-                                
-                    val (overflowCheck, overflowLab) =
-                        if checkOverflow
-                        then
-                        let
-                            val (code2, lab2) = condBranch(JO, PredictNotTaken)
-                        in
-                            (code2, (* Emulate if overflow. *) forwardJumpLabel lab2)
-                        end
-                        else ([], [])
-                    val (skipEmulatorCode, skipEmulatorLabel) = uncondBranch()
-                    val (backToInstrCode, backToInstrLabel) = backJumpLabel()
-                in
-                    forwardJumpLabel skipEmulatorLabel @ jumpBackwards backToInstrLabel @ [CallRTS memRegArbEmulation] @
-                    overflowLab @ tag2Lab @ tag1Lab @ skipEmulatorCode @ (* Skip the emulator call. *)
-                    overflowCheck @ operations (* The actual instruction *) @
-                    backToInstrCode @ tag2Check @ tag1Check
-                end
-        in
-            val testTagsForArithmetic = testTags true
-
-            fun reverseTestOp JE = JE
-            |   reverseTestOp JNE = JNE
-            |   reverseTestOp JA = JB
-            |   reverseTestOp JB = JA
-            |   reverseTestOp JNA = JNB
-            |   reverseTestOp JNB = JNA
-            |   reverseTestOp JL = JG
-            |   reverseTestOp JG = JL
-            |   reverseTestOp JLE = JGE
-            |   reverseTestOp JGE = JLE
-            |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
-
-            (* If we're comparing a value with a short constant we don't need to
-               emulate the comparison even if the value is actually long.  We just
-               need to look at the sign to decide if it's less or greater because
-               every positive long form value is greater than any short value and
-               every negative long form value is less than any short value. *)
-            fun testTagsForComparison (shortTestAndJump, tag1, LiteralSource tag2Const, opc, destLab) =
-                let
-                    (* The constant should always be short. *)
-                    val _ = isShort tag2Const orelse raise InternalError "testTagsForComparison: long"
-                    val (jumpOnLongCode, longLab) = condBranch(JE, PredictNotTaken)
-                    val (skipLongCode, skipLongLabel) = uncondBranch()
-                    val tag1Reg =
-                        case tag1 of
-                            InRegister reg => reg
-                        |   _ => raise InternalError "testTagsForComparison: not reg"
-                    (* If we're jumping on greater (equal) we jump if the value is
-                       positive (sign bit clear).  If less (equal) we jump if it's
-                       negative.  We need to increment the reference count for the
-                       destination label. *)
-                    val Labels{uses, ...} = destLab
-                    val () = uses := !uses + 1
-                    val skipOnSign =
-                        case opc of
-                            JG => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
-                        |   JGE => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
-                        |   JL => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
-                        |   JLE => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
-                        |   _ => raise InternalError "testTagsForComparison: opc"
-                in
-                    forwardJumpLabel skipLongLabel @
-                    [skipOnSign, TestByteMem{base=tag1Reg, offset= ~1, bits=word8ToWord F_negative}] @
-                    forwardJumpLabel longLab @ skipLongCode @ shortTestAndJump @ jumpOnLongCode @ [makeTest tag1]
-                end
-            |   testTagsForComparison (operations, tag1 as LiteralSource _, tag2, opc, destLab) =
-                    (* First argument is the constant - reverse the arguments and the test. *)
-                    testTagsForComparison(operations, tag2, tag1, reverseTestOp opc, destLab)
-            |   testTagsForComparison (operations, tag1, tag2, _, _) =
-                    testTags false (operations, tag1, tag2)
-
-            (* Because short integers are normalised we can skip the tag tests
-               completely when comparing short constants for equality.  Otherwise we
-               only need emulation if both arguments are long. *)
-            fun eqTestTags(operations, LiteralSource l1, _, _, _) =
-                    if isShort l1 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, _, LiteralSource l2, _, _) =
-                    if isShort l2 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, tag1, tag2, _, _) =
-                let
-                    val (code1, lab1) = condBranch(JNE, PredictTaken)
-                    and (code2, lab2) = condBranch(JNE, PredictTaken)
-                in
-                    operations @ forwardJumpLabel lab1 @ forwardJumpLabel lab2 @
-                    [CallRTS memRegArbEmulation] @ code2 @ [makeTest tag2] @ code1 @ [makeTest tag1]
-                end
-
-            fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
-        end
+        fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
 
         local
             (* If the source or the index are in registers they have to be untagged first and
@@ -4100,7 +4003,7 @@ struct
                                 val shortLit = toShort lit
                             in
                                 if shortLit = 0w0 then [] else
-                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                                [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
                             end
                         |   getOffset _ = raise InternalError "getOffset"
                 in
@@ -4125,7 +4028,7 @@ struct
                             val shortLit = toShort lit
                         in
                             if shortLit = 0w0 then [] else
-                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit * wordSize}]
+                            [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit * LargeInt.fromInt wordSize}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                 in
@@ -4226,7 +4129,7 @@ struct
                                                [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
                                                if isShort constnt
                                                then ArithRConst{opc=CMP, output=reg1,
-                                                                source=tag(Word.toIntX(toShort constnt))}
+                                                                source=tag(Word.toLargeIntX(toShort constnt))}
                                                else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
                                                InRegister reg1, LiteralSource constnt, testType, destLabel) } tArgs
                     end
@@ -4245,7 +4148,7 @@ struct
                                                     { test=revTest, label=destLabel, predict=PredictNeutral },
                                                if isShort constnt
                                                then ArithRConst{opc=CMP, output=reg2,
-                                                                source=tag(Word.toIntX(toShort constnt))}
+                                                                source=tag(Word.toLargeIntX(toShort constnt))}
                                                else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
                                                InRegister reg2, LiteralSource constnt, revTest, destLabel) } tArgs
                     end
@@ -4296,7 +4199,7 @@ struct
                                                [ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
                                                if isShort constnt
                                                then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                                  source=tag(Word.toIntX(toShort constnt))}
+                                                                  source=tag(Word.toLargeIntX(toShort constnt))}
                                                else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                                BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
                                                testType, destLabel)} tArgs
@@ -4320,7 +4223,7 @@ struct
                                                     { test=revTest, label=destLabel, predict=PredictNeutral },
                                                if isShort constnt
                                                then ArithMemConst{opc=CMP, base=base, offset=offset,
-                                                                  source=tag(Word.toIntX(toShort constnt))}
+                                                                  source=tag(Word.toLargeIntX(toShort constnt))}
                                                else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                                BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
                                                revTest, destLabel) } tArgs
@@ -4388,18 +4291,14 @@ struct
             and lessThanWord(arg1, arg2, transtable) =
                 compareAndBranch ([arg1, arg2], makeBranch(JB, noTagTest), transtable)
 
-            fun notEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JNE, eqTestTags), transtable)
-            and equalInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JE, eqTestTags), transtable)
-            and greaterOrEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JGE, testTagsForComparison), transtable)
-            and greaterThanInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JG, testTagsForComparison), transtable)
-            and lessOrEqualInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JLE, testTagsForComparison), transtable)
-            and lessThanInt(arg1, arg2, transtable) =
-                compareAndBranch ([arg1, arg2], makeBranch(JL, testTagsForComparison), transtable)
+            fun greaterOrEqualFixed(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JGE, noTagTest), transtable)
+            and greaterThanFixed(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JG, noTagTest), transtable)
+            and lessOrEqualFixed(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JLE, noTagTest), transtable)
+            and lessThanFixed(arg1, arg2, transtable) =
+                compareAndBranch ([arg1, arg2], makeBranch(JL, noTagTest), transtable)
 
             fun testShortInt(arg, transtable) =
                 compareAndBranch ([arg], lengthTest JNE, transtable)
@@ -4428,7 +4327,7 @@ struct
                             val shortLit = toShort lit
                         in
                             if shortLit = 0w0 then []
-                            else [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
+                            else [ArithRConst{opc=ADD, output=baseReg, source=Word.toLargeInt shortLit}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
                     val () = uses := !uses+1
@@ -4546,11 +4445,11 @@ struct
                        Do we need to put something in to indicate to an optimiser
                        that we're using the condition code "result" here? *)
                     (if opc = JE orelse opc = JNE
-                    then [ArithRConst{ opc=XOR, output=eax, source=Word.toInt c3 }]
+                    then [ArithRConst{ opc=XOR, output=eax, source=Word.toLargeInt c3 }]
                     else []) @
                     [
                         (* Mask and set the condition codes. *)
-                        ArithRConst{ opc=AND, output=eax, source=Word.toInt mask },
+                        ArithRConst{ opc=AND, output=eax, source=Word.toLargeInt mask },
                         FPStatusToEAX,
                         fpOperation, (* Compare and pop. *)
                         loadToStack (* First arg to stack*)
@@ -4710,16 +4609,13 @@ struct
                 fun genIntToFPInstr([InRegister source], SOME output) =
                     let
                          (* This is a bit complicated because we can only load from memory
-                            but the memory needs to be modifiable. We have a special location
-                            we can load from. *)
-                        val (test, skipEmulator) = condBranch(JNE, PredictTaken)
+                            but the memory needs to be modifiable.  We push the value
+                            to the stack and load from there; *)
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            FPLoadIntAndPop (* Do instr. *)
-                        ] @ forwardJumpLabel skipEmulator @
-                        [ CallRTS memRegArbEmulation ] @
-                        test @ [TestTagR source, PushR source (* Push and test tag. *) ]
+                            FPLoadIntAndPop ,(* Do instr.  This shifts the value on the stack and pops it.*)
+                            PushR source (* Push to the stack. *) ]
                     end
                 |   genIntToFPInstr _ = raise InternalError "genIntToFPInstr"
             in
@@ -4886,7 +4782,7 @@ struct
                     if isShort lit
                     then
                     let
-                        val intArg = Word.toIntX(toShort lit)
+                        val intArg = Word.toLargeIntX(toShort lit)
                         val source =
                             case opcode of
                                 ADD => semitag intArg (* Shift but don't tag. *)
@@ -4925,23 +4821,9 @@ struct
 
                 |   _ => wordSelectedLeft opRes (table, List.rev args, pref)
 
+            fun overflowTest (operations, _, _) = TestOverflow :: operations
+
         in
-            fun addInteger(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (ADD, testTagsForArithmetic) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
-            fun subtractInteger(arg1, arg2, transtable, whereto) =
-            let
-                val args = [arg1, arg2]
-                val (opRes, opCode) = wordSelectDest (SUB, testTagsForArithmetic) (transtable, args, whereto)
-            in
-                (opCode, matchResult(transtable, opRes, whereto))
-            end
-
             fun addWord(arg1, arg2, transtable, whereto) =
             let
                 val args = [arg1, arg2]
@@ -4954,6 +4836,22 @@ struct
             let
                 val args = [arg1, arg2]
                 val (opRes, opCode) = wordSelectDest (SUB, noTagTest) (transtable, args, whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+
+            fun addFixed(arg1, arg2, transtable, whereto) =
+            let
+                val args = [arg1, arg2]
+                val (opRes, opCode) = wordSelectDest (ADD, overflowTest) (transtable, args, whereto)
+            in
+                (opCode, matchResult(transtable, opRes, whereto))
+            end
+
+            fun subtractFixed(arg1, arg2, transtable, whereto) =
+            let
+                val args = [arg1, arg2]
+                val (opRes, opCode) = wordSelectDest (SUB, overflowTest) (transtable, args, whereto)
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
@@ -5083,8 +4981,8 @@ struct
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
                         ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
                     ] @ forwardJumpLabel lab @
-                    [ MoveConstR{ source=tag(Word.toInt maxShift), output=ecx } ] @ test @
-                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
+                    [ MoveConstR{ source=tag(Word.toLargeInt maxShift), output=ecx } ] @ test @
+                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toLargeInt maxShift) }
                     ] @
                     (
                         (* If this is a left shift we have to remove the tag.  That isn't needed
@@ -5151,25 +5049,6 @@ struct
                 (* Untag, but don't shift the multiplicand. *)
                 ArithRConst{opc=SUB, output=eax, source=1}
             ]
-
-            (* The only case we treat specially is multiplication by two because the overflow
-               flag isn't defined for larger shifts. *)
-            fun genAddSelf(_, SOME output) =
-                let
-                    val (skipEmulator, skipEmulatorLab) = uncondBranch()
-                    val (lab1Code, lab1) = condBranch(JE, PredictNotTaken)
-                    val (lab2Code, lab2) = condBranch(JO, PredictNotTaken)
-                    val (backToInstr, backToInstrLab) = backJumpLabel()
-                in
-                    [ArithRConst{opc=SUB, source=1, output=output}] @
-                        forwardJumpLabel skipEmulatorLab @ jumpBackwards backToInstrLab @
-                    [CallRTS memRegArbEmulation] @ forwardJumpLabel lab1 @
-                    forwardJumpLabel lab2 @ skipEmulator @ lab2Code @
-                    [ArithRR{opc=ADD, source=output, output=output}] @ backToInstr @ lab1Code @
-                    [TestTagR output]
-                end
-            |   genAddSelf _ = raise InternalError "genAddSelf"
-
          in
             fun upShiftWordConstant(arg, shift, transtable, whereto) =
             let
@@ -5224,13 +5103,68 @@ struct
             in
                 (opCode, matchResult(transtable, opRes, whereto))
             end
+            
+            (* Unlike unsigned multiplication the IMUL instruction will work on any
+               registers.  Both registers have to modifiable and we have to clobber
+               the multiplier afterwards. *)
+            local
+                fun genMultiplySigned([InRegister m1, InRegister m2], SOME outReg) =
+                    let
+                        val _ = outReg = m1 orelse raise InternalError "genMultiplySigned"
+                    in
+                        [
+                            MakeSafe m2,
+                            (* Add back the tag, but don't shift. *)
+                            ArithRConst{opc=ADD, output=m1, source=1},
+                            TestOverflow,
+                            SignedMultiply{source=m2, output=m1},
+                            (* Shift down the multiplier. *)
+                            ShiftConstant{shiftType=SRA, output=m2, shift=0w1 },
+                            (* Untag, but don't shift the multiplicand. *)
+                            ArithRConst{opc=SUB, output=m1, source=1}
+                        ]
+                    end
+                |   genMultiplySigned _ = raise InternalError "genMultiplySigned"
 
-            (* We only support integer multiplication by two.  Everything else is too complicated. *)
-            fun multiplyIntegerByTwo(arg, transtable, whereto) =
-            let
-                val (opRes, opCode) = sharedSingleArgNegotiator genAddSelf (transtable, [arg], whereto)
+                val eaxSet = singleton eax and edxSet = singleton edx
+
+                fun loadArg1 instr (tArgs as (table, args, _)) =
+                    case map (argAsSource table) args of
+                        [(ActInRegisterSet{ modifiable, ...}), _] =>
+                        if regSetIntersect(modifiable, eaxSet) <> noRegisters
+                        then actionLockRegister{reg=eax, willOverwrite=true, next=loadArg2 instr} tArgs
+                        else (* Not in the right register - move it. *)
+                            actionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr} tArgs
+
+                    |   [_, _] =>
+                            actionLoadArg{argNo=0, regSet=eaxSet, willOverwrite=true, next=loadArg1 instr} tArgs
+
+                    |   _ => raise InternalError "loadArg1: bad arguments"
+        
+                and loadArg2 instr (tArgs as (table, args, _)) =
+                    case map (argAsSource table) args of
+                        [_, (ActInRegisterSet{ modifiable, ...})] =>
+                        if regSetIntersect(modifiable, edxSet) <> noRegisters
+                        then actionLockRegister{reg=edx, willOverwrite=true, next=finished instr} tArgs
+                        else (* Not in the right register - move it. *)
+                            actionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr} tArgs
+                
+                    |   [_, _] =>
+                            actionLoadArg{argNo=1, regSet=edxSet, willOverwrite=true, next=loadArg2 instr} tArgs
+
+                    |   _ => raise InternalError "loadArg2: bad arguments"
+
+                and finished genInstr =
+                    actionDone{
+                        outReg=SOME eax,
+                        operation=genInstr([InRegister eax, InRegister edx], SOME eax)
+                        }
+
+
+                val multiplyNegotiator = loadArg1
             in
-                (opCode, matchResult(transtable, opRes, whereto))
+                fun instrMulI(args, _) = (* TODO: use shift for multiplication by two. *)
+                    SOME(fn _ => multiplyNegotiator genMultiplySigned, args)
             end
 
             local (* Unsigned word div and mod. *)
@@ -5239,7 +5173,6 @@ struct
                    register.  We get EDX as a work register and put the divisor in EAX. *)
                 fun genDivMod isDiv ([_, InRegister dividend], _) =
                     let
-                        val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
                         (* The instruction to add back the tag to "dividend" was missing and this caused
                            a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
                            that dividend cannot be either eax or edx.  This next test to just to make sure. *)
@@ -5258,11 +5191,11 @@ struct
                             (* Clear the high order of the accumulator and do the division. *)
                             Group3Ops(dividend, DIV),
                             ArithRR{opc=XOR, source=edx, output=edx},
-                            (* Untag, but don't shift, the divisor and dividend.  At the
-                               same time check for zero and raise an exception if it is. *)
-                            ArithRConst{opc=SUB, source=1, output=eax}
-                        ] @ forwardJumpLabel notZeroLab @ [CallRTS memRegRaiseDiv ] @ notZero @
-                        [ArithRConst{opc=SUB, source=1, output=dividend}]
+                            (* Untag, but don't shift, the divisor and dividend.
+                               Checking for zero is done in ML code. *)
+                            ArithRConst{opc=SUB, source=1, output=eax},
+                            ArithRConst{opc=SUB, source=1, output=dividend}
+                        ]
                     end
 
                 |   genDivMod _ _ = raise InternalError "genDivMod"

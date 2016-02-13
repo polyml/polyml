@@ -62,9 +62,9 @@ struct
 
     (* Converting from LargeWord.word.  First convert to Word.word and
        then mask. *)
-    fun fromLargeWord (w: LargeWord.word) =
-        fromWord(Word.fromLargeWord w)
-    and fromInt (i: int): word = fromWord(Word.fromInt i)
+    val fromLargeWord = fromWord o Word.fromLargeWord
+    and fromInt = fromWord o Word.fromInt
+    and fromLargeInt = fromWord o Word.fromLargeInt
     
     val fromLarge = fromLargeWord
 
@@ -108,9 +108,8 @@ struct
             else intx
         end
     
-    val fromLargeInt = fromInt
-    and toLargeInt = toInt
-    and toLargeIntX = toIntX
+    val toLargeInt = LargeInt.fromInt o toInt
+    and toLargeIntX = LargeInt.fromInt o toIntX
 
     (* Convert to a large word by sign extending. *)
     fun toLargeWordX (w: word): LargeWord.word =

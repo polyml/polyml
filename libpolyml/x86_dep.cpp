@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-15
+    Further work copyright David C. J. Matthews 2011-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -221,6 +221,7 @@ typedef struct _MemRegisters {
     byte        *arbEmulation;      // This address is called to emulate an arbitrary precision op
     PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
     POLYSIGNED  real_temp;          // Space used to convert integers to reals.
+    byte        *raiseOverflow;     // Called to raise the Overflow exception.
 } MemRegisters;
 
 class X86TaskData: public TaskData {
@@ -295,10 +296,6 @@ public:
 #endif /* HOSTARCHITECTURE_X86_64 */
 };
 
-
-// Entry code sequences - copied to memRegisters before entering ML.
-static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmulation;
-
 /**********************************************************************
  *
  * Register fields in the stack. 
@@ -349,7 +346,8 @@ enum RETURN_REASON {
     RETURN_RAISE_DIV,
     RETURN_ARB_EMULATION,
     RETURN_CALLBACK_RETURN,
-    RETURN_CALLBACK_EXCEPTION
+    RETURN_CALLBACK_EXCEPTION,
+    RETURN_RAISE_OVERFLOW
 };
 
 extern "C" {
@@ -374,6 +372,7 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_ARB_EMULATION(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
+    extern int X86AsmCallExtraRETURN_RAISE_OVERFLOW(void);
 
     // The entry points to assembly code functions.
     extern byte CallPOLY_SYS_exit, CallPOLY_SYS_chdir, alloc_store, alloc_uninit, raisex,
@@ -401,7 +400,9 @@ extern "C" {
         bytes_per_word,  offset_address,  shift_right_word,  not_bool,  string_length,
         touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
         div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
-        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word;
+        word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
+        fixed_geq, fixed_leq, fixed_gtr, fixed_lss, fixed_add, fixed_sub, fixed_mul,
+        fixed_quot, fixed_rem, fixed_to_real, fixed_div, fixed_mod;
 #ifdef HOSTARCHITECTURE_X86_64
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
@@ -516,7 +517,7 @@ static byte *entryPointVector[256] =
     0, // 98 is unused
     &CallPOLY_SYS_objsize, // 99
     &CallPOLY_SYS_showsize, // 100
-    0, // 101 is unused
+    &word_eq, // 101.  This can be the same as 251
     0, // 102 is unused
     0, // 103 is unused
     &quotrem_long, // 104
@@ -557,7 +558,7 @@ static byte *entryPointVector[256] =
     &CallPOLY_SYS_arctan_real, // 139
     &CallPOLY_SYS_exp_real, // 140
     &CallPOLY_SYS_ln_real, // 141
-    0, // 142 is no longer used
+    &fixed_to_real, // 142
     0, // 143 is unused
     0, // 144 is unused
     0, // 145 is unused
@@ -603,13 +604,13 @@ static byte *entryPointVector[256] =
     0, // 177 is unused
     0, // 178 is unused
     0, // 179 is unused
-    0, // 180 is unused
-    0, // 181 is unused
-    0, // 182 is unused
-    0, // 183 is unused
-    0, // 184 is unused
-    0, // 185 is unused
-    0, // 186 is unused
+    &fixed_add, // 180
+    &fixed_sub, // 181
+    &fixed_mul, // 182
+    &fixed_quot, // 183
+    &fixed_rem, // 184
+    &fixed_div, // 185
+    &fixed_mod, // 186
     0, // 187 is unused
     0, // 188 is unused
     &CallPOLY_SYS_io_operation, // 189
@@ -642,10 +643,10 @@ static byte *entryPointVector[256] =
     &shift_right_word, // 216
     0, // 217 is no longer used
     &not_bool, // 218
-    0, // 219 is unused
-    0, // 220 is unused
-    0, // 221 is unused
-    0, // 222 is unused
+    &fixed_geq, // 219
+    &fixed_leq, // 220
+    &fixed_gtr, // 221
+    &fixed_lss, // 222
     &string_length, // 223
     0, // 224 is unused
     0, // 225 is unused
@@ -689,11 +690,12 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
-    memRegisters.heapOverflow = heapOverflow;
-    memRegisters.stackOverflow = stackOverflow;
-    memRegisters.stackOverflowEx = stackOverflowEx;
-    memRegisters.raiseDiv = raiseDiv;
-    memRegisters.arbEmulation = arbEmulation;
+    memRegisters.heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    memRegisters.stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    memRegisters.stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    memRegisters.raiseDiv = (byte*)X86AsmCallExtraRETURN_RAISE_DIV;
+    memRegisters.arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
+    memRegisters.raiseOverflow = (byte*)X86AsmCallExtraRETURN_RAISE_OVERFLOW;
     memRegisters.fullRestore = 1; // To force the floating point to 64-bit
 }
 
@@ -1182,7 +1184,8 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_int_to_real:
-                CallIO1(this, &Real_floatc);
+            case POLY_SYS_fixed_to_real: // This is used if we have run out of memory
+                CallIO1(this, &Real_from_arbitrary_precision);
                 break;
 
             case POLY_SYS_sqrt_real:
@@ -1280,6 +1283,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_word_eq:
+            case POLY_SYS_equal_short_arb:
                 CallIO2(this, &word_eq_c);
                 break;
 
@@ -1468,6 +1472,22 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &word_lss_c);
                 break;
 
+            case POLY_SYS_fixed_geq:
+                CallIO2(this, &fixed_geq_c);
+                break;
+
+            case POLY_SYS_fixed_leq:
+                CallIO2(this, &fixed_leq_c);
+                break;
+
+            case POLY_SYS_fixed_gtr:
+                CallIO2(this, &fixed_gtr_c);
+                break;
+
+            case POLY_SYS_fixed_lss:
+                CallIO2(this, &fixed_lss_c);
+                break;
+
             case POLY_SYS_io_dispatch:
                 CallIO3(this, &IO_dispatch_c);
                 break;
@@ -1644,11 +1664,10 @@ int X86TaskData::SwitchToPoly()
             return -1; // We're in a safe state to handle any interrupts.
 
         case RETURN_RAISE_DIV:
+        case RETURN_RAISE_OVERFLOW:
             try {
-                // Generally arithmetic operations don't raise exceptions.  Overflow
-                // is either ignored, for Word operations, or results in a call to
-                // the arbitrary precision emulation code.  This is the exception
-                // (no pun intended).
+                // This is included here to ensure the registers are cleared and also because
+                // it provides a way to raise the exception from compiled code.
                 PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
                 // Set all the registers to a safe value here.  We will almost certainly
                 // have shifted a value in one of the registers before testing it for zero.
@@ -1657,7 +1676,8 @@ int X86TaskData::SwitchToPoly()
                     PolyWord *pr = (&this->stack->stack()->p_eax)+i;
                     *pr = TAGGED(0);
                 }
-                raise_exception0(this, EXC_divide);
+                raise_exception0(this,
+                    this->memRegisters.returnReason == RETURN_RAISE_DIV ? EXC_divide : EXC_overflow);
             }
             catch (IOException &) {
                 // Handle the C++ exception.
@@ -2506,7 +2526,7 @@ bool X86TaskData::emulate_instrs()
 #endif /* HOSTARCHITECTURE_X86_64 */
                 // The operand is on the stack.
                 union { double dble; byte bytes[sizeof(double)]; } dValue;
-                dValue.dble = get_C_real(this, stack->p_sp[0]);
+                dValue.dble = get_arbitrary_precision_as_real(this, stack->p_sp[0]);
                 unsigned top = (stack->p_fp.sw >> 11) & 7;
                 top = (top-1) & 0x7;
                 stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);
@@ -2574,14 +2594,6 @@ void X86Dependent::InitInterfaceVector(void)
         if (entryPointVector[i] != 0)
             add_word_to_io_area(i, PolyWord::FromCodePtr(entryPointVector[i]));
     }
-
-    // Entries for special cases.  These are generally, but not always, called from
-    // compiled code.
-    heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
-    stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
-    stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
-    raiseDiv = (byte*)X86AsmCallExtraRETURN_RAISE_DIV;
-    arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
 }
 
 void X86TaskData::SetException(poly_exn *exc)
@@ -2934,6 +2946,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 {
                 case 0xb6: /* movzl */
                 case 0xc1: /* xaddl */
+                case 0xaf: // imul
                     pt++; skipea(&pt, process, false); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:

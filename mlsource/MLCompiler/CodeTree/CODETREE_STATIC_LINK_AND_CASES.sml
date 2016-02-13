@@ -1147,7 +1147,7 @@ struct
                 (* then we may be able to use a case statement. *)
                 fun findCase (P2BuiltIn(function, argList)) =
                 let
-                    val isArbitrary = function = RuntimeCalls.POLY_SYS_equala
+                    val isArbitrary = function = RuntimeCalls.POLY_SYS_equal_short_arb
                     val isWord = function = RuntimeCalls.POLY_SYS_word_eq
                 in
                     if isArbitrary orelse isWord
@@ -1247,7 +1247,7 @@ struct
                                 val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
                                 val numberOfCases = List.length cases
                             in
-                                numberOfCases > 7 andalso numberOfCases >= (Word.toInt max - Word.toInt min) div 3
+                                numberOfCases > 7 andalso Word.fromInt numberOfCases >= (max - min) div 0w3
                             end
                 in
                     if useIndexedCase
@@ -1260,7 +1260,7 @@ struct
                                 val test =
                                     case caseType of
                                         CaseInt =>
-                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equala, []),
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
                                                    [test, P2Constnt(toMachineWord t, [])])
                                     |   CaseWord =>
                                             mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq, []),

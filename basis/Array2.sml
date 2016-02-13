@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Array2 structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -268,8 +267,8 @@ struct
         (* Install the pretty printer for arrays *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun 'a pretty(depth: int)
-                  (printElem: 'a * int -> PolyML.pretty)
+        fun 'a pretty(depth: FixedInt.int)
+                  (printElem: 'a * FixedInt.int -> PolyML.pretty)
                   (x: 'a array): PolyML.pretty =
             let
                 open PolyML
@@ -298,7 +297,7 @@ struct
                             if r <> nrows-1 then PrettyString "," :: PrettyBreak(1, 0) :: l else l
                         val rowPrint =
                             PrettyString "[" :: 
-                                putRowElements(r, ncols-1, PrettyString "]" :: rowTail, d-ncols+1)
+                                putRowElements(r, ncols-1, PrettyString "]" :: rowTail, d - FixedInt.fromInt ncols + 1)
                     in
                         putRow(r-1, d+1, rowPrint)
                     end
@@ -306,7 +305,7 @@ struct
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else putRow(nrows-1, depth-nrows+1, [PrettyString "]"])
+                     else putRow(nrows-1, depth - FixedInt.fromInt nrows + 1, [PrettyString "]"])
                     ))
             end
     in

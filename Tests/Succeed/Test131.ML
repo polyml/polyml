@@ -41,6 +41,6 @@ PolyML.Compiler.maxInlineSize := 1;
 
 fun f (a,b,c,d,e,f) = f;
 
-if f(0,0,0,0,0,2037113697) = 2037113697
+if f(0,0,0,0,0,2037113697:LargeInt.int) = 2037113697
 then ()
 else raise Fail "Compilation error";

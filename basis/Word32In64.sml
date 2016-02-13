@@ -60,12 +60,11 @@ struct
 
     (* Converting from LargeWord.word.  First convert to Word.word and
        then mask. *)
-    fun fromLargeWord (w: LargeWord.word) =   fromWord(Word.fromLargeWord w)
-
-    and fromInt (i: int): word = fromWord(Word.fromInt i)
+    val fromLargeWord = fromWord o Word.fromLargeWord
+    and fromInt = fromWord o Word.fromInt
+    and fromLargeInt = fromWord o Word.fromLargeInt
 
     val fromLarge = fromLargeWord
-    and fromLargeInt = fromInt
 
             (* Arithmetic shift - sign extends. *) 
     (* Shift the "sign" bit into the real sign bit position then
@@ -84,7 +83,7 @@ struct
         
     (* Conversion to signed integer. *)
     fun toIntX (x: word) : int = LargeWord.toIntX(toLargeWordX x)
-    val toLargeIntX = toIntX
+    and toLargeIntX (x: word) : LargeInt.int = LargeWord.toLargeIntX(toLargeWordX x)
     
     (* Use Word.scan but check that the result is in the range. *)
     val wordScan = scan;

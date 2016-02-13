@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2010, 2015 David C. J. Matthews
+    Copyright (c) 2009, 2010, 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,7 @@ use "mlsource/MLCompiler/LEXSIG.sml";
 use "mlsource/MLCompiler/SymbolsSig.sml";
 use "mlsource/MLCompiler/COMPILERBODYSIG.sml";
 use "mlsource/MLCompiler/DEBUGSIG.ML";
+use "mlsource/MLCompiler/MAKESIG.sml";
 use "mlsource/MLCompiler/MAKE_.ML";
 use "mlsource/MLCompiler/CODETREESIG.ML";
 use "mlsource/MLCompiler/STRUCT_VALS.ML";
@@ -77,6 +78,7 @@ use "mlsource/MLCompiler/TYPETREESIG.sml";
 use "mlsource/MLCompiler/COPIERSIG.sml";
 use "mlsource/MLCompiler/TYPEIDCODESIG.sml";
 use "mlsource/MLCompiler/DATATYPE_REP.ML";
+use "mlsource/MLCompiler/PRINTTABLESIG.sml";
 use "mlsource/MLCompiler/VALUE_OPS.ML";
 use "mlsource/MLCompiler/TYPE_TREE.ML";
 use "mlsource/MLCompiler/UTILITIES_.ML";

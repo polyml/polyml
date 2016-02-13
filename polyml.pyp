@@ -32,7 +32,6 @@
 	<source name="basis\Int32.sml" />
 	<source name="basis\IntArray.sml" />
 	<source name="basis\IntArray2.sml" />
-	<source name="basis\INTEGER.sml" />
 	<source name="basis\IntInf.sml" />
 	<source name="basis\IO.sml" />
 	<source name="basis\LargeWord.sml" />
@@ -69,7 +68,6 @@
 	<source name="basis\Statistics.ML" />
 	<source name="basis\STREAM_IO.sml" />
 	<source name="basis\String.sml" />
-	<source name="basis\StringCvt.sml" />
 	<source name="basis\SysWord.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
@@ -146,6 +144,7 @@
 	<source name="mlsource\MLCompiler\LEXSIG.sml" />
 	<source name="mlsource\MLCompiler\Make.ML" />
 	<source name="mlsource\MLCompiler\MAKE_.ML" />
+	<source name="mlsource\MLCompiler\MAKESIG.sml" />
 	<source name="mlsource\MLCompiler\Misc.ML" />
 	<source name="mlsource\MLCompiler\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\PARSE_DEC.ML" />
@@ -171,6 +170,7 @@
 	<source name="mlsource\MLCompiler\PRETTYSIG.sml" />
 	<source name="mlsource\MLCompiler\PRINT_TABLE.ML" />
 	<source name="mlsource\MLCompiler\PrintTable.ML" />
+	<source name="mlsource\MLCompiler\PRINTTABLESIG.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURES.sml" />
 	<source name="mlsource\MLCompiler\SIGNATURESSIG.sml" />
 	<source name="mlsource\MLCompiler\SignaturesStruct.sml" />

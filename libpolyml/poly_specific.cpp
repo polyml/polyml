@@ -141,6 +141,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_timing_dispatch: return 0;
     case POLY_SYS_objsize: return PROPWORD_NORAISE;
     case POLY_SYS_showsize: return PROPWORD_NORAISE;
+    case POLY_SYS_equal_short_arb: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_quotrem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
     case POLY_SYS_is_short: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_aplus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -179,6 +180,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_arctan_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
     case POLY_SYS_exp_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
     case POLY_SYS_ln_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_fixed_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_stdin: return 0; // Not a function
     case POLY_SYS_stdout: return 0; // Not a function
     case POLY_SYS_process_env: return 0;
@@ -204,6 +206,16 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
 #endif
     case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_add: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_sub: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_mul: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+        // These next few are currently set as possibly raising exceptions.  Actually
+        // the cases where they can raise exceptions are tested for explicitly so maybe that's
+        // not needed.
+    case POLY_SYS_fixed_quot: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_mod: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_div: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_rem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;
@@ -224,6 +236,10 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_offset_address: return 0;
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_lss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;

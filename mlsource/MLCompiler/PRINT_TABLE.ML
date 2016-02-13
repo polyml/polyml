@@ -1,11 +1,12 @@
 (*
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+    
+    Further development: Copyright David C.J. Matthews 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,9 +24,6 @@
     Copyright   Cambridge University 1990
 *)
 
-
-(* implicitly imports Boot.Misc, Boot.PrettyPrinter, StructVals and Address *)
-
 (*
     The original purpose of this module was to allow for type-dependent
     print functions to be installed by the user.  That requires a special
@@ -40,52 +38,11 @@
 
       
 functor PRINT_TABLE (
-
-structure CODETREE:
-sig
-    type machineWord;
-    type codetree
-end;
-
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
-structure STRUCTVALS :
-sig
-  type typeId;
-  type typeConstrs
-  val sameTypeId:   typeId * typeId -> bool;
-  val tcIdentifier: typeConstrs -> typeId
-end;
-
-(*****************************************************************************)
-(*                  PRETTY                                                   *)
-(*****************************************************************************)
+structure CODETREE: CODETREESIG
+structure STRUCTVALS : STRUCTVALSIG
 structure PRETTY : PRETTYSIG
+): PRINTTABLESIG =
 
-):
-
-(*****************************************************************************)
-(*                  PRINTTABLE export signature                              *)
-(*****************************************************************************)
-sig
-    type typeConstrs
-    type codetree
-  
-    val addOverload: string * typeConstrs * codetree -> unit
-    val getOverloads: string -> (typeConstrs * codetree) list
-    val getOverload: string * typeConstrs * (unit->codetree) -> codetree
-  
-    structure Sharing:
-    sig
-        type typeConstrs = typeConstrs
-        type codetree = codetree
-    end
-end =
-
-(*****************************************************************************)
-(*                  PRINTTABLE functor body                                  *)
-(*****************************************************************************)
 struct
   open STRUCTVALS;
   type pretty = PRETTY.pretty

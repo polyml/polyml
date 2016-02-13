@@ -1,7 +1,7 @@
 (*
     Title:      ASN1 support.
     Author:     David Matthews
-    Copyright   David Matthews 2015
+    Copyright   David Matthews 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -195,13 +195,7 @@ struct
                 fun encode(n, t) =
                     if n < 128
                     then addToList(n, t)
-                    else
-                    let
-                        val (d, m) = IntInf.divMod(n, 128)
-                    in
-                        encode(d, addToList(m, t))
-                    end
-                
+                    else encode(n div 128, addToList(n mod 128, t))
             in
                 Word8.orb(tagType, 0w31) :: encode(tagValue, [])
             end
@@ -226,12 +220,7 @@ struct
             else
             let
                 fun encodeLength (0, t) = t
-                |   encodeLength (v, t) =
-                    let
-                        val (d, m) = IntInf.divMod(v, 256)
-                    in
-                        encodeLength(d, Word8.fromInt m :: t)
-                    end
+                |   encodeLength (v, t) = encodeLength(v div 256, Word8.fromInt(v mod 256) :: t)
 
                 val encodedLength = encodeLength(length, [])
             in

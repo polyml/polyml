@@ -14,6 +14,6 @@ Pair (x, (1,1)) = Pair (x, (1,1));
 Pair ((1,1), x) = Pair ((1,1), x);
 
 datatype ('a, 'b, 'c) Triple = X of 'c | Y of 'b | Z of 'a;
-(X 10000000000: (int ref, int ref, int) Triple) = X 10000000000;
-(X 10000000000: (int, int ref, int) Triple) = X 10000000000;
-(X 10000000000: (int ref, int, int) Triple) = X 10000000000;
+(X 10000000000: (int ref, int ref, LargeInt.int) Triple) = X 10000000000;
+(X 10000000000: (int, int ref, LargeInt.int) Triple) = X 10000000000;
+(X 10000000000: (int ref, int, LargeInt.int) Triple) = X 10000000000;

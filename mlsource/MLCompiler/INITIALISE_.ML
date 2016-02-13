@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -27,95 +27,41 @@
 functor INITIALISE_ (
 
 structure LEX: LEXSIG
-structure TYPETREE : TYPETREESIG;
-structure STRUCTVALS : STRUCTVALSIG;
-structure VALUEOPS : VALUEOPSSIG;
+structure TYPETREE : TYPETREESIG
+structure STRUCTVALS : STRUCTVALSIG
+structure VALUEOPS : VALUEOPSSIG
 structure CODETREE : CODETREESIG
 structure EXPORTTREE: EXPORTTREESIG
 structure DATATYPEREP: DATATYPEREPSIG
 structure TYPEIDCODE: TYPEIDCODESIG
-
-structure MAKE :
-sig
-    type gEnv
-    type env
-
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-
-    type nameSpace =
-    { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-    }
-  
-    val gEnvAsEnv    : gEnv -> env
-    val gEnvAsNameSpace: gEnv -> nameSpace
-    
-    val useIntoEnv   : gEnv -> Universal.universal list -> string -> unit
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    type exportTree = EXPORTTREE.exportTree
-
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * ( unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
-end;
-
+structure MAKE: MAKESIG
 structure ADDRESS : AddressSig
 structure DEBUG: DEBUGSIG
+structure DEBUGGER : DEBUGGERSIG
+structure PRETTY : PRETTYSIG
+structure PRINTTABLE: PRINTTABLESIG
 
 structure MISC :
 sig
   val unescapeString : string -> string
   exception Conversion of string;     (* string to int conversion failure *)
-end;
-
-structure DEBUGGER : DEBUGGERSIG
-structure PRETTY : PRETTYSIG
+end
 
 structure VERSION:
 sig
    val compilerVersion: string
    val versionNumber: int
-end;
+end
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
-        = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS = DATATYPEREP.Sharing
-        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing
+        = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
+        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
 
 ) : 
 
 sig
   type gEnv
-  val initGlobalEnv : gEnv -> unit
+  val initGlobalEnv : {globalTable  : gEnv, intIsArbitraryPrecision: bool } -> unit
 end =
 
 struct
@@ -135,7 +81,7 @@ struct
     fun applyList _ []       = ()
     |   applyList f (h :: t) = (f h : unit; applyList f t);
 
-    fun initGlobalEnv(globalTable  : gEnv) =
+    fun initGlobalEnv{globalTable  : gEnv, intIsArbitraryPrecision: bool } =
     let
         val Env globalEnv = MAKE.gEnvAsEnv globalTable
    
@@ -160,7 +106,8 @@ struct
             fun a ** b = mkProductType [a, b];
             
             (* Type identifiers for the types of the declarations. *)
-            val Int    = intType;
+            val Int    =
+                if intIsArbitraryPrecision then intInfType else fixedIntType
             val String = stringType;
             val Bool   = boolType;
             val Unit   = unitType;
@@ -169,6 +116,8 @@ struct
             val Exn    = exnType
             
             val mkTypeConstruction = mkTypeConstruction;
+            
+            val () = setPreferredInt(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr)
         end;
 
         fun makePolymorphic(tvs, c) =
@@ -260,21 +209,10 @@ struct
             val () = enterGlobalValue ("false", falseCons);
         end;
         
-        val () = enterGlobalType ("int", TypeConstrSet(intConstr, []));
-        val () = enterGlobalType ("char", TypeConstrSet(charConstr, []));
-        val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []));
-
-        (* chr - define it as an identity function for now. It is redefined in
-           the prelude to check that the value is a valid character. *)
-        local
-            val chrCode = identityFunction "chr";
-            val chrType = Int ->> String;
-            val chrVal  = mkGvar ("chr", chrType, chrCode, declInBasis);
-        in
-            val () = enterGlobalValue ("chr", chrVal);
-        end
-
-        val () = enterGlobalType ("real", TypeConstrSet(realConstr, []));
+        val () = enterGlobalType ("int", TypeConstrSet(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr, []))
+        val () = enterGlobalType ("char", TypeConstrSet(charConstr, []))
+        val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []))
+        val () = enterGlobalType ("real", TypeConstrSet(realConstr, []))
 
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
@@ -507,6 +445,20 @@ struct
                 ]
         end
 
+        (* LargeInt.  We need to create the arbitrary precision int type here and
+           the easiest way is to create the structure.  It's then filled out in the
+           basis library. *)
+        local
+            val largeIntEnv = makeStructure(globalEnv, "LargeInt")
+        in
+            val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+        end
+        
+        local
+            val fixedIntEnv = makeStructure(globalEnv, "FixedInt")
+        in
+            val () = #enterType fixedIntEnv ("int", TypeConstrSet(fixedIntConstr, []))
+        end
 
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
         
@@ -545,16 +497,29 @@ struct
                         NONE => raise Conversion "Invalid word constant"
                       | SOME res => res
                 end
+            
+            open PRINTTABLE
+            
+            val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
+            val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
+            val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
         in
-            (* When we start the compiler we don't have any conversion functions.
-               We can't even use a literal string until we have installed a
-               basic converter. *)
-            val () = addVal ("convStringName", "convString": string, String);
-            val () = addVal ("convInt", intOfString : string -> int, String ->> Int);
-            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word);
+            (* Conversion overloads used to be set by the ML bootstrap code.  It's simpler
+               to do that here but to maintain compatibility with the 5.6 compiler we need
+               to define these.  Once we've rebuilt the compiler this can be removed
+               along with the code that uses it. *)
+            val () = addVal ("convStringName", "convString": string, String)
+            val () = addVal ("convInt", intOfString : string -> int, String ->> TYPETREE.intInfType)
+            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word)
             (* Convert a string, recognising and converting the escape codes. *)
-            val () = addVal ("convString", unescapeString: string -> string, String ->> String);
-
+            val () = addVal ("convString", unescapeString: string -> string, String ->> String)
+            (* Flag to indicate which version of Int to compile *)
+            val () = addVal ("intIsArbitraryPrecision", intIsArbitraryPrecision, Bool)
+            (* Install the overloads now. *)
+            val () = addOverload("convString", stringConstr, convstringCode)
+            val () = addOverload("convInt", fixedIntConstr, convintCode)
+            val () = addOverload("convInt", intInfConstr, convintCode)
+            val () = addOverload("convWord", wordConstr, convwordCode)
         end
 
     (* The only reason we have vector here is to get equality right.  We need
@@ -950,7 +915,7 @@ struct
         end;
 
         local
-            val prettyType = let val a = makePrintTV () in a ** Int ->> PrettyType end;
+            val prettyType = let val a = makePrintTV () in a ** fixedIntType ->> PrettyType end;
             val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
         in
             val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
@@ -961,7 +926,7 @@ struct
             val a = makeTV ()
             val b = makeTV ()
         
-            val addPrettyType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
+            val addPrettyType = (TYPETREE.fixedIntType ->> b ->> a ->> PrettyType) ->> Unit;
             val addPrettyVal  = mkSpecialFun("addPrettyPrinter", addPrettyType, AddPretty);
         in
             val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
@@ -1066,15 +1031,15 @@ struct
                [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
                  ("PTdeclaredAt",       Location),
-                 ("PTdefId",            Int),
+                 ("PTdefId",            fixedIntType),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
                  ("PTopenedAt",         Location),
                  ("PTparent",           Unit ->> ParseTree),
                  ("PTpreviousSibling",  Unit ->> ParseTree),
-                 ("PTprint",            Int ->> PrettyType),
+                 ("PTprint",            fixedIntType ->> PrettyType),
                  ("PTreferences",       Bool ** List Location),
-                 ("PTrefId",            Int),
+                 ("PTrefId",            fixedIntType),
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
@@ -1297,11 +1262,11 @@ struct
                     [
                         ("name",    toMachineWord (valName: values -> string), valueVal ->> String),
                         ("print",   toMachineWord (printValues: values * int -> pretty),
-                                        mkProductType[valueVal, Int] ->> PrettyType),
+                                        mkProductType[valueVal, fixedIntType] ->> PrettyType),
                         ("printWithType", toMachineWord (exportedDisplayValues: values * int * nameSpace option -> pretty),
-                                        mkProductType[valueVal, Int, Option nameSpaceType] ->> PrettyType),
+                                        mkProductType[valueVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                         ("printType",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace option -> pretty),
-                            mkProductType[Types, Int, Option nameSpaceType] ->> PrettyType),
+                            mkProductType[Types, fixedIntType, Option nameSpaceType] ->> PrettyType),
                         ("typeof",  toMachineWord (valTypeOf: values -> types), valueVal ->> Types),
                         ("code",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
                         ("properties",   toMachineWord (propsForValue: values ->ptProperties list),
@@ -1324,7 +1289,7 @@ struct
                     ("name", toMachineWord(nameForType: typeConstrSet -> string), typeVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace option -> pretty),
-                        mkProductType[typeVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[typeVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForTypeConstr: typeConstrSet ->ptProperties list),
                         typeVal ->> List PtProperties)
                     ]
@@ -1347,7 +1312,7 @@ struct
                     ("name", toMachineWord(nameForStruct: structVals -> string), structureVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayStructs: structVals * int * nameSpace option -> pretty),
-                        mkProductType[structureVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[structureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForStruct: structVals ->ptProperties list),
                         structureVal ->> List PtProperties)
@@ -1368,7 +1333,7 @@ struct
                     ("name", toMachineWord(nameForSig: signatures -> string), signatureVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplaySigs: signatures * int * nameSpace option -> pretty),
-                        mkProductType[signatureVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[signatureVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("properties",   toMachineWord (propsForSig: signatures ->ptProperties list),
                         signatureVal ->> List PtProperties)
                    ]
@@ -1391,7 +1356,7 @@ struct
                     ("name", toMachineWord(nameForFunctor: functors -> string), functorVal ->> String),
                     ("print",
                         toMachineWord (exportedDisplayFunctors: functors * int * nameSpace option -> pretty),
-                        mkProductType[functorVal, Int, Option nameSpaceType] ->> PrettyType),
+                        mkProductType[functorVal, fixedIntType, Option nameSpaceType] ->> PrettyType),
                     ("code",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree),
                     ("properties",   toMachineWord (propsForFunctor: functors ->ptProperties list),
                         functorVal ->> List PtProperties)

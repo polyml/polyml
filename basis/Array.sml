@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Array Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2015
+    Copyright   David Matthews 1999, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -216,8 +216,8 @@ struct
         (* Install the pretty printer for arrays *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(depth: int)
-                  (printElem: 'a * int -> PolyML.pretty)
+        fun pretty(depth: FixedInt.int)
+                  (printElem: 'a * FixedInt.int -> PolyML.pretty)
                   (x: 'a array) =
             let
                 open PolyML
@@ -235,7 +235,7 @@ struct
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                     else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                )
             end
     in
@@ -388,8 +388,8 @@ local
     (* Install the pretty printer for array slices *)
     (* We may have to do this outside the structure if we
        have opaque signature matching. *)
-    fun pretty(depth: int)
-              (printElem: 'a * int -> PolyML.pretty)
+    fun pretty(depth: FixedInt.int)
+              (printElem: 'a * FixedInt.int -> PolyML.pretty)
               (x: 'a slice) =
         let
             open PolyML
@@ -407,7 +407,7 @@ local
             PrettyBlock(3, false, [],
                 PrettyString "fromList[" ::
                 (if depth <= 0 then [PrettyString "...]"]
-                 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                 else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
            )
         end
 in

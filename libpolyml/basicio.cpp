@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015 David C. J. Matthews
+    Copyright (c) 2000, 2015, 2016 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -379,7 +379,7 @@ Handle make_stream_entry(TaskData *taskData)
 */ 
 void free_stream_entry(POLYUNSIGNED stream_no)
 {
-    ASSERT(0 <= stream_no && stream_no < max_streams);
+    ASSERT(stream_no < max_streams);
 
     ioLock.Lock();
     basic_io_vector[stream_no].token  = 0;
@@ -475,7 +475,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
         close_stream(strm);
     }
 
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 } /* close_file */
 
 /* Read into an array. */
@@ -541,7 +541,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
             err = errno;
         }
         if (haveRead >= 0)
-            return Make_arbitrary_precision(taskData, haveRead); // Success.
+            return Make_fixed_precision(taskData, haveRead); // Success.
         // If it failed because it was interrupted keep trying otherwise it's an error.
         if (err != EINTR)
             raise_syscall(taskData, "Error while reading", err);
@@ -655,7 +655,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
 
-    return Make_arbitrary_precision(taskData, haveWritten);
+    return Make_fixed_precision(taskData, haveWritten);
 }
 
 // Test whether we can write without blocking.  Returns false if it will block,
@@ -708,7 +708,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
     long endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
     if (seekStream(taskData, strm, original, SEEK_SET) != original) 
         raise_syscall(taskData, "Position error", errno);
-    return Make_arbitrary_precision(taskData, endOfStream-original);
+    return Make_fixed_precision(taskData, endOfStream-original);
 }
 
 
@@ -733,15 +733,15 @@ static Handle fileKind(TaskData *taskData, Handle stream)
             // Stdin is special.  The actual handle is to a pipe whether we are using our
             // own console or we were provided with a stdin.
             if (hOldStdin == INVALID_HANDLE_VALUE)
-                return Make_arbitrary_precision(taskData, FILEKIND_TTY); // We've made our own console
+                return Make_fixed_precision(taskData, FILEKIND_TTY); // We've made our own console
             hTest = hOldStdin;
         }
         else hTest = (HANDLE)_get_osfhandle(strm->device.ioDesc);
         switch (GetFileType(hTest))
         {
-        case FILE_TYPE_PIPE: return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
-        case FILE_TYPE_CHAR: return Make_arbitrary_precision(taskData, FILEKIND_TTY); // Or a device?
-        default: return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+        case FILE_TYPE_PIPE: return Make_fixed_precision(taskData, FILEKIND_PIPE);
+        case FILE_TYPE_CHAR: return Make_fixed_precision(taskData, FILEKIND_TTY); // Or a device?
+        default: return Make_fixed_precision(taskData, FILEKIND_FILE);
         }
     }
 #else
@@ -751,22 +751,22 @@ static Handle fileKind(TaskData *taskData, Handle stream)
         switch (statBuff.st_mode & S_IFMT)
         {
         case S_IFIFO:
-            return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
+            return Make_fixed_precision(taskData, FILEKIND_PIPE);
         case S_IFCHR:
         case S_IFBLK:
             if (isatty(strm->device.ioDesc))
-                return Make_arbitrary_precision(taskData, FILEKIND_TTY);
-            else return Make_arbitrary_precision(taskData, FILEKIND_DEV);
+                return Make_fixed_precision(taskData, FILEKIND_TTY);
+            else return Make_fixed_precision(taskData, FILEKIND_DEV);
         case S_IFDIR:
-            return Make_arbitrary_precision(taskData, FILEKIND_DIR);
+            return Make_fixed_precision(taskData, FILEKIND_DIR);
         case S_IFREG:
-            return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+            return Make_fixed_precision(taskData, FILEKIND_FILE);
         case S_IFLNK:
-            return Make_arbitrary_precision(taskData, FILEKIND_LINK);
+            return Make_fixed_precision(taskData, FILEKIND_LINK);
         case S_IFSOCK:
-            return Make_arbitrary_precision(taskData, FILEKIND_SKT);
+            return Make_fixed_precision(taskData, FILEKIND_SKT);
         default:
-            return Make_arbitrary_precision(taskData, -1);
+            return Make_fixed_precision(taskData, -1);
         }
     }
 #endif
@@ -786,12 +786,12 @@ Handle pollTest(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     int nRes = 0;
-    if (strm == NULL) return Make_arbitrary_precision(taskData, 0);
+    if (strm == NULL) return Make_fixed_precision(taskData, 0);
     /* Allow for the possibility of both being set in the future. */
     if (isRead(strm)) nRes |= POLL_BIT_IN;
     if (isWrite(strm)) nRes |= POLL_BIT_OUT;
         /* For the moment we don't allow POLL_BIT_PRI.  */
-    return Make_arbitrary_precision(taskData, nRes);
+    return Make_fixed_precision(taskData, nRes);
 }
 
 /* Do the polling.  Takes a vector of io descriptors, a vector of bits to test
@@ -1187,7 +1187,7 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 #else
     rewinddir(strm->device.ioDir);
 #endif
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 /* change_dirc - this is called directly and not via the dispatch
@@ -1218,8 +1218,8 @@ Handle isDir(TaskData *taskData, Handle name)
         if (dwRes == 0xFFFFFFFF)
             raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
         if (dwRes & FILE_ATTRIBUTE_DIRECTORY)
-            return Make_arbitrary_precision(taskData, 1);
-        else return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 1);
+        else return Make_fixed_precision(taskData, 0);
     }
 #else
     {
@@ -1227,8 +1227,8 @@ Handle isDir(TaskData *taskData, Handle name)
         if (stat(cDirName, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         if ((fbuff.st_mode & S_IFMT) == S_IFDIR)
-            return Make_arbitrary_precision(taskData, 1);
-        else return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 1);
+        else return Make_fixed_precision(taskData, 0);
     }
 #endif
 }
@@ -1392,7 +1392,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
             raise_syscall(taskData, "utimes failed", errno);
     }
 #endif
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 /* Rename a file. */
@@ -1407,7 +1407,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
     if (rename(oldName, newName) != 0)
         raise_syscall(taskData, "rename failed", errno);
 #endif
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 /* Access right requests passed in from ML. */
@@ -1433,13 +1433,13 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
            complicated.  Leave it for the moment. */
         DWORD dwRes = GetFileAttributes(fileName);
         if (dwRes == 0xffffffff)
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         /* If we asked for write access but it is read-only we
            return false. */
         if ((dwRes & FILE_ATTRIBUTE_READONLY) &&
             (rts & FILE_ACCESS_WRITE))
-            return Make_arbitrary_precision(taskData, 0);
-        else return Make_arbitrary_precision(taskData, 1);
+            return Make_fixed_precision(taskData, 0);
+        else return Make_fixed_precision(taskData, 1);
     }
 #else
     {
@@ -1451,8 +1451,8 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
         /* Return true if access is allowed, otherwise false
            for any other error. */
         if (access(fileName, mode) == 0)
-            return Make_arbitrary_precision(taskData, 1);
-        else return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 1);
+        else return Make_fixed_precision(taskData, 0);
     }
 #endif
 
@@ -1503,13 +1503,13 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
            the stream handle passed in. Leave it at 1k for
            the moment. */
         /* Try increasing to 4k. */
-        return Make_arbitrary_precision(taskData, /*1024*/4096);
+        return Make_fixed_precision(taskData, /*1024*/4096);
 
     case 16: /* See if we can get some input. */
         {
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            return Make_arbitrary_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
+            return Make_fixed_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
         }
 
     case 17: /* Return the number of bytes available.  */
@@ -1570,20 +1570,20 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (isAvailable(taskData, str))
-                return Make_arbitrary_precision(taskData, 0);
+                return Make_fixed_precision(taskData, 0);
             WaitStream waiter(str);
             processes->ThreadPauseForIO(taskData, &waiter);
         }
 
     case 28: /* Test whether output is possible. */
-        return Make_arbitrary_precision(taskData, canOutput(taskData, strm) ? 1:0);
+        return Make_fixed_precision(taskData, canOutput(taskData, strm) ? 1:0);
 
     case 29: /* Block until output is possible. */
         // We should check for interrupts even if we're not going to block.
         processes->TestAnyEvents(taskData);
         while (true) {
             if (canOutput(taskData, strm))
-                return Make_arbitrary_precision(taskData, 0);
+                return Make_fixed_precision(taskData, 0);
             // Use the default waiter for the moment since we don't have
             // one to test for output.
             processes->ThreadPauseForIO(taskData, Waiter::defaultWaiter);
@@ -1596,7 +1596,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         {
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            return Make_arbitrary_precision(taskData, str->device.ioDesc);
+            return Make_fixed_precision(taskData, str->device.ioDesc);
         }
 
     case 31: /* Make an entry for a given descriptor. */
@@ -1673,7 +1673,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 raise_syscall(taskData, "mkdir failed", errno);
 #endif
 
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 56: /* Delete a directory. */
@@ -1688,7 +1688,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 raise_syscall(taskData, "rmdir failed", errno);
 #endif
 
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 57: /* Test for directory. */
@@ -1703,16 +1703,15 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 DWORD dwRes = GetFileAttributes(fileName);
                 if (dwRes == 0xFFFFFFFF)
                     raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
-                return Make_arbitrary_precision(taskData, dwRes & FILE_ATTRIBUTE_REPARSE_POINT);
+                return Make_fixed_precision(taskData, (dwRes & FILE_ATTRIBUTE_REPARSE_POINT) ? 1:0);
             }
 #else
             {
             struct stat fbuff;
                 if (lstat(fileName, &fbuff) != 0)
                     raise_syscall(taskData, "stat failed", errno);
-                if ((fbuff.st_mode & S_IFMT) == S_IFLNK)
-                    return Make_arbitrary_precision(taskData, 1);
-                else return Make_arbitrary_precision(taskData, 0);
+                return Make_fixed_precision(taskData, 
+                        ((fbuff.st_mode & S_IFMT) == S_IFLNK) ? 1 : 0);
             }
 #endif
         }
@@ -1759,7 +1758,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 raise_syscall(taskData, "unlink failed", errno);
 #endif
 
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 65: /* rename a file. */
@@ -1816,7 +1815,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             /* This concept does not exist in Windows. */
             /* Return a negative number. This is interpreted
                as "not implemented". */
-            return Make_arbitrary_precision(taskData, -1);
+            return Make_fixed_precision(taskData, -1);
 #else
             struct stat fbuff;
             TempString fileName(args->Word());
@@ -1829,7 +1828,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         }
 
     case 69: /* Return an index for a token. */
-        return Make_arbitrary_precision(taskData, STREAMID(strm));
+        return Make_fixed_precision(taskData, STREAMID(strm));
 
     case 70: /* Posix.FileSys.openf - open a file with given mode. */
         {

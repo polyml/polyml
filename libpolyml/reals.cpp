@@ -78,6 +78,13 @@
 #include <stdint.h>
 #endif
 
+#ifdef HAVE_ASSERT_H 
+#include <assert.h>
+#define ASSERT(x)   assert(x)
+#else
+#define ASSERT(x)
+#endif
+
 #include "globals.h"
 #include "run_time.h"
 #include "reals.h"
@@ -234,14 +241,15 @@ Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x)
 }
 
 /* CALL_IO1(Real_float, REF, NOIND) */
-Handle Real_floatc(TaskData *mdTaskData, Handle x) /* SHORT int to real */
+// Convert an arbitrary precision value to float.
+Handle Real_from_arbitrary_precision(TaskData *mdTaskData, Handle x)
 {
-    double d = get_C_real(mdTaskData, DEREFWORDHANDLE(x));
+    double d = get_arbitrary_precision_as_real(mdTaskData, DEREFWORDHANDLE(x));
     return real_result(mdTaskData, d);
 }
 
 /* CALL_IO1(Real_int, REF, NOIND) */
-// This previously always converted to a SHORT integer.  Using
+// Convert a real number to arbitrary precision.  Using
 // int64_t here means we will capture all the significant bits of
 // the mantissa.  The calling code checks for infinities and NaNs
 // and reduces the exponent if it is too big to fit.

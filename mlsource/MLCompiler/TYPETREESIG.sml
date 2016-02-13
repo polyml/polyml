@@ -147,7 +147,8 @@ sig
     val identical:       types * types -> bool;
 
     val boolConstr:   typeConstrs;
-    val intConstr:    typeConstrs;
+    val fixedIntConstr:typeConstrs
+    val intInfConstr: typeConstrs
     val charConstr:   typeConstrs;
     val stringConstr: typeConstrs;
     val wordConstr:   typeConstrs;
@@ -161,7 +162,8 @@ sig
     val undefConstr:  typeConstrs;
 
     val boolType:   types;
-    val intType:    types;
+    val fixedIntType:    types
+    val intInfType: types
     val charType:   types;
     val stringType: types;
     val realType:   types;
@@ -206,6 +208,8 @@ sig
     val checkDiscard: types * lexan -> string option
 
     val typeExportTree: navigation * typeParsetree -> exportTree
+    
+    val setPreferredInt: typeConstrs -> unit
 
     structure TypeValue:
     sig

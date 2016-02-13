@@ -106,20 +106,20 @@ sig
 
     datatype operation =
         MoveRR of { source: reg, output: reg }
-    |   MoveConstR of { source: int, output: reg }
+    |   MoveConstR of { source: LargeInt.int, output: reg }
     |   MoveLongConstR of { source: machineWord, output: reg }
     |   LoadMemR of { source: memoryAddress, output: reg }
     |   LoadByteR of { source: memoryAddress, output: reg }
     |   PushR of reg
-    |   PushConst of int
+    |   PushConst of LargeInt.int
     |   PushLongConst of machineWord
     |   PushMem of { base: reg, offset: int }
     |   PopR of reg
     |   ArithRR of { opc: arithOp, output: reg, source: reg }
-    |   ArithRConst of { opc: arithOp, output: reg, source: int }
+    |   ArithRConst of { opc: arithOp, output: reg, source: LargeInt.int }
     |   ArithRLongConst of { opc: arithOp, output: reg, source: machineWord }
     |   ArithRMem of { opc: arithOp, output: reg, offset: int, base: reg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: int }
+    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: LargeInt.int }
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
@@ -130,7 +130,7 @@ sig
     |   TestByteMem of { base: reg, offset: int, bits: word }
     |   CallRTS of int
     |   StoreRegToMemory of { toStore: reg, address: memoryAddress }
-    |   StoreConstToMemory of { toStore: int, address: memoryAddress }
+    |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
     |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
@@ -168,6 +168,8 @@ sig
     |   FPLoadIntAndPop
     |   FPFree of reg
     |   PreAddDetag of reg
+    |   TestOverflow
+    |   SignedMultiply of { source: reg, output: reg }
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
@@ -179,8 +181,7 @@ sig
     val procName:   code -> string      (* Name of the procedure. *)
 
     val memRegHandlerRegister: int
-    and memRegRaiseDiv: int
-    and memRegArbEmulation: int
+    and memRegRaiseOverflow: int
     and memRegThreadSelf: int
     and memRegStackLimit: int
     and memRegStackOverflowCall: int

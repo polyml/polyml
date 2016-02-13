@@ -3,12 +3,12 @@
 
 
 
-fun t x = x + x * 1073741824;
+fun t (x: LargeInt.int) = x + x * 1073741824;
 
 (* Use ! and ref here to prevent the compiler interpreting it. *)
 if ! (ref t) ~1 > 0 then raise Fail "wrong" else ();
 
-fun s x = x + x * 4611686018427387904;
+fun s (x: LargeInt.int) = x + x * 4611686018427387904;
 
 if ! (ref s) ~1 > 0 then raise Fail "wrong" else ();
 

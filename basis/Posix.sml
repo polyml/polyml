@@ -1,12 +1,10 @@
 (*
     Title:      Standard Basis Library: Posix structure and signature.
-    Author:     David Matthews
-    Copyright   David Matthews 2000
+    Copyright   David Matthews 2000, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -598,8 +596,7 @@ structure Posix :>
 struct
     open RuntimeCalls;
 
-    fun getConst i =
-        SysWord.fromInt(RunCall.run_call2 POLY_SYS_os_specific (4, i))
+    fun getConst i : SysWord.word = RunCall.run_call2 POLY_SYS_os_specific (4, i)
 
     structure BitFlags =
     (* This structure is used as the basis of all the BIT_FLAGS structures. *)
@@ -1059,16 +1056,16 @@ struct
             and chmod(name, mode) = doCall(59, (name, SysWord.toInt mode))
         end
 
-        type dev = int and ino = int
-        val wordToDev = SysWord.toInt
-        and devToWord = SysWord.fromInt
-        and wordToIno = SysWord.toInt
-        and inoToWord = SysWord.fromInt
+        type dev = LargeInt.int and ino = LargeInt.int
+        val wordToDev = SysWord.toLargeInt
+        and devToWord = SysWord.fromLargeInt
+        and wordToIno = SysWord.toLargeInt
+        and inoToWord = SysWord.fromLargeInt
 
         structure ST =
         struct
             type stat = { mode: S.mode, kind: int, ino: ino, dev: dev,
-                      nlink: int, uid: uid, gid: gid, size: int,
+                      nlink: int, uid: uid, gid: gid, size: Position.int,
                       atime: Time.time, mtime: Time.time, ctime: Time.time }
             (* The "kind" information is encoded by "stat" *)
             fun isDir({ kind, ...} : stat) = kind = 1

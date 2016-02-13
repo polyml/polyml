@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2009, 2012, 2015
+    Further work copyright David C. J. Matthews 2009, 2012, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -328,7 +328,7 @@ void raise_exception_string(TaskData *taskData, int id, const char *str)
 // The string part must match the result of OS.errorMsg
 void raiseSyscallError(TaskData *taskData, int err)
 {
-    Handle errornum = Make_arbitrary_precision(taskData, err);
+    Handle errornum = Make_fixed_precision(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
     DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
     Handle pushed_name = errorMsg(taskData, err); // Generate the string.
@@ -759,6 +759,34 @@ Handle word_lss_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
 }
 
+Handle fixed_geq_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_leq_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_gtr_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
+}
+
+Handle fixed_lss_c(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x));
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
+}
+
 Handle and_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them
@@ -1047,6 +1075,57 @@ Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
     return SAVE(TAGGED(0));
 }
 
+Handle Make_fixed_precision(TaskData *taskData, int val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, long val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned long uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+
+#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+Handle Make_fixed_precision(TaskData *taskData, long long val)
+{
+    if (val > MAXTAGGED || val < -MAXTAGGED-1)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(val));
+}
+
+Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
+{
+    if (uval > MAXTAGGED)
+        raise_exception0(taskData, EXC_overflow);
+    return taskData->saveVec.push(TAGGED(uval));
+}
+#endif
+
+Handle Make_sysword(TaskData *taskData, uintptr_t p)
+{
+    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    *(uintptr_t*)(result->Word().AsCodePtr()) = p;
+    return result;
+}
+
 static unsigned long rtsCallCounts[POLY_SYS_vecsize];
 
 void IncrementRTSCallCount(unsigned ioFunction)
@@ -1167,7 +1246,7 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call  98",
     "SYS_objsize",
     "SYS_showsize",
-    "RTS Call 101",
+    "SYS_equal_short_arb",
     "RTS Call 102",
     "RTS Call 103",
     "SYS_quotrem",
@@ -1208,7 +1287,7 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "SYS_arctan_real",
     "SYS_exp_real",
     "SYS_ln_real",
-    "RTS Call 142",
+    "SYS_fixed_to_real",
     "RTS Call 143",
     "RTS Call 144",
     "RTS Call 145",
@@ -1246,13 +1325,13 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "RTS Call 177",
     "RTS Call 178",
     "RTS Call 179",
-    "RTS Call 170",
-    "RTS Call 181",
-    "RTS Call 182",
-    "RTS Call 183",
-    "RTS Call 184",
-    "RTS Call 185",
-    "RTS Call 186",
+    "SYS_fixed_add",
+    "SYS_fixed_sub",
+    "SYS_fixed_mul",
+    "SYS_fixed_quot",
+    "SYS_fixed_rem",
+    "SYS_fixed_div",
+    "SYS_fixed_mod",
     "RTS Call 187",
     "RTS Call 188",
     "SYS_io_operation",
@@ -1285,10 +1364,10 @@ static const char * const rtsName[POLY_SYS_vecsize] =
     "SYS_shift_right_word",
     "SYS_word_neq",
     "SYS_not_bool",
-    "RTS Call 219",
-    "RTS Call 220",
-    "RTS Call 221",
-    "RTS Call 222",
+    "SYS_fixed_geq",
+    "SYS_fixed_leq",
+    "SYS_fixed_gtr",
+    "SYS_fixed_lss",
     "SYS_string_length",
     "RTS Call 224",
     "RTS Call 225",

@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Real Signature and structure.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2008
+    Copyright   David Matthews 2000, 2005, 2008, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -241,8 +240,8 @@ struct
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
 
-    val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real
-    val fromLargeInt = fromInt
+    val fromLargeInt: LargeInt.int -> real = RunCall.run_call1 POLY_SYS_int_to_real
+    val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_fixed_to_real
 
     val radixAsReal (* Not exported *) = fromInt radix
     val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))
@@ -273,12 +272,16 @@ struct
             else fromManAndExp(man, exp)
     end
 
+    (* Convert to integer.  Ideally this would do the rounding/truncation as part of the
+       conversion but it doesn't seem to be possible to detect overflow properly.
+       Instead we use the real rounding/truncation, convert to arbitrary
+       precision and then check for overflow if necessary.  *)
     local
         (* The RTS function converts to at most a 64-bit value (even on 
            32-bits).  That will convert all the bits of the mantissa
            but if the exponent is large we may have to multiply by
            some power of two. *)
-        val realToInt: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int
+        val realToInt: real -> LargeInt.int  = RunCall.run_call1 POLY_SYS_real_to_int
     in
         
         val realFloor = callReal 19
@@ -310,12 +313,17 @@ struct
         fun round x = toArbitrary(realRound x)
         (* Return the nearest integer, returning an even value if equidistant. *)
         
-        fun toInt IEEEReal.TO_NEGINF r = floor r
-         |  toInt IEEEReal.TO_POSINF r = ceil r
-         |  toInt IEEEReal.TO_ZERO r = trunc r
-         |  toInt IEEEReal.TO_NEAREST r = round r
+        fun toLargeInt IEEEReal.TO_NEGINF r = floor r
+         |  toLargeInt IEEEReal.TO_POSINF r = ceil r
+         |  toLargeInt IEEEReal.TO_ZERO r = trunc r
+         |  toLargeInt IEEEReal.TO_NEAREST r = round r
 
-        val toLargeInt = toInt
+        fun toInt mode x = LargeInt.toInt(toLargeInt mode x)
+        
+        val floor = LargeInt.toInt o floor
+        and ceil  = LargeInt.toInt o ceil
+        and trunc = LargeInt.toInt o trunc
+        and round = LargeInt.toInt o round
     end;
 
     local

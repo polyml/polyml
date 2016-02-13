@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Vector Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: updated.  Added VectorSlice and VECTOR_SLICE. *)
 
 signature VECTOR =
   sig
@@ -254,8 +251,8 @@ struct
         (* Install the pretty printer for vectors *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(depth: int)
-                  (printElem: 'a * int -> PolyML.pretty)
+        fun pretty(depth: FixedInt.int)
+                  (printElem: 'a * FixedInt.int -> PolyML.pretty)
                   (x: 'a vector) =
             let
                 open PolyML
@@ -273,7 +270,7 @@ struct
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                     else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                )
             end
     in
@@ -462,8 +459,8 @@ local
     (* Install the pretty printer for vector slices *)
     (* We may have to do this outside the structure if we
        have opaque signature matching. *)
-    fun pretty(depth: int)
-              (printElem: 'a * int -> PolyML.pretty)
+    fun pretty(depth: FixedInt.int)
+              (printElem: 'a * FixedInt.int -> PolyML.pretty)
               (x: 'a slice) =
         let
             open PolyML
@@ -481,7 +478,7 @@ local
             PrettyBlock(3, false, [],
                 PrettyString "fromList[" ::
                 (if depth <= 0 then [PrettyString "...]"]
-                 else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                 else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
            )
         end
 in

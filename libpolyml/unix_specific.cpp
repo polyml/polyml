@@ -1,14 +1,13 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8 David C. J. Matthews
+    Copyright (c) 2000-8, 2016 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -135,7 +134,10 @@
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 /* Table of constants returned by call 4. */
-static int unixConstVec[] =
+// This is currently unsigned because that's necessary on the PowerPC for
+// NOFLUSH.  Perhaps there should be separate tables for different kinds
+// of constants.
+static unsigned unixConstVec[] =
 {
     /* Error codes. */
     E2BIG, /* 0 */
@@ -388,14 +390,14 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     switch (c)
     {
     case 0: /* Return our OS type.  Not in any structure. */
-        return Make_arbitrary_precision(taskData, 0); /* 0 for Unix. */
+        return Make_fixed_precision(taskData, 0); /* 0 for Unix. */
 
     case 4: /* Return a constant. */
         {
             unsigned i = get_C_unsigned(taskData, DEREFWORDHANDLE(args));
             if (i >= sizeof(unixConstVec)/sizeof(unixConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
-            return Make_arbitrary_precision(taskData, unixConstVec[i]);
+            return Make_sysword(taskData, unixConstVec[i]);
         }
 
     case 5: /* fork. */
@@ -403,7 +405,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             pid_t pid = fork();
             if (pid < 0) raise_syscall(taskData, "fork failed", errno);
             if (pid == 0) processes->SetSingleThreaded();
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
 
     case 6: /* kill */
@@ -411,56 +413,56 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             int pid = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int sig = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (kill(pid, sig) < 0) raise_syscall(taskData, "kill failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 7: /* get process id */
         {
             pid_t pid = getpid();
             if (pid < 0) raise_syscall(taskData, "getpid failed", errno);
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
 
     case 8: /* get process id of parent */
         {
             pid_t pid = getppid();
             if (pid < 0) raise_syscall(taskData, "getppid failed", errno);
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
 
     case 9: /* get real user id */
         {
             uid_t uid = getuid();
             // This is defined always to succeed
-            return Make_arbitrary_precision(taskData, uid);
+            return Make_fixed_precision(taskData, uid);
         }
 
     case 10: /* get effective user id */
         {
             uid_t uid = geteuid();
             // This is defined always to succeed
-            return Make_arbitrary_precision(taskData, uid);
+            return Make_fixed_precision(taskData, uid);
         }
 
     case 11: /* get real group id */
         {
             gid_t gid = getgid();
             // This is defined always to succeed
-            return Make_arbitrary_precision(taskData, gid);
+            return Make_fixed_precision(taskData, gid);
         }
 
     case 12: /* get effective group id */
         {
             gid_t gid = getegid();
             // This is defined always to succeed
-            return Make_arbitrary_precision(taskData, gid);
+            return Make_fixed_precision(taskData, gid);
         }
 
     case 13: /* Return process group */
         {
             pid_t pid = getpgrp();
             if (pid < 0) raise_syscall(taskData, "getpgrp failed", errno);
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
 
     case 14: /* Wait for child process to terminate. */
@@ -490,8 +492,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 resType = 0;
                 resVal = 0;
             }
-            typeHandle = Make_arbitrary_precision(taskData, resType);
-            resHandle = Make_arbitrary_precision(taskData, resVal);
+            typeHandle = Make_fixed_precision(taskData, resType);
+            resHandle = Make_fixed_precision(taskData, resVal);
 
             result = ALLOC(2);
             DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(typeHandle));
@@ -510,7 +512,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case 2: /* Signalled */ result = resVal; break;
             case 3: /* Stopped */ result = (resVal << 8) | 0177;
             }
-            return Make_arbitrary_precision(taskData, result);
+            return Make_fixed_precision(taskData, result);
         }
 
     case 17: /* Run a new executable. */
@@ -617,21 +619,21 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             }
             else processes->TestAnyEvents(taskData); // Check for interrupts anyway
 
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     case 23: /* Set uid. */
         {
             uid_t uid = get_C_long(taskData, DEREFWORDHANDLE(args));
             if (setuid(uid) != 0) raise_syscall(taskData, "setuid failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 24: /* Set gid. */
         {
             gid_t gid = get_C_long(taskData, DEREFWORDHANDLE(args));
             if (setgid(gid) != 0) raise_syscall(taskData, "setgid failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 25: /* Get group list. */
@@ -656,7 +658,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* It's simplest to process the integers in reverse order */
             while (--ngroups >= 0)
             {
-                Handle value = Make_arbitrary_precision(taskData, groups[ngroups]);
+                Handle value = Make_fixed_precision(taskData, groups[ngroups]);
                 Handle next  = ALLOC(SIZEOF(ML_Cons_Cell));
                 DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
                 DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
@@ -678,7 +680,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             pid_t pid = setsid();
             if (pid < 0) raise_syscall(taskData, "setsid failed", errno);
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
 
     case 28: /* Set process group. */
@@ -686,7 +688,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             pid_t pid = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             pid_t pgid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (setpgid(pid, pgid) < 0 ) raise_syscall(taskData, "setpgid failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 29: /* uname */ return getUname(taskData);
@@ -718,8 +720,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             PIOSTRUCT str = get_stream(args->WordP());
             if (str != NULL && isatty(str->device.ioDesc))
-                return Make_arbitrary_precision(taskData, 1);
-            else return Make_arbitrary_precision(taskData, 0);
+                return Make_fixed_precision(taskData, 1);
+            else return Make_fixed_precision(taskData, 0);
         }
 
     case 33: /* sysconf. */
@@ -729,7 +731,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 50: /* Set the file creation mask and return the old one. */
         {
             mode_t mode = get_C_ulong(taskData, DEREFWORDHANDLE(args));
-            return Make_arbitrary_precision(taskData, umask(mode));
+            return Make_fixed_precision(taskData, umask(mode));
         }
 
     case 51: /* Create a hard link. */
@@ -742,7 +744,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free(old);
             free(newp);
             if (res < 0) raise_syscall(taskData, "link failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 52: /* Create a directory.  There is an OS-independent version in
@@ -755,7 +757,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "mkdir failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 53: /* Create a fifo. */
@@ -767,7 +769,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "mkfifo failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 54: /* Create a symbolic link. */
@@ -780,7 +782,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free(old);
             free(newp);
             if (res < 0) raise_syscall(taskData, "link failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 55: /* Get information about a file. */
@@ -827,7 +829,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* Return false if error, true if not.  It's not clear that
                this is correct since there are several reasons why we
                might get -1 as the result. */
-            return Make_arbitrary_precision(taskData, res < 0 ? 0 : 1);
+            return Make_fixed_precision(taskData, res < 0 ? 0 : 1);
         }
 
     case 59: /* Change access rights. */
@@ -839,7 +841,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "chmod failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 60: /* Change access rights on open file. */
@@ -849,7 +851,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fchmod(strm->device.ioDesc, mode) < 0)
                 raise_syscall(taskData, "fchmod failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 61: /* Change owner and group. */
@@ -862,7 +864,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "chown failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 62: /* Change owner and group on open file. */
@@ -873,7 +875,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fchown(strm->device.ioDesc, uid, gid) < 0)
                 raise_syscall(taskData, "fchown failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 63: /* Set access and modification times.  We use utimes rather than utime
@@ -906,7 +908,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "utimes failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 64: /* Set access and modification times to the current time.  This could be
@@ -919,7 +921,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             err = errno; /* Save the error result in case free changes it. */
             free(name);
             if (res < 0) raise_syscall(taskData, "utimes failed", err);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 65: /* Truncate an open file. */
@@ -929,7 +931,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (ftruncate(strm->device.ioDesc, size) < 0)
                 raise_syscall(taskData, "ftruncate failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 66: /* Get the configured limits for a file. */
@@ -946,7 +948,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free(name);
             /* We return -1 as a valid result indicating no limit. */
             if (res < 0 && err != 0) raise_syscall(taskData, "pathconf failed", err);
-            return Make_arbitrary_precision(taskData, res);
+            return Make_fixed_precision(taskData, res);
         }
 
     case 67: /* Get the configured limits for an open file. */
@@ -959,7 +961,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             errno = 0; /* Unchanged if there is no limit. */
             res = fpathconf(strm->device.ioDesc, nvar);
             if (res < 0 && errno != 0) raise_syscall(taskData, "fpathconf failed", errno);
-            return Make_arbitrary_precision(taskData, res);
+            return Make_fixed_precision(taskData, res);
         }
 
         /* Password and group entries. */
@@ -1060,7 +1062,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (dup2(old->device.ioDesc, newp->device.ioDesc) < 0)
                 raise_syscall(taskData, "dup2 failed", errno);
             newp->ioBits = old->ioBits;
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 113: /* Duplicate a file descriptor to an entry equal to or greater
@@ -1094,7 +1096,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             res = fcntl(strm->device.ioDesc, F_GETFD);
             if (res < 0) raise_syscall(taskData, "fcntl failed", errno);
-            return Make_arbitrary_precision(taskData, res);
+            return Make_fixed_precision(taskData, res);
         }
 
     case 115: /* Set the file descriptor flags. */
@@ -1104,7 +1106,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fcntl(strm->device.ioDesc, F_SETFD, flags) < 0)
                 raise_syscall(taskData, "fcntl failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 116: /* Get the file status and access flags. */
@@ -1114,7 +1116,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             res = fcntl(strm->device.ioDesc, F_GETFL);
             if (res < 0) raise_syscall(taskData, "fcntl failed", errno);
-            return Make_arbitrary_precision(taskData, res);
+            return Make_fixed_precision(taskData, res);
         }
 
     case 117: /* Set the file status and access flags. */
@@ -1124,7 +1126,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fcntl(strm->device.ioDesc, F_SETFL, flags) < 0)
                 raise_syscall(taskData, "fcntl failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 118: /* Seek to a position on the stream. */
@@ -1136,7 +1138,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             newpos = lseek(strm->device.ioDesc, position, whence);
             if (newpos < 0) raise_syscall(taskData, "lseek failed", errno);
-            return Make_arbitrary_precision(taskData, (POLYSIGNED)newpos);
+            return Make_arbitrary_precision(taskData, (POLYSIGNED)newpos); // Position.int
         }
 
     case 119: /* Synchronise file contents. */
@@ -1144,7 +1146,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PIOSTRUCT strm = get_stream(args->WordP());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fsync(strm->device.ioDesc) < 0) raise_syscall(taskData, "fsync failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 120: /* get lock */
@@ -1172,7 +1174,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcsendbreak(strm->device.ioDesc, duration) < 0)
                 raise_syscall(taskData, "tcsendbreak failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     case 153: /* Wait for output to drain. */
@@ -1188,7 +1190,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #else
             raise_syscall(taskData, "tcdrain is not implemented", 0);
 #endif
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     case 154: /* Flush terminal stream. */
@@ -1198,7 +1200,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcflush(strm->device.ioDesc, qs) < 0)
                 raise_syscall(taskData, "tcflush failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     case 155: /* Flow control. */
@@ -1208,17 +1210,16 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcflow(strm->device.ioDesc, action) < 0)
                 raise_syscall(taskData, "tcflow failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     case 156: /* Get process group. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
-            pid_t pid;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            pid = tcgetpgrp(strm->device.ioDesc);
+            pid_t pid = tcgetpgrp(strm->device.ioDesc);
             if (pid < 0) raise_syscall(taskData, "tcgetpgrp failed", errno);
-            return Make_arbitrary_precision(taskData, pid);
+            return Make_fixed_precision(taskData, pid);
         }
     
     case 157: /* Set process group. */
@@ -1228,7 +1229,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcsetpgrp(strm->device.ioDesc, pid) < 0)
                 raise_syscall(taskData, "tcsetpgrp failed", errno);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
     
     default:
@@ -1287,8 +1288,8 @@ TryAgain:
     /* Construct the result tuple. */
     {
         Handle result, pidHandle, resHandle;
-        pidHandle = Make_arbitrary_precision(taskData, pres);
-        resHandle = Make_arbitrary_precision(taskData, status);
+        pidHandle = Make_fixed_precision(taskData, pres);
+        resHandle = Make_fixed_precision(taskData, status);
 
         result = ALLOC(2);
         DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(pidHandle));
@@ -1302,8 +1303,8 @@ static Handle makePasswordEntry(TaskData *taskData, struct passwd *pw)
 {
     Handle nameHandle, uidHandle, gidHandle, homeHandle, shellHandle, result;
     nameHandle = SAVE(C_string_to_Poly(taskData, pw->pw_name));
-    uidHandle = Make_arbitrary_precision(taskData, pw->pw_uid);
-    gidHandle = Make_arbitrary_precision(taskData, pw->pw_gid);
+    uidHandle = Make_fixed_precision(taskData, pw->pw_uid);
+    gidHandle = Make_fixed_precision(taskData, pw->pw_gid);
     homeHandle = SAVE(C_string_to_Poly(taskData, pw->pw_dir));
     shellHandle = SAVE(C_string_to_Poly(taskData, pw->pw_shell));
     result = ALLOC(5);
@@ -1321,7 +1322,7 @@ static Handle makeGroupEntry(TaskData *taskData, struct group *grp)
     int i;
     char **p;
     nameHandle = SAVE(C_string_to_Poly(taskData, grp->gr_name));
-    gidHandle = Make_arbitrary_precision(taskData, grp->gr_gid);
+    gidHandle = Make_fixed_precision(taskData, grp->gr_gid);
     /* Group members. */
     for (i=0, p = grp->gr_mem; *p != NULL; p++, i++);
     membersHandle = convert_string_list(taskData, i, grp->gr_mem);
@@ -1377,11 +1378,9 @@ static Handle getUname(TaskData *taskData)
 static Handle getStatInfo(TaskData *taskData, struct stat *buf)
 {
     int kind;
-    Handle result, modeHandle, kindHandle, inoHandle, devHandle, linkHandle;
-    Handle uidHandle, gidHandle, sizeHandle, atimeHandle, mtimeHandle, ctimeHandle;
     /* Get the protection mode, masking off the file type info. */
-    modeHandle =
-        Make_arbitrary_precision(taskData, buf->st_mode & (S_IRWXU|S_IRWXG|S_IRWXO|S_ISUID|S_ISGID));
+    Handle modeHandle =
+        Make_fixed_precision(taskData, buf->st_mode & (S_IRWXU|S_IRWXG|S_IRWXO|S_ISUID|S_ISGID));
     if (S_ISDIR(buf->st_mode)) kind = 1;
     else if (S_ISCHR(buf->st_mode)) kind = 2;
     else if (S_ISBLK(buf->st_mode)) kind = 3;
@@ -1389,20 +1388,20 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     else if ((buf->st_mode & S_IFMT) == S_IFLNK) kind = 5;
     else if ((buf->st_mode & S_IFMT) == S_IFSOCK) kind = 6;
     else /* Regular. */ kind = 0;
-    kindHandle = Make_arbitrary_precision(taskData, kind);
-    inoHandle = Make_arbitrary_precision(taskData, buf->st_ino);
-    devHandle = Make_arbitrary_precision(taskData, buf->st_dev);
-    linkHandle = Make_arbitrary_precision(taskData, buf->st_nlink);
-    uidHandle = Make_arbitrary_precision(taskData, buf->st_uid);
-    gidHandle = Make_arbitrary_precision(taskData, buf->st_gid);
-    sizeHandle = Make_arbitrary_precision(taskData, buf->st_size);
-    atimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,a),
+    Handle kindHandle = Make_fixed_precision(taskData, kind);
+    Handle inoHandle = Make_arbitrary_precision(taskData, buf->st_ino);
+    Handle devHandle = Make_arbitrary_precision(taskData, buf->st_dev);
+    Handle linkHandle = Make_fixed_precision(taskData, buf->st_nlink);
+    Handle uidHandle = Make_fixed_precision(taskData, buf->st_uid);
+    Handle gidHandle = Make_fixed_precision(taskData, buf->st_gid);
+    Handle sizeHandle = Make_arbitrary_precision(taskData, buf->st_size); // Position.int
+    Handle atimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,a),
                                             STAT_USECS(buf,a), 1000000);
-    mtimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,m),
+    Handle mtimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,m),
                                             STAT_USECS(buf,m), 1000000);
-    ctimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,c),
+    Handle ctimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,c),
                                             STAT_USECS(buf,c), 1000000);
-    result = ALLOC(11);
+    Handle result = ALLOC(11);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(modeHandle));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(kindHandle));
     DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(inoHandle));
@@ -1438,14 +1437,14 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
     cfsetospeed(&tios, B0);
     cfsetispeed(&tios, B0);
     /* Convert the values to ML representation. */
-    ifHandle = Make_arbitrary_precision(taskData, tios.c_iflag);
-    ofHandle = Make_arbitrary_precision(taskData, tios.c_oflag);
-    cfHandle = Make_arbitrary_precision(taskData, tios.c_cflag);
-    lfHandle = Make_arbitrary_precision(taskData, tios.c_lflag);
+    ifHandle = Make_fixed_precision(taskData, tios.c_iflag);
+    ofHandle = Make_fixed_precision(taskData, tios.c_oflag);
+    cfHandle = Make_fixed_precision(taskData, tios.c_cflag);
+    lfHandle = Make_fixed_precision(taskData, tios.c_lflag);
     /* The cc vector is treated as a string. */
     ccHandle = SAVE(C_string_to_Poly(taskData, (const char *)tios.c_cc, NCCS));
-    isHandle = Make_arbitrary_precision(taskData, ispeed);
-    osHandle = Make_arbitrary_precision(taskData, ospeed);
+    isHandle = Make_fixed_precision(taskData, ispeed);
+    osHandle = Make_fixed_precision(taskData, ospeed);
     /* We can now create the result tuple. */
     result = ALLOC(7);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(ifHandle));
@@ -1491,7 +1490,7 @@ static Handle setTTYattrs(TaskData *taskData, Handle args)
     /* Now it's all set we can call tcsetattr to do the work. */
     if (tcsetattr(strm->device.ioDesc, actions, &tios) < 0)
         raise_syscall(taskData, "tcsetattr failed", errno);
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 /* Lock/unlock/test file locks.  Returns the, possibly modified, argument structure. */
@@ -1499,7 +1498,6 @@ static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
     struct flock lock;
-    Handle result, typeHandle, whenceHandle, startHandle, lenHandle, pidHandle;
     memset(&lock, 0, sizeof(lock)); /* Make sure unused fields are zero. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     lock.l_type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
@@ -1510,12 +1508,12 @@ static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
     if (fcntl(strm->device.ioDesc, cmd, &lock) < 0) 
         raise_syscall(taskData, "fcntl failed", errno);
     /* Construct the result. */
-    typeHandle = Make_arbitrary_precision(taskData, lock.l_type);
-    whenceHandle = Make_arbitrary_precision(taskData, lock.l_whence);
-    startHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_start);
-    lenHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_len);
-    pidHandle = Make_arbitrary_precision(taskData, lock.l_pid);
-    result = ALLOC(5);
+    Handle typeHandle = Make_fixed_precision(taskData, lock.l_type);
+    Handle whenceHandle = Make_fixed_precision(taskData, lock.l_whence);
+    Handle startHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_start); // Position.int
+    Handle lenHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_len); // Position.int
+    Handle pidHandle = Make_fixed_precision(taskData, lock.l_pid);
+    Handle result = ALLOC(5);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(typeHandle));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(whenceHandle));
     DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(startHandle));
@@ -1988,7 +1986,7 @@ static Handle getSysConf(TaskData *taskData, Handle args)
     errno = 0; /* Sysconf may return -1 without updating errno. */
     res = sysconf(sysArgTable[i].saVal);
     if (res < 0) raise_syscall(taskData, "sysconf failed", errno);
-    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)res);
+    return Make_fixed_precision(taskData, (POLYUNSIGNED)res);
 }
 
 

@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015.
+    Further development Copyright David C.J. Matthews 2015-16.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -494,7 +494,8 @@ int IntTaskData::SwitchToPoly()
                             goto CALL_CLOSURE;
                         }
  
-                    case POLY_SYS_word_eq: 
+                    case POLY_SYS_word_eq:
+                    case POLY_SYS_equal_short_arb:
                        u = *sp++;
                        *sp = u == *sp ? True : False;
                        break;
@@ -510,6 +511,18 @@ int IntTaskData::SwitchToPoly()
 
                     case POLY_SYS_word_lss:
                         u = *sp++; *sp = ((*sp).AsUnsigned() < u.AsUnsigned())?True:False; break;
+
+                    case POLY_SYS_fixed_geq:
+                        u = *sp++; *sp = (UNTAGGED(*sp) >= UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_leq:
+                        u = *sp++; *sp = (UNTAGGED(*sp) <= UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_gtr:
+                        u = *sp++; *sp = (UNTAGGED(*sp) > UNTAGGED(u))?True:False; break;
+
+                    case POLY_SYS_fixed_lss:
+                        u = *sp++; *sp = (UNTAGGED(*sp) < UNTAGGED(u))?True:False; break;
 
                     case POLY_SYS_or_word:
                         u = *sp++; *sp = TAGGED(UNTAGGED(*sp) | UNTAGGED(u)); break; 
@@ -796,6 +809,73 @@ int IntTaskData::SwitchToPoly()
                                 break;
                             }
                             else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_fixed_add:
+                        {
+                            PolyWord x = *sp++;
+                            PolyWord y = *sp;
+                            POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
+                            break;
+                        }
+
+                    case POLY_SYS_fixed_sub:
+                        {
+                            PolyWord x = *sp++;
+                            PolyWord y = *sp;
+                            POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
+                            if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                *sp = TAGGED(t);
+                            else raise_exception0(this, EXC_overflow);
+                            break;
+                        }
+
+                    case POLY_SYS_fixed_quot:
+                        {
+                            // Zero and overflow are checked for in ML.
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            PolyWord y = *sp;
+                            *sp = TAGGED(UNTAGGED(y) / u);
+                            break;
+                        }
+
+                    case POLY_SYS_fixed_rem:
+                        {
+                            // Zero and overflow are checked for in ML.
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            PolyWord y = *sp;
+                            *sp = TAGGED(UNTAGGED(y) % u);
+                            break;
+                        }
+
+                        // We can't do POLY_SYS_fixed_mul here because of the difficulty of
+                        // determining overflow.
+
+                    case POLY_SYS_fixed_div:
+                        {
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            POLYSIGNED y = UNTAGGED(*sp);
+                            POLYSIGNED d = y / u, r = y % u;
+                            // Have to adjust the divisor if the remainder is 
+                            // non-zero and has a different sign from the divisor.
+                            if (r != 0 && (r ^ u) < 0) d--;
+                            *sp = TAGGED(d);
+                            break;
+                        }
+
+                    case POLY_SYS_fixed_mod:
+                        {
+                            POLYSIGNED u = UNTAGGED(*sp++);
+                            POLYSIGNED y = UNTAGGED(*sp);
+                            POLYSIGNED t = y % u;
+                            // If the result is non-zero and has a different sign from the divisor
+                            // we have to add in the divisor.
+                            if (t != 0 && (t ^ u) < 0) t += u;
+                            *sp = TAGGED(t);
+                            break;
                         }
 
                     default:
@@ -1445,6 +1525,14 @@ static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
+static Handle fixedMult(TaskData *taskData, Handle y, Handle x)
+{
+    // Fixed precision multiply.  This is the only way to detect overflow.
+    Handle result = mult_longc(taskData, y, x);
+    if (! result->Word().IsTagged()) raise_exception0(taskData, EXC_overflow);
+    return result;
+}
+
 Handle IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -1634,8 +1722,9 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &Real_intc);
                 break;
 
-            case POLY_SYS_int_to_real:
-                CallIO1(this, &Real_floatc);
+            case POLY_SYS_int_to_real: // Arbitrary precision to real
+            case POLY_SYS_fixed_to_real: // Fixed precision to real
+                CallIO1(this, &Real_from_arbitrary_precision);
                 break;
 
             case POLY_SYS_sqrt_real:
@@ -1808,6 +1897,10 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_cmem_store_double:
                 CallIO4(this, &cmem_store_double);
+                break;
+
+            case POLY_SYS_fixed_mul:
+                CallIO2(this, &fixedMult);
                 break;
 
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
@@ -1985,6 +2078,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
     add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
     add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
+    add_word_to_io_area(POLY_SYS_equal_short_arb, TAGGED(POLY_SYS_equal_short_arb));
     add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
     add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
     add_word_to_io_area(POLY_SYS_aplus, TAGGED(POLY_SYS_aplus));
@@ -2020,6 +2114,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_arctan_real, TAGGED(POLY_SYS_arctan_real));
     add_word_to_io_area(POLY_SYS_exp_real, TAGGED(POLY_SYS_exp_real));
     add_word_to_io_area(POLY_SYS_ln_real, TAGGED(POLY_SYS_ln_real));
+    add_word_to_io_area(POLY_SYS_fixed_to_real, TAGGED(POLY_SYS_fixed_to_real));
     add_word_to_io_area(POLY_SYS_process_env, TAGGED(POLY_SYS_process_env));
     add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
     add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
@@ -2037,6 +2132,13 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_cmem_store_64, TAGGED(POLY_SYS_cmem_store_64));
     add_word_to_io_area(POLY_SYS_cmem_store_float, TAGGED(POLY_SYS_cmem_store_float));
     add_word_to_io_area(POLY_SYS_cmem_store_double, TAGGED(POLY_SYS_cmem_store_double));
+    add_word_to_io_area(POLY_SYS_fixed_add, TAGGED(POLY_SYS_fixed_add));
+    add_word_to_io_area(POLY_SYS_fixed_sub, TAGGED(POLY_SYS_fixed_sub));
+    add_word_to_io_area(POLY_SYS_fixed_mul, TAGGED(POLY_SYS_fixed_mul));
+    add_word_to_io_area(POLY_SYS_fixed_quot, TAGGED(POLY_SYS_fixed_quot));
+    add_word_to_io_area(POLY_SYS_fixed_rem, TAGGED(POLY_SYS_fixed_rem));
+    add_word_to_io_area(POLY_SYS_fixed_div, TAGGED(POLY_SYS_fixed_div));
+    add_word_to_io_area(POLY_SYS_fixed_mod, TAGGED(POLY_SYS_fixed_mod));
     add_word_to_io_area(POLY_SYS_io_operation, TAGGED(POLY_SYS_io_operation));
     add_word_to_io_area(POLY_SYS_ffi, TAGGED(POLY_SYS_ffi));
     add_word_to_io_area(POLY_SYS_move_words_overlap, TAGGED(POLY_SYS_move_words_overlap));
@@ -2056,6 +2158,10 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_offset_address, TAGGED(POLY_SYS_offset_address));
     add_word_to_io_area(POLY_SYS_shift_right_word, TAGGED(POLY_SYS_shift_right_word));
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
+    add_word_to_io_area(POLY_SYS_fixed_geq, TAGGED(POLY_SYS_fixed_geq));
+    add_word_to_io_area(POLY_SYS_fixed_leq, TAGGED(POLY_SYS_fixed_leq));
+    add_word_to_io_area(POLY_SYS_fixed_gtr, TAGGED(POLY_SYS_fixed_gtr));
+    add_word_to_io_area(POLY_SYS_fixed_lss, TAGGED(POLY_SYS_fixed_lss));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
     add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
     add_word_to_io_area(POLY_SYS_int_geq, TAGGED(POLY_SYS_int_geq));

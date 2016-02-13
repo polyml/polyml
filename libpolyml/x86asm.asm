@@ -2,7 +2,7 @@
 ;#  Title:  Assembly code routines for the poly system.
 ;#  Author:    David Matthews
 ;#  Copyright (c) Cambridge University Technical Services Limited 2000
-;#  Further development David C. J. Matthews 2000-2015
+;#  Further development David C. J. Matthews 2000-2016
 ;#
 ;#  This library is free software; you can redistribute it and/or
 ;#  modify it under the terms of the GNU Lesser General Public
@@ -484,7 +484,7 @@ B_mutable   EQU         40h
 IFNDEF HOSTARCHITECTURE_X86_64
 Max_Length  EQU         00ffffffh
 ELSE
-Max_Length  EQU         00ffffffffffffffh
+Max_Length  EQU        00ffffffffffffffh              
 ENDIF
 
 ELSE
@@ -499,9 +499,9 @@ ELSE
 .set    B_mutable,  0x40
 .set    B_mutablebytes, 0x41
 IFNDEF HOSTARCHITECTURE_X86_64
-.set    Max_Length, 0x00ffffff
+.set    Max_Length,0x00ffffff
 ELSE
-.set    Max_Length, 0x00ffffffffffffff
+.set    Max_Length,0x00ffffffffffffff
 ENDIF
 
 ENDIF
@@ -526,6 +526,7 @@ RaiseDiv            EQU     52  ;# Call to raise the Div exception
 ArbEmulation        EQU     56  ;# Arbitrary precision emulation
 ThreadId            EQU     60  ;# My thread id
 RealTemp            EQU     64 ;# Space for int-real conversions
+RaiseOverflow       EQU     68  ;# Call to raise the Overflow exception
 
 ELSE
 HandlerRegister     EQU     8
@@ -542,6 +543,7 @@ RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
 ThreadId            EQU     120 ;# My thread id
 RealTemp            EQU     128 ;# Space for int-real conversions
+RaiseOverflow       EQU     136  ;# Call to raise the Overflow exception
 ENDIF
 
 ELSE
@@ -559,6 +561,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    ArbEmulation,56
 .set    ThreadId,60
 .set    RealTemp,64
+.set    RaiseOverflow,68
 ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
@@ -577,6 +580,7 @@ ELSE
 .set    ArbEmulation,112
 .set    ThreadId,120
 .set    RealTemp,128
+.set    RaiseOverflow,136
 ENDIF
 
 ENDIF
@@ -639,6 +643,7 @@ POLY_SYS_cos_real            EQU 138
 POLY_SYS_arctan_real         EQU 139
 POLY_SYS_exp_real            EQU 140
 POLY_SYS_ln_real             EQU 141
+POLY_SYS_fixed_to_real       EQU 142
 POLY_SYS_process_env         EQU 150
 POLY_SYS_poly_specific       EQU 153
 ;# Define these for the moment.
@@ -671,6 +676,7 @@ RETURN_RAISE_DIV            EQU 4
 RETURN_ARB_EMULATION        EQU 5
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
+RETURN_RAISE_OVERFLOW       EQU 8
 
 ELSE
 #include "sys.h"
@@ -682,6 +688,7 @@ ELSE
 #define RETURN_ARB_EMULATION        5
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
+#define RETURN_RAISE_OVERFLOW       8
 
 
 ENDIF
@@ -2136,6 +2143,139 @@ CALLMACRO   RegMask word_gtr,(M_Reax)
     jmp     RetFalse
 CALLMACRO   RegMask word_lss,(M_Reax)
 
+CALLMACRO INLINE_ROUTINE fixed_geq
+    CMPL    Rebx,Reax
+    jge     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_geq,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_leq
+    CMPL    Rebx,Reax
+    jle     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_leq,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_gtr
+    CMPL    Rebx,Reax
+    jg      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_gtr,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_lss
+    CMPL    Rebx,Reax
+    jl      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask fixed_lss,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_add
+	LEAL    (-TAG)[Reax],Reax
+	ADDL	Rebx,Reax
+    jo      raiseOverflowEx
+	ret
+CALLMACRO   RegMask fixed_add,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_sub
+	SUBL	Rebx,Reax
+	jo      raiseOverflowEx
+	ADDL    CONST TAG,Reax      ;# Put back the tag
+	ret
+CALLMACRO   RegMask fixed_sub,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE fixed_mul
+    SARL    CONST TAGSHIFT,Rebx ;# Untag the multiplier
+    SUBL    CONST TAG,Reax      ;# Remove the tag from the multiplicand
+    IMULL   Rebx,Reax           ;# signed multiplication
+	jo      raiseOverflowEx
+    ADDL    CONST TAG,Reax      ;# Add back the tag, but don`t shift
+    MOVL    Reax,Redx           ;# clobber this which has the high-end result
+    MOVL    Reax,Rebx           ;# and the other bad result.
+    ret
+CALLMACRO   RegMask fixed_mul,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_quot
+;# Checking for overflow and zero is done in ML
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv    Rebx
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_quot,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_rem
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv     Rebx
+CALLMACRO   MAKETAGGED  Redx,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_rem,(M_Reax OR M_Rebx OR M_Redx)
+
+;# TODO: This needs to be fixed.
+CALLMACRO INLINE_ROUTINE fixed_div
+;# Checking for overflow and zero is done in ML
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv    Rebx
+	CMPL	CONST 0,Redx
+	jz		fixed_div1		;# If the remainder if non-zero ...
+	XORL	Redx,Rebx		;# and has a different sign from the divisor ...
+	jns		fixed_div1
+	SUBL	CONST 1,Reax	;# subtract one to round to -infinity rather than zero.
+fixed_div1:
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_div,(M_Reax OR M_Rebx OR M_Redx)
+
+CALLMACRO INLINE_ROUTINE fixed_mod
+    SARL    CONST TAGSHIFT,Rebx
+    SARL    CONST TAGSHIFT,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv     Rebx
+;# Result is in Redx.  We have to change the result so that it has the sign as the divisor.
+	CMPL	CONST 0,Redx
+	jz      fixed_mod1	;# Result is zero - no change
+	XORL    Redx,Rebx
+	jns		fixed_mod1	;# Skip if they had the same signs
+	XORL	Redx,Rebx	;# Restore the original divisor
+	ADDL	Rebx,Redx	;# And add it in
+fixed_mod1:
+CALLMACRO   MAKETAGGED  Redx,Reax
+    MOVL    Reax,Redx
+    MOVL    Reax,Rebx
+    ret
+CALLMACRO   RegMask fixed_mod,(M_Reax OR M_Rebx OR M_Redx)
+
+raiseOverflowEx:
+IFDEF WINDOWS
+    jmp     FULLWORD ptr [RaiseOverflow+Rebp]
+ELSE
+    jmp     *RaiseOverflow[Rebp]
+ENDIF
+
 ;# Atomically increment the value at the address of the arg and return the
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to increment it.
@@ -2505,6 +2645,30 @@ real_float_1:
     CALLMACRO   CALL_IO    POLY_SYS_int_to_real
 
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+
+CALLMACRO INLINE_ROUTINE fixed_to_real
+    call    mem_for_real
+    jb      fixed_to_real_1     ;# Not enough space - call RTS.
+    SARL    CONST TAGSHIFT,Reax ;# Untag the value
+    MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
+IFDEF WINDOWS
+    FILD    FULLWORD ptr RealTemp[Rebp]
+    FSTP    qword ptr [Recx]
+ELSE
+IFDEF HOSTARCHITECTURE_X86_64
+    FILDQ   RealTemp[Rebp]
+ELSE
+    FILDL   RealTemp[Rebp]
+ENDIF
+    FSTPL   [Recx]
+ENDIF
+    MOVL    Recx,Reax
+    ret
+
+fixed_to_real_1:
+    CALLMACRO   CALL_IO    POLY_SYS_fixed_to_real
+
+CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 ;# Additional assembly code routines
 
@@ -3170,6 +3334,7 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
 CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
+CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
@@ -3326,7 +3491,7 @@ ENDIF
     dd  Mask_all                 ;# 139
     dd  Mask_all                 ;# 140
     dd  Mask_all                 ;# 141
-    dd  Mask_all                 ;# 142 is no longer used
+    dd  Mask_fixed_to_real       ;# 142
     dd  Mask_all                 ;# 143 is unused
     dd  Mask_all                 ;# 144 is unused
     dd  Mask_all                 ;# 145 is unused
@@ -3372,13 +3537,13 @@ ENDIF
     dd  Mask_all                 ;# 177 is unused
     dd  Mask_all                 ;# 178 is unused
     dd  Mask_all                 ;# 179 is unused
-    dd  Mask_all                 ;# 180 is unused
-    dd  Mask_all                 ;# 181 is unused
-    dd  Mask_all                 ;# 182 is unused
-    dd  Mask_all                 ;# 183 is unused
-    dd  Mask_all                 ;# 184 is unused
-    dd  Mask_all                 ;# 185 is unused
-    dd  Mask_all                 ;# 186 is unused
+    dd  Mask_fixed_add           ;# 180
+    dd  Mask_fixed_sub           ;# 181
+    dd  Mask_fixed_mul           ;# 182
+    dd  Mask_fixed_quot          ;# 183
+    dd  Mask_fixed_rem           ;# 184
+    dd  Mask_fixed_div           ;# 185
+    dd  Mask_fixed_mod           ;# 186
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused
     dd  Mask_all                 ;# 189
@@ -3411,10 +3576,10 @@ ENDIF
     dd  Mask_shift_right_word    ;# 216
     dd  Mask_all				 ;# 217 - no longer used
     dd  Mask_not_bool            ;# 218
-    dd  Mask_all                 ;# 219 is unused
-    dd  Mask_all                 ;# 220 is unused
-    dd  Mask_all                 ;# 221 is unused
-    dd  Mask_all                 ;# 222 is unused
+    dd  Mask_fixed_geq           ;# 219
+    dd  Mask_fixed_leq           ;# 220
+    dd  Mask_fixed_gtr           ;# 221
+    dd  Mask_fixed_lss           ;# 222
     dd  Mask_string_length       ;# 223
     dd  Mask_all                 ;# 224 is unused
     dd  Mask_all                 ;# 225 is unused
