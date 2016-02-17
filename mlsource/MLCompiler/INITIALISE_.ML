@@ -942,7 +942,17 @@ struct
             val addOverloadVal  = mkSpecialFun("addOverload", addOverloadType, AddOverload);
         in
             val () = #enterVal runCallEnv ("addOverload", addOverloadVal);
-        end;
+        end
+
+        local
+            (* Add a function to switch the default integer type. *)
+            fun setType isArbitrary =
+                setPreferredInt(if isArbitrary then intInfConstr else fixedIntConstr)
+        in
+            val () = #enterVal runCallEnv
+                        ("setDefaultIntTypeArbitrary",
+                            mkGvar ("setDefaultIntTypeArbitrary", Bool ->> Unit, mkConst (toMachineWord setType), declInBasis))
+        end
 
         local
             val sourceLocVal  = mkSpecialFun("sourceLocation", Unit ->> Location, GetLocation);

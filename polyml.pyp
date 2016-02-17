@@ -68,7 +68,6 @@
 	<source name="basis\Statistics.ML" />
 	<source name="basis\STREAM_IO.sml" />
 	<source name="basis\String.sml" />
-	<source name="basis\StringCvt.sml" />
 	<source name="basis\SysWord.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />

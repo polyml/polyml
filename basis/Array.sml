@@ -17,43 +17,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: updated.  Added ArraySlice and ARRAY_SLICE. *)
-
-signature ARRAY =
-  sig
-    eqtype 'a array
-    type 'a vector
-
-    val maxLen : int
-    val array : (int * 'a) -> 'a array
-    val fromList : 'a list -> 'a array
-    val vector: 'a array -> 'a vector
-    val tabulate : (int * (int -> 'a)) -> 'a array
-    val length : 'a array -> int
-    val sub : ('a array * int) -> 'a
-    val update : ('a array * int * 'a) -> unit
-    val copy : {src : 'a array, dst : 'a array, di : int} -> unit
-    val copyVec : {src : 'a vector, dst : 'a array, di : int} -> unit
-
-    val appi : ((int * 'a) -> unit) -> 'a array -> unit
-    val app : ('a -> unit) -> 'a array -> unit
-
-    val foldli : ((int * 'a * 'b) -> 'b) -> 'b -> 'a array -> 'b
-    val foldri : ((int * 'a * 'b) -> 'b) -> 'b -> 'a array -> 'b
-    val foldl : (('a * 'b) -> 'b) -> 'b -> 'a array -> 'b
-    val foldr : (('a * 'b) -> 'b) -> 'b -> 'a array -> 'b
-
-    val modifyi : ((int * 'a) -> 'a) -> 'a array -> unit
-    val modify : ('a -> 'a) -> 'a array -> unit
-
-    val findi: (int * 'a -> bool) -> 'a array -> (int * 'a) option
-    val find: ('a -> bool) -> 'a array -> 'a option
-    val exists: ('a -> bool) -> 'a array -> bool
-    val all: ('a -> bool) -> 'a array -> bool
-    val collate: ('a * 'a -> order) -> 'a array * 'a array -> order
-
-  end;
-
 local
     (* This was previously implemented as simply an n-word block of mutable
        store, length being obtained from the length field.  There was a
@@ -352,44 +315,6 @@ struct
 end (* ArraySlice *)
 
 end; (* Local in end *)
-
-(* The ARRAY_SLICE signature refers to the Array structure so has to be defined afterwards. *)
-signature ARRAY_SLICE =
-  sig
-    type 'a slice
-    val length : 'a slice -> int
-    val sub : 'a slice * int -> 'a
-    val update : 'a slice * int * 'a -> unit
-    val full: 'a Array.array -> 'a slice
-    val slice: 'a Array.array * int * int option -> 'a slice
-    val subslice: 'a slice * int * int option -> 'a slice
-    val base: 'a slice -> 'a Array.array * int * int
-    val vector: 'a slice -> 'a Vector.vector
-    val copy : {src : 'a slice, dst : 'a Array.array, di : int} -> unit
-    val copyVec : {src : 'a VectorSlice.slice, dst : 'a Array.array, di : int} -> unit
-    val isEmpty: 'a slice -> bool
-    val getItem: 'a slice -> ('a * 'a slice) option
-
-    val appi : (int * 'a -> unit) -> 'a slice -> unit
-    val app : ('a -> unit) -> 'a slice -> unit
-
-    val modifyi : (int * 'a -> 'a) -> 'a slice -> unit
-    val modify : ('a -> 'a) -> 'a slice -> unit
-
-    val foldli : ((int * 'a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
-    val foldri : ((int * 'a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
-    val foldl : (('a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
-    val foldr : (('a * 'b) -> 'b) -> 'b -> 'a slice -> 'b
-    
-    val findi: (int * 'a -> bool) -> 'a slice -> (int * 'a) option
-    val find: ('a -> bool) -> 'a slice -> 'a option
-    
-    val exists: ('a -> bool) -> 'a slice -> bool
-    val all:  ('a -> bool) -> 'a slice -> bool
-    val collate: ('a * 'a -> order) -> 'a slice * 'a slice -> order
-
-
-  end;
   
 structure ArraySlice :> ARRAY_SLICE = ArraySlice;
 
