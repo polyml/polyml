@@ -611,6 +611,12 @@
 /* Define if the host is a PowerPC (64-bit) */
 /*#undef HOSTARCHITECTURE_PPC64*/
 
+/* Define if the host is an S/390 (32-bit) */
+/*#undef HOSTARCHITECTURE_S390*/
+
+/* Define if the host is an S/390 (64-bit) */
+/*#undef HOSTARCHITECTURE_S390X*/
+
 /* Define if the host is a Sparc (32-bit) */
 /*#undef HOSTARCHITECTURE_SPARC*/
 

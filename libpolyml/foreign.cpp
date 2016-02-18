@@ -1497,7 +1497,7 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
     uintptr_t cbIndex = (uintptr_t)data;
-    ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
+    ASSERT(cbIndex < callBackEntries);
     struct _cbStructEntry *cbEntry = &callbackTable[cbIndex];
     // We should get the task data for the thread that is running this code.
     // If this thread has been created by the foreign code we will have to

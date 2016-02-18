@@ -20,6 +20,15 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#elif defined(_WIN32)
+#include "winconfig.h"
+#else
+#error "No configuration file"
+#endif
+
 #ifndef REALCONV_H
 #define REALCONV_H
 
@@ -27,7 +36,9 @@
 extern "C" {
 #endif
 
+#ifndef HAVE_STRTOD
 extern double poly_strtod(const char *s00, char **se);
+#endif
 
 extern char *poly_dtoa(double d, int mode, int ndigits,
             int *decpt, int *sign, char **rve);
