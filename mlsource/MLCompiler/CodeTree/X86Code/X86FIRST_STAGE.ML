@@ -71,8 +71,6 @@ struct
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
 
-    val exp2_30 =  0x40000000
-
     (* This actually checks that the value will fit in 31 bits because we normally have to
        tag it later. *)
     fun is31bitSigned a =
@@ -5126,6 +5124,7 @@ struct
                     end
                 |   genMultiplySigned _ = raise InternalError "genMultiplySigned"
 
+                (* Temporarily we use eax/edx as for unsigned multiplication. *)
                 val eaxSet = singleton eax and edxSet = singleton edx
 
                 fun loadArg1 instr (tArgs as (table, args, _)) =
@@ -5160,11 +5159,15 @@ struct
                         operation=genInstr([InRegister eax, InRegister edx], SOME eax)
                         }
 
-
                 val multiplyNegotiator = loadArg1
             in
-                fun instrMulI(args, _) = (* TODO: use shift for multiplication by two. *)
-                    SOME(fn _ => multiplyNegotiator genMultiplySigned, args)
+                fun multiplyFixed(arg1, arg2, transtable, whereto) =
+                let  (* TODO: use shift for multiplication by two. *)
+                    val args = [arg1, arg2]
+                    val (opRes, opCode) = multiplyNegotiator genMultiplySigned (transtable, args, whereto)
+                in
+                    (opCode, matchResult(transtable, opRes, whereto))
+                end
             end
 
             local (* Unsigned word div and mod. *)

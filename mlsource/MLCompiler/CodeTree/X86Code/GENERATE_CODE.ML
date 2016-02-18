@@ -2256,10 +2256,10 @@ struct
 
                             else if wordEq (oper,ioOp POLY_SYS_fixed_sub)
                             then cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
-(*
+
                             else if wordEq (oper,ioOp POLY_SYS_fixed_mul)
                             then cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
-
+(*
                             else if wordEq (oper,ioOp POLY_SYS_fixed_quot)
                             then cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
