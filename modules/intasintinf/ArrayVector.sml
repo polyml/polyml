@@ -1,5 +1,5 @@
 (*
-    Title:      Rebuild the basis library with the default int as IntInf.int
+    Title:      Rebuild the basis library: Arrays and Vectors
     Copyright   David C.J. Matthews 2016
 
     This library is free software; you can redistribute it and/or
@@ -16,113 +16,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-RunCall.setDefaultIntTypeArbitrary true; (* Set the default for overloadings. *)
-
-type int = IntInf.int;
-
-(* Integer *)
-(* Define this first.  It's explicitly referenced in the INTEGER signature. *)
-structure Int = struct type int = IntInf.int end;
-
-use "basis/INTEGER";
-
-signature INT_INF =
-sig
-    include INTEGER
-    val divMod : int * int -> int * int
-    val quotRem : int * int -> int * int
-    val pow : int * Int.int -> int
-    val log2 : int -> Int.int
-    val orb : int * int -> int
-    val xorb : int * int -> int
-    val andb : int * int -> int
-    val notb : int -> int
-    val << : int * Word.word -> int
-    val ~>> : int * Word.word -> int
-end;
-
-structure IntInf: INT_INF =
-struct
-    open IntInf
-    val toInt = toLarge and fromInt = fromLarge
-    val precision = Option.map FixedInt.toLarge precision
-    val sign = FixedInt.toLarge o sign
-    val log2 = FixedInt.toLarge o log2
-    val pow = fn (i, j) => pow(i, FixedInt.fromLarge j)
-end;
-
-structure LargeInt: INTEGER = IntInf;
-
-structure Int: INTEGER = LargeInt;
-
-structure FixedInt: INTEGER =
-struct
-    open FixedInt
-    val toInt = toLarge and fromInt = fromLarge
-    val precision = Option.map toLarge precision
-    val sign = FixedInt.toLarge o sign
-end;
-val () =
-    case FixedInt.precision of SOME 31 => use "basis/Int31.sml" | SOME 63 => use "basis/Int63.sml" | _ => ();
-
-(* List *)
-use "basis/ListSignature";
-
-structure List: LIST =
-struct
-    open List
-    val take = fn (l, i) => take(l, FixedInt.fromInt i)
-    val tabulate = fn (n, f) => tabulate(FixedInt.fromInt n, fn q => f(FixedInt.toInt q))
-    val length = fn l => FixedInt.toInt(length l)
-    val nth = fn (l, i) => nth(l, FixedInt.fromInt i)
-    val drop = fn (l, i) => drop(l, FixedInt.fromInt i)
-end;
-
-val length : 'a list -> int = List.length;
-
-(* Char and String *)
-use "basis/StringSignatures";
-
-structure Char: CHAR =
-struct
-    open Char
-    val maxOrd = FixedInt.toInt maxOrd
-    val chr = chr o FixedInt.fromInt
-    val ord = FixedInt.toInt o ord
-end;
-
-structure String: STRING =
-struct
-    open String
-    val maxSize = FixedInt.toInt maxSize
-    val size = FixedInt.toInt o size
-    val sub = fn (s, i) => sub(s, FixedInt.fromInt i)
-    val substring = fn (s, i, j) => substring(s, FixedInt.fromInt i, FixedInt.fromInt j)
-    val extract = fn(s, i, j) => extract(s, FixedInt.fromInt i, Option.map FixedInt.fromInt j)
-end;
-
-structure Substring : SUBSTRING =
-struct
-    open Substring
-    val base = fn s => let val (a, i, j) = base s in (a, FixedInt.toInt i, FixedInt.toInt j) end
-    val size = FixedInt.toInt o size
-    val sub = fn (s, i) => sub(s, FixedInt.fromInt i)
-    val substring = fn (s, i, j) => substring(s, FixedInt.fromInt i, FixedInt.fromInt j)
-    val extract = fn(s, i, j) => extract(s, FixedInt.fromInt i, Option.map FixedInt.fromInt j)
-    val splitAt = fn (s, i) => splitAt(s, FixedInt.fromInt i)
-    val slice = fn (s, i, j) => slice(s, FixedInt.fromInt i, Option.map FixedInt.fromInt j)
-    val trimr = fn i => trimr(FixedInt.fromInt i)
-    and triml = fn i => triml(FixedInt.fromInt i)
-end;
-
-val ord : char -> int = Char.ord 
-val chr : int -> char = Char.chr 
-val substring : string * int * int -> string = String.substring;
-val size: string -> int = String.size;
-
-(* Arrays and Vectors. *)
-
-use "basis/MONO_VECTOR";
+useBasis "MONO_VECTOR";
 
 functor MapMonoVector(
     structure Old:
@@ -172,7 +66,7 @@ structure RealVector: MONO_VECTOR = MapMonoVector(structure Old = RealVector);
 structure Word8Vector: MONO_VECTOR = MapMonoVector(structure Old = Word8Vector);
 
 
-use "basis/VectorSignature.sml";
+useBasis "VectorSignature.sml";
 
 structure Vector: VECTOR =
 struct
@@ -190,7 +84,7 @@ struct
         Option.map (fn(i, e) => (FixedInt.toLarge i, e)) (findi(fn (i, e) => f(FixedInt.toLarge i, e)) v)
 end;
 
-use "basis/MONO_ARRAY";
+useBasis "MONO_ARRAY";
 
 functor MapMonoArray(
     structure Old:
@@ -246,7 +140,7 @@ structure BoolArray: MONO_ARRAY = MapMonoArray(structure Old = BoolArray);
 structure RealArray: MONO_ARRAY = MapMonoArray(structure Old = RealArray);
 structure Word8Array: MONO_ARRAY = MapMonoArray(structure Old = Word8Array);
 
-use "basis/ArraySignature.sml";
+useBasis "ArraySignature.sml";
 
 structure Array: ARRAY =
 struct
@@ -267,7 +161,7 @@ struct
     val modifyi = fn f => modifyi(fn (i, e) => f(FixedInt.toLarge i, e))
 end;
 
-use "basis/MONO_VECTOR_SLICE";
+useBasis "MONO_VECTOR_SLICE";
 
 functor MapMonoVectorSlice(
     structure Old:
@@ -320,7 +214,7 @@ structure CharVectorSlice: MONO_VECTOR_SLICE = MapMonoVectorSlice(structure Old 
 structure RealVectorSlice: MONO_VECTOR_SLICE = MapMonoVectorSlice(structure Old = RealVectorSlice);
 structure Word8VectorSlice: MONO_VECTOR_SLICE = MapMonoVectorSlice(structure Old = Word8VectorSlice);
 
-use "basis/VectorSliceSignature.sml";
+useBasis "VectorSliceSignature.sml";
 
 structure VectorSlice: VECTOR_SLICE =
 struct
@@ -339,7 +233,7 @@ struct
 end;
 
 
-use "basis/MONO_ARRAY_SLICE";
+useBasis "MONO_ARRAY_SLICE";
 
 functor MapMonoArraySlice(
     structure Old:
@@ -399,7 +293,7 @@ structure CharArraySlice: MONO_ARRAY_SLICE = MapMonoArraySlice(structure Old = C
 structure RealArraySlice: MONO_ARRAY_SLICE = MapMonoArraySlice(structure Old = RealArraySlice);
 structure Word8ArraySlice: MONO_ARRAY_SLICE = MapMonoArraySlice(structure Old = Word8ArraySlice);
 
-use "basis/ArraySliceSignature.sml"; (* Depends on VectorSlice. *)
+useBasis "ArraySliceSignature.sml"; (* Depends on VectorSlice. *)
 
 structure ArraySlice: ARRAY_SLICE =
 struct
@@ -422,12 +316,12 @@ end;
 
 (* Rebuild IntVector etc.  They are defined in terms of polymorphic vector, array etc
    and also we want the "Int" to be arbitrary precision. *)
-use "basis/IntArray";
+useBasis "IntArray";
 
-use "basis/Text"; (* Rebuild the Text structure that includes Char, String etc. *)
+useBasis "Text"; (* Rebuild the Text structure that includes Char, String etc. *)
 
 (* Array2 *)
-use "basis/Array2Signature.sml";
+useBasis "Array2Signature.sml";
 
 structure Array2: ARRAY2 =
 struct
@@ -483,301 +377,4 @@ end;
 
 (* Monomorphic two dimensional arrays.  They are defined in terms of Array2 and also
    for IntArray2 we want the base type to be arbitrary precision. *)
-use "basis/IntArray2.sml";
-
-(* Word, LargeWord etc. *)
-use "basis/WordSignature.sml"; (* This depends on Word, Int, etc but the dependencies on Word don't affect this. *)
-
-structure Word: WORD =
-struct
-    open Word
-    val wordSize = FixedInt.toLarge wordSize
-    val fromInt = fromLargeInt
-    and toInt = toLargeInt
-    and toIntX = toLargeIntX
-end;
-
-structure LargeWord: WORD =
-struct
-    open LargeWord
-    val wordSize = FixedInt.toLarge wordSize
-    val fromInt = fromLargeInt
-    and toInt = toLargeInt
-    and toIntX = toLargeIntX
-end;
-
-structure SysWord: WORD =
-struct
-    open SysWord
-    val wordSize = FixedInt.toLarge wordSize
-    val fromInt = fromLargeInt
-    and toInt = toLargeInt
-    and toIntX = toLargeIntX
-end;
-
-
-structure Word32: WORD =
-struct
-    open Word32
-    val wordSize = FixedInt.toLarge wordSize
-    val fromInt = fromLargeInt
-    and toInt = toLargeInt
-    and toIntX = toLargeIntX
-end;
-
-structure Word8: WORD =
-struct
-    open Word8
-    val wordSize = FixedInt.toLarge wordSize
-    val fromInt = fromLargeInt
-    and toInt = toLargeInt
-    and toIntX = toLargeIntX
-end;
-
-(* TODO: Word64  This requires a conditional call to "use". *)
-
-
-(* Real *)
-use "basis/IEEE_REAL.sml";
-structure IEEEReal: IEEE_REAL =
-struct
-    open IEEEReal
-    type decimal_approx =
-        { class : float_class, sign : bool, digits : int list, exp : int }
-    
-    local
-        fun toNewDA {class, sign, digits, exp } : decimal_approx =
-            {class=class, sign=sign, digits = map FixedInt.toLarge digits, exp = FixedInt.toLarge exp }
-        and fromNewDA ({class, sign, digits, exp } : decimal_approx) =
-            {class=class, sign=sign, digits = map FixedInt.fromLarge digits, exp = FixedInt.fromLarge exp }
-    in
-        val toString = toString o fromNewDA 
-        val scan = fn getc => fn src => Option.map(fn (v, c) => (toNewDA v, c)) (scan getc src)
-        and fromString = (Option.map toNewDA) o fromString
-    end
-end;
-
-(* There's a complication.  We need access to both the old and new versions of
-   the StringCvt.realfmt datatype. *)
-local
-    structure OldStringCvt = StringCvt
-in
-    structure StringCvt: STRING_CVT =
-    struct
-        open StringCvt
-
-        datatype realfmt
-          = SCI of int option
-          | FIX of int option
-          | GEN of int option
-          | EXACT
-
-        val padRight = fn c => fn i => padRight c (FixedInt.fromInt i)
-        and padLeft  = fn c => fn i => padLeft c (FixedInt.fromInt i)
-    end;
-
-    structure Real =
-    struct
-        open Real
-        val radix = FixedInt.toLarge radix
-        val precision = FixedInt.toLarge precision
-        val sign = FixedInt.toLarge o sign
-        val toManExp = fn r => let val {man, exp} = toManExp r in {man=man, exp= FixedInt.toLarge exp} end
-        and fromManExp = fn {man, exp} => fromManExp{man=man, exp=FixedInt.fromLarge exp }
-        val toInt = toLargeInt
-        and fromInt = fromLargeInt
-
-        val floor = toLargeInt IEEEReal.TO_NEGINF
-        and ceil = toLargeInt IEEEReal.TO_POSINF
-        and trunc = toLargeInt IEEEReal.TO_ZERO
-        and round = toLargeInt IEEEReal.TO_NEAREST
-
-        val toDecimal =
-            fn r =>
-                let
-                    val {class, sign, digits, exp } = toDecimal r
-                in
-                    {class=class, sign=sign, digits = map FixedInt.toLarge digits, exp = FixedInt.toLarge exp }
-                end
-    
-        val fromDecimal =
-            fn {class, sign, digits, exp } =>
-                fromDecimal {class=class, sign=sign, digits = map FixedInt.fromLarge digits, exp = FixedInt.fromLarge exp }
-
-        local
-            fun rfmt (StringCvt.SCI(SOME s)) r = fmt (OldStringCvt.SCI(SOME(FixedInt.fromLarge s))) r
-            |   rfmt (StringCvt.SCI NONE) r = fmt (OldStringCvt.SCI NONE) r
-            |   rfmt (StringCvt.FIX(SOME s)) r = fmt (OldStringCvt.FIX(SOME(FixedInt.fromLarge s))) r
-            |   rfmt (StringCvt.FIX NONE) r = fmt (OldStringCvt.FIX NONE) r
-            |   rfmt (StringCvt.GEN(SOME s)) r = fmt (OldStringCvt.GEN(SOME(FixedInt.fromLarge s))) r
-            |   rfmt (StringCvt.GEN NONE) r = fmt (OldStringCvt.GEN NONE) r
-            |   rfmt StringCvt.EXACT r = fmt OldStringCvt.EXACT r
-        in
-            val fmt = rfmt
-        end
-    end
-end;
-
-use "basis/RealSignature.sml"; (* This uses IEEEReal and the new StringCvt and decimal_approx *)
-structure Real: REAL = Real;
-structure LargeReal = Real;
-
-val real : int -> real = Real.fromInt 
-val trunc : real -> int = Real.trunc 
-val floor : real -> int = Real.floor 
-val ceil : real -> int = Real.ceil 
-val round : real -> int =Real.round;
-
-(* Date . *)
-use "basis/DateSignature";
-structure Date: DATE =
-struct
-    open Date
-    val date =
-        fn { year, month, day, hour, minute, second, offset } =>
-            date {year=FixedInt.fromLarge year, month=month, day=FixedInt.fromLarge day,
-                  hour=FixedInt.fromLarge hour, minute=FixedInt.fromLarge minute,
-                  second=FixedInt.fromLarge second, offset=offset}
-    val year = FixedInt.toLarge o year
-    and day  = FixedInt.toLarge o day
-    and hour = FixedInt.toLarge o hour
-    and minute = FixedInt.toLarge o minute
-    and second = FixedInt.toLarge o second
-    and yearDay = FixedInt.toLarge o yearDay
-end;
-
-(* Thread ? *)
-
-(* IO *)
-(* This is much simpler if we ignore PrimIO. *)
-
-use "basis/STREAM_IO.sml";
-use "basis/IMPERATIVE_IO.sml";
-
-signature TEXT_STREAM_IO =
-sig
-    include STREAM_IO
-    where type vector = CharVector.vector
-    where type elem = Char.char
-
-    val inputLine : instream -> (string * instream) option
-    val outputSubstr : outstream * Substring.substring -> unit
-end;
-
-signature TEXT_IO = sig
-    (* include IMPERATIVE_IO *)
-    structure StreamIO : TEXT_STREAM_IO
-        where type reader = TextPrimIO.reader
-        where type writer = TextPrimIO.writer
-        where type pos = TextPrimIO.pos
-
-    type vector = StreamIO.vector
-    type elem = StreamIO.elem
-
-    type instream
-    type outstream
-
-    val input : instream -> vector
-    val input1 : instream -> elem option
-    val inputN : instream * int -> vector
-    val inputAll : instream -> vector
-    val canInput : instream * int -> int option
-    val lookahead : instream -> elem option
-    val closeIn : instream -> unit
-    val endOfStream : instream -> bool
-    val output : outstream * vector -> unit
-    val output1 : outstream * elem -> unit
-    val flushOut : outstream -> unit
-    val closeOut : outstream -> unit
-    val mkInstream : StreamIO.instream -> instream
-    val getInstream : instream -> StreamIO.instream
-    val setInstream : instream * StreamIO.instream -> unit
-    val mkOutstream : StreamIO.outstream -> outstream
-    val getOutstream : outstream -> StreamIO.outstream
-    val setOutstream : outstream * StreamIO.outstream -> unit
-    val getPosOut : outstream -> StreamIO.out_pos
-    val setPosOut : outstream * StreamIO.out_pos -> unit
-    (* End of include IMPERATIVE_IO *)
-
-    val inputLine : instream -> string option
-    val outputSubstr : outstream * Substring.substring -> unit
-    val openIn  : string -> instream
-    val openOut : string -> outstream
-    val openAppend : string -> outstream
-    val openString : string -> instream
-
-    val stdIn  : instream
-    val stdOut : outstream
-    val stdErr : outstream
-
-    val print : string -> unit
-    val scanStream : ((Char.char, StreamIO.instream) StringCvt.reader
-                      -> ('a, StreamIO.instream) StringCvt.reader)
-                      -> instream -> 'a option
-end;
-
-structure TextIO: TEXT_IO =
-struct
-    open TextIO
-    val canInput =
-        fn (s, n) => Option.map FixedInt.toLarge (canInput(s, FixedInt.fromLarge n))
-    val inputN =
-        fn (s, n) => inputN(s, FixedInt.fromLarge n)
-    structure StreamIO =
-    struct
-        open StreamIO
-        val canInput =
-            fn (s, n) => Option.map FixedInt.toLarge (canInput(s, FixedInt.fromLarge n))
-        val inputN =
-            fn (s, n) => inputN(s, FixedInt.fromLarge n)
-    end
-end;
-
-signature BIN_IO =
-sig
-    include IMPERATIVE_IO
-       where type StreamIO.vector = Word8Vector.vector
-       where type StreamIO.elem = Word8.word
-       where type StreamIO.reader = BinPrimIO.reader
-       where type StreamIO.writer = BinPrimIO.writer
-       where type StreamIO.pos = BinPrimIO.pos
-
-    val openIn  : string -> instream
-    val openOut : string -> outstream
-    val openAppend : string -> outstream
-end;
-
-structure BinIO: BIN_IO =
-struct
-    open BinIO
-    val canInput =
-        fn (s, n) => Option.map FixedInt.toLarge (canInput(s, FixedInt.fromLarge n))
-    val inputN =
-        fn (s, n) => inputN(s, FixedInt.fromLarge n)
-    structure StreamIO =
-    struct
-        open StreamIO
-        val canInput =
-            fn (s, n) => Option.map FixedInt.toLarge (canInput(s, FixedInt.fromLarge n))
-        val inputN =
-            fn (s, n) => inputN(s, FixedInt.fromLarge n)
-    end
-end;
-
-
-(* Socket *)
-
-(* RunCall/RuntimeCalls - including this allows the compiler to build. *)
-structure RunCall =
-struct
-    open RunCall
-    val run_call0 = fn n => run_call0 (FixedInt.fromLarge n)
-    and run_call1 = fn n => run_call1 (FixedInt.fromLarge n)
-    and run_call2 = fn n => run_call2 (FixedInt.fromLarge n)
-    and run_call3 = fn n => run_call3 (FixedInt.fromLarge n)
-    and run_call4 = fn n => run_call4 (FixedInt.fromLarge n)
-    and run_call5 = fn n => run_call5 (FixedInt.fromLarge n)
-    and run_call2C2 = fn n => run_call2C2 (FixedInt.fromLarge n)
-end;
-
-use "basis/RuntimeCalls";
+useBasis "IntArray2.sml";

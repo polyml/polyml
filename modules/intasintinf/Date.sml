@@ -1,0 +1,35 @@
+(*
+    Title:      Rebuild the basis library: Date
+    Copyright   David C.J. Matthews 2016
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License version 2.1 as published by the Free Software Foundation.
+    
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+    
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+
+(* Date . *)
+useBasis "DateSignature";
+structure Date: DATE =
+struct
+    open Date
+    val date =
+        fn { year, month, day, hour, minute, second, offset } =>
+            date {year=FixedInt.fromLarge year, month=month, day=FixedInt.fromLarge day,
+                  hour=FixedInt.fromLarge hour, minute=FixedInt.fromLarge minute,
+                  second=FixedInt.fromLarge second, offset=offset}
+    val year = FixedInt.toLarge o year
+    and day  = FixedInt.toLarge o day
+    and hour = FixedInt.toLarge o hour
+    and minute = FixedInt.toLarge o minute
+    and second = FixedInt.toLarge o second
+    and yearDay = FixedInt.toLarge o yearDay
+end;
