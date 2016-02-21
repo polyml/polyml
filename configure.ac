@@ -451,6 +451,14 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_MIPS], [1], [Define if the host is a MIPS (32-bit)])
             polyarch=interpret
             ;;
+      s390x*)
+            AC_DEFINE([HOSTARCHITECTURE_S390X], [1], [Define if the host is an S/390 (64-bit)])
+            polyarch=interpret
+            ;;
+      s390*)
+            AC_DEFINE([HOSTARCHITECTURE_S390], [1], [Define if the host is an S/390 (32-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 

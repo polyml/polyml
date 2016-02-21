@@ -590,7 +590,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown thread function: %d", c);
+            sprintf(msg, "Unknown thread function: %u", c);
             raise_fail(taskData, msg);
             return 0;
         }

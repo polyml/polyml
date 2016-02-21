@@ -1013,6 +1013,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
 
     Handle str_token = make_stream_entry(taskData);
+    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
     strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
     if (strm->device.ioDesc == -1)
