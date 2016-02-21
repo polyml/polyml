@@ -542,6 +542,6 @@ AM_CONDITIONAL([INTINFISINT], [test "$intisintinf" = "yes"])
 AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])
 AC_CONFIG_COMMANDS([mlsource], [test -e mlsource || ln -sf ${ac_top_srcdir}/mlsource .])
 
-AC_CONFIG_FILES([Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile])
+AC_CONFIG_FILES([Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile modules/Makefile modules/intasintinf/Makefile])
 AC_CONFIG_FILES([polyc], [chmod +x polyc])
 AC_OUTPUT
