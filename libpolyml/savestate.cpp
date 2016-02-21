@@ -1321,6 +1321,13 @@ void ModuleStorer::Perform()
     // the executable because we've set the hierarchy to 1, using CopyScan.
     // It builds the tables in the export data structure then calls exportStore
     // to actually write the data.
+    if (! root->Word().IsDataPtr())
+    {
+        // If we have a completely empty module the list may be null.
+        // This needs to be dealt with at a higher level.
+        errorMessage = "Module root is not an address";
+        return;
+    }
     exporter.RunExport(root->WordP());
     errorMessage = exporter.errorMessage; // This will be null unless there's been an error.
 }
