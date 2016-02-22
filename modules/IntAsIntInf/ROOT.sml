@@ -7,7 +7,7 @@ case Int.precision of
            fun printError() = print "Module not required\n"
        in
            (* Create an empty module and exit. *)
-           PolyML.SaveState.saveModule("intasintinf", {functors=[], sigs=[], structs=[], onStartup=SOME printError });
+           PolyML.SaveState.saveModule("IntAsIntInf", {functors=[], sigs=[], structs=[], onStartup=SOME printError });
            OS.Process.exit OS.Process.success
        end
 |   SOME _ => ();
@@ -94,6 +94,6 @@ local
 
     val startVal = [Universal.tagInject Tags.startupTag (fn () => RunCall.setDefaultIntTypeArbitrary true)]
 in
-    val () = saveModuleBasic("intasintinf", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
+    val () = saveModuleBasic("IntAsIntInf", structVals @ functorVals @ sigVals @ typeVals @ valueVals @ startVal)
 end;
 

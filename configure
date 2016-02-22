@@ -22013,7 +22013,7 @@ ac_config_commands="$ac_config_commands basis"
 ac_config_commands="$ac_config_commands mlsource"
 
 
-ac_config_files="$ac_config_files Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile modules/Makefile modules/intasintinf/Makefile"
+ac_config_files="$ac_config_files Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile modules/Makefile modules/IntAsIntInf/Makefile"
 
 ac_config_files="$ac_config_files polyc"
 
@@ -23193,7 +23193,7 @@ do
     "libpolyml/polyml.pc") CONFIG_FILES="$CONFIG_FILES libpolyml/polyml.pc" ;;
     "libpolymain/Makefile") CONFIG_FILES="$CONFIG_FILES libpolymain/Makefile" ;;
     "modules/Makefile") CONFIG_FILES="$CONFIG_FILES modules/Makefile" ;;
-    "modules/intasintinf/Makefile") CONFIG_FILES="$CONFIG_FILES modules/intasintinf/Makefile" ;;
+    "modules/IntAsIntInf/Makefile") CONFIG_FILES="$CONFIG_FILES modules/IntAsIntInf/Makefile" ;;
     "polyc") CONFIG_FILES="$CONFIG_FILES polyc" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
