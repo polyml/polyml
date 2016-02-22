@@ -41,7 +41,6 @@ useLocal "Word.sml";
 useLocal "RealStringCvt.sml";
 useLocal "Date.sml";
 useLocal "InputOutput.sml";
-useLocal "RunCall.sml";
 
 (* Thread? *)
 (* Socket? *)
@@ -66,7 +65,7 @@ local
             "Array2", "Word8Array2", "CharArray2", "BoolArray2", "IntArray2",
             "RealArray2", "Word", "LargeWord", "SysWord", "Word32", "Word8",
             "IEEEReal", "StringCvt", "Real", "LargeReal", "Date", "TextIO",
-            "BinIO", "RunCall", "RuntimeCalls"
+            "BinIO"
         ] @ (if LargeWord.wordSize = 64 then ["Word64"] else []))
 
     val functorVals = map (dolookup(#lookupFunct, Tags.functorTag, "Functor"))
