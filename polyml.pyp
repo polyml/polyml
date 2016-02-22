@@ -213,16 +213,15 @@
 	<source name="mlsource\MLCompiler\VALUE_OPS.ML" />
 	<source name="mlsource\MLCompiler\ValueOps.ML" />
 	<source name="mlsource\MLCompiler\VALUEOPSSIG.sml" />
-	<source name="modules\intasintinf\ArrayVector.sml" />
-	<source name="modules\intasintinf\Date.sml" />
-	<source name="modules\intasintinf\InputOutput.sml" />
-	<source name="modules\intasintinf\Integer.sml" />
-	<source name="modules\intasintinf\List.sml" />
-	<source name="modules\intasintinf\RealStringCvt.sml" />
-	<source name="modules\intasintinf\ROOT.sml" />
-	<source name="modules\intasintinf\RunCall.sml" />
-	<source name="modules\intasintinf\StringChar.sml" />
-	<source name="modules\intasintinf\Word.sml" />
-	<source name="modules\intasintinf\Word64.sml" />
+	<source name="modules\IntAsIntInf\ArrayVector.sml" />
+	<source name="modules\IntAsIntInf\Date.sml" />
+	<source name="modules\IntAsIntInf\InputOutput.sml" />
+	<source name="modules\IntAsIntInf\Integer.sml" />
+	<source name="modules\IntAsIntInf\List.sml" />
+	<source name="modules\IntAsIntInf\RealStringCvt.sml" />
+	<source name="modules\IntAsIntInf\ROOT.sml" />
+	<source name="modules\IntAsIntInf\StringChar.sml" />
+	<source name="modules\IntAsIntInf\Word.sml" />
+	<source name="modules\IntAsIntInf\Word64.sml" />
 	<source name="Root.ML" root="true" />
 </polyproject>
