@@ -128,10 +128,10 @@ struct
                     else (defUses := 2; [])
                 (* Range checks. *)
                 val range1 =
-                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) },
+                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt minCase) },
                      ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab}]
                 val range2 =
-                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt maxCase) },
+                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt maxCase) },
                      ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab}]
             in
                 testTag @ range1 @ range2
@@ -150,11 +150,11 @@ struct
     if isX64 andalso flags <> 0w0
     then
         [AllocStore{size=size, output=output},
-         StoreConstToMemory{toStore=size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+         StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}} ]
     else
     let
-        val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
+        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
     in
         [AllocStore{size=size, output=output},
          StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}}]
@@ -342,7 +342,7 @@ struct
 
         |   codeToX86(BICConstnt(value, _), _) =
                 if isShort value
-                then [MoveConstR{source=tag(Word.toIntX(toShort value)), output=eax}]
+                then [MoveConstR{source=tag(Word.toLargeIntX(toShort value)), output=eax}]
                 else [MoveLongConstR{source=value, output=eax}]
 
         |   codeToX86(BICExtract(BICLoadLocal l, _(*lastRef*)), _) =
