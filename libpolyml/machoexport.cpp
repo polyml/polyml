@@ -234,9 +234,8 @@ void MachoExport::writeSymbol(const char *symbolName, unsigned char nType, unsig
 // Set the file alignment.
 void MachoExport::alignFile(int align)
 {
-    char pad[32]; // Maximum alignment
+    char pad[32] = {0}; // Maximum alignment
     int offset = ftell(exportFile);
-    memset(pad, 0, sizeof(pad));
     if ((offset % align) == 0) return;
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
