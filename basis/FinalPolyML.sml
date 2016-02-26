@@ -2186,7 +2186,8 @@ in
             end
             
             val saveModuleBasic: string * Universal.universal list -> unit =
-                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+                fn (_, nil) => raise Fail "Cannot create an empty module"
+                |  args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let

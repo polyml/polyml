@@ -60,8 +60,7 @@ bool Bitmap::Create(POLYUNSIGNED bits)
 {
     free(m_bits); // Any previous data
     size_t bytes = (bits+7) >> 3;
-    m_bits = (unsigned char*)malloc(bytes);
-    if (m_bits != 0) memset(m_bits, 0, bytes);
+    m_bits = (unsigned char*)calloc(bytes, sizeof(unsigned char));
     return m_bits != 0;
 }
 

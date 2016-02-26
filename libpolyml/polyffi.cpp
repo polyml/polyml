@@ -323,12 +323,11 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // If we need the elements add space for the elements plus
             // one extra for the zero terminator.
             if (nElems != 0) space += (nElems+1) * sizeof(ffi_type *);
-            ffi_type *result = (ffi_type*)malloc(space);
+            ffi_type *result = (ffi_type*)calloc(1, space);
             // Raise an exception rather than returning zero.
             if (result == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             ffi_type **elem = 0;
             if (nElems != 0) elem = (ffi_type **)(result+1);
-            memset(result, 0, sizeof(ffi_type)); // Zero it in case they add fields
             result->size = size;
             result->alignment = align;
             result->type = type;
