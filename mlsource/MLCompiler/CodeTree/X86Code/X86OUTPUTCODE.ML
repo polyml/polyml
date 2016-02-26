@@ -51,10 +51,10 @@ struct
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
     
     val op << = Word.<< and op >> = Word.>>
-    val op <<+ = LargeWord.<< and op >>+ = LargeWord.>>
+    val (*op <<+ = LargeWord.<< and *) op >>+ = LargeWord.>>
     val op <<- = Word8.<< and op >>- = Word8.>>
 
-    val op orb = Word.orb and op orbL = LargeWord.orb and op orb8 = Word8.orb
+    val op orb = Word.orb (*and op orbL = LargeWord.orb *) and op orb8 = Word8.orb
     val op andb8 = Word8.andb
 
     val op andb = Word.andb (* and op andbL = LargeWord.andb *)
@@ -1946,7 +1946,7 @@ Calling conventions:
         | allocStoreVarCode _ =
             raise InternalError "Allocation started but not complete"
     end
-
+(*
     fun allocStoreAndSetSize (size, flag, resultReg, saveRegs, cvec) =
     (
         allocStoreCode (size, resultReg, saveRegs, cvec);
@@ -1971,7 +1971,7 @@ Calling conventions:
             gen32u (LargeWord.fromInt size orbL (Word8.toLargeWord flag <<+ 0w24), cvec)
         )
     )
-
+*)
     (* Operations. *)
     type cases = word * label
 
