@@ -97,9 +97,9 @@ in
 
         structure IntInf =
         struct
-            fun gcd(args: int * int): int =
+            fun gcd(args: LargeInt.int * LargeInt.int): LargeInt.int =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (50, args)
-            and lcm(args: int * int): int =
+            and lcm(args: LargeInt.int * LargeInt.int): LargeInt.int =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (51, args)
         end
     end

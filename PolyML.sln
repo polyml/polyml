@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.23107.0
+VisualStudioVersion = 14.0.24720.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libffi", "libffi\libffi.vcxproj", "{6D86BC6F-E74E-40C5-9881-F8BB606BCA78}"
 EndProject
@@ -120,8 +120,8 @@ Global
 		{788BA1C9-699E-4F92-9FAF-C7437A419042}.IntDebug|x86.ActiveCfg = Debug|x86
 		{788BA1C9-699E-4F92-9FAF-C7437A419042}.IntRelease|x64.ActiveCfg = Release|x86
 		{788BA1C9-699E-4F92-9FAF-C7437A419042}.IntRelease|x86.ActiveCfg = Release|x86
-		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x64.ActiveCfg = Release|x86
-		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x64.Build.0 = Release|x86
+		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x64.ActiveCfg = Release|x64
+		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x64.Build.0 = Release|x64
 		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x86.ActiveCfg = Release|x86
 		{788BA1C9-699E-4F92-9FAF-C7437A419042}.Release|x86.Build.0 = Release|x86
 		{D4DF6521-6183-4E24-A327-55C72519836E}.Debug|x64.ActiveCfg = Debug|x64

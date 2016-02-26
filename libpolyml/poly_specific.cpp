@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015 David C. J. Matthews
+    Copyright (c) 2006, 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -141,6 +141,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_timing_dispatch: return 0;
     case POLY_SYS_objsize: return PROPWORD_NORAISE;
     case POLY_SYS_showsize: return PROPWORD_NORAISE;
+    case POLY_SYS_equal_short_arb: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_quotrem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
     case POLY_SYS_is_short: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_aplus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -153,7 +154,10 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_equala: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_ora: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_anda: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Real_str: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+
+        // Floating point operations depend on the current rounding mode.  That means
+        // that it's not possible to perform floating point operations at compile-time.
+    case POLY_SYS_Real_str: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
     case POLY_SYS_Real_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Real_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Real_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -161,21 +165,22 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_Real_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Real_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_Real_Dispatch: return 0;
-    case POLY_SYS_Add_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Sub_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Mul_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Div_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Abs_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_Neg_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_Add_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_Sub_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_Mul_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_Div_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_Abs_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Only affects sign
+    case POLY_SYS_Neg_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Only affects sign
     case POLY_SYS_conv_real: return PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_real_to_int: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_int_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_sqrt_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_sin_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_cos_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_arctan_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_exp_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_ln_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_real_to_int: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_int_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_sqrt_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_sin_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cos_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_arctan_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_exp_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_ln_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_fixed_to_real: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_stdin: return 0; // Not a function
     case POLY_SYS_stdout: return 0; // Not a function
     case POLY_SYS_process_env: return 0;
@@ -201,6 +206,16 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
 #endif
     case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_add: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_sub: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+    case POLY_SYS_fixed_mul: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Overflow
+        // These next few are currently set as possibly raising exceptions.  Actually
+        // the cases where they can raise exceptions are tested for explicitly so maybe that's
+        // not needed.
+    case POLY_SYS_fixed_quot: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_mod: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_div: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
+    case POLY_SYS_fixed_rem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide or Overflow
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;
@@ -221,6 +236,10 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_offset_address: return 0;
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_fixed_lss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -316,6 +335,16 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     return resultVec;
 }
 #endif
+
+// Used when copying code into its new location.  Adjusts any relative addresses and
+// also moves any pointers to the code itself.
+class PSCopyCode: public ScanAddress {
+public:
+    PSCopyCode (PolyObject *olda, PolyObject *newa): oldAddr(olda), newAddr(newa) {}
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return (base == oldAddr) ? newAddr: base; }
+private:
+    PolyObject *oldAddr, *newAddr;
+};
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -566,6 +595,22 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 else return SAVE(name);
             }
             else raise_syscall(taskData, "Not a code pointer", 0);
+        }
+
+    case 106: // Copy a compiled code segment into the code area
+        {
+            POLYUNSIGNED segLength = args->WordP()->Length();
+            // Initially just allocate some local memory and copy the code.
+            Handle newMem = alloc_and_save(taskData, segLength, F_CODE_OBJ);
+            memcpy(newMem->WordP(), args->WordP(), segLength * sizeof(PolyWord));
+            PSCopyCode psCopy(args->WordP(), newMem->WordP());
+            machineDependent->FlushInstructionCache(newMem->WordP(), segLength * sizeof(PolyWord));
+            // We have to update any relative addresses in the code.
+            machineDependent->ScanConstantsWithinCode(newMem->WordP(), args->WordP(), segLength, &psCopy);
+            // Temporarily clobber the old data
+            args->WordP()->SetLengthWord(segLength, F_BYTE_OBJ);
+            memset(args->WordP(), 0, segLength * sizeof(PolyWord));
+            return newMem;
         }
 
     default:

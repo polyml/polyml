@@ -144,7 +144,7 @@ private:
  */
 
 #define SAVEDSTATESIGNATURE "POLYSAVE"
-#define SAVEDSTATEVERSION   1
+#define SAVEDSTATEVERSION   2
 
 // File header for a saved state file.  This appears as the first entry
 // in the file.
@@ -164,9 +164,7 @@ typedef struct _savedStateHeader
     size_t      stringTableSize;        // Size of string table
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
     time_t      timeStamp;            // The time stamp for this file.
-    uintptr_t   fileSignature;        // The signature for this file.
     time_t      parentTimeStamp;      // The time stamp for the parent.
-    uintptr_t   parentSignature;      // The signature for the parent.
 } SavedStateHeader;
 
 // Entry for segment table.  This describes the segments on the disc that
@@ -1262,7 +1260,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 
 // Module system
 #define MODULESIGNATURE "POLYMODU"
-#define MODULEVERSION   1
+#define MODULEVERSION   2
 
 typedef struct _moduleHeader
 {
@@ -1276,10 +1274,7 @@ typedef struct _moduleHeader
     // These entries contain the real data.
     off_t       segmentDescr;           // Position of segment descriptor table
     unsigned    segmentDescrCount;      // Number of segment descriptors in the table
-    off_t       stringTable;            // Pointer to the string table (zero if none)
-    size_t      stringTableSize;        // Size of string table
     time_t      timeStamp;              // The time stamp for this file.
-    uintptr_t   fileSignature;          // The signature for this file.
     time_t      executableTimeStamp;    // The time stamp for the parent executable.
     // Root
     uintptr_t   rootSegment;
@@ -1326,6 +1321,13 @@ void ModuleStorer::Perform()
     // the executable because we've set the hierarchy to 1, using CopyScan.
     // It builds the tables in the export data structure then calls exportStore
     // to actually write the data.
+    if (! root->Word().IsDataPtr())
+    {
+        // If we have a completely empty module the list may be null.
+        // This needs to be dealt with at a higher level.
+        errorMessage = "Module root is not an address";
+        return;
+    }
     exporter.RunExport(root->WordP());
     errorMessage = exporter.errorMessage; // This will be null unless there's been an error.
 }

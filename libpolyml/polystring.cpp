@@ -413,10 +413,10 @@ Handle string_length_c(TaskData *mdTaskData, Handle string)    /* Length of a st
 {
     PolyWord str = string->Word();
     if (str.IsTagged()) // Short form
-        return Make_arbitrary_precision(mdTaskData, 1);
+        return Make_fixed_precision(mdTaskData, 1);
     
     POLYUNSIGNED length = ((PolyStringObject *)str.AsObjPtr())->length;
-    return Make_arbitrary_precision(mdTaskData, length);
+    return Make_fixed_precision(mdTaskData, length);
 }
 
 static PolyStringObject s_test_x, s_test_y;

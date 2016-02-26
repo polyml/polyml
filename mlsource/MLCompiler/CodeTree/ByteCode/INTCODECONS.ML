@@ -59,7 +59,7 @@ sig
   type address;
   type code;
   type opcode;
-  eqtype addrs; (*hacky! *)
+  type addrs
   type labels;
   
   val noJump: labels;
@@ -72,7 +72,7 @@ sig
   val addrPlus  : addrs * int -> addrs;
   val addrMinus : addrs * addrs -> int;
   
-  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
+  val codeCreate: string * Universal.universal list -> code;  (* makes the initial segment. *)
       
   (* ic - Address for the next instruction in the segment. *)
   val ic: code -> addrs;
@@ -116,9 +116,6 @@ sig
       
    (* pushConst - Generates code to push a constant. *)
    val pushConst        : machineWord * code -> unit;
-       
-   (* genRecRef - Recursive reference to a procedure. *)
-   val genRecRef: code * code -> unit
 
    (* Create a container on the stack *)
    val genContainer : int * code -> unit;
@@ -126,8 +123,8 @@ sig
    (* Create a tuple from a container. *)
    val genTupleFromContainer : int * code -> unit;
       
-   (* copyCode - Finish up after compiling a procedure. *)
-   val copyCode : code -> address;
+   (* copyCode - Finish up after compiling a function. *)
+   val copyCode : code -> address
    
    (* getBytes - gets "length" bytes from locations "addr", "addr"+1...
       Returns a negative number if the first bit was set. *)
@@ -654,7 +651,6 @@ struct
 
   datatype const =
      WVal of machineWord        (* an existing constant *)
-   | CVal of code        (* a forward-reference to another function *)
 
   and setCodeseg =
      Unset
@@ -675,7 +671,6 @@ struct
       procName:       string,         (* Name of the procedure. *)
       otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
-      noClosure:      bool,           (* should we make a closure from this? *)
       constLoads:     (addrs * int) list ref, (* where do we load constants? *)
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
       printStream:    string->unit    (* The stream to use *)
@@ -696,7 +691,6 @@ struct
   fun procName       (Code {procName,...})         = procName;
   fun otherCodes     (Code {otherCodes,...})       = otherCodes;
   fun resultSeg      (Code {resultSeg,...})        = resultSeg;
-  fun noClosure      (Code {noClosure,...})        = noClosure;
   fun constLoads     (Code {constLoads,...})       = constLoads;
 
   fun scSet (Set x) = x | scSet _ = raise Match;
@@ -710,11 +704,9 @@ struct
   fun a is b = (numOfConsts a = numOfConsts b);
 
   fun sameConst (WVal w1, WVal w2) = wordEq (w1, w2)
-    | sameConst (CVal c1, CVal c2) = c1 is c2
-    | sameConst (_,       _)       = false;
 
   (* create and initialise a code segment *)
-  fun codeCreate (noClosure : bool, name : string, parameters) : code = 
+  fun codeCreate (name : string, parameters) : code = 
   let
     val words : int = codesize div wordLength();
     val printStream = PRETTY.getSimplePrinter parameters;
@@ -732,7 +724,6 @@ struct
          procName         = name,
          otherCodes       = ref [],
          resultSeg        = ref Unset,   (* Not yet done *)
-         noClosure        = noClosure,
          constLoads       = ref [],
          printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
          printStream    = printStream
@@ -1500,54 +1491,6 @@ struct
        genWord(slideby, cvec)
      end; (* genTailCall *)
 
-  (* Make a reference to another procedure. Usually this will be a forward *)
-  (* reference but it may have been compiled already, in which case we can *)
-  (* put the code address in now. *)
-  fun codeConst (r : code, into : code) : int =
-  let
-    val cseg = ! (resultSeg r);
-  in
-    if isSet cseg (* Already done - insert the actual address *)
-    then let
-      val addr : address = csegAddr (scSet cseg);
-    in
-      addConstToVec (WVal (toMachineWord addr), into)
-    end
-    
-    else (* forward *)
-      (* Add the referring procedure onto the list of the procedure
-         referred to if it is not already there. This makes sure that when
-         the referring procedure is finished and its address is known the
-         address will be plugged in to every procedure which needs it. *)
-      let
-        fun onList _ []      = false
-          | onList x (c::cs) = (x is c) orelse onList x cs;
-          
-        val codeList = ! (otherCodes r);
-
-        val () =
-          if onList into codeList
-          then ()
-          else otherCodes r := into :: codeList;
-      in
-        addConstToVec (CVal r, into)
-      end
-  end;
-
-  (* Recursive reference, either direct or indirect. *)
-  fun genRecRef (target : code, into: code) : unit =
-  let
-    val constNum : int = codeConst (target, into);
-    val () =
-        if not usePortableConstantOffset
-        then genOpc (opcode_constAddr, 3, into)
-        else if constNum < 256
-        then (genOpc (opcode_constAddrX_b, 4, into); genByte (constNum, into))
-        else (genOpc (opcode_constAddrX_w, 5, into); genWord (constNum, into));
-  in
-    genConstRef (constNum, into)
-  end;
-
   fun genContainer (size : int, cvec: code) : unit =
     (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));
 
@@ -1818,16 +1761,7 @@ struct
       else printStream ("bytes:\t" ^ Int.toString objLength ^ " words")
     end;
 
-  fun printConst (c : const, printStream) : unit =
-    case c of
-      CVal c =>
-        let
-          val () = printStream(if noClosure c then "code:\t" else "clos:\t");
-        in
-           printStream(procName c)
-        end
-
-    | WVal w => 
+  fun printConst (WVal w : const, printStream) : unit =
     if isShort w
     then let
       val value : int = Word.toInt (toShort w);
@@ -1886,42 +1820,6 @@ struct
   in
     csegPutWord (seg, constAddr, value)
   end;
-  
-  (* Fix up references from other vectors to this one. *)
-  fun fixOtherRefs (refTo : code, value : machineWord) : unit =
-  let
-    fun fixRef (refFrom : code) : unit =
-    let
-      val noc = numOfConsts refFrom;
-      
-      fun putNonLocalConst (num : int, const : const) =
-        case const of
-          CVal c =>
-            if c is refTo
-            then let (* A reference to this one. *)
-              (* Fix up the forward reference. *)
-              val () = constLabels (refFrom, num, value);
-            in
-              (* decrement the "pending references" count *)
-              noc := !noc - 1
-            end
-            else ()
-        | _ => ();
-        
-      (* look down its list of forward references until we find ourselves. *)
-      val () =
-        applyCountList (putNonLocalConst, 1, !(constVec refFrom));
-    in
-     (* If there are no more references, we can lock it. *)
-      if !noc = 0
-      then csegLock (scSet (! (resultSeg refFrom)))
-      else ()
-    end (* fixRef *);
-  in
-    (* For each `code' which needs a forward reference
-       to `refTo' fixing up. *)
-    applyList (fixRef, !(otherCodes refTo))
-  end; (* fixOtherRefs *)
 
    (* Adds the constants onto the code, and copies the code into a new segment *)
   fun copyCode (cvec: code as Code{ printAssemblyCode, printStream, ...}) : address =
@@ -1998,54 +1896,13 @@ struct
 
     (* and then copy the objects from the constant list. *)
     fun putLocalConsts []      _ = ()
-      | putLocalConsts (c::cs) num =
-      let
-        val () =
-          case c of
-            WVal w => (* an ordinary (non-short) constant *)
-            let
-              val () = constLabels (cvec, num, w);
-            in
-              numOfConsts cvec := ! (numOfConsts cvec) - 1
-            end
-            
-          (* forward-reference - fix up later when we compile
-             the referenced code *) 
-          | CVal _ => ();
-      in    
-        putLocalConsts cs (num + 1)
-      end;
+      | putLocalConsts (WVal w::cs) num =
+        (constLabels (cvec, num, w); putLocalConsts cs (num + 1))
     
     val () = putLocalConsts (! (constVec cvec)) 1;
   
-    (* Switch off "mutable" bit now if we have no
-       forward or recursive references to fix-up *)
-    val () = 
-      if !(numOfConsts cvec) = 0
-      then csegLock seg
-      else ();
-
-    (* Do we need to make a closure, or just return the code? *)
-    val addr : address =
-      if noClosure cvec
-      then csegAddr seg
-      else let
-    val addr : address = alloc (0w1, F_words, toMachineWord (csegAddr seg));
-    
-    (* Logically unnecessary; however the RTS currently allocates everything
-       as mutable because Dave's code assumed that things were done this
-       way and I'm not completely sure that everything that needs a mutable
-       allocation actually asks for it yet. SPF 19/2/97
-    *)
-    val () = lock addr;
-      in
-    addr
-      end
-
-    (* Now we know the address of this object we can fix up
-       any forward references outstanding. This is put in here
-       because there may be directly recursive references. *)
-    val () = fixOtherRefs (cvec, toMachineWord addr);
+    (* Switch off "mutable" bit now  *)
+    val () =  csegLock seg
 
     val () = 
       if printAssemblyCode
@@ -2063,7 +1920,7 @@ struct
       end
       else ();
   in
-    addr
+    csegAddr seg
   end (* copyCode *)
 
   (* ic function exported to GCODE *)

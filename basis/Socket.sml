@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Generic Sockets
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005, 2015
+    Copyright   David Matthews 2000, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -307,7 +307,7 @@ struct
             let
                 val lTime = doCall1(36, s)
             in
-                if lTime < 0 then NONE else SOME(Time.fromSeconds lTime)
+                if lTime < 0 then NONE else SOME(Time.fromSeconds(LargeInt.fromInt lTime))
             end
 
             fun setLINGER (SOCK s, NONE) =
@@ -316,7 +316,7 @@ struct
                 )
             |   setLINGER (SOCK s, SOME t) =
                 let
-                    val lTime = Time.toSeconds t
+                    val lTime = LargeInt.toInt(Time.toSeconds t)
                 in
                     if lTime < 0
                     then raise OS.SysErr("Invalid time", NONE)

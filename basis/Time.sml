@@ -57,12 +57,12 @@ struct
        arbitrary precision number for times with the actual resolution
        returned as an RTS call.  The intention is retain as much precision
        as possible. *)
-    type time = int (* Becomes abstract *)
+    type time = LargeInt.int (* Becomes abstract *)
     exception Time
 
     open RuntimeCalls
 
-    val doTiming: int*int->int = RunCall.run_call2 POLY_SYS_timing_dispatch
+    val doTiming: int*int->time = RunCall.run_call2 POLY_SYS_timing_dispatch
     fun callTiming (code: int) args = doTiming (code,args);
 
     (* Get the number of ticks per microsecond and compute the corresponding
@@ -83,11 +83,11 @@ struct
 
     (* The real representation is as a number of seconds. *)
     local
-        val realTicks = Real.fromInt ticksPerSecond
+        val realTicks = Real.fromLargeInt ticksPerSecond
     in
         fun fromReal (x: real): time = 
-            checkTimeValue(Real.round (x * realTicks))
-        and toReal (t: time): real = Real.fromInt t / realTicks
+            checkTimeValue(Real.toLargeInt IEEEReal.TO_NEAREST (x * realTicks))
+        and toReal (t: time): real = Real.fromLargeInt t / realTicks
     end
 
     val zeroTime = fromReal 0.0
@@ -155,7 +155,7 @@ struct
                             (* Get exactly 9 digits after the decimal point. *)
                             val decs = intPart @ (List.take(decPart @ [ 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 9));
                             (* It's now in nanoseconds. *)
-                            val toInt = List.foldl (fn (i, j) => i + j*10) 0 decs
+                            val toInt = List.foldl (fn (i, j) => LargeInt.fromInt i + j*10) (0: time) decs
                         in
                             SOME(fromNanoseconds(if sign then ~toInt else toInt), srcAfterMant)
                         end
@@ -177,15 +177,15 @@ struct
     val fromString = StringCvt.scanString scan
 
     (* Use the integer operations for these. *)
-    val op < : (time * time) -> bool = Int.<
-    val op <= : (time * time) -> bool = Int.<=
-    val op > : (time * time) -> bool = Int.>
-    val op >= : (time * time) -> bool = Int.>=;
+    val op < : (time * time) -> bool = LargeInt.<
+    val op <= : (time * time) -> bool = LargeInt.<=
+    val op > : (time * time) -> bool = LargeInt.>
+    val op >= : (time * time) -> bool = LargeInt.>=;
 
-    val compare = Int.compare
+    val compare = LargeInt.compare
 
-    val op + : (time * time) -> time = Int.+
-    val op - : (time * time) -> time = Int.-
+    val op + : (time * time) -> time = LargeInt.+
+    val op - : (time * time) -> time = LargeInt.-
 
     fun now () = callTiming 1 0 handle RunCall.SysErr _ => raise Time
 

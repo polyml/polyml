@@ -273,9 +273,8 @@ void ELFExport::writeSymbol(const char *symbolName, long value, long size, int b
 // Set the file alignment.
 void ELFExport::alignFile(int align)
 {
-    char pad[32]; // Maximum alignment
+    char pad[32] = {0}; // Maximum alignment
     int offset = ftell(exportFile);
-    memset(pad, 0, sizeof(pad));
     if ((offset % align) == 0) return;
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
@@ -348,6 +347,14 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_PPC64;
     directReloc = R_PPC64_ADDR64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_S390)
+    fhdr.e_machine = EM_S390;
+    directReloc = R_390_32;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_S390X)
+    fhdr.e_machine = EM_S390;
+    directReloc = R_390_64;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_SPARC)
     fhdr.e_machine = EM_SPARC;
     directReloc = R_SPARC_32;
@@ -385,6 +392,9 @@ void ELFExport::exportStore(void)
 #elif defined(HOSTARCHITECTURE_MIPS)
     fhdr.e_machine = EM_MIPS;
     directReloc = R_MIPS_32;
+#ifdef __PIC__
+    fhdr.e_flags = EF_MIPS_CPIC;
+#endif
     useRela = true;
 #else
 #error "No support for exporting on this architecture"

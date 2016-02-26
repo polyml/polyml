@@ -797,8 +797,12 @@ struct
                            situations where we have andalso/orelse where the second
                            "argument" has been reduced to a constant. *)
                         if wordEq (thenVal, elseVal)
-                        then (* Include the test in the decs in case it has side-effects. *)
-                            (thenConst (* or elseConst *), [NullBinding simpTest], EnvSpecNone)
+                        then (* If the test has a side-effect we have to do it otherwise we can remove
+                                it.  If we're in a nested andalso/orelse that may mean we can simplify
+                                the next level out. *)
+                            (thenConst (* or elseConst *),
+                             if sideEffectFree simpTest then [] else [NullBinding simpTest],
+                             EnvSpecNone)
               
                         (* if x then true else false == x *)
                         else if wordEq (thenVal, True) andalso wordEq (elseVal, False)

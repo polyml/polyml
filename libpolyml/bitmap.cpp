@@ -60,8 +60,7 @@ bool Bitmap::Create(POLYUNSIGNED bits)
 {
     free(m_bits); // Any previous data
     size_t bytes = (bits+7) >> 3;
-    m_bits = (unsigned char*)malloc(bytes);
-    if (m_bits != 0) memset(m_bits, 0, bytes);
+    m_bits = (unsigned char*)calloc(bytes, sizeof(unsigned char));
     return m_bits != 0;
 }
 
@@ -108,9 +107,6 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
         length = stop_bit_index - 8;
     }
     
-    /* Invariant: 0 <= length */
-    ASSERT(length >= 0);
-    
     /* Set as many full bytes as possible */
     while (8 <= length)
     {
@@ -123,7 +119,7 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
     }
     
     /* Invariant: 0 <= length < 8 */
-    ASSERT(length >= 0 && length < 8);
+    ASSERT(length < 8);
     if (length == 0) return;
     
     /* Invariant: 0 < length < 8 */

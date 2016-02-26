@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: NetHostDB and NetDB Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000
+    Copyright   David Matthews 2000, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: no change *)
 
 signature NET_HOST_DB =
 sig
@@ -41,7 +38,7 @@ sig
 end;
 
 local
-    fun power2 0 = 1
+    fun power2 0 = 1: LargeInt.int
     |   power2 n = 2 * power2(n-1)
     val p32 = power2 32
     val p24 = power2 24
@@ -56,7 +53,7 @@ local
             fun addDigit d src =
             let
                 val n = case acc of SOME(n, _) => n | NONE => 0
-                val next = n*base + d
+                val next = n * LargeInt.fromInt base + LargeInt.fromInt d
             in
                 (* If we are below the limit we can continue. *)
                 if next < limit
@@ -132,7 +129,7 @@ local
 in
     structure NetHostDB :> NET_HOST_DB =
     struct
-        type in_addr = int
+        type in_addr = LargeInt.int
         and addr_family = int
         type entry = string * string list * addr_family * in_addr list
         val name: entry -> string = #1
@@ -163,7 +160,7 @@ in
         end
     
         local
-            val doCall: int*int -> entry
+            val doCall: int*LargeInt.int -> entry
                  = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getByAddr n =
@@ -173,11 +170,11 @@ in
         val scan = scan
         and fromString = StringCvt.scanString scan
     
-        fun toString n =
+        fun toString (n: in_addr) =
         let
             fun pr n i =
                 (if i > 0 then pr (n div 256) (i-1) ^ "." else "") ^
-                    Int.toString (n mod 256)
+                    LargeInt.toString (n mod 256)
                 
         in
             pr n 3 (* Always generate 4 numbers. *)

@@ -163,13 +163,16 @@ structure List: LIST =
     fun all _ [] = true
       | all f (a::b) = if f a then all f b else false
 
-    (* tabulate a function. Rewritten again this time using an array. *)
-    fun tabulate(n, f) =
-        let
-            val a = Array.tabulate(n, f)
-        in
-            Array.foldr (op ::) [] a
-        end
+    (* tabulate a function. *)
+    local
+        fun tabF max n f =
+            if n = max then []
+            else f n :: tabF max (n+1) f
+    in
+        fun tabulate(n, f) =
+            if n < 0 then raise Size
+            else tabF n 0 f
+    end
 
     (* Lexicographic comparison.  *)
     fun collate _   ([], []) = General.EQUAL

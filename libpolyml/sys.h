@@ -3,7 +3,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2007-12, 2015
+    Further development Copyright David C.J. Matthews 2007-12, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,6 +91,7 @@
 #define POLY_SYS_timing_dispatch     94   /* DCJM 10/4/00 */
 #define POLY_SYS_objsize             99   /* MJC 27/04/88 */
 #define POLY_SYS_showsize            100  /* MJC 09/03/89 */
+#define POLY_SYS_equal_short_arb     101
 #define POLY_SYS_quotrem             104  /* DCJM 05/03/10 */
 #define POLY_SYS_is_short            105
 #define POLY_SYS_aplus               106
@@ -127,6 +128,7 @@
 #define POLY_SYS_arctan_real         139
 #define POLY_SYS_exp_real            140
 #define POLY_SYS_ln_real             141
+#define POLY_SYS_fixed_to_real       142
 #define POLY_SYS_stdin               148
 #define POLY_SYS_stdout              149
 #define POLY_SYS_process_env         150  /* DCJM 25/4/00 */
@@ -146,6 +148,13 @@
 #define POLY_SYS_cmem_store_64       169
 #define POLY_SYS_cmem_store_float    170
 #define POLY_SYS_cmem_store_double   171
+#define POLY_SYS_fixed_add           180
+#define POLY_SYS_fixed_sub           181
+#define POLY_SYS_fixed_mul           182
+#define POLY_SYS_fixed_quot          183
+#define POLY_SYS_fixed_rem           184
+#define POLY_SYS_fixed_div           185
+#define POLY_SYS_fixed_mod           186
 #define POLY_SYS_io_operation        189
 #define POLY_SYS_ffi                 190
 #define POLY_SYS_move_words_overlap  193
@@ -167,6 +176,10 @@
 #define POLY_SYS_offset_address      215
 #define POLY_SYS_shift_right_word    216
 #define POLY_SYS_not_bool            218
+#define POLY_SYS_fixed_geq           219
+#define POLY_SYS_fixed_leq           220
+#define POLY_SYS_fixed_gtr           221
+#define POLY_SYS_fixed_lss           222
 #define POLY_SYS_string_length       223
 #define POLY_SYS_touch_final         228
 #define POLY_SYS_int_geq             231

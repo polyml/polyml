@@ -38,7 +38,7 @@ sig
   type address = Address.address;
   type code;
   type opcode;
-  eqtype addrs; (*hacky! *)
+  type addrs
   type labels;
   
   val noJump: labels;
@@ -51,7 +51,7 @@ sig
   val addrPlus  : addrs * int -> addrs;
   val addrMinus : addrs * addrs -> int;
   
-  val codeCreate: bool * string * Universal.universal list -> code;  (* makes the initial segment. *)
+  val codeCreate: string * Universal.universal list -> code;  (* makes the initial segment. *)
       
   (* ic - Address for the next instruction in the segment. *)
   val ic: code -> addrs;
@@ -94,10 +94,7 @@ sig
    val genEnterIntCall  : code * int -> unit;
       
    (* pushConst - Generates code to push a constant. *)
-   val pushConst        : machineWord * code -> unit;
-       
-   (* genRecRef - Recursive reference to a function. *)
-   val genRecRef: code * code -> unit
+   val pushConst        : machineWord * code -> unit
 
    (* Create a container on the stack *)
    val genContainer : int * code -> unit;
@@ -220,7 +217,7 @@ struct
 
   datatype slValue =
     Address    of int  * int (* Address of an entry on the stack. *)
-  | Recursive  of code       (* A recursive reference to a closure. *)
+  | Recursive  of machineWord       (* A recursive reference to a closure. *)
 
   (* Code generate a function or global declaration *)
   fun codegen
@@ -280,15 +277,13 @@ struct
         | locaddr(BICLoadClosure locn, _) =
             ( (* closure-pointer relative *)
                 case loadStaticLink (locn+1, 1) of
-                    Recursive code =>
-                    ( genRecRef (code, cvec); incsp () )
+                    Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
             )
         |   locaddr(BICLoadRecursive, _) =
             (
                 case loadStaticLink (0, 1) of
-                    Recursive code =>
-                    ( genRecRef (code, cvec); incsp () )
+                    Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
             )
 
@@ -670,16 +665,21 @@ struct
     (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
    and genProc (lam as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
         let
-            val newCode : code = codeCreate(false, #name lam, parameters);
+            (* Create a one word item for the closure.  This is returned for recursive references
+               and filled in with the address of the code when we've finished. *)
+            val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+            val newCode : code = codeCreate(#name lam, parameters);
         
             (* The only global references are recursive ones (?) *)
-            fun loadRecLink _ = Recursive newCode
+            fun loadRecLink _ = Recursive(toMachineWord closure)
         
             (* Code-gen function. No non-local references. *)
              val res : address =
                codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
+            val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
+            val () = Address.lock closure
 
-            val () = pushConst(toMachineWord res, cvec);
+            val () = pushConst(toMachineWord closure, cvec);
             val () = incsp();
         in
             if mutualDecs then doNext () else ()
@@ -699,7 +699,7 @@ struct
       else (* Return an entry in the closure. *)
         Address (addr, level);
 
-        val newCode : code = codeCreate (true, #name lam, parameters);
+        val newCode : code = codeCreate (#name lam, parameters);
 
         (* Code-gen function. *)
         val res : address =
@@ -837,41 +837,32 @@ struct
        (* The function is being loaded from the stack or closure so it
           may be a static-link function. *)
       BICExtract(ext, _) =>
-      let
-        (* Since the function is on the stack there can be no side-effects
-           in loading it. Can therefore load the arguments now. *)
-        val () = loadArgs argList;
+        let
+            (* Since the function is on the stack there can be no side-effects
+               in loading it. Can therefore load the arguments now. *)
+            val () = loadArgs argList;
   
-        val staticLinkValue =
-            case ext of
-                BICLoadArgument addr => Address (numOfArgs - addr, 0)
-            |   BICLoadLocal addr =>
-                (
-                    (* Local - is it a function? *)
-                    case STRETCHARRAY.sub (decVec, addr) of
-                        StackAddr n => Address (~ n, 0)
-                    |   Empty       => raise InternalError "staticLinkValue: missing decVec entry"
-                )
-            |   BICLoadClosure addr => loadStaticLink (addr+1, 1)(* Non-local or recursive. *)
-            |   BICLoadRecursive => loadStaticLink (0, 1)
-      in
-        case staticLinkValue of
-          Address (addr, level) =>
-          let
-            val () = pushStackValue (addr, level);
-          in
+            val staticLinkValue =
+                case ext of
+                    BICLoadArgument addr => Address (numOfArgs - addr, 0)
+                |   BICLoadLocal addr =>
+                    (
+                        (* Local - is it a function? *)
+                        case STRETCHARRAY.sub (decVec, addr) of
+                            StackAddr n => Address (~ n, 0)
+                        |   Empty       => raise InternalError "staticLinkValue: missing decVec entry"
+                    )
+                |   BICLoadClosure addr => loadStaticLink (addr+1, 1)(* Non-local or recursive. *)
+                |   BICLoadRecursive => loadStaticLink (0, 1)
+       
+            val () =
+                case staticLinkValue of
+                    Address (addr, level) => pushStackValue (addr, level)
+                        (* recursive reference to a function. *)
+                |   Recursive closureAddr => (pushConst(closureAddr, cvec); incsp())
+        in
             callClosure ()
-          end
-          
-          (* recursive reference to a function - not static link. *)
-        | Recursive code =>
-          let
-            val () = genRecRef (code, cvec);
-            val () = incsp();
-          in
-            callClosure ()
-          end
-       end (* BICExtract *)
+        end (* BICExtract *)
     
     | _ => (* The function is not being found by simply loading a value
           from the stack or the closure. *)
@@ -1116,10 +1107,10 @@ struct
     fun gencodeLambda({ name, body, argLifetimes, ...}:bicLambdaForm, parameters, closure) =
     let
         (* make the code buffer for the new function. *)
-        val newCode : code = codeCreate (true, name, parameters)
+        val newCode : code = codeCreate (name, parameters)
 
         (* The only global references are recursive ones (?) *)
-        fun loadRecLink (_ : int, _ : int) : slValue = Recursive newCode
+        fun loadRecLink (_ : int, _ : int) : slValue = Recursive(toMachineWord closure)
 
         (* This function must have no non-local references. *)
         val codeAddr =

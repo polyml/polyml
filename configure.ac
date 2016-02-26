@@ -451,6 +451,14 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_MIPS], [1], [Define if the host is a MIPS (32-bit)])
             polyarch=interpret
             ;;
+      s390x*)
+            AC_DEFINE([HOSTARCHITECTURE_S390X], [1], [Define if the host is an S/390 (64-bit)])
+            polyarch=interpret
+            ;;
+      s390*)
+            AC_DEFINE([HOSTARCHITECTURE_S390], [1], [Define if the host is an S/390 (32-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
@@ -516,6 +524,18 @@ AC_ARG_WITH([moduledir],
   [moduledir=$withval],
   [moduledir="\${libdir}/polyml/modules"])
 AC_SUBST([moduledir], [$moduledir])
+
+# Control whether to build the basis library with arbitrary precision as the default int
+AC_ARG_ENABLE([intinf-as-int],
+    [AS_HELP_STRING([--enable-intinf-as-int], [set arbitrary precision as the default int type])],
+    [case "${enableval}" in
+       no) intisintinf=no ;;
+       yes) intisintinf=yes ;;
+       *) AC_MSG_ERROR([bad value ${enableval} for --enable-intinf-as-int]) ;;
+        esac],
+        [intisintinf=no])
+
+AM_CONDITIONAL([INTINFISINT], [test "$intisintinf" = "yes"])
 
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.

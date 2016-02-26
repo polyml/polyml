@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005, 2015
+    Copyright   David C.J. Matthews 2000, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,23 +25,27 @@ val () = Bootstrap.use "basis/General.sml";
 val () = Bootstrap.use "basis/LibrarySupport.sml";
 val () = Bootstrap.use "basis/PolyMLException.sml";
 val () = Bootstrap.use "basis/Option.sml";
+val () = Bootstrap.use "basis/List.sml";
 val () = Bootstrap.use "basis/VectorOperations.sml";
 val () = Bootstrap.use "basis/PolyVectorOperations.sml";
 val () = Bootstrap.use "basis/VectorSliceOperations.sml";
-val () = Bootstrap.use "basis/StringCvt.sml";
 val () = Bootstrap.use "basis/MONO_VECTOR.sml";
 val () = Bootstrap.use "basis/MONO_VECTOR_SLICE.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY_SLICE.sml";
+val () = Bootstrap.use "basis/String.sml";
+val () = Bootstrap.use "basis/Int.sml";
+val () = Bootstrap.use (if Bootstrap.intIsArbitraryPrecision then "basis/IntAsLargeInt.sml" else "basis/IntAsFixedInt.sml");
+val () =
+    case FixedInt.precision of SOME 31 => Bootstrap.use "basis/Int31.sml" | SOME 63 => Bootstrap.use "basis/Int63.sml" | _ => ();
+val () = Bootstrap.use "basis/LargeWord.sml";
 val () = Bootstrap.use "basis/Vector.sml";
 val () = Bootstrap.use "basis/Array.sml";
-val () = Bootstrap.use "basis/List.sml";
-val () = Bootstrap.use "basis/String.sml";
+
 val () = Bootstrap.use "basis/Text.sml"; (* Declares Char, String, CharArray, CharVector *)
 val () = Bootstrap.use "basis/Bool.sml";
 val () = Bootstrap.use "basis/ListPair.sml";
-val () = Bootstrap.use "basis/Int.sml";
-val () = Bootstrap.use "basis/LargeWord.sml";
+
 (* Declare the appropriate additional structures. *)
 (* The version of Word32 we use depends on whether this is
    32-bit or 64-bit. *)
@@ -57,7 +61,6 @@ val () =
     else ();
 
 val () = Bootstrap.use "basis/Word8.sml";
-val () = Bootstrap.use "basis/INTEGER.sml";
 val () = Bootstrap.use "basis/IntInf.sml";
 val () = Bootstrap.use "basis/Int32.sml";
 val () = Bootstrap.use "basis/Word8Array.sml";
@@ -119,9 +122,6 @@ in
     else if getOS = 1 then (Bootstrap.use "basis/Windows.sml")
     else ()
 end;
-
-(* Build the Process structure for backwards compatibility. *)
-val () = Bootstrap.use "basis/processes.ML";
 
 val () = Bootstrap.use "basis/HashArray.ML";
 val () = Bootstrap.use "basis/UniversalArray.ML";

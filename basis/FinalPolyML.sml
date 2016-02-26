@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015
+    Copyright   David Matthews 2008-9, 2014, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -284,11 +284,11 @@ local
                     stream openDeclaration;
                     stream(String.translate escapeEscapes file);
                     stream separator;
-                    stream(Int.toString startLine);
+                    stream(FixedInt.toString startLine);
                     stream separator;
-                    stream(Int.toString startPosition);
+                    stream(FixedInt.toString startPosition);
                     stream separator;
-                    stream(Int.toString endPosition);
+                    stream(FixedInt.toString endPosition);
                     stream finalSeparator
                 end
             |   _ => ()
@@ -377,21 +377,21 @@ local
                 prettyPrintWithOptionalMarkup (stream, !lineLength) (Infixes.print f)
 
         |   printDec(_, TypeConstrKind t) =
-                prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, depth, SOME space))
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, FixedInt.fromInt depth, SOME space))
 
         |   printDec(_, SignatureKind s) =
-                prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, depth, SOME space))
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, FixedInt.fromInt depth, SOME space))
 
         |   printDec(_, StructureKind s) =
-                prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, depth, SOME space))
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, FixedInt.fromInt depth, SOME space))
 
         |   printDec(_, FunctorKind f) =
-                prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, FixedInt.fromInt depth, SOME space))
 
         |   printDec(_, ValueKind v) =
                 if Values.isConstructor v andalso not (Values.isException v)
                 then () (* Value constructors are printed with the datatype. *)
-                else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
+                else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, FixedInt.fromInt depth, SOME space))
 
     in
         (* First add the declarations to the name space and then print them.  Doing it this way
@@ -438,9 +438,9 @@ local
                             openError,
                             if hard then "E" else "W", separator,
                             file, (* TODO double any escapes. *) separator,
-                            Int.toString startLine, separator,
-                            Int.toString startPosition, separator,
-                            Int.toString endPosition, finalSeparator
+                            FixedInt.toString startLine, separator,
+                            FixedInt.toString startPosition, separator,
+                            FixedInt.toString endPosition, finalSeparator
                          ]
                     );
                 prettyPrintWithIDEMarkup(printString, !lineLength) fullMessage;
@@ -450,8 +450,8 @@ local
             (
                 printString(concat
                    ( (if file = "" then ["poly: "] else [file, ":"]) @
-                     (if startLine = 0 then [] else [Int.toString startLine]) @
-                     (if startPosition = 0 then [": "] else [".", Int.toString startPosition, "-", Int.toString endPosition, ": "]) @
+                     (if startLine = 0 then [] else [FixedInt.toString startLine]) @
+                     (if startPosition = 0 then [": "] else [".", FixedInt.toString startPosition, "-", FixedInt.toString endPosition, ": "]) @
                      (if hard then ["error: "] else ["warning: "]) ));
 (*                   ( (if hard then ["Error-"] else ["Warning-"]) @
                      (if file = "" then [] else [" in '", file, "',"]) @
@@ -650,7 +650,7 @@ local
                                     [
                                         PrettyBlock(0, false, exLoc, [PrettyString "Exception-"]),
                                         PrettyBreak(1, 3),
-                                        prettyRepresentation(exn, ! printDepth),
+                                        prettyRepresentation(exn, FixedInt.fromInt(! printDepth)),
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
@@ -1532,7 +1532,7 @@ in
 
             fun getArgResult stack get =
                 case stack of
-                    hd :: _ => Values.print(get hd, !printDepth)
+                    hd :: _ => Values.print(get hd, FixedInt.fromInt(!printDepth))
                 |   _ => PrettyString "?"
 
             fun printTrace (funName, location, stack, argsAndResult) =
@@ -1544,7 +1544,7 @@ in
                 val block =
                     PrettyBlock(0, false, [],
                         [
-                            PrettyBreak(length stack, 0),
+                            PrettyBreak(FixedInt.fromInt(length stack), 0),
                             PrettyBlock(0, false, [],
                             [
                                 PrettyBlock(0, false, [ContextLocation location], [PrettyString funName]),
@@ -1556,7 +1556,7 @@ in
             end
 
             (* Try to print the appropriate line from the file.*)
-            fun printSourceLine(prefix, fileName: string, line: int, funName: string, justLocation) =
+            fun printSourceLine(prefix, fileName: string, line: FixedInt.int, funName: string, justLocation) =
             let
                 open TextIO
                 open PolyML
@@ -1567,7 +1567,7 @@ in
                     concat(
                         [prefix] @
                         (if fileName = "" then [] else [fileName, " "]) @
-                        (if line = 0 then [] else [" line:", Int.toString line, " "]) @
+                        (if line = 0 then [] else [" line:", FixedInt.toString line, " "]) @
                         ["function:", funName])
             in
                 (* First just print where we are. *)
@@ -1891,7 +1891,7 @@ in
                 local
                     fun printVal v =
                         prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
-                            (NameSpace.Values.printWithType(v, !printDepth, SOME globalNameSpace))
+                            (NameSpace.Values.printWithType(v, FixedInt.fromInt(!printDepth), SOME globalNameSpace))
                     fun printStack (stack: debugState) =
                         List.app (fn (_,v) => printVal v) (#allVal (debugNameSpace stack) ())
                 in
@@ -2016,7 +2016,7 @@ in
                         SOME { file, startLine=line, ... } =>
                             (
                                 if file = "" then () else (pr " raised in "; pr file);
-                                if line = 0 then () else (pr " line "; pr(Int.toString line))
+                                if line = 0 then () else (pr " line "; pr(FixedInt.toString line))
                             )
                     |   NONE => ();
                     pr "\n\n";
@@ -2186,7 +2186,8 @@ in
             end
             
             val saveModuleBasic: string * Universal.universal list -> unit =
-                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+                fn (_, nil) => raise Fail "Cannot create an empty module"
+                |  args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let

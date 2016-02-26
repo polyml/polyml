@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Word8Array, Word8Vector and Byte Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2015
+    Copyright   David Matthews 1999, 2005, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,7 @@ local
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
+
 
     infix 9 sub (* For what it's worth *)
 
@@ -113,7 +114,7 @@ in
             (* Install the pretty printer for Word8Vector.vector *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-            fun pretty(depth: int) _ (x: vector) =
+            fun pretty(depth: FixedInt.int) _ (x: vector) =
                 let
                     open PolyML
                     val last = length x - 1
@@ -130,7 +131,7 @@ in
                     PrettyBlock(3, false, [],
                         PrettyString "fromList[" ::
                         (if depth <= 0 then [PrettyString "...]"]
-                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                         else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                    )
                 end
         in
@@ -263,7 +264,7 @@ in
             (* Install the pretty printer for Word8Array.array *)
             (* We may have to do this outside the structure if we
                have opaque signature matching. *)
-            fun pretty(depth: int) _ (x: array) =
+            fun pretty(depth: FixedInt.int) _ (x: array) =
                 let
                     open PolyML
                     val last = length x - 1
@@ -280,7 +281,7 @@ in
                     PrettyBlock(3, false, [],
                         PrettyString "fromList[" ::
                         (if depth <= 0 then [PrettyString "...]"]
-                         else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                         else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                    )
                 end
         in
@@ -327,7 +328,7 @@ in
         (* Install the pretty printer for Word8VectorSlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(depth: int) _ (x: Word8VectorSlice.slice) =
+        fun pretty(depth: FixedInt.int) _ (x: Word8VectorSlice.slice) =
             let
                 open PolyML Word8VectorSlice
                 val last = length x - 1
@@ -344,7 +345,7 @@ in
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                     else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                )
             end
     in
@@ -438,7 +439,7 @@ in
         (* Install the pretty printer for Word8ArraySlice.slice *)
         (* We may have to do this outside the structure if we
            have opaque signature matching. *)
-        fun pretty(depth: int) _ (x: Word8ArraySlice.slice) =
+        fun pretty(depth: FixedInt.int) _ (x: Word8ArraySlice.slice) =
             let
                 open PolyML Word8ArraySlice
                 val last = length x - 1
@@ -455,7 +456,7 @@ in
                 PrettyBlock(3, false, [],
                     PrettyString "fromList[" ::
                     (if depth <= 0 then [PrettyString "...]"]
-                     else #1 (foldri put_elem ([PrettyString "]"], depth-last) x) )
+                     else #1 (foldri put_elem ([PrettyString "]"], depth - FixedInt.fromInt last) x) )
                )
             end
     in

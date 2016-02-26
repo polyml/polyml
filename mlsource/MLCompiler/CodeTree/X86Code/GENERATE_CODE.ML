@@ -71,7 +71,6 @@ struct
         val DummyValue : machineWord = word0 (* used as result of "raise e" etc. *)
         val False : machineWord = word0     (* false *)
         val True  : machineWord = word1     (* true *)
-        val Zero  : machineWord = word0     (* 0 *)
     end
 
     (* gets a value from the run-time system; 
@@ -80,10 +79,6 @@ struct
 
     val constntTrue  = BICConstnt(True, [])
     val constntFalse = BICConstnt(False, [])
-
-    (* Test if an argument is a long constant.  For integer operations it's better
-       to call the RTS if we know we're always going to have to emulate the instruction. *)
-    fun isLongConstant(BICConstnt(w, _)) = not(Address.isShort w) | isLongConstant _ = false
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
@@ -1154,6 +1149,7 @@ struct
         
             val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord codeAddr)
+            val () = Address.lock closure
             val result = pushConst (transtable, Address.toMachineWord closure)
             (* Handle any other recursive functions. *)
             val () = mutualRecursive result
@@ -1567,56 +1563,45 @@ struct
                         label
                     end
 
-                    else if wordEq (oper,ioOp POLY_SYS_equala) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    else if wordEq (oper,ioOp POLY_SYS_fixed_geq)
                     then
                     let
                         val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
                         val (label, testCode) =
-                            (if jumpOn then equalInt else notEqualInt) (arg1Locn, arg2Locn, transtable)
+                            (if jumpOn then greaterOrEqualFixed else lessThanFixed) (arg1Locn, arg2Locn, transtable)
                         val () = codeGenerate(testCode, cvec)
                     in
                         label
                     end
 
-                    else if wordEq (oper,ioOp POLY_SYS_int_geq) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    else if wordEq (oper,ioOp POLY_SYS_fixed_leq)
                     then
                     let
                         val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
                         val (label, testCode) =
-                            (if jumpOn then greaterOrEqualInt else lessThanInt) (arg1Locn, arg2Locn, transtable)
+                            (if jumpOn then lessOrEqualFixed else greaterThanFixed) (arg1Locn, arg2Locn, transtable)
                         val () = codeGenerate(testCode, cvec)
                     in
                         label
                     end
 
-                    else if wordEq (oper,ioOp POLY_SYS_int_leq) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    else if wordEq (oper,ioOp POLY_SYS_fixed_gtr)
                     then
                     let
                         val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
                         val (label, testCode) =
-                            (if jumpOn then lessOrEqualInt else greaterThanInt) (arg1Locn, arg2Locn, transtable)
+                            (if jumpOn then greaterThanFixed else lessOrEqualFixed) (arg1Locn, arg2Locn, transtable)
                         val () = codeGenerate(testCode, cvec)
                     in
                         label
                     end
 
-                    else if wordEq (oper,ioOp POLY_SYS_int_gtr) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
+                    else if wordEq (oper,ioOp POLY_SYS_fixed_lss)
                     then
                     let
                         val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
                         val (label, testCode) =
-                            (if jumpOn then greaterThanInt else lessOrEqualInt) (arg1Locn, arg2Locn, transtable)
-                        val () = codeGenerate(testCode, cvec)
-                    in
-                        label
-                    end
-
-                    else if wordEq (oper,ioOp POLY_SYS_int_lss) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
-                    then
-                    let
-                        val arg1Locn = genToStack arg1 and arg2Locn = genToStack arg2
-                        val (label, testCode) =
-                            (if jumpOn then lessThanInt else greaterOrEqualInt) (arg1Locn, arg2Locn, transtable)
+                            (if jumpOn then lessThanFixed else greaterOrEqualFixed) (arg1Locn, arg2Locn, transtable)
                         val () = codeGenerate(testCode, cvec)
                     in
                         label
@@ -2220,11 +2205,6 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_string_length)
                             then cgAndRes(stringLength(genToStack arg, transtable, whereto))
 
-                            (* Negation is coded as 0 - X.  We ought to have reduced any constant argument already
-                               but check it anyway. *)
-                            else if wordEq (oper,ioOp POLY_SYS_aneg) andalso not(isLongConstant arg)
-                            then cgAndRes(subtractInteger(pushConst (transtable, Zero), genToStack arg, transtable, whereto))
-
                             (* Boolean "not" is coded as xor with "true" *)
                             else if wordEq (oper,ioOp POLY_SYS_not_bool)
                             then cgAndRes(xorWord(genToStack arg, pushConst (transtable, True), transtable, whereto))
@@ -2244,7 +2224,7 @@ struct
                             else if wordEq (oper,ioOp POLY_SYS_Neg_real)
                             then cgAndRes(negativeReal(genToStack arg, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_int_to_real)
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_to_real)
                             then cgAndRes(integerToReal(genToStack arg, transtable, whereto))
 
                             else if wordEq (oper,ioOp POLY_SYS_sqrt_real)
@@ -2271,34 +2251,21 @@ struct
                             if wordEq (oper,ioOp POLY_SYS_set_string_length)
                             then cgAndRes(setStringLength(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_aplus) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
-                            then cgAndRes(addInteger(genToStack arg1, genToStack arg2, transtable, whereto))
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_add)
+                            then cgAndRes(addFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_aminus) andalso not(isLongConstant arg1) andalso not(isLongConstant arg2)
-                            then cgAndRes(subtractInteger(genToStack arg1, genToStack arg2, transtable, whereto))
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_sub)
+                            then cgAndRes(subtractFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
-                            else if wordEq (oper,ioOp POLY_SYS_amul)
-                            then
-                            let
-                                open Address
-                                (* We only support multiplication by two.  Everything else has to go through the RTS. *)
-                                val argument =
-                                    case (arg1, arg2) of
-                                        (BICConstnt(lit, _), _) =>
-                                            if isShort lit andalso toShort lit = 0w2
-                                            then SOME arg2
-                                            else NONE (* Assume that if they're both constants we'd have folded it. *)
-                                    |   (_, BICConstnt(lit, _)) =>
-                                            if isShort lit andalso toShort lit = 0w2
-                                            then SOME arg1
-                                            else NONE
-                                    |   _ => NONE
-                            in
-                                case argument of
-                                    SOME arg => cgAndRes(multiplyIntegerByTwo(genToStack arg, transtable, whereto))
-                                |   NONE => callClosure (SOME evalFun, true)
-                            end
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_mul)
+                            then cgAndRes(multiplyFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+(*
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_quot)
+                            then cgAndRes(quotFixed(genToStack arg1, genToStack arg2, transtable, whereto))
 
+                            else if wordEq (oper,ioOp POLY_SYS_fixed_rem)
+                            then cgAndRes(remFixed(genToStack arg1, genToStack arg2, transtable, whereto))
+*)
                             else if wordEq (oper,ioOp POLY_SYS_or_word)
                             then cgAndRes(orWord(genToStack arg1, genToStack arg2, transtable, whereto))
 
@@ -2414,16 +2381,16 @@ struct
                                (the "jumping" boolean code generator) here, but we would like to
                                avoid that. *)
                             else if primBoolOps andalso
-                            (wordEq (oper,ioOp POLY_SYS_word_eq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_equala)   orelse
-                             wordEq (oper,ioOp POLY_SYS_int_geq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_int_leq)  orelse
-                             wordEq (oper,ioOp POLY_SYS_int_gtr)  orelse
-                             wordEq (oper,ioOp POLY_SYS_int_lss)  orelse
+                            (wordEq (oper,ioOp POLY_SYS_word_eq) orelse
+                             wordEq (oper,ioOp POLY_SYS_equal_short_arb) orelse
                              wordEq (oper,ioOp POLY_SYS_word_geq)  orelse
                              wordEq (oper,ioOp POLY_SYS_word_leq)  orelse
                              wordEq (oper,ioOp POLY_SYS_word_gtr)  orelse
                              wordEq (oper,ioOp POLY_SYS_word_lss) orelse
+                             wordEq (oper,ioOp POLY_SYS_fixed_geq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_fixed_leq)  orelse
+                             wordEq (oper,ioOp POLY_SYS_fixed_gtr)  orelse
+                             wordEq (oper,ioOp POLY_SYS_fixed_lss) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_eq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_neq) orelse
                              wordEq (oper,ioOp POLY_SYS_Real_geq) orelse

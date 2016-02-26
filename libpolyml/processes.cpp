@@ -590,7 +590,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     default:
         {
             char msg[100];
-            sprintf(msg, "Unknown thread function: %d", c);
+            sprintf(msg, "Unknown thread function: %u", c);
             raise_fail(taskData, msg);
             return 0;
         }
@@ -2083,9 +2083,8 @@ static unsigned LinuxNumPhysicalProcessors(void)
     unsigned nProcs = NumberOfProcessors();
     // If there's only one we don't need to check further.
     if (nProcs <= 1) return nProcs;
-    long *cpus = (long*)malloc(nProcs * sizeof(long));
+    long *cpus = (long*)calloc(nProcs, sizeof(long));
     if (cpus == 0) return 0;
-    memset(cpus, 0, nProcs * sizeof(long));
 
     FILE *cpuInfo = fopen("/proc/cpuinfo", "r");
     if (cpuInfo == NULL) { free(cpus); return 0; }

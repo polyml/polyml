@@ -221,9 +221,8 @@ void Statistics::Init()
 #endif
     {
         // If we just want the statistics locally.
-        statMemory = (unsigned char*)malloc(STATS_SPACE);
+        statMemory = (unsigned char*)calloc(STATS_SPACE, sizeof(unsigned char));
         if (statMemory == 0) return;
-        memset(statMemory, 0, STATS_SPACE);
     }
 #endif
     

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
  
-    Further development copyright David C.J. Matthews 2000-2015
+    Further development copyright David C.J. Matthews 2000-2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -262,6 +262,7 @@ struct
             (POLY_SYS_timing_dispatch,"POLY_SYS_timing_dispatch"),
             (POLY_SYS_objsize,"POLY_SYS_objsize"),
             (POLY_SYS_showsize,"POLY_SYS_showsize"),
+            (POLY_SYS_equal_short_arb,"POLY_SYS_equal_short_arb"),
             (POLY_SYS_quotrem,"POLY_SYS_quotrem"),
             (POLY_SYS_is_short,"POLY_SYS_is_short"),
             (POLY_SYS_aplus,"POLY_SYS_aplus"),
@@ -297,6 +298,7 @@ struct
             (POLY_SYS_arctan_real,"POLY_SYS_arctan_real"),
             (POLY_SYS_exp_real,"POLY_SYS_exp_real"),
             (POLY_SYS_ln_real,"POLY_SYS_ln_real"),
+            (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
             (POLY_SYS_stdin,"POLY_SYS_stdin"),
             (POLY_SYS_stdout,"POLY_SYS_stdout"),
             (POLY_SYS_process_env,"POLY_SYS_process_env"),
@@ -316,6 +318,13 @@ struct
             (POLY_SYS_cmem_store_64, "POLY_SYS_cmem_store_64"),
             (POLY_SYS_cmem_store_float, "POLY_SYS_cmem_store_float"),
             (POLY_SYS_cmem_store_double, "POLY_SYS_cmem_store_double"),
+            (POLY_SYS_fixed_add, "POLY_SYS_fixed_add"),
+            (POLY_SYS_fixed_sub, "POLY_SYS_fixed_sub"),
+            (POLY_SYS_fixed_mul, "POLY_SYS_fixed_mul"),
+            (POLY_SYS_fixed_quot, "POLY_SYS_fixed_quot"),
+            (POLY_SYS_fixed_rem, "POLY_SYS_fixed_rem"),
+            (POLY_SYS_fixed_div, "POLY_SYS_fixed_div"),
+            (POLY_SYS_fixed_mod, "POLY_SYS_fixed_mod"),
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_ffi, "POLY_SYS_ffi"),
             (POLY_SYS_set_code_constant,"POLY_SYS_set_code_constant"),
@@ -333,6 +342,10 @@ struct
             (POLY_SYS_offset_address,"POLY_SYS_offset_address"),
             (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
             (POLY_SYS_not_bool,"POLY_SYS_not_bool"),
+            (POLY_SYS_fixed_geq,"POLY_SYS_fixed_geq"),
+            (POLY_SYS_fixed_leq,"POLY_SYS_fixed_leq"),
+            (POLY_SYS_fixed_gtr,"POLY_SYS_fixed_gtr"),
+            (POLY_SYS_fixed_lss,"POLY_SYS_fixed_lss"),
             (POLY_SYS_string_length,"POLY_SYS_string_length"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
             (POLY_SYS_int_geq,"POLY_SYS_int_geq"),

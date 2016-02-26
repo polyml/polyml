@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: IO Support functions
-    Copyright   David C.J. Matthews 2000, 2015
+    Copyright   David C.J. Matthews 2000, 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -94,11 +94,26 @@ struct
         and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
         and sys_can_output(strm: fileDescr): int = doIo(28, strm, 0)
         and sys_avail(strm: fileDescr): int = doIo(17, strm, 0)
-        and sys_get_pos(strm: fileDescr): int = doIo(18, strm, 0)
-        and sys_set_pos(strm: fileDescr, p: int): unit =
-            (doIo(19, strm, p); ())
-        and sys_end_pos(strm: fileDescr): int = doIo(20, strm, 0)
         and sys_get_iodesc(strm: fileDescr): int = doIo(30, strm, 0)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_get_pos(strm: fileDescr): Position.int = doIo(18, strm, 0) (* N.B. large int *)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_end_pos(strm: fileDescr): Position.int = doIo(20, strm, 0) (* N.B. large int *)
+    end
+
+    local
+        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+    in
+        fun sys_set_pos(strm: fileDescr, p: Position.int): unit =
+            (doIo(19, strm, p); ()) (* N.B. large int *)
     end
 
     local

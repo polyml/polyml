@@ -52,14 +52,14 @@ sig
 
     val csegMake:          word  -> cseg
     val csegConvertToCode: cseg -> unit
-    val csegLock:          cseg -> unit
     val csegGet:           cseg * word -> Word8.word
     val csegSet:           cseg * word * Word8.word -> unit
     val csegGetWord:       cseg * word -> machineWord
     val csegPutWord:       cseg * word * machineWord -> unit
     val csegCopySeg:       cseg * cseg * word * word -> unit
     val csegAddr:          cseg -> address
-    val csegPutConstant:   cseg * word * machineWord * 'a -> unit
+    val csegCopyToCode:    cseg -> address
+    val csegPutConstant:   cseg * word * machineWord * word -> unit
 end = 
 struct
     open Address
@@ -68,7 +68,6 @@ struct
     datatype csegStatus =
         Bytes
     |   UnlockedCode
-    |   LockedCode
 
     type cseg = (csegStatus * address) ref
 
@@ -95,15 +94,12 @@ struct
         end
     | csegConvertToCode _ = 
        raise InternalError "csegConvertToCode: not a byte segment"
-    
-    fun csegLock (r as ref (UnlockedCode, addr)) : unit = 
-    let
-        val () = setFlags (addr, F_code)
-    in
-        r := (LockedCode, addr)
-    end
-    | csegLock _ = raise InternalError "csegConvertToCode: not an unlocked code segment"
-   
+
+    fun csegCopyToCode (ref (UnlockedCode, addr)): address =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (106, addr)
+
+    |   csegCopyToCode _ = raise InternalError "csegCopyToCode: not an unlocked code segment"
+ 
     fun csegAddr (ref (status, addr)) : address =
     if status = Bytes
     then raise InternalError "csegAddr: not a code segment"
@@ -144,10 +140,7 @@ struct
         else raise Subscript
     end
        
-    fun csegSet (ref (LockedCode, _), _, _) : unit =
-        raise InternalError "csegSet: can't change locked code segement"
-   
-    |   csegSet (r as (ref (status, addr)), byteIndex, value:Word8.word) : unit =
+    fun csegSet (r as (ref (status, addr)), byteIndex, value:Word8.word) : unit =
         let
             val lengthWords = objLength addr
             val lengthBytes = wordSize * lengthWords
@@ -209,8 +202,7 @@ struct
      other architectures the constant may have to be split between instructions.
      This means that it has to be done by the RTS so as to be certain that
      we don't have a garbage collection with an invalid address.  DCJM 2/1/01. *)
-    fun csegPutConstant (ref (UnlockedCode, addr), byteIndex,
-                       value:machineWord, data: 'a) : unit =
+    fun csegPutConstant (ref (UnlockedCode, addr), byteIndex, value:machineWord, option: word) : unit =
     let
         val lengthWords = objLength addr
         val lengthBytes = wordSize * lengthWords
@@ -218,7 +210,7 @@ struct
         if lengthBytes <= byteIndex
         then raise Subscript
         else RunCall.run_call4 RuntimeCalls.POLY_SYS_set_code_constant
-                (addr, byteIndex, value, data)
+                (addr, byteIndex, value, option)
     end
     | csegPutConstant _ = raise InternalError "csegPutConstant: not an unlocked code segment"
 

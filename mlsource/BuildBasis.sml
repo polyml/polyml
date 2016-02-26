@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008
+    Modified David C.J. Matthews 2008, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,11 +18,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* Install initial conversion functions. These can be replaced later on. *)
-val () = RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
-val () = RunCall.addOverload Bootstrap.convInt "convInt";
-val () = RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)
 val () = Bootstrap.use "basis/build.sml";

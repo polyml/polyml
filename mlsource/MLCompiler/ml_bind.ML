@@ -1,8 +1,5 @@
 (*
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
-
-    Updated David C.J. Matthews 2015
+    Copyright David C.J. Matthews 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,20 +26,11 @@ end;
 structure MLCompiler =
 struct
     local
-        open RuntimeCalls;
-        (* Create the global environment. *)
-        val globalTable : Make.gEnv = Make.makeGEnv ();
-        
-        val mainShell = Make.shellProc globalTable;
-        
-        val () = Initialise.initGlobalEnv globalTable;
+        (* Force Initialise to be built when using PolyML.make.
+           This builds pretty well everything. *)
+        structure S = Initialise
     in
-        (* "use" is used only during testing to enable the basis to be compiled in. *)
-        val use  = Make.useIntoEnv globalTable [];
-        
-        (* This is exported when building the normal distribution. *)
-        val shell = mainShell
-        
-        val useString = Make.useStringIntoEnv globalTable;
-    end;
+        (* Build Make. *)
+        open Make
+    end
 end;

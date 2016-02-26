@@ -297,7 +297,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     switch (c)
     {
     case 0: /* Return our OS type.  Not in any structure. */
-        return Make_arbitrary_precision(taskData, 1); /* 1 for Windows. */
+        return Make_fixed_precision(taskData, 1); /* 1 for Windows. */
 
         /* Windows-specific functions. */
     case 1000: /* execute */
@@ -358,7 +358,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                        for the result again.  We only close it when we've garbage-collected
                        the token.  Doing this runs the risk of running out of handles.
                        Maybe change it and remember the result in ML. */
-                    return Make_arbitrary_precision(taskData, dwResult);
+                    return Make_fixed_precision(taskData, dwResult);
                 }
                 // Block and try again.
                 WaitHandle waiter(hnd->entry.process.hProcess);
@@ -417,7 +417,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             PHANDLETAB hnd = get_handle(DEREFWORD(args), HE_REGISTRY);
             if (hnd != 0) close_handle(hnd);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 1012: // Get a value
@@ -608,7 +608,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free((void*)shellEx.lpFile);
             if (! fRes)
                 raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 1035: // Launch an application.
@@ -625,11 +625,11 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free((void*)shellEx.lpParameters);
             if (! fRes)
                 raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
     case 1036: // Does the process have its own console?
-        return Make_arbitrary_precision(taskData, hMainWindow != NULL ? 1: 0);
+        return Make_fixed_precision(taskData, hMainWindow != NULL ? 1: 0);
 
     case 1037: // Simple execute.
         return simpleExecute(taskData, args);
@@ -677,7 +677,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             PHANDLETAB hnd = get_handle(args->Word(), HE_DDECONVERSATION);
             if (hnd != 0) close_handle(hnd);
-            return Make_arbitrary_precision(taskData, 0);
+            return Make_fixed_precision(taskData, 0);
         }
 
 
@@ -690,10 +690,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             // GetVersionEx is deprecated in Windows 8.1
             if (! GetVersionEx(&osver))
                 raise_syscall(taskData, "GetVersionEx failed", -(int)GetLastError());
-            Handle major = Make_arbitrary_precision(taskData, osver.dwMajorVersion);
-            Handle minor = Make_arbitrary_precision(taskData, osver.dwMinorVersion);
-            Handle build = Make_arbitrary_precision(taskData, osver.dwBuildNumber);
-            Handle platform = Make_arbitrary_precision(taskData, osver.dwPlatformId);
+            Handle major = Make_fixed_precision(taskData, osver.dwMajorVersion);
+            Handle minor = Make_fixed_precision(taskData, osver.dwMinorVersion);
+            Handle build = Make_fixed_precision(taskData, osver.dwBuildNumber);
+            Handle platform = Make_fixed_precision(taskData, osver.dwPlatformId);
             Handle version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
             Handle resVal = alloc_and_save(taskData, 5);
             DEREFHANDLE(resVal)->Set(0, DEREFWORDHANDLE(major));
@@ -757,7 +757,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 // callback to ML.  For this to work a callback must not overwrite "args".
                 BOOL result = PeekMessage(&msg, hwnd, wMsgFilterMin, wMsgFilterMax, PM_NOREMOVE);
                 processes->ThreadUseMLMemory(taskData);
-                if (result) return Make_arbitrary_precision(taskData, 0);
+                if (result) return Make_fixed_precision(taskData, 0);
                 // Pause until a message arrives.
                 processes->ThreadPause(taskData);
             }
@@ -1013,6 +1013,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
 
     Handle str_token = make_stream_entry(taskData);
+    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
     strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
     if (strm->device.ioDesc == -1)
@@ -1094,7 +1095,7 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     pTab->entryType = HE_REGISTRY;
     pTab->entry.hKey = hkey;
     // Record whether this was new or old.
-    dispRes = Make_arbitrary_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
+    dispRes = Make_fixed_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
     /* Return a pair of the disposition and the token. */
     pair = alloc_and_save(taskData, 2);
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(dispRes));
@@ -1117,7 +1118,7 @@ static Handle deleteRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     if (lRes != ERROR_SUCCESS)
         /* Return the error. */
         raise_syscall(taskData, "RegDeleteKey failed", -lRes);
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent)
@@ -1134,7 +1135,7 @@ static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent
     if (lRes != ERROR_SUCCESS)
         /* Return the original error. */
         raise_syscall(taskData, "RegDeleteValue failed", -lRes);
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
@@ -1190,7 +1191,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     }
 
     /* Create a pair containing the type and the value. */
-    resType = Make_arbitrary_precision(taskData, dwType);
+    resType = Make_fixed_precision(taskData, dwType);
     result = alloc_and_save(taskData, 2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resType));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resVal));
@@ -1224,7 +1225,7 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     if (lRes != ERROR_SUCCESS)
         raise_syscall(taskData, "RegSetValue failed", -lRes);
 
-    return Make_arbitrary_precision(taskData, 0);
+    return Make_fixed_precision(taskData, 0);
 }
 
 // Enumerate a key or a value.  Returns a string option containing NONE if

@@ -939,7 +939,7 @@ polyexport.o: polyimport exportPoly.sml
 
 # Special rule for x86 assembly code.
 x86asmtemp.S: x86asm.asm
-	sed -f $(srcdir)/masm2gas <  x86asm.asm > $@ || { rm -f $@; false; }
+	sed -f $(srcdir)/masm2gas <  $(srcdir)/x86asm.asm > $@ || { rm -f $@; false; }
 
 clean-local:
 	rm -f x86asmtemp.S ppcasmtemp.s

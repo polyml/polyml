@@ -195,7 +195,8 @@ struct
                 end
             in
                 (* A few common types.  These are effectively always cached. *)
-                val intCode    = typeValForMonotype intConstr
+                val fixedIntCode = typeValForMonotype fixedIntConstr
+                and intInfCode = typeValForMonotype intInfConstr
                 and boolCode   = typeValForMonotype boolConstr
                 and stringCode = typeValForMonotype stringConstr
                 and charCode   = typeValForMonotype charConstr
@@ -208,7 +209,7 @@ struct
                         eqCode=errorFunction2, printCode=codePrintDefault, boxedCode=boxedEither, sizeCode=singleWord},
                     createTypeValue{ (* Function. *)
                         eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
-                    intCode, boolCode, stringCode, charCode
+                    fixedIntCode, intInfCode, boolCode, stringCode, charCode
                 ]
             val code = genCode(codeTuple, [], 0)()
         in
@@ -216,8 +217,9 @@ struct
                needs to be provided to satisfy the type. *)
             val defaultTypeCode = mkInd(0, code)
             val functionCode = mkInd(1, code)
-            val cachedCode = [(intConstr, mkInd(2, code)), (boolConstr, mkInd(3, code)),
-                              (stringConstr, mkInd(4, code)), (charConstr, mkInd(5, code))]
+            val cachedCode = [(fixedIntConstr, mkInd(2, code)), (intInfConstr, mkInd(3, code)),
+                              (boolConstr, mkInd(4, code)), (stringConstr, mkInd(5, code)),
+                              (charConstr, mkInd(6, code))]
         end
 
         fun findCachedTypeCode(typeVarMap: typeVarMap, typ): ((level->codetree) * int) option =

@@ -162,18 +162,10 @@ static PLock callbackTableLock; // Mutex to protect table.
 static Handle mkAbitab(TaskData *taskData, void*, char *p);
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data);
 
-static Handle toSysWord(TaskData *taskData, uintptr_t p)
-{
-    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
-    *(uintptr_t*)(result->Word().AsCodePtr()) = p;
-    return result;
-}
-
 static Handle toSysWord(TaskData *taskData, void *p)
 {
-    return toSysWord(taskData, (uintptr_t)p);
+    return Make_sysword(taskData, (uintptr_t)p);
 }
-
 
 Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 {
@@ -331,12 +323,11 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // If we need the elements add space for the elements plus
             // one extra for the zero terminator.
             if (nElems != 0) space += (nElems+1) * sizeof(ffi_type *);
-            ffi_type *result = (ffi_type*)malloc(space);
+            ffi_type *result = (ffi_type*)calloc(1, space);
             // Raise an exception rather than returning zero.
             if (result == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             ffi_type **elem = 0;
             if (nElems != 0) elem = (ffi_type **)(result+1);
-            memset(result, 0, sizeof(ffi_type)); // Zero it in case they add fields
             result->size = size;
             result->alignment = align;
             result->type = type;
@@ -509,7 +500,7 @@ Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle ba
         getPolySigned(taskData, offsetH->Word());
     POLYSIGNED index = getPolySigned(taskData, indexH->Word());
     // Box the result.
-    return toSysWord(taskData, ((uint64_t*)baseAddr)[index]);
+    return Make_sysword(taskData, ((uint64_t*)baseAddr)[index]);
 }
 #else
 Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
@@ -519,7 +510,7 @@ Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle ba
         *((uint8_t**)baseH->Word().AsAddress()) +
         getPolySigned(taskData, offsetH->Word());
     POLYSIGNED index = getPolySigned(taskData, indexH->Word());
-    return toSysWord(taskData, ((uint32_t*)baseAddr)[index]);
+    return Make_sysword(taskData, ((uint32_t*)baseAddr)[index]);
 }
 #endif
 
@@ -641,7 +632,7 @@ static Handle mkAbitab(TaskData *taskData, void *arg, char *p)
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
     uintptr_t cbIndex = (uintptr_t)data;
-    ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
+    ASSERT(cbIndex < callBackEntries);
     // We should get the task data for the thread that is running this code.
     // If this thread has been created by the foreign code we will have to
     // create a new one here.

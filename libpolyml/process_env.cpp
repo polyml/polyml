@@ -172,10 +172,10 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         }
 
     case 15: /* Return the success value. */
-        return Make_arbitrary_precision(mdTaskData, EXIT_SUCCESS);
+        return Make_fixed_precision(mdTaskData, EXIT_SUCCESS);
 
     case 16: /* Return a failure value. */
-        return Make_arbitrary_precision(mdTaskData, EXIT_FAILURE);
+        return Make_fixed_precision(mdTaskData, EXIT_FAILURE);
 
     case 17: /* Run command. */
         {
@@ -225,7 +225,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 sigemptyset(&sigset);
                 sigprocmask(SIG_SETMASK, &sigset, 0);
                 // Reset other signals?
-                execve("/bin/sh", argv, environ);
+                execv("/bin/sh", argv);
                 _exit(1);
             }
 #endif
@@ -245,7 +245,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                             if (! fResult)
                                 raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
                             CloseHandle((HANDLE)pid);
-                            return Make_arbitrary_precision(mdTaskData, result);
+                            return Make_fixed_precision(mdTaskData, result);
                         }
                     case WAIT_FAILED:
                         raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
@@ -279,7 +279,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     throw;
                 }
             }
-            return Make_arbitrary_precision(mdTaskData, res);
+            return Make_fixed_precision(mdTaskData, res);
         }
 
     case 18: /* Register function to run at exit. */
@@ -292,7 +292,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 cell->Set(1, DEREFWORD(args));
                 at_exit_list = cell;
             }
-            return Make_arbitrary_precision(mdTaskData, 0);
+            return Make_fixed_precision(mdTaskData, 0);
         }
 
     case 19: /* Return the next function in the atExit list and set the
@@ -397,23 +397,23 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         {
             int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
             if (ISPATHSEPARATOR(e))
-                return Make_arbitrary_precision(mdTaskData, 1);
-            else return Make_arbitrary_precision(mdTaskData, 0);
+                return Make_fixed_precision(mdTaskData, 1);
+            else return Make_fixed_precision(mdTaskData, 0);
         }
 
     case 9: /* Are names case-sensitive? */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Windows - no. */
-        return Make_arbitrary_precision(mdTaskData, 0);
+        return Make_fixed_precision(mdTaskData, 0);
 #else
         /* Unix - yes. */
-        return Make_arbitrary_precision(mdTaskData, 1);
+        return Make_fixed_precision(mdTaskData, 1);
 #endif
 
         // These are no longer used.  The code is handled entirely in ML.
     case 10: /* Are empty arcs redundant? */
         /* Unix and Windows - yes. */
-        return Make_arbitrary_precision(mdTaskData, 1);
+        return Make_fixed_precision(mdTaskData, 1);
 
     case 11: /* Match the volume name part of a path. */
         {
@@ -512,7 +512,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             if (IS_INT(volName))
             {
                 if (volName == TAGGED(0))
-                    return Make_arbitrary_precision(mdTaskData, 0);
+                    return Make_fixed_precision(mdTaskData, 0);
             }
             else
             {
@@ -520,7 +520,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 for (POLYUNSIGNED i = 0; i < volume->length; i++)
                 {
                     if (volume->chars[i] == '\0')
-                        return Make_arbitrary_precision(mdTaskData, 0);
+                        return Make_fixed_precision(mdTaskData, 0);
                 }
             }
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -537,16 +537,16 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 // This currently breaks the build.
                 case '/':
 #endif
-                    return Make_arbitrary_precision(mdTaskData, 0);
+                    return Make_fixed_precision(mdTaskData, 0);
                 }
-                if (*p >= 0 && *p <= 31) return Make_arbitrary_precision(mdTaskData, 0);
+                if (*p >= 0 && *p <= 31) return Make_fixed_precision(mdTaskData, 0);
             }
             // Should we check for special names such as aux, con, prn ??
-            return Make_arbitrary_precision(mdTaskData, 1);
+            return Make_fixed_precision(mdTaskData, 1);
 #else
             // That's all we need for Unix.
             // TODO: Check for /.  It's invalid in a file name arc.
-            return Make_arbitrary_precision(mdTaskData, 1);
+            return Make_fixed_precision(mdTaskData, 1);
 #endif
         }
 

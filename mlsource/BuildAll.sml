@@ -27,11 +27,16 @@ PolyML.use "basis/RuntimeCalls";
 
 PolyML.make "mlsource/MLCompiler";
 
-(* Compile the prelude and basis in the new compiler. *)
-MLCompiler.use "mlsource/BuildBasis.sml";
+(* Create the initial basis *)
+val globalTable : Make.gEnv = Make.makeGEnv ();
+val () = Initialise.initGlobalEnv {globalTable=globalTable, intIsArbitraryPrecision=false};
+
+(* Compile the basis in the new compiler. *)
+MLCompiler.useIntoEnv globalTable [] "mlsource/BuildBasis.sml";
 
 (* Use useString to start the new shell because it allows this
    to be pasted into a window as a single item.  Otherwise the
    line to start the new shell will be in the buffer of the old
    TextIO.stdIn not the one we've just built. *)
-MLCompiler.useString "PolyML.rootFunction();";
+MLCompiler.useStringIntoEnv globalTable "PolyML.rootFunction();";
+

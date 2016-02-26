@@ -247,7 +247,7 @@ struct
         and  structVals = structVals
         and  signatures = signatures
         and  functors = functors
-        and  exportTree = exportTree
+        and  ptProperties = ptProperties
     end
 
 end; (* struct *)

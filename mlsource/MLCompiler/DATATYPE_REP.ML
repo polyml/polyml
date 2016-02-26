@@ -537,7 +537,7 @@ struct
             mkTypeConstruction ("list", listCons, [base], [DeclaredAt inBasis])
         end;
 
-        val intTypeConstr    = TYPESTRUCT.intType
+        val intTypeConstr    = TYPESTRUCT.fixedIntType
         val stringTypeConstr = TYPESTRUCT.stringType
         val boolTypeConstr   = TYPESTRUCT.boolType
     in
@@ -628,7 +628,7 @@ struct
             mkTypeConstruction ("option", optionCons,
                 [
                     mkFunctionType(
-                        mkProductType[TYPESTRUCT.exnType, TYPESTRUCT.intType],
+                        mkProductType[TYPESTRUCT.exnType, TYPESTRUCT.fixedIntType],
                         mkTypeConstruction ("pretty", prettyCons, [], [DeclaredAt inBasis])
                     )
                 ],

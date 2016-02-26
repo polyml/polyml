@@ -1,5 +1,5 @@
 (*
-    Copyright (c) David C.J. Matthews 2015
+    Copyright (c) David C.J. Matthews 2015, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -195,9 +195,11 @@ sig
     and integerToReal: stackIndex * ttab * regHint -> operation list * mergeResult
 
     val setStringLength: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and addInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and subtractInteger: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
-    and multiplyIntegerByTwo: stackIndex  * ttab * regHint -> (operation list * mergeResult)
+    and addFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and subtractFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and multiplyFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+(*    and quotFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
+    and remFixed: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)*)
     and addWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and subtractWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
     and andWord: stackIndex * stackIndex * ttab * regHint -> (operation list * mergeResult)
@@ -233,12 +235,10 @@ sig
     and greaterThanWord: stackIndex * stackIndex * ttab -> labels * operation list
     and lessOrEqualWord: stackIndex * stackIndex * ttab -> labels * operation list
     and lessThanWord: stackIndex * stackIndex * ttab -> labels * operation list
-    and notEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
-    and equalInt: stackIndex * stackIndex * ttab -> labels * operation list
-    and greaterOrEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
-    and greaterThanInt: stackIndex * stackIndex * ttab -> labels * operation list
-    and lessOrEqualInt: stackIndex * stackIndex * ttab -> labels * operation list
-    and lessThanInt: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterOrEqualFixed: stackIndex * stackIndex * ttab -> labels * operation list
+    and greaterThanFixed: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessOrEqualFixed: stackIndex * stackIndex * ttab -> labels * operation list
+    and lessThanFixed: stackIndex * stackIndex * ttab -> labels * operation list
     and notEqualReal: stackIndex * stackIndex * ttab -> labels * operation list
     and equalReal: stackIndex * stackIndex * ttab -> labels * operation list
     and greaterOrEqualReal: stackIndex * stackIndex * ttab -> labels * operation list

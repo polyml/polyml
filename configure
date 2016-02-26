@@ -636,6 +636,8 @@ enable_option_checking=no
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
+INTINFISINT_FALSE
+INTINFISINT_TRUE
 moduledir
 GIT_VERSION
 gitinstalled
@@ -824,6 +826,7 @@ with_system_libffi
 with_threads
 enable_native_codegeneration
 with_moduledir
+enable_intinf_as_int
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1489,6 +1492,7 @@ Optional Features:
   --disable-native-codegeneration
                           disable the native code generator and use the slow
                           byte code interpreter instead.
+  --enable-intinf-as-int  set arbitrary precision as the default int type
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -21817,6 +21821,18 @@ $as_echo "#define HOSTARCHITECTURE_MIPS 1" >>confdefs.h
 
             polyarch=interpret
             ;;
+      s390x*)
+
+$as_echo "#define HOSTARCHITECTURE_S390X 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      s390*)
+
+$as_echo "#define HOSTARCHITECTURE_S390 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
       *) as_fn_error $? "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 
@@ -21966,6 +21982,28 @@ else
 fi
 
 moduledir=$moduledir
+
+
+# Control whether to build the basis library with arbitrary precision as the default int
+# Check whether --enable-intinf-as-int was given.
+if test "${enable_intinf_as_int+set}" = set; then :
+  enableval=$enable_intinf_as_int; case "${enableval}" in
+       no) intisintinf=no ;;
+       yes) intisintinf=yes ;;
+       *) as_fn_error $? "bad value ${enableval} for --enable-intinf-as-int" "$LINENO" 5 ;;
+        esac
+else
+  intisintinf=no
+fi
+
+
+ if test "$intisintinf" = "yes"; then
+  INTINFISINT_TRUE=
+  INTINFISINT_FALSE='#'
+else
+  INTINFISINT_TRUE='#'
+  INTINFISINT_FALSE=
+fi
 
 
 # These are needed for building in a separate build directory, as they are
@@ -22170,6 +22208,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
   as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${INTINFISINT_TRUE}" && test -z "${INTINFISINT_FALSE}"; then
+  as_fn_error $? "conditional \"INTINFISINT\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

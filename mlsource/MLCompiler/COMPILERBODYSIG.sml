@@ -1,10 +1,9 @@
 (*
-    Copyright David C. J. Matthews 2015
+    Copyright David C. J. Matthews 2015-16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,7 +23,7 @@ sig
     type structVals;
     type signatures;
     type functors;
-    type exportTree
+    type ptProperties
 
     type nameSpace =
       { 
@@ -53,6 +52,8 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
+    type exportTree = location * ptProperties list
+
     (* The completed compiler.
        Returns the parse tree and, if successful, a function that executes the
        compiled code.  *)
@@ -71,7 +72,7 @@ sig
         and  structVals = structVals
         and  signatures = signatures
         and  functors = functors
-        and  exportTree = exportTree
+        and  ptProperties = ptProperties
     end
 
 end;
