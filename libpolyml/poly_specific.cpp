@@ -33,6 +33,10 @@
 #include <assert.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #include "globals.h"
 #include "poly_specific.h"
 #include "arb.h"
