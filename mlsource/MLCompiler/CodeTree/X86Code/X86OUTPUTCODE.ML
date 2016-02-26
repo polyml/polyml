@@ -1843,68 +1843,75 @@ Calling conventions:
 
     (* Allocate store and put the resulting pointer in the result register. *)
     local
-        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc) =
-        (
+        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet) =
+        let
             (* Common code.  resultReg contains the possible new address. *)
-            genOpEA(Arith (CMP, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMbottom, ebp, resultReg, cvec);
+            val () = genOpEA(Arith (CMP, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMbottom, ebp, resultReg, cvec);
 
-            let
-                (* Normally we won't have run out of store so we want the default
-                   branch prediction to skip the test here. However doing that
-                   involves adding an extra branch which lengthens the code so
-                   it's probably not worth while. *)
-                (*val lab =
-                    let
-                        val () = genop(CondJump JB, cvec);
-                        val () = gen8u (0w0, cvec);
-                        val lab2 = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                        val () = genop(JMP_8, cvec);
-                        val () = gen8u (0w0, cvec);
-                        val lab = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                    in
-                        fixup(lab2, cvec);
-                        lab
-                    end*)
-                (* Just checking against the lower limit in this way can fail
-                   in the situation where the heap pointer is at the low end of
-                   the address range and the store required is so large that the
-                   subtraction results in a negative number.  In that case it
-                   will be > (unsigned) lower_limit so in addition we have
-                   to check that the result is < (unsigned) heap_pointer.
-                   This actually happened on Windows with X86-64.
-                   In theory this can happen with fixed-size allocations as
-                   well as variable allocations but in practice fixed-size
-                   allocations are going to be small enough that it's not a
-                   problem.  *)
-                val lab =
-                if isVarAlloc
-                then
+            (* Normally we won't have run out of store so we want the default
+               branch prediction to skip the test here. However doing that
+               involves adding an extra branch which lengthens the code so
+               it's probably not worth while. *)
+            (*val lab =
                 let
-                    val lab1 = [putConditional(JB, cvec)]
-                    val () =
-                        if isX64
-                        then genReg (CMP, resultReg, r15, cvec)
-                        else genOpEA(Arith (CMP, 0w3), memRegLocalMPointer, ebp, resultReg, cvec) 
-                    val lab2 = [putConditional(JB, cvec)]
+                    val () = genop(CondJump JB, cvec);
+                    val () = gen8u (0w0, cvec);
+                    val lab2 = [makeShortLabel (!ic addrPlus ~1, cvec)]
+                    val () = genop(JMP_8, cvec);
+                    val () = gen8u (0w0, cvec);
+                    val lab = [makeShortLabel (!ic addrPlus ~1, cvec)]
                 in
-                    fixup(lab1, cvec);
-                    lab2
-                end
-                else [putConditional(JNB, cvec)]
+                    fixup(lab2, cvec);
+                    lab
+                end*)
+            (* Just checking against the lower limit in this way can fail
+               in the situation where the heap pointer is at the low end of
+               the address range and the store required is so large that the
+               subtraction results in a negative number.  In that case it
+               will be > (unsigned) lower_limit so in addition we have
+               to check that the result is < (unsigned) heap_pointer.
+               This actually happened on Windows with X86-64.
+               In theory this can happen with fixed-size allocations as
+               well as variable allocations but in practice fixed-size
+               allocations are going to be small enough that it's not a
+               problem.  *)
+            val lab =
+            if isVarAlloc
+            then
+            let
+                val lab1 = [putConditional(JB, cvec)]
+                val () =
+                    if isX64
+                    then genReg (CMP, resultReg, r15, cvec)
+                    else genOpEA(Arith (CMP, 0w3), memRegLocalMPointer, ebp, resultReg, cvec) 
+                val lab2 = [putConditional(JB, cvec)]
             in
-                (* If we don't have enough store for this allocation we call this
-                   function. *)
-                genOpPlus2(Group5, LargeInt.fromInt memRegHeapOverflowCall, ebp, 0w2 (* call *), cvec);
-                fixup (lab, cvec)
-            end;
+                fixup(lab1, cvec);
+                lab2
+            end
+            else [putConditional(JNB, cvec)]
+
+            (* If we don't have enough store for this allocation we call this
+               function.  Push the registers before the call and pop them afterwards. *)
+            fun pushCallAndPop [] =
+                genOpPlus2(Group5, LargeInt.fromInt memRegHeapOverflowCall, ebp, 0w2 (* call *), cvec)
+            |   pushCallAndPop (reg::rest) =
+                (
+                    genPushPop(PUSH_R, reg, cvec);
+                    pushCallAndPop rest;
+                    genPushPop(POP_R, reg, cvec)
+                )
+        in
+            pushCallAndPop (setToList regSaveSet);
+            fixup (lab, cvec);
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
                store was being allocated. *)
             if isX64 then genMove(r15, resultReg, cvec)
             else genOpEA (MOVL_R_A, memRegLocalMPointer, ebp, resultReg, cvec)
-         )
+        end
     in
-        fun allocStoreCode (size: int, resultReg, cvec as Code { inAllocation as ref false, ...}) =
+        fun allocStoreCode (size: int, resultReg, saveRegs, cvec as Code { inAllocation as ref false, ...}) =
         let
             val _ = inAllocation := true
             val bytes = LargeInt.fromInt (size + 1) * LargeInt.fromInt wordSize
@@ -1918,12 +1925,12 @@ Calling conventions:
                 genLoad (memRegLocalMPointer, ebp, resultReg, cvec);
                 genLeal (resultReg, resultReg, ~ bytes, cvec)
             );
-            allocStoreCommonCode(resultReg, cvec, false)
+            allocStoreCommonCode(resultReg, cvec, false, saveRegs)
         end
         |  allocStoreCode _ =
             raise InternalError "Allocation started but not complete"
 
-        and allocStoreVarCode(resultReg, code as Code { inAllocation as ref false, ...}) =
+        and allocStoreVarCode(resultReg, saveRegs, code as Code { inAllocation as ref false, ...}) =
             (* The result reg contains the requested size as a number of bytes
                on entry and returns with the base address. *)
         (
@@ -1934,15 +1941,15 @@ Calling conventions:
             if isX64
             then genReg(ADD, resultReg, r15, code)
             else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code);
-            allocStoreCommonCode(resultReg, code, true)
+            allocStoreCommonCode(resultReg, code, true, saveRegs)
         )
         | allocStoreVarCode _ =
             raise InternalError "Allocation started but not complete"
     end
 
-    fun allocStoreAndSetSize (size, flag, resultReg, cvec) =
+    fun allocStoreAndSetSize (size, flag, resultReg, saveRegs, cvec) =
     (
-        allocStoreCode (size, resultReg, cvec);
+        allocStoreCode (size, resultReg, saveRegs, cvec);
         if isX64
         then
         (
@@ -2004,8 +2011,8 @@ Calling conventions:
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
     |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
-    |   AllocStore of { size: int, output: reg }
-    |   AllocStoreVariable of reg
+    |   AllocStore of { size: int, output: reg, saveRegs: regSet }
+    |   AllocStoreVariable of { output: reg, saveRegs: regSet }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -2194,10 +2201,10 @@ Calling conventions:
                 else stream(Int.toString entry)
             )
 
-        |   AllocStore { size, output } =>
+        |   AllocStore { size, output, ... } =>
                 (stream "AllocStore "; stream(Int.toString size); stream " => "; printReg output )
 
-        |   AllocStoreVariable reg => (stream "AllocStoreVariable "; printReg reg )
+        |   AllocStoreVariable { output, ...} => (stream "AllocStoreVariable "; printReg output )
         
         |   StoreInitialised => stream "StoreInitialised"
 
@@ -2731,32 +2738,8 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(PushR(reg as GenReg _ ) :: remainder) =
+        |   cgOp(PushR reg :: remainder) =
                     (checkSources[reg]; genPushPop(PUSH_R, reg, code); cgOp remainder)
-        |   cgOp(PushR(src as FPReg _ ) :: remainder) =
-            (
-                (* We need to push a fp register to the stack.  This can't be done directly so
-                   needs to go through a general register.
-                   Push eax (any register would do), allocate memory into that, then
-                   swap the value with the top of the stack, restoring the original
-                   eax and putting the address of the store onto the stack.
-                   It would be better to choose a free register and use that since
-                   we wouldn't need to save it. *)
-                (* This originally used the XCHNG instruction to do the swap but
-                   that is very expensive because it involves a lock.  This version is
-                   slightly more complicated but much quicker. *)
-                checkSources[src];
-                genPushPop (PUSH_R, eax, code);
-                genPushPop (PUSH_R, eax, code);
-                loadFpRegToStack(src, 0w0, code);
-                allocStoreAndSetSize(8 div wordSize, F_bytes, eax, code);
-                genOpPlus2(FPESC 0w5, 0, eax, 0wx3, code); (* FSTP [rd] *)
-                genOpEA (MOVL_R_A, LargeInt.fromInt wordSize, esp, eax, code);
-                genPushPop(POP_R, eax, code);
-                (* We've completed the allocation. *)
-                case code of Code { inAllocation, ...} => inAllocation := false;
-                cgOp remainder
-            )
 
         |   cgOp(PushMem{base, offset} :: remainder) =
             (
@@ -2918,11 +2901,21 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(AllocStore{ size, output } :: remainder) =
-                (addDests[output]; allocStoreCode(size, output, code); cgOp remainder)
+        |   cgOp(AllocStore{ size, output, saveRegs } :: remainder) =
+            (
+                if inSet(output, saveRegs) then raise InternalError "AllocStore: in set" else ();
+                checkSources(setToList saveRegs); addDests[output];
+                allocStoreCode(size, output, saveRegs, code);
+                cgOp remainder
+            )
 
-        |   cgOp(AllocStoreVariable reg :: remainder) =
-                (checkSources[reg]; addDests[reg]; allocStoreVarCode(reg, code); cgOp remainder)
+        |   cgOp(AllocStoreVariable{output, saveRegs} :: remainder) =
+            (
+                if inSet(output, saveRegs) then raise InternalError "AllocStoreVariable: in set" else ();
+                checkSources(output :: setToList saveRegs); addDests[output];
+                allocStoreVarCode(output, saveRegs, code);
+                cgOp remainder
+            )
 
         |   cgOp(StoreInitialised :: remainder) =
             (

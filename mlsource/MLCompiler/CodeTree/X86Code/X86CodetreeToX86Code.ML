@@ -146,17 +146,17 @@ struct
     and storeMemory(reg, base, offset) =
         [StoreRegToMemory{toStore=reg, address=BaseOffset{base=base, offset=offset, index=NoIndex}}]
 
-    fun allocStore{size, flags, output} =
+    fun allocStore{size, flags, output, preserve} =
     if isX64 andalso flags <> 0w0
     then
-        [AllocStore{size=size, output=output},
+        [AllocStore{size=size, output=output, saveRegs=preserve},
          StoreConstToMemory{toStore=LargeInt.fromInt size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}} ]
     else
     let
         val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
     in
-        [AllocStore{size=size, output=output},
+        [AllocStore{size=size, output=output, saveRegs=preserve},
          StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}}]
     end
 
@@ -171,53 +171,6 @@ struct
         toMachineWord profileObject
     end
 
-    local
-        (* The stack limit register is set at least twice this far from the
-           end of the stack so we can simply compare the stack pointer with
-           the stack limit register if we need less than this much. Setting
-           it at twice this value means that procedures which use up to this
-           much stack and do not call any other procedures do not need to
-           check the stack at all. *)
-        val minStackCheck = 20
-    in
-        (* Adds the constants onto the code, and copies the code into a new segment *)
-        fun buildCode (cvec, operations, stackRequired, registerSet, callsAProc) : address =
-        let
-            (* Prelude consists of stack checking code. *)
-            val preludeCode =
-            let
-                fun testRegAndTrap(reg, entryPt) =
-                let
-                    (* Normally we won't have a stack overflow so we will skip the check. *)
-                    val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
-                in
-                    [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
-                    skipCheck @ [CallRTS entryPt] @ forwardJumpLabel skipCheckLab
-                end
-            in
-                if stackRequired >= minStackCheck
-                then
-                let
-                    (* Compute the necessary amount in edi and compare that. *)
-                    val stackByteAdjust = ~wordSize * stackRequired
-                    val testEdiCode =
-                        testRegAndTrap (edi, memRegStackOverflowCallEx)
-                in
-                     [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
-                end
-         
-                else if callsAProc (* check for interrupt *)
-                then testRegAndTrap (esp, memRegStackOverflowCall)
-               
-                else [] (* no stack check required *)
-            end
-
-            (* The code is in reverse order.  Reverse it and put the prelude first. *)
-        in
-            createCodeSegment(X86OPTIMISE.optimise(cvec, preludeCode @ operations), registerSet, cvec)
-        end
-    end
-    
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
         val profileObject = createProfileObject name
@@ -241,14 +194,12 @@ struct
         val closureRegAddr = !stackCount
 
         val numArgs = List.length argTypes
-        local
-            fun pushArg(argReg::argRegs, _::aTypes) =
-                push argReg @ pushArg(argRegs, aTypes)
-            |   pushArg _ = []
-        in
-            (* Push all the arguments that have been passed in registers. *)
-            val pushArgs = pushArg(argRegs, argTypes)
-        end
+        val argRegsUsed =
+            if numArgs >= List.length argRegs
+            then argRegs
+            else List.take(argRegs, numArgs)
+        val pushArgs =
+            List.foldr (fn (r, l) => push r @ l) [] argRegsUsed
 
         fun allocateHeap(size, flag, toReg) =
         let
@@ -258,9 +209,9 @@ struct
             (* If we need to add the profile object *)
             if addAllocatingFunction
             then
-                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg} @
+                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=RegSet.noRegisters} @
                     [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
-            else allocStore {size=size, flags=flag, output=toReg}
+            else allocStore {size=size, flags=flag, output=toReg, preserve=RegSet.noRegisters}
         end
 
         (* This is a naive code-generator that simply evaluates everything to eax. *)
@@ -293,7 +244,7 @@ struct
                         fun buildClosure({lambda={closure, ...}, addr, ...}, l) =
                         let
                             val sizeClosure = List.length closure + 1
-                            val mem = allocStore{size=sizeClosure, flags=Address.F_mutable, output=eax}
+                            val mem = allocStore{size=sizeClosure, flags=Address.F_mutable, output=eax, preserve=RegSet.noRegisters}
                             val pushR = push eax
                             val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
                             fun clearAll n =
@@ -716,8 +667,46 @@ struct
         val ops =
             pushClosureReg @ pushArgs @ codeToX86(body, {loopAddr=NONE}) @
                 [ResetStack(!stackCount), ReturnFromFunction(Int.max(0, numArgs-numArgRegs))]
+
+        (* The stack limit register is set at least twice this far from the
+           end of the stack so we can simply compare the stack pointer with
+           the stack limit register if we need less than this much. Setting
+           it at twice this value means that procedures which use up to this
+           much stack and do not call any other procedures do not need to
+           check the stack at all. *)
+        val minStackCheck = 20
+        val stackRequired = ! maxStack
+        (* Adds the constants onto the code, and copies the code into a new segment *)
+
+            (* Prelude consists of stack checking code. *)
+        fun testRegAndTrap(reg, entryPt) =
+        let
+            (* If we need to take the trap we save the argument and closure registers
+               across the trap. *)
+            val saveRegs = argRegsUsed @ (case closure of [] => [] | _ => [edx])
+            fun pushThenPop [] = [CallRTS entryPt]
+            |   pushThenPop (aReg::regs) = PushR aReg :: (pushThenPop regs @ [PopR aReg])
+            (* Normally we won't have a stack overflow so we will skip the check. *)
+            val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
+        in
+            [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
+            skipCheck @ pushThenPop saveRegs @ forwardJumpLabel skipCheckLab
+        end
+        val preludeCode =
+            if stackRequired >= minStackCheck
+            then
+            let
+                (* Compute the necessary amount in edi and compare that. *)
+                val stackByteAdjust = ~wordSize * stackRequired
+                val testEdiCode =
+                    testRegAndTrap (edi, memRegStackOverflowCallEx)
+            in
+                 [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
+            end
+     
+            else testRegAndTrap (esp, memRegStackOverflowCall)
     in
-        buildCode (newCode, ops, ! maxStack, (*regList*)RegSet.allRegisters, (*callsAFunction*) true)
+        createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ ops), (* Registers modified. *)RegSet.allRegisters, newCode)
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =

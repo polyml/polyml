@@ -134,8 +134,8 @@ sig
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
     |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
-    |   AllocStore of { size: int, output: reg }
-    |   AllocStoreVariable of reg
+    |   AllocStore of { size: int, output: reg, saveRegs: RegSet.regSet }
+    |   AllocStoreVariable of { output: reg, saveRegs: RegSet.regSet }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds

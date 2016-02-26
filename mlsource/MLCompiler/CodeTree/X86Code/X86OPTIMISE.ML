@@ -334,7 +334,8 @@ struct
             else reverse(s :: tl, l :: list, rep)
 
             (* See if we can merge two allocations. *)
-        |   reverse((l as AllocStore{size=aSize, output=aOut}) :: tl, list, rep) =
+            (* Comment this out for the moment. *)
+(*        |   reverse((l as AllocStore{size=aSize, output=aOut}) :: tl, list, rep) =
             let
                 fun searchAlloc([], _, _, _) = []
                 |   searchAlloc (AllocStore{size=bSize, output=bOut} :: tl, instrs, modRegs, true) =
@@ -379,7 +380,7 @@ struct
                     [] => reverse(tl, l :: list, rep)
                 |   newTail => reverse(newTail, list, true)
             end
-
+*)
         |   reverse(hd :: tl, list, rep) = reverse(tl, hd :: list, rep)
 
         (* Repeat scans through the code until there are no further changes. *)
