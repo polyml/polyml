@@ -522,12 +522,9 @@ ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
 FullRestore         EQU     23  ;# Byte: Full/partial restore
 PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
-RaiseDiv            EQU     52  ;# Call to raise the Div exception
-ArbEmulation        EQU     56  ;# Arbitrary precision emulation
 ThreadId            EQU     60  ;# My thread id
-RealTemp            EQU     64 ;# Space for int-real conversions
+RealTemp            EQU     64  ;# Space for int-real conversions
 RaiseOverflow       EQU     68  ;# Call to raise the Overflow exception
-
 ELSE
 HandlerRegister     EQU     8
 LocalMbottom        EQU     16
@@ -539,8 +536,6 @@ FullRestore         EQU     43  ;# Byte: Full/partial restore
 PolyStack           EQU     48  ;# Current stack base
 SavedSp             EQU     56  ;# Saved stack pointer
 RaiseExEntry        EQU     88  ;# Raise exception
-RaiseDiv            EQU     104  ;# Exception trace
-ArbEmulation        EQU     112  ;# Arbitrary precision emulation
 ThreadId            EQU     120 ;# My thread id
 RealTemp            EQU     128 ;# Space for int-real conversions
 RaiseOverflow       EQU     136  ;# Call to raise the Overflow exception
@@ -557,8 +552,6 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    FullRestore,23
 .set    PolyStack,24
 .set    SavedSp,28
-.set    RaiseDiv,52
-.set    ArbEmulation,56
 .set    ThreadId,60
 .set    RealTemp,64
 .set    RaiseOverflow,68
@@ -576,8 +569,6 @@ ELSE
 .set    StackOverflow,72
 .set    StackOverflowEx,80
 .set    RaiseExEntry,88
-.set    RaiseDiv,104
-.set    ArbEmulation,112
 .set    ThreadId,120
 .set    RealTemp,128
 .set    RaiseOverflow,136
@@ -593,7 +584,6 @@ POLY_SYS_exit                EQU 1
 POLY_SYS_chdir               EQU 9
 POLY_SYS_alloc_store         EQU 11
 POLY_SYS_get_flags           EQU 17
-POLY_SYS_exception_trace_fn  EQU 32
 POLY_SYS_give_ex_trace_fn    EQU 33
 POLY_SYS_network             EQU 51
 POLY_SYS_os_specific         EQU 52
@@ -660,7 +650,6 @@ POLY_SYS_ffi                 EQU 190
 POLY_SYS_set_code_constant   EQU 194
 POLY_SYS_code_flags          EQU 200
 POLY_SYS_shrink_stack        EQU 201
-POLY_SYS_callcode_tupled     EQU 204
 POLY_SYS_foreign_dispatch    EQU 205
 POLY_SYS_XWindows            EQU 209
 POLY_SYS_int_geq             EQU 231
@@ -672,8 +661,6 @@ POLY_SYS_int_lss             EQU 234
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
-RETURN_RAISE_DIV            EQU 4
-RETURN_ARB_EMULATION        EQU 5
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_RAISE_OVERFLOW       EQU 8
@@ -684,8 +671,6 @@ ELSE
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
-#define RETURN_RAISE_DIV            4
-#define RETURN_ARB_EMULATION        5
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
@@ -826,6 +811,14 @@ ENDIF
 ;# Load the registers from the ML stack and jump to the code.
 ;# This is used to start ML code.
 ;# The argument is the address of the MemRegisters struct and goes into %rbp.
+;# This is the general code for switching control to ML.  There are a number of cases to consider:
+;# 1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
+;# 2.  Normal return from an RTS call.  Could just do a simple return.
+;# 3.  Exception raised in RTS call.  
+;# 4.  Callcode - this could be dealt with entirely in assembly code.
+;# 5.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
+;# 6.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
+;#     either because the stack can't be grown or because Interrupt has been raised.
 CALLMACRO INLINE_ROUTINE X86AsmSwitchToPoly
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx                    ;# Argument - address of MemRegisters - goes into Rebp
@@ -1011,6 +1004,58 @@ ELSE
 ENDIF
     ret
 
+;# CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
+;# to constant arguments.  Oddly, compared with other RTS functions, it takes a single
+;# argument that is a pair containing the function closure and an argument vector.
+CALLMACRO INLINE_ROUTINE callcodeTupled
+    MOVL    [Reax],Redx                         ;# closure
+    MOVL    [Reax+POLYWORDSIZE],Resi            ;# address of arg vector
+    CMPL    CONST NIL,Resi                      ;# If calling a function without args this could be nil
+    je      cct2
+    MOVL    CONST Max_Length,Recx               ;# Mask for length removing any flags
+    ANDL    [Resi-POLYWORDSIZE],Recx            ;# Load and mask length
+    jz      cct2
+    MOVL    [Resi],Reax                         ;# First argument
+    ADDL    CONST POLYWORDSIZE,Resi
+    SUBL    CONST 1,Recx
+    jz      cct2
+    MOVL    [Resi],Rebx                         ;# Second argument
+    ADDL    CONST POLYWORDSIZE,Resi
+    SUBL    CONST 1,Recx
+    jz      cct2
+IFDEF HOSTARCHITECTURE_X86_64
+    MOVL    [Resi],R8                           ;# Third argument
+    ADDL    CONST POLYWORDSIZE,Resi
+    SUBL    CONST 1,Recx
+    jz      cct2
+    MOVL    [Resi],R9                           ;# Fourth argument
+    ADDL    CONST POLYWORDSIZE,Resi
+    SUBL    CONST 1,Recx
+    jz      cct2
+    MOVL    [Resi],R10                          ;# Fifth argument
+    ADDL    CONST POLYWORDSIZE,Resi
+    SUBL    CONST 1,Recx
+    jz      cct2
+ENDIF
+    POPL    Redi                                ;# Get the return address
+cct1:                                           ;# Push the remaining args to the stack
+    PUSHL   [Resi]
+    ADDL    CONST POLYWORDSIZE,Resi
+    LOOP    cct1
+    PUSHL   Redi                                ;# Push the return address
+
+cct2:                                           ;# Finished - enter function
+    MOVL    CONST UNIT,Resi                     ;# Clobber, for the moment
+    MOVL    CONST UNIT,Recx
+IFDEF WINDOWS
+    jmp     FULLWORD ptr [Redx]
+ELSE
+    jmp     *[Redx]
+ENDIF
+
+
+
+CALLMACRO   RegMask callcodeTupled,Mask_all     ;# All because we're calling an unknown function
 ;#
 ;# A number of functions implemented in Assembly for efficiency reasons
 ;#
@@ -2083,8 +2128,7 @@ CALLMACRO INLINE_ROUTINE minus_word
 CALLMACRO   RegMask minus_word,(M_Reax)
 
 CALLMACRO INLINE_ROUTINE div_word
-    SHRL    CONST TAGSHIFT,Rebx
-    jz      raise_div_ex
+    SHRL    CONST TAGSHIFT,Rebx     ;# Check for division by zero is done in ML
     SHRL    CONST TAGSHIFT,Reax
     MOVL    CONST 0,Redx
     div     Rebx
@@ -2095,8 +2139,7 @@ CALLMACRO   MAKETAGGED  Reax,Reax
 CALLMACRO   RegMask div_word,(M_Reax OR M_Rebx OR M_Redx)
 
 CALLMACRO INLINE_ROUTINE mod_word
-    SHRL    CONST TAGSHIFT,Rebx
-    jz      raise_div_ex
+    SHRL    CONST TAGSHIFT,Rebx ;# Check for division by zero is done in ML
     SHRL    CONST TAGSHIFT,Reax
     MOVL    CONST 0,Redx
     div     Rebx
@@ -2105,13 +2148,6 @@ CALLMACRO   MAKETAGGED  Redx,Reax
     MOVL    Reax,Rebx
     ret
 CALLMACRO   RegMask mod_word,(M_Reax OR M_Rebx OR M_Redx)
-
-raise_div_ex:
-IFDEF WINDOWS
-    jmp     FULLWORD ptr [RaiseDiv+Rebp]
-ELSE
-    jmp     *RaiseDiv[Rebp]
-ENDIF
 
 CALLMACRO INLINE_ROUTINE word_eq
     CMPL    Rebx,Reax
@@ -2325,6 +2361,11 @@ CALLMACRO   RegMask thread_self,(M_Reax)
 
 ;# Memory for LargeWord.word values.  This is the same as mem_for_real on
 ;# 64-bits but only a single word on 32-bits.
+;# ********************************
+;# Some of this code is temporary.  The final version should compute the result and
+;# simply jump here to box it.  That requires the heap-overflow code to save the
+;# registers across the trap but not to examine them for pointers.  Temporarily we
+;# don't do that but instead clear all the registers across a trap.
 mem_for_largeword:
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    LocalMpointer[Rebp],Recx
@@ -2336,7 +2377,15 @@ ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
         jnb      mem_for_largeword1
+;# ********************************
+;# Temporarily: push these registers to the stack
+;# and pop them afterwards.  This isn't the final version of this code
+;# but is useful as a test.
+		PUSHL	 Reax
+		PUSHL    Rebx
         call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+		POPL     Rebx
+		POPL     Reax
 mem_for_largeword1:
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
 IFDEF WINDOWS
@@ -2366,7 +2415,15 @@ ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
         jnb      mem_for_real1
+;# ********************************
+;# Temporarily: push these registers to the stack
+;# and pop them afterwards.  This isn't the final version of this code
+;# but is useful as a test.
+		PUSHL	 Reax
+		PUSHL    Rebx
         call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+		POPL     Rebx
+		POPL     Reax
 mem_for_real1:
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
@@ -2471,6 +2528,7 @@ CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 ;# "if x < 0.0 then ~ x else x" but the test always fails for NaNs
 
 CALLMACRO INLINE_ROUTINE real_abs
+    MOVL	Reax,Rebx                ;# Put a valid value in Rebx
     call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
@@ -2487,11 +2545,12 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
+CALLMACRO   RegMask real_abs,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_FP7)          ;# Temporarily include Rebx
 
 
 CALLMACRO INLINE_ROUTINE real_neg
-        call    mem_for_real
+    MOVL	Reax,Rebx                ;# Put a valid value in Rebx
+    call    mem_for_real
 ;# Do the operation and put the result in the allocated
 ;# space.
 ;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
@@ -2507,7 +2566,7 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
+CALLMACRO   RegMask real_neg,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_FP7)         ;# Temporarily include Rebx
 
 
 
@@ -2624,6 +2683,7 @@ CALLMACRO   RegMask real_geq,(M_Reax OR M_FP7)
 CALLMACRO INLINE_ROUTINE real_from_int
     TESTL   CONST TAG,Reax   ;# Is it long ?
     jz      real_float_1
+    MOVL	Reax,Rebx                ;# Put a valid value in Rebx
     call    mem_for_real
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
     MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
@@ -2647,6 +2707,7 @@ real_float_1:
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 CALLMACRO INLINE_ROUTINE fixed_to_real
+    MOVL	Reax,Rebx                ;# Put a valid value in Rebx
     call    mem_for_real
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
     MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
@@ -2664,27 +2725,41 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
+CALLMACRO   RegMask fixed_to_real,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_FP7)    ;# Temporarily include Rebx
 
-;# Additional assembly code routines
-
-;# This code is called if a function set up with exception_trace
-;# returns normally.  It removes the handler.
-CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTrace
-    ADDL    CONST POLYWORDSIZE,Resp       ;# Remove handler
-    POPL    HandlerRegister[Rebp]
-    RET
-    NOP                         ;# Add an extra byte so we have 8 bytes on both X86 and X86_64
-
-CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFn
+CALLMACRO INLINE_ROUTINE set_exception_trace
+;# The argument is the closure to call.  The return address is already on the stack.
+;# We need to push the addresses of some code.  To make it position-independent we use
+;# CALLs in a non-standard way.
+	MOVL	Reax,Redx					;# Target closure
+	PUSHL	HandlerRegister[Rebp]		;# Previous handler
+	CALL    setexct1                    ;# Jump to setexct1 pushing the next addr to the stack
+    ;# This is the code that is called if we get an exception.
     ;# The exception packet is the first argument.
 IFDEF WINDOWS
-        mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
-        jmp     X86AsmSaveStateAndReturn
+    mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
+    jmp     X86AsmSaveStateAndReturn
 ELSE
-        MOVB    CONST POLY_SYS_give_ex_trace_fn,RequestCode[Rebp]
-        jmp     X86AsmSaveStateAndReturn
+    MOVB    CONST POLY_SYS_give_ex_trace_fn,RequestCode[Rebp]
+    jmp     X86AsmSaveStateAndReturn
 ENDIF
+    ;#
+setexct1:
+    MOVL    Resp,HandlerRegister[Rebp]  ;# Set up the handler
+    CALL    setexct2                    ;# Jump to setexct2 pushing the next addr to the stack
+    ;# This is the code that is called if we return without raising an exception
+    ADDL    CONST POLYWORDSIZE,Resp     ;# Remove handler
+    POPL    HandlerRegister[Rebp]
+    RET
+setexct2:
+    MOVL    CONST UNIT,Reax             ;# The function takes a unit arg.
+IFDEF WINDOWS
+    jmp     FULLWORD ptr [Redx]         ;# Jump to the function
+ELSE
+    jmp     *[Redx]
+ENDIF
+
+;# Additional assembly code routines
 
 ;# RTS call to kill the current thread. 
 CALLMACRO INLINE_ROUTINE X86AsmKillSelf
@@ -2797,21 +2872,23 @@ CALLMACRO   RegMask longword_to_tagged,(M_Reax)
 
 CALLMACRO INLINE_ROUTINE signed_to_longword
 ;# Shift the value to remove the tag and store it.
+	MOVL	Reax,Rebx					;# mem_for_largeword may push rebx
     call    mem_for_largeword
     SARL    CONST TAGSHIFT,Reax         ;# Arithmetic shift, preserve sign
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Recx)
+CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Rebx OR M_Recx)   ;# Temporarily include Rebx
 
 CALLMACRO INLINE_ROUTINE unsigned_to_longword
 ;# Shift the value to remove the tag and store it.
+	MOVL	Reax,Rebx					;# mem_for_largeword may push rebx
     call    mem_for_largeword
     SHRL    CONST TAGSHIFT,Reax         ;# Logical shift, zero top bit
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Recx)
+CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Rebx OR M_Recx)   ;# Temporarily include Rebx
 
 CALLMACRO INLINE_ROUTINE plus_longword
     call    mem_for_largeword
@@ -2846,12 +2923,7 @@ ENDIF
 CALLMACRO   RegMask mul_longword,(M_Reax OR M_Recx OR M_Redx)
 
 CALLMACRO INLINE_ROUTINE div_longword
-IFDEF WINDOWS
-    cmp     FULLWORD ptr [Rebx],0
-ELSE
-    CMPL    CONST 0,[Rebx]
-ENDIF
-    jz      raise_div_ex
+;# Check for division by zero is done in ML
     call    mem_for_largeword
     MOVL    [Reax],Reax
     MOVL    CONST 0,Redx
@@ -2868,12 +2940,7 @@ ENDIF
 CALLMACRO   RegMask div_longword,(M_Reax OR M_Recx OR M_Redx)
 
 CALLMACRO INLINE_ROUTINE mod_longword
-IFDEF WINDOWS
-    cmp     FULLWORD ptr [Rebx],0
-ELSE
-    CMPL    CONST 0,[Rebx]
-ENDIF
-    jz      raise_div_ex
+;# Check for division by zero is done in ML
     call    mem_for_largeword
     MOVL    [Reax],Reax
     MOVL    CONST 0,Redx
@@ -3079,7 +3146,9 @@ ENDIF
 
 CALLMACRO INLINE_ROUTINE cmem_load_asm_64 ;# The result is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
+    PUSHL	R8						;# Save R8 which isn't saved in mem_for_largeword
     call    mem_for_largeword
+	POPL	R8
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3093,7 +3162,13 @@ CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
 CALLMACRO INLINE_ROUTINE cmem_load_asm_float
+IFDEF HOSTARCHITECTURE_X86_64
+    PUSHL	R8						;# Save R8 which isn't saved in mem_for_largeword
+ENDIF
     call    mem_for_real
+IFDEF HOSTARCHITECTURE_X86_64
+    POPL	R8						;# Save R8 which isn't saved in mem_for_largeword
+ENDIF
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3115,7 +3190,13 @@ ENDIF
 CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
 CALLMACRO INLINE_ROUTINE cmem_load_asm_double
+IFDEF HOSTARCHITECTURE_X86_64
+    PUSHL	R8						;# Save R8 which isn't saved in mem_for_largeword
+ENDIF
     call    mem_for_real
+IFDEF HOSTARCHITECTURE_X86_64
+    POPL	R8						;# Save R8 which isn't saved in mem_for_largeword
+ENDIF
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3134,8 +3215,6 @@ ENDIF
     MOVL    Recx,Reax
     RET3
 
-cmem_load_double1:
-     CALLMACRO   CALL_IO POLY_SYS_cmem_load_double
 CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
    
 CALLMACRO INLINE_ROUTINE cmem_store_asm_8
@@ -3291,7 +3370,6 @@ ENDIF
 CALLMACRO CREATE_IO_CALL  POLY_SYS_exit
 CALLMACRO CREATE_IO_CALL  POLY_SYS_chdir
 CALLMACRO CREATE_IO_CALL  POLY_SYS_get_flags
-CALLMACRO CREATE_IO_CALL  POLY_SYS_exception_trace_fn
 CALLMACRO CREATE_IO_CALL  POLY_SYS_profiler
 CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_str
 CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_Dispatch
@@ -3308,7 +3386,6 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_set_code_constant
 CALLMACRO CREATE_IO_CALL  POLY_SYS_code_flags
 CALLMACRO CREATE_IO_CALL  POLY_SYS_shrink_stack
 CALLMACRO CREATE_IO_CALL  POLY_SYS_process_env
-CALLMACRO CREATE_IO_CALL  POLY_SYS_callcode_tupled
 CALLMACRO CREATE_IO_CALL  POLY_SYS_foreign_dispatch
 CALLMACRO CREATE_IO_CALL  POLY_SYS_ffi
 CALLMACRO CREATE_IO_CALL  POLY_SYS_stack_trace
@@ -3328,8 +3405,6 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_cos_real
 CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
-CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
-CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 ;# Register mask vector. - extern int registerMaskVector[];
@@ -3377,7 +3452,7 @@ ENDIF
     dd  Mask_teststrleq          ;# 29
     dd  Mask_all                 ;# 30
     dd  Mask_all                 ;# 31 is no longer used
-    dd  Mask_all                 ;# exception_trace_fn 32
+    dd  Mask_all                 ;# exception_trace_fn 32 - Calls unknown function
     dd  Mask_all                 ;# 33 is no longer used
     dd  Mask_all                 ;# 34 is no longer used
     dd  Mask_all                 ;# 35 is no longer used
@@ -3557,7 +3632,7 @@ ENDIF
     dd  Mask_all                 ;# 201
     dd  Mask_all                 ;# stderr = 202
     dd  Mask_all                 ;# 203 now unused
-    dd  Mask_all                 ;# 204
+    dd  Mask_callcodeTupled      ;# 204 - callcode
     dd  Mask_all                 ;# 205
     dd  Mask_all                 ;# 206
     dd  Mask_all                 ;# 207 is unused
