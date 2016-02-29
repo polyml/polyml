@@ -814,10 +814,9 @@ ENDIF
 ;# This is the general code for switching control to ML.  There are a number of cases to consider:
 ;# 1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
 ;# 2.  Normal return from an RTS call.  Could just do a simple return.
-;# 3.  Exception raised in RTS call.  
-;# 4.  Callcode - this could be dealt with entirely in assembly code.
-;# 5.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-;# 6.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
+;# 3.  Exception raised in RTS call.
+;# 4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
+;# 5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
 ;#     either because the stack can't be grown or because Interrupt has been raised.
 CALLMACRO INLINE_ROUTINE X86AsmSwitchToPoly
 IFNDEF HOSTARCHITECTURE_X86_64

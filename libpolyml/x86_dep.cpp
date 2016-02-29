@@ -695,21 +695,15 @@ void X86TaskData::GCStack(ScanAddress *process)
         PolyWord *stackPtr = stack->p_sp; // Save this BEFORE we update
         PolyWord *stackEnd = stackSpace->top;
 
-        // Either this is TAGGED(0) indicating a retry or it's a code pointer.
-        if (stack->p_pc != TAGGED(0).AsCodePtr())
-        {
-            PolyWord ppc = PolyWord::FromCodePtr(stack->p_pc);
-            ScanStackAddress(process, ppc, stackSpace, true);
-            stack->p_pc = ppc.AsCodePtr();
-        }
-
+        PolyWord ppc = PolyWord::FromCodePtr(stack->p_pc);
+        ScanStackAddress(process, ppc, stackSpace, true);
+        stack->p_pc = ppc.AsCodePtr();
 
         // Now the values on the stack.
         for (PolyWord *q = stackPtr; q < stackEnd; q++)
             ScanStackAddress(process, *q, stackSpace, false);
      }
 }
-
 
 // Process a value within the stack.
 void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode)
@@ -840,13 +834,10 @@ static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant
 // IO Functions called indirectly from assembly code.
 static void CallIO0(X86TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
-    // Set the return address now.
+    // Set the return address now.  This could be changed if an exception is raised.
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle result = (*ioFun)(taskData);
     PSP_EAX(taskData) = result->Word();
-    // If this is a normal return we can pop the return address.
-    // If this has raised an exception, set for retry or changed process
-    // we mustn't.  N,B, The return address could have changed because of GC
     PSP_SP(taskData)++;
 }
 
@@ -1586,16 +1577,11 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_RAISE_OVERFLOW:
             try {
-                // This is included here to ensure the registers are cleared and also because
-                // it provides a way to raise the exception from compiled code.
+                // The primary reason for providing this is to allow the assembly code to
+                // raise the overflow exception.  It's quite difficult for it to make an
+                // exception packet otherwise.  It also provides a way to raise the
+                // exception from compiled code.
                 PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
-                // Set all the registers to a safe value here.  We will almost certainly
-                // have shifted a value in one of the registers before testing it for zero.
-                for (POLYUNSIGNED i = 0; i < CHECKED_REGS; i++)
-                {
-                    PolyWord *pr = (&this->stack->stack()->p_eax)+i;
-                    *pr = TAGGED(0);
-                }
                 raise_exception0(this, this->memRegisters.returnReason == EXC_overflow);
             }
             catch (IOException &) {
@@ -1631,7 +1617,6 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     StackObject * newStack = space->stack();
     POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-3;
-    newStack->p_pc    = PC_RETRY_SPECIAL;
     newStack->p_sp    = (PolyWord*)newStack+topStack; 
     this->memRegisters.handlerRegister    = (PolyWord*)newStack+topStack+1;
 
@@ -1641,6 +1626,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     newStack->p_ebx = TAGGED(0);
     newStack->p_ecx = TAGGED(0);
     newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
+    newStack->p_pc  = newStack->p_edx.AsObjPtr()->Get(0).AsCodePtr();
     newStack->p_esi = TAGGED(0);
     newStack->p_edi = TAGGED(0);
 #ifdef HOSTARCHITECTURE_X86_64
@@ -1855,12 +1841,6 @@ void X86TaskData::SetMemRegisters()
     this->memRegisters.returnReason = RETURN_IO_CALL;
 
     this->memRegisters.threadId = this->threadObject;
- 
-    // We set the PC to zero to indicate that we should retry the call to the RTS
-    // function.  In that case we need to set it back to the code address before we
-    // return.  This is also used if we have raised an exception.
-    if (PSP_IC(this) == PC_RETRY_SPECIAL)
-        PSP_IC(this) = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // This is called whenever we have returned from ML to C.
@@ -1994,10 +1974,10 @@ void X86Dependent::InitInterfaceVector(void)
 }
 
 void X86TaskData::SetException(poly_exn *exc)
-// Set up the stack of a process to raise an exception.
+// Set up the stack to raise an exception.
 {
     PSP_EDX(this) = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    PSP_IC(this)     = PC_RETRY_SPECIAL;
+    PSP_IC(this)  = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
     PSP_EAX(this) = exc; /* put exception data into eax */
 }
 
