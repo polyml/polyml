@@ -597,8 +597,6 @@ POLY_SYS_unsigned_to_longword EQU 91
 POLY_SYS_full_gc             EQU 92
 POLY_SYS_stack_trace         EQU 93
 POLY_SYS_timing_dispatch     EQU 94
-POLY_SYS_objsize             EQU 99
-POLY_SYS_showsize            EQU 100
 POLY_SYS_quotrem             EQU 104
 POLY_SYS_aplus               EQU 106
 POLY_SYS_aminus              EQU 107
@@ -1719,6 +1717,7 @@ quotrem_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_quotrem
 CALLMACRO   RegMask quotrem,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
 
+;# TODO: Isn't this byte equality?
 CALLMACRO INLINE_ROUTINE equal_long
     CMPL    Reax,Rebx
     je      RetTrue
@@ -2305,6 +2304,12 @@ CALLMACRO   MAKETAGGED  Redx,Reax
 CALLMACRO   RegMask fixed_mod,(M_Reax OR M_Rebx OR M_Redx)
 
 raiseOverflowEx:
+;# Build the exception packet.
+;# Allocate four word item.
+;# Set first word to TAGGED(5)
+;# Set second word to the string "Overflow" - That's going to need allocation.
+;# Set third and fourth words to TAGGED(0)
+;# Raise the exception.
 IFDEF WINDOWS
     jmp     FULLWORD ptr [RaiseOverflow+Rebp]
 ELSE
@@ -3391,8 +3396,6 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_stack_trace
 CALLMACRO CREATE_IO_CALL  POLY_SYS_full_gc
 CALLMACRO CREATE_IO_CALL  POLY_SYS_XWindows
 CALLMACRO CREATE_IO_CALL  POLY_SYS_timing_dispatch
-CALLMACRO CREATE_IO_CALL  POLY_SYS_showsize
-CALLMACRO CREATE_IO_CALL  POLY_SYS_objsize
 CALLMACRO CREATE_IO_CALL  POLY_SYS_kill_self
 CALLMACRO CREATE_IO_CALL  POLY_SYS_thread_dispatch
 CALLMACRO CREATE_IO_CALL  POLY_SYS_io_operation

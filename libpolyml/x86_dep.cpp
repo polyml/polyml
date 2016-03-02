@@ -373,8 +373,8 @@ extern "C" {
         mul_longword, div_longword, mod_longword, andb_longword, orb_longword, xorb_longword,
         CallPOLY_SYS_kill_self, shift_left_longword, shift_right_longword, shift_right_arith_longword,
         CallPOLY_SYS_profiler, longword_to_tagged, signed_to_longword, unsigned_to_longword,
-        CallPOLY_SYS_full_gc, CallPOLY_SYS_stack_trace, CallPOLY_SYS_timing_dispatch, CallPOLY_SYS_objsize,
-        CallPOLY_SYS_showsize, quotrem_long, is_shorta, add_long, sub_long, mult_long, div_long, rem_long,
+        CallPOLY_SYS_full_gc, CallPOLY_SYS_stack_trace, CallPOLY_SYS_timing_dispatch,
+        quotrem_long, is_shorta, add_long, sub_long, mult_long, div_long, rem_long,
         neg_long, xor_long, equal_long, or_long, and_long, CallPOLY_SYS_Real_str, real_geq, real_leq,
         real_gtr, real_lss, real_eq, real_neq, CallPOLY_SYS_Real_Dispatch, real_add, real_sub, real_mul,
         real_div, real_abs, real_neg, CallPOLY_SYS_conv_real, CallPOLY_SYS_real_to_int, real_from_int,
@@ -504,8 +504,8 @@ static byte *entryPointVector[256] =
     0, // 96 is unused
     0, // 97 is unused
     0, // 98 is unused
-    &CallPOLY_SYS_objsize, // 99
-    &CallPOLY_SYS_showsize, // 100
+    0, // 99 now unused
+    0, // 100 now unused
     &word_eq, // 101.  This can be the same as 251
     0, // 102 is unused
     0, // 103 is unused
@@ -900,30 +900,6 @@ static void CallIO4(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, H
 #endif /* HOSTARCHITECTURE_X86_64 */
 }
 
-// The only functions with 5 args are move_bytes/word_long
-static void CallIO5(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
-{
-    PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[3]);
-    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[2]);
-    Handle saved5 = taskData->saveVec.push(PSP_SP(taskData)[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
-    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
-    Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
-#endif /* HOSTARCHITECTURE_X86_64 */
-    Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
-    PSP_EAX(taskData) = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-    PSP_SP(taskData) += 4; // Pop the return address and 3 stack args
-#else /* HOSTARCHITECTURE_X86_64 */
-    PSP_SP(taskData)++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-}
-
 Handle X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -969,16 +945,8 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO3(this, &alloc_store_long_c);
                 break;
 
-            case POLY_SYS_alloc_uninit:
-                CallIO2(this, &alloc_uninit_c);
-                break;
-
             case POLY_SYS_chdir:
                 CallIO1(this, &change_dirc);
-                break;
-
-            case POLY_SYS_get_length:
-                CallIO1(this, &vec_length_c);
                 break;
 
             case POLY_SYS_get_flags:
@@ -992,8 +960,6 @@ Handle X86TaskData::EnterPolyCode()
             case POLY_SYS_quotrem:
                 CallIO3(this, &quot_rem_c);
                 break;
-
-    //        case POLY_SYS_is_short: CallIO1(this, &is_shortc); break;
 
             case POLY_SYS_aplus:
                 CallIO2(this, &add_longc);
@@ -1039,56 +1005,8 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO3(this, &Real_strc);
                 break;
 
-            case POLY_SYS_Real_geq:
-                CallIO2(this, &Real_geqc);
-                break;
-
-            case POLY_SYS_Real_leq:
-                CallIO2(this, &Real_leqc);
-                break;
-
-            case POLY_SYS_Real_gtr:
-                CallIO2(this, &Real_gtrc);
-                break;
-
-            case POLY_SYS_Real_lss:
-                CallIO2(this, &Real_lssc);
-                break;
-
-            case POLY_SYS_Real_eq:
-                CallIO2(this, &Real_eqc);
-                break;
-
-            case POLY_SYS_Real_neq:
-                CallIO2(this, &Real_neqc);
-                break;
-
             case POLY_SYS_Real_Dispatch:
                 CallIO2(this, &Real_dispatchc);
-                break;
-
-            case POLY_SYS_Add_real:
-                CallIO2(this, &Real_addc);
-                break;
-
-            case POLY_SYS_Sub_real:
-                CallIO2(this, &Real_subc);
-                break;
-
-            case POLY_SYS_Mul_real:
-                CallIO2(this, &Real_mulc);
-                break;
-
-            case POLY_SYS_Div_real:
-                CallIO2(this, &Real_divc);
-                break;
-
-            case POLY_SYS_Abs_real:
-                CallIO1(this, &Real_absc);
-                break;
-
-            case POLY_SYS_Neg_real:
-                CallIO1(this, &Real_negc);
                 break;
 
             case POLY_SYS_conv_real:
@@ -1100,7 +1018,6 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_int_to_real:
-            case POLY_SYS_fixed_to_real: // This is used if we have run out of memory
                 CallIO1(this, &Real_from_arbitrary_precision);
                 break;
 
@@ -1132,38 +1049,8 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &io_operation_c);
                 break;
 
-            case POLY_SYS_atomic_reset:
-                CallIO1(this, &ProcessAtomicReset);
-                break;
-
-            case POLY_SYS_atomic_incr:
-                CallIO1(this, &ProcessAtomicIncrement);
-                break;
-
-            case POLY_SYS_atomic_decr:
-                CallIO1(this, &ProcessAtomicDecrement);
-                break;
-
-            case POLY_SYS_thread_self:
-                CallIO0(this, &ThreadSelf);
-                break;
-
             case POLY_SYS_thread_dispatch:
                 CallIO2(this, &ThreadDispatch);
-                break;
-
-//            case POLY_SYS_offset_address: CallIO2(this, &offset_addressc); break;
-
-            case POLY_SYS_shift_right_word:
-                CallIO2(this, &shift_right_word_c);
-                break;
-    
-            case POLY_SYS_not_bool:
-                CallIO1(this, &not_bool_c);
-                break;
-
-            case POLY_SYS_string_length:
-                CallIO1(this, &string_length_c);
                 break;
 
             case POLY_SYS_int_geq:
@@ -1180,58 +1067,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_int_lss:
                 CallIO2(this, &ls_longc);
-                break;
-
-            case POLY_SYS_or_word:
-                CallIO2(this, &or_word_c);
-                break;
-
-            case POLY_SYS_and_word:
-                CallIO2(this, &and_word_c);
-                break;
-
-            case POLY_SYS_xor_word:
-                CallIO2(this, &xor_word_c);
-                break;
-
-            case POLY_SYS_shift_left_word:
-                CallIO2(this, &shift_left_word_c);
-                break;
-
-            case POLY_SYS_word_eq:
-            case POLY_SYS_equal_short_arb:
-                CallIO2(this, &word_eq_c);
-                break;
-
-            case POLY_SYS_load_byte:
-            case POLY_SYS_load_byte_immut:
-                CallIO2(this, &load_byte_long_c);
-                break;
-
-            case POLY_SYS_load_word:
-            case POLY_SYS_load_word_immut:
-                CallIO2(this, &load_word_long_c);
-                break;
-
-    //        case POLY_SYS_is_big_endian: CallIO0(this, &is_big_endianc); break;
-    //        case POLY_SYS_bytes_per_word: CallIO0(this, &bytes_per_wordc); break;
-
-            case POLY_SYS_assign_byte:
-                CallIO3(this, &assign_byte_long_c);
-                break;
-
-            case POLY_SYS_assign_word:
-                CallIO3(this, &assign_word_long_c);
-                break;
-
-            // ObjSize and ShowSize are now in the poly_specific functions and
-            // probably should be removed from here.
-            case POLY_SYS_objsize:
-                CallIO1(this, &ObjSize);
-                break;
-
-            case POLY_SYS_showsize:
-                CallIO1(this, &ShowSize);
                 break;
 
             case POLY_SYS_timing_dispatch:
@@ -1258,9 +1093,9 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &poly_ffi);
                 break;
 
-            case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
-
-    //        case POLY_SYS_set_string_length: CallIO2(this, &set_string_length_c); break;
+            case POLY_SYS_process_env:
+                CallIO2(this, &process_env_dispatch_c);
+                break;
 
             case POLY_SYS_shrink_stack:
                 CallIO1(this, &shrink_stack_c);
@@ -1270,134 +1105,12 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &CodeSegmentFlags);
                 break;
 
-            case POLY_SYS_shift_right_arith_word:
-                CallIO2(this, &shift_right_arith_word_c);
-                break;
-
-            case POLY_SYS_get_first_long_word:
-            case POLY_SYS_int_to_word:
-                // POLY_SYS_int_to_word has generally been replaced by POLY_SYS_get_first_long_word.
-                // The reason is that POLY_SYS_int_to_word may be applied to either a long or
-                // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
-                // long argument and can be implemented very easily in the code-generator, at
-                // least on a little-endian machine.
-                CallIO1(this, &int_to_word_c);
-                break;
-
             case POLY_SYS_poly_specific:
                 CallIO2(this, &poly_dispatch_c);
                 break;
 
-            case POLY_SYS_bytevec_eq:
-                CallIO5(this, &testBytesEqual);
-                break;
-
-            case POLY_SYS_cmem_load_32:
-                CallIO3(this, &cmem_load_32);
-                break;
-
-            case POLY_SYS_cmem_load_float:
-                CallIO3(this, &cmem_load_float);
-                break;
-
-            case POLY_SYS_cmem_load_double:
-                CallIO3(this, &cmem_load_double);
-                break;
-
-            case POLY_SYS_cmem_store_8:
-                CallIO4(this, &cmem_store_8);
-                break;
-
-            case POLY_SYS_cmem_store_16:
-                CallIO4(this, &cmem_store_16);
-                break;
-
-            case POLY_SYS_cmem_store_32:
-                CallIO4(this, &cmem_store_32);
-                break;
-
-#if (SIZEOF_VOIDP == 8)
-            case POLY_SYS_cmem_load_64:
-                CallIO3(this, &cmem_load_64);
-                break;
-
-            case POLY_SYS_cmem_store_64:
-                CallIO4(this, &cmem_store_64);
-                break;
-#endif
-
-            case POLY_SYS_cmem_store_float:
-                CallIO4(this, &cmem_store_float);
-                break;
-
-            case POLY_SYS_cmem_store_double:
-                CallIO4(this, &cmem_store_double);
-                break;
-
             case POLY_SYS_set_code_constant:
                 CallIO4(this, &set_code_constant);
-                break;
-
-            case POLY_SYS_move_bytes:
-            case POLY_SYS_move_bytes_overlap:
-                CallIO5(this, &move_bytes_long_c);
-                break;
-
-            case POLY_SYS_move_words:
-            case POLY_SYS_move_words_overlap:
-                CallIO5(this, &move_words_long_c);
-                break;
-
-            case POLY_SYS_mul_word:
-                CallIO2(this, &mul_word_c);
-                break;
-
-            case POLY_SYS_plus_word:
-                CallIO2(this, &plus_word_c);
-                break;
-
-            case POLY_SYS_minus_word:
-                CallIO2(this, &minus_word_c);
-                break;
-
-            case POLY_SYS_div_word:
-                CallIO2(this, &div_word_c);
-                break;
-
-            case POLY_SYS_mod_word:
-                CallIO2(this, &mod_word_c);
-                break;
-
-            case POLY_SYS_word_geq:
-                CallIO2(this, &word_geq_c);
-                break;
-
-            case POLY_SYS_word_leq:
-                CallIO2(this, &word_leq_c);
-                break;
-
-            case POLY_SYS_word_gtr:
-                CallIO2(this, &word_gtr_c);
-                break;
-
-            case POLY_SYS_word_lss:
-                CallIO2(this, &word_lss_c);
-                break;
-
-            case POLY_SYS_fixed_geq:
-                CallIO2(this, &fixed_geq_c);
-                break;
-
-            case POLY_SYS_fixed_leq:
-                CallIO2(this, &fixed_leq_c);
-                break;
-
-            case POLY_SYS_fixed_gtr:
-                CallIO2(this, &fixed_gtr_c);
-                break;
-
-            case POLY_SYS_fixed_lss:
-                CallIO2(this, &fixed_lss_c);
                 break;
 
             case POLY_SYS_io_dispatch:
@@ -1418,82 +1131,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_kill_self:
                 CallIO0(this, exitThread);
-                break;
-
-            case POLY_SYS_eq_longword:
-                CallIO2(this, &eqLongWord);
-                break;
-
-            case POLY_SYS_geq_longword:
-                CallIO2(this, &geqLongWord);
-                break;
-
-            case POLY_SYS_leq_longword:
-                CallIO2(this, &leqLongWord);
-                break;
-
-            case POLY_SYS_gt_longword:
-                CallIO2(this, &gtLongWord);
-                break;
-
-            case POLY_SYS_lt_longword:
-                CallIO2(this, &ltLongWord);
-                break;
-
-            case POLY_SYS_plus_longword:
-                CallIO2(this, &plusLongWord);
-                break;
-
-            case POLY_SYS_minus_longword:
-                CallIO2(this, &minusLongWord);
-                break;
-
-            case POLY_SYS_mul_longword:
-                CallIO2(this, &mulLongWord);
-                break;
-
-            case POLY_SYS_div_longword:
-                CallIO2(this, &divLongWord);
-                break;
-
-            case POLY_SYS_mod_longword:
-                CallIO2(this, &modLongWord);
-                break;
-
-            case POLY_SYS_andb_longword:
-                CallIO2(this, &andbLongWord);
-                break;
-
-            case POLY_SYS_orb_longword:
-                CallIO2(this, &orbLongWord);
-                break;
-
-            case POLY_SYS_xorb_longword:
-                CallIO2(this, &xorbLongWord);
-                break;
-
-            case POLY_SYS_shift_left_longword:
-                CallIO2(this, &shiftLeftLongWord);
-                break;
-
-            case POLY_SYS_shift_right_longword:
-                CallIO2(this, &shiftRightLongWord);
-                break;
-
-            case POLY_SYS_shift_right_arith_longword:
-                CallIO2(this, &shiftRightArithLongWord);
-                break;
-
-            case POLY_SYS_longword_to_tagged:
-                CallIO1(this, &longWordToTagged);
-                break;
-
-            case POLY_SYS_signed_to_longword:
-                CallIO1(this, &signedToLongWord);
-                break;
-
-            case POLY_SYS_unsigned_to_longword:
-                CallIO1(this, &unsignedToLongWord);
                 break;
 
             // This is called from assembly code and doesn't actually have an entry in the

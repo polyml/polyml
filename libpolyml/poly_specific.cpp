@@ -143,8 +143,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_full_gc: return PROPWORD_NORAISE; // Effectively has a side-effect
     case POLY_SYS_stack_trace: return 0;
     case POLY_SYS_timing_dispatch: return 0;
-    case POLY_SYS_objsize: return PROPWORD_NORAISE;
-    case POLY_SYS_showsize: return PROPWORD_NORAISE;
     case POLY_SYS_equal_short_arb: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_quotrem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
     case POLY_SYS_is_short: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -403,8 +401,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return SAVE(TAGGED(0));
         }
 
-        // ObjSize and ShowSize have their own IO vector entries but really they don't
-        // need them.  Include them here and add ObjProfile.
     case 14:
         return ObjSize(taskData, args);
 

@@ -1787,16 +1787,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO2(this, &ls_longc);
                 break;
 
-            // ObjSize and ShowSize are now in the poly_specific functions and
-            // probably should be removed from here.
-            case POLY_SYS_objsize:
-                CallIO1(this, &ObjSize);
-                break;
-
-            case POLY_SYS_showsize:
-                CallIO1(this, &ShowSize);
-                break;
-
             case POLY_SYS_timing_dispatch:
                 CallIO2(this, &timing_dispatch_c);
                 break;
