@@ -64,17 +64,17 @@ extern Handle makeList(TaskData *taskData, int count, char *p, int size, void *a
 
 
 /* exceptions and interrupts */
-NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
-NORETURNFN(extern void raise_exception0(TaskData *taskData, int id));
-NORETURNFN(extern void raise_exception_string(TaskData *taskData, int id, const char *str));
-NORETURNFN(extern void raise_fail(TaskData *taskData, const char *errmsg));
+extern Handle raise_exception(TaskData *taskData, int id, Handle arg, bool throwEx=true);
+extern Handle raise_exception0(TaskData *taskData, int id, bool throwEx=true);
+extern Handle raise_exception_string(TaskData *taskData, int id, const char *str, bool throwEx=true);
+extern Handle raise_fail(TaskData *taskData, const char *errmsg, bool throwEx=true);
 
 // Raise OS.SysCall(OS.errorMsg err, SOME err)
-NORETURNFN(extern void raiseSyscallError(TaskData *taskData, int err));
+extern Handle raiseSyscallError(TaskData *taskData, int err, bool throwEx=true);
 // Raise OS.SysCall(msg, NONE)
-NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errmsg));
+extern Handle raiseSyscallMessage(TaskData *taskData, const char *errmsg, bool throwEx=true);
 // This was the previous version.  The errmsg argument is ignored unless err is zero.
-NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
+extern Handle raise_syscall(TaskData *taskData, const char *errmsg, int err, bool throwEx=true);
 
 extern void give_stack_trace(TaskData *taskData, PolyWord *stackPtr, PolyWord *finish);
 

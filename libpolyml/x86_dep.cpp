@@ -194,7 +194,7 @@ public:
    UNCHECKED_REGS + \
    EXTRA_STACK)
 
-
+class X86TaskData;
 
 // These "memory registers" are referenced from the assembly code.
 // Some are actually referenced from ML code so the offsets are built in.
@@ -204,7 +204,7 @@ typedef struct _MemRegisters {
     PolyWord    *handlerRegister;   // Current exception handler
     PolyWord    *localMbottom;      // Base of memory + 1 word
     PolyWord    *stackLimit;        // Lower limit of stack
-    PolyWord    *unusedNow;         // Previously: Upper limit of stack
+    PolyWord    exceptionPacket;   // Set if there is an exception
     // These offsets are built into the assembly code section
     byte        requestCode;        // IO function to call.
     byte        inRTS;              // Flag indicating we're not in ML
@@ -217,11 +217,12 @@ typedef struct _MemRegisters {
     byte        *stackOverflowEx;   // Called when the stack limit is reached (alternate)
     byte        *raiseException;    // Called to raise an exception.  The packet is passed in eax.
     byte        *ioEntry;           // Called for an IO function
-    byte        *unusedNow1;        // Previously called to raise the Div exception.
+    X86TaskData *parentPtr;         // Get the containing Taskdata pointer.
     byte        *unusedNow2;        // Previously arbitrary precision emulation.
     PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
     POLYSIGNED  real_temp;          // Space used to convert integers to reals.
     byte        *raiseOverflow;     // Called to raise the Overflow exception.
+    POLYSIGNED  mr_esp;             // Saved SP value.
 } MemRegisters;
 
 class X86TaskData: public TaskData {
@@ -673,6 +674,7 @@ static byte *entryPointVector[256] =
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
+    memRegisters.parentPtr = this;
     memRegisters.inRTS = 1; // We start off in the RTS.
     // Point "raiseException" at the assembly code for "raisex"
     memRegisters.raiseException = (byte*)entryPointVector[POLY_SYS_raisex];
@@ -1148,6 +1150,19 @@ Handle X86TaskData::EnterPolyCode()
     }
 }
 
+extern "C" {
+    Handle X86ChDir(MemRegisters *mr, PolyWord arg);
+}
+
+Handle X86ChDir(MemRegisters *mr, PolyWord arg)
+{
+    X86TaskData *taskData = mr->parentPtr;
+    Handle pushedArg = taskData->saveVec.push(arg);
+    taskData->SaveMemRegisters();  // Need to save the current heap pointer
+    Handle result = change_dirc(taskData, pushedArg);
+    taskData->SetMemRegisters(); // Restore the heap pointer.  Create a new heap area if there's been a GC.
+    return result;
+}
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
 // whenever the ML requires assistance from the rest of the RTS it simply
 // returns to C with the appropriate values set in memRegisters.requestCode and
@@ -1616,6 +1631,7 @@ void X86TaskData::SetException(poly_exn *exc)
     PSP_EDX(this) = (PolyObject*)IoEntry(POLY_SYS_raisex);
     PSP_IC(this)  = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
     PSP_EAX(this) = exc; /* put exception data into eax */
+    memRegisters.exceptionPacket = exc;
 }
 
 // Sets up a callback function on the current stack.  The present state is that

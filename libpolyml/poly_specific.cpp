@@ -270,7 +270,11 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_load_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
     case POLY_SYS_assign_byte: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_assign_word: return PROPWORD_NORAISE|PROPWORD_NODEREF;
-    default: raise_exception_string(taskData, EXC_Fail, "Unknown IO operation");
+    default:
+        {
+            raise_exception_string(taskData, EXC_Fail, "Unknown IO operation");
+            return 0;
+        }
     }
 }
 

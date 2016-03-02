@@ -516,6 +516,7 @@ LocalMpointer       EQU     0
 IFNDEF HOSTARCHITECTURE_X86_64
 HandlerRegister     EQU     4
 LocalMbottom        EQU     8
+ExceptionPacket     EQU     16  ;# Address of packet to raise
 RequestCode         EQU     20  ;# Byte: Io function to call.
 InRTS               EQU     21  ;# Byte: Set when in the RTS
 ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
@@ -525,10 +526,11 @@ SavedSp             EQU     28  ;# Saved stack pointer
 ThreadId            EQU     60  ;# My thread id
 RealTemp            EQU     64  ;# Space for int-real conversions
 RaiseOverflow       EQU     68  ;# Call to raise the Overflow exception
+Mr_ESP              EQU     72  ;# Saved esp value
 ELSE
 HandlerRegister     EQU     8
 LocalMbottom        EQU     16
-StackLimit          EQU     24  ;# Lower limit of stack
+ExceptionPacket     EQU     32  ;# Address of packet to raise
 RequestCode         EQU     40  ;# Byte: Io function to call.
 InRTS               EQU     41  ;# Byte: Set when in the RTS
 ReturnReason        EQU     42  ;# Byte: Reason for returning from ML.
@@ -538,7 +540,8 @@ SavedSp             EQU     56  ;# Saved stack pointer
 RaiseExEntry        EQU     88  ;# Raise exception
 ThreadId            EQU     120 ;# My thread id
 RealTemp            EQU     128 ;# Space for int-real conversions
-RaiseOverflow       EQU     136  ;# Call to raise the Overflow exception
+RaiseOverflow       EQU     136 ;# Call to raise the Overflow exception
+Mr_ESP              EQU     144 ;# Saved esp value
 ENDIF
 
 ELSE
@@ -546,6 +549,7 @@ ELSE
 IFNDEF HOSTARCHITECTURE_X86_64
 .set    HandlerRegister,4
 .set    LocalMbottom,8
+.set    ExceptionPacket,16
 .set    RequestCode,20
 .set    InRTS,21
 .set    ReturnReason,22
@@ -555,10 +559,11 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    ThreadId,60
 .set    RealTemp,64
 .set    RaiseOverflow,68
+.set    Mr_ESP,72
 ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
-.set    StackLimit,24
+.set    ExceptionPacket,32
 .set    RequestCode,40
 .set    InRTS,41
 .set    ReturnReason,42
@@ -572,6 +577,7 @@ ELSE
 .set    ThreadId,120
 .set    RealTemp,128
 .set    RaiseOverflow,136
+.set    Mr_ESP,144
 ENDIF
 
 ENDIF
@@ -843,6 +849,7 @@ ENDIF
     PUSHL   R15
     PUSHL   Redi                            ;# Callee save in Windows
     PUSHL   Resi
+    PUSHL   Resi                            ;# A second time to get the overall alignment right
     MOVL    Resp,SavedSp[Recx]              ;# savedSp:=%Resp - Save the system stack pointer.
     MOVL    Recx,Rebp                       ;# Put address of MemRegisters where it belongs
 ENDIF
@@ -950,6 +957,7 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
+    POPL    Resi                            ;# Remove extra alignment push
     POPL    Resi
     POPL    Redi
     POPL    R15                            ;# Restore callee-save registers
@@ -990,6 +998,7 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
+    POPL    Resi                            ;# Remove extra push
     POPL    Resi
     POPL    Redi
     POPL    R15                            ;# Restore callee-save registers
@@ -3372,7 +3381,7 @@ ELSE
 ENDIF
 
 CALLMACRO CREATE_IO_CALL  POLY_SYS_exit
-CALLMACRO CREATE_IO_CALL  POLY_SYS_chdir
+;# CALLMACRO CREATE_IO_CALL  POLY_SYS_chdir
 CALLMACRO CREATE_IO_CALL  POLY_SYS_get_flags
 CALLMACRO CREATE_IO_CALL  POLY_SYS_profiler
 CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_str
@@ -3408,6 +3417,66 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
+
+;# Direct calls to the RTS
+
+;# chdir.  May raise an exception which means it may allocate space for the exception packet.
+;# The caller is supposed to preserve RBP
+EXTRN   X86ChDir:PROC
+CALLMACRO INLINE_ROUTINE CallPOLY_SYS_chdir
+IFDEF WINDOWS
+        mov     FULLWORD ptr ExceptionPacket[Rebp],CONST UNIT
+ELSE
+        MOVL    CONST UNIT,ExceptionPacket[Rebp]    ;# Clear the exception
+ENDIF
+        MOVL    Resp,Mr_ESP[Rebp]                   ;# Preserve the ML stack pointer
+        MOVL    SavedSp[Rebp],Resp                  ;# Switch to the C stack
+IFNDEF HOSTARCHITECTURE_X86_64
+;# X86 calling conventions.  We keep a 16-byte stack alignment because GCC likes it.
+;# No need to save/restore the heap pointer since it's in memregs.
+;# N.B.  We don't actually need to remove any arguments from the C stack because
+;# we always set the C stack pointer to the value when we were first called.
+        PUSHL   CONST 0                             ;# Alignment - Needed??
+        PUSHL   Reax                                ;# Argument
+        PUSHL   Rebp                                ;# Memregs address
+        call    X86ChDir
+ELSE
+        MOVL    R15,LocalMpointer[Rebp]             ;# Save the heap pointer
+IFDEF WINDOWS
+;# X86-64 Windows calling conventions.
+        PUSHL   CONST 0                             ;# Alignment - Needed??
+        MOVL    Reax,Rdx                            ;# Second argument
+        SUBL    CONST 32,Resp                       ;# Create save area
+        MOVL    Rebp,Rcx                            ;# First argument
+        call    X86ChDir
+ELSE
+;# X86-64 Linux calling conventions.
+        PUSHL   CONST 0                             ;# Alignment - Needed??
+        MOVL    Reax,Resi
+        MOVL    Rebp,Redi
+        call    X86ChDir
+ENDIF
+        MOVL    LocalMpointer[Rebp],R15             ;# Restore the heap pointer register
+ENDIF
+        MOVL    Mr_ESP[Rebp],Resp                   ;# Restore ML stack ptr
+IFDEF WINDOWS
+        cmp     FULLWORD ptr ExceptionPacket[Rebp],CONST UNIT
+ELSE
+        CMPL    CONST UNIT,ExceptionPacket[Rebp]
+ENDIF
+        jne     cpsdraisex
+IFDEF WINDOWS
+        cmp     FULLWORD ptr ExceptionPacket[Rebp],CONST UNIT
+ELSE
+        CMPL    CONST UNIT,ExceptionPacket[Rebp]
+ENDIF
+        jne     cpsdraisex
+        ret
+
+cpsdraisex:
+        MOVL    ExceptionPacket[Rebp],Reax
+        jmp     raisex
+
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified

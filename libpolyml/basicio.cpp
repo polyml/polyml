@@ -219,8 +219,10 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return true; /* At EOF - will not block. */
-        else raiseSyscallError(taskData, -err);
-        /*NOTREACHED*/
+        else {
+            raiseSyscallError(taskData, -err);
+            return false;
+        }
     }
 
     else if (isConsole(strm)) return isConsoleInput();
@@ -1196,13 +1198,13 @@ Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
     TempString cDirName(name->Word());
-    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM, false);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (SetCurrentDirectory(cDirName) == FALSE)
-       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
+       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError(), false);
 #else
     if (chdir(cDirName) != 0)
-        raise_syscall(taskData, "chdir failed", errno);
+        raise_syscall(taskData, "chdir failed", errno, false);
 #endif
     return SAVE(TAGGED(0));
 }
