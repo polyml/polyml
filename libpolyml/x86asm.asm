@@ -462,9 +462,9 @@ ELSE
 
 
 IFDEF HOSTARCHITECTURE_X86_64
-.set    POLYWORDSIZE,   8
+.set    POLYWORDSIZE,8
 ELSE
-.set    POLYWORDSIZE,   4
+.set    POLYWORDSIZE,4
 ENDIF
 
 ENDIF
@@ -849,7 +849,6 @@ ENDIF
     PUSHL   R15
     PUSHL   Redi                            ;# Callee save in Windows
     PUSHL   Resi
-    PUSHL   Resi                            ;# A second time to get the overall alignment right
     MOVL    Resp,SavedSp[Recx]              ;# savedSp:=%Resp - Save the system stack pointer.
     MOVL    Recx,Rebp                       ;# Put address of MemRegisters where it belongs
 ENDIF
@@ -957,7 +956,6 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
-    POPL    Resi                            ;# Remove extra alignment push
     POPL    Resi
     POPL    Redi
     POPL    R15                            ;# Restore callee-save registers
@@ -998,7 +996,6 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
-    POPL    Resi                            ;# Remove extra push
     POPL    Resi
     POPL    Redi
     POPL    R15                            ;# Restore callee-save registers
@@ -1015,11 +1012,11 @@ ENDIF
 ;# argument that is a pair containing the function closure and an argument vector.
 CALLMACRO INLINE_ROUTINE callcodeTupled
     MOVL    [Reax],Redx                         ;# closure
-    MOVL    [Reax+POLYWORDSIZE],Resi            ;# address of arg vector
+    MOVL    POLYWORDSIZE[Reax],Resi            ;# address of arg vector
     CMPL    CONST NIL,Resi                      ;# If calling a function without args this could be nil
     je      cct2
     MOVL    CONST Max_Length,Recx               ;# Mask for length removing any flags
-    ANDL    [Resi-POLYWORDSIZE],Recx            ;# Load and mask length
+    ANDL    -POLYWORDSIZE[Resi],Recx            ;# Load and mask length
     jz      cct2
     MOVL    [Resi],Reax                         ;# First argument
     ADDL    CONST POLYWORDSIZE,Resi
@@ -3422,7 +3419,9 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 ;# chdir.  May raise an exception which means it may allocate space for the exception packet.
 ;# The caller is supposed to preserve RBP
+IFDEF WINDOWS
 EXTRN   X86ChDir:PROC
+ENDIF
 CALLMACRO INLINE_ROUTINE CallPOLY_SYS_chdir
 IFDEF WINDOWS
         mov     FULLWORD ptr ExceptionPacket[Rebp],CONST UNIT
@@ -3451,9 +3450,9 @@ IFDEF WINDOWS
         call    X86ChDir
 ELSE
 ;# X86-64 Linux calling conventions.
+        MOVL    Rebp,Redi
         PUSHL   CONST 0                             ;# Alignment - Needed??
         MOVL    Reax,Resi
-        MOVL    Rebp,Redi
         call    X86ChDir
 ENDIF
         MOVL    LocalMpointer[Rebp],R15             ;# Restore the heap pointer register
