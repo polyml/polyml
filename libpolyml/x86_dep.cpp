@@ -1151,17 +1151,19 @@ Handle X86TaskData::EnterPolyCode()
 }
 
 extern "C" {
-    Handle X86ChDir(MemRegisters *mr, PolyWord arg);
+    POLYUNSIGNED X86ChDir(MemRegisters *mr, PolyWord arg);
 }
 
-Handle X86ChDir(MemRegisters *mr, PolyWord arg)
+POLYUNSIGNED X86ChDir(MemRegisters *mr, PolyWord arg)
 {
     X86TaskData *taskData = mr->parentPtr;
     Handle pushedArg = taskData->saveVec.push(arg);
     taskData->SaveMemRegisters();  // Need to save the current heap pointer
-    Handle result = change_dirc(taskData, pushedArg);
+    try {
+        (void)change_dirc(taskData, pushedArg);
+    } catch (...) { } // If an ML exception is raised
     taskData->SetMemRegisters(); // Restore the heap pointer.  Create a new heap area if there's been a GC.
-    return result;
+    return TAGGED(0).AsUnsigned(); // Result is unit
 }
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
 // whenever the ML requires assistance from the rest of the RTS it simply

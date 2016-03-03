@@ -1198,10 +1198,10 @@ Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
     TempString cDirName(name->Word());
-    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM, false);
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (SetCurrentDirectory(cDirName) == FALSE)
-       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError(), false);
+       raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
     if (chdir(cDirName) != 0)
         raise_syscall(taskData, "chdir failed", errno, false);

@@ -417,10 +417,10 @@
   <ItemGroup>
     <CustomBuild Include="x86asm.asm">
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /D_WIN32 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /D_WIN32 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /D_WIN32 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">ml64 /nologo /DWINDOWS /DHOSTARCHITECTURE_X86_64 /D_WIN32 /Fo $(IntDir)%(Filename).obj /c "%(FullPath)"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj;%(Outputs)</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">$(IntDir)%(Filename).obj;%(Outputs)</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj;%(Outputs)</Outputs>
