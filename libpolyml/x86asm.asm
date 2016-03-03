@@ -1016,7 +1016,7 @@ CALLMACRO INLINE_ROUTINE callcodeTupled
     CMPL    CONST NIL,Resi                      ;# If calling a function without args this could be nil
     je      cct2
     MOVL    CONST Max_Length,Recx               ;# Mask for length removing any flags
-    ANDL    -POLYWORDSIZE[Resi],Recx            ;# Load and mask length
+    ANDL    (-POLYWORDSIZE)[Resi],Recx          ;# Load and mask length
     jz      cct2
     MOVL    [Resi],Reax                         ;# First argument
     ADDL    CONST POLYWORDSIZE,Resi
@@ -3441,12 +3441,12 @@ IFNDEF HOSTARCHITECTURE_X86_64
         call    X86ChDir
 ELSE
         MOVL    R15,LocalMpointer[Rebp]             ;# Save the heap pointer
-IFDEF WINDOWS
+IFDEF _WIN32
 ;# X86-64 Windows calling conventions.
         PUSHL   CONST 0                             ;# Alignment - Needed??
-        MOVL    Reax,Rdx                            ;# Second argument
+        MOVL    Reax,Redx                            ;# Second argument
         SUBL    CONST 32,Resp                       ;# Create save area
-        MOVL    Rebp,Rcx                            ;# First argument
+        MOVL    Rebp,Recx                            ;# First argument
         call    X86ChDir
 ELSE
 ;# X86-64 Linux calling conventions.
