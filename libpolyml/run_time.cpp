@@ -282,7 +282,12 @@ Handle make_exn(TaskData *taskData, int id, Handle arg)
     return exnHandle;
 }
 
-Handle raise_exception(TaskData *taskData, int id, Handle arg, bool throwEx)
+/******************************************************************************/
+/*                                                                            */
+/*      raise_exception - called by run-time system                           */
+/*                                                                            */
+/******************************************************************************/
+void raise_exception(TaskData *taskData, int id, Handle arg)
 /* Raise an exception with no arguments. */
 {
     Handle exn = make_exn(taskData, id, arg);
@@ -290,26 +295,38 @@ Handle raise_exception(TaskData *taskData, int id, Handle arg, bool throwEx)
        process handle just in case a GC while creating the packet
        moves the process and/or the stack. */
     taskData->SetException(DEREFEXNHANDLE(exn));
-    if (throwEx)
-        throw IOException(); /* Return to Poly code immediately. */
-    return 0; // Return a zero handle value.
+    throw IOException(); /* Return to Poly code immediately. */
+    /*NOTREACHED*/
 }
 
-Handle raise_exception0(TaskData *taskData, int id, bool throwEx)
+
+/******************************************************************************/
+/*                                                                            */
+/*      raise_exception0 - called by run-time system                          */
+/*                                                                            */
+/******************************************************************************/
+void raise_exception0(TaskData *taskData, int id)
 /* Raise an exception with no arguments. */
 {
-    return raise_exception(taskData, id, SAVE(TAGGED(0)), throwEx);
+    raise_exception(taskData, id, SAVE(TAGGED(0)));
+    /*NOTREACHED*/
 }
 
-Handle raise_exception_string(TaskData *taskData, int id, const char *str, bool throwEx)
+/******************************************************************************/
+/*                                                                            */
+/*      raise_exception_string - called by run-time system                    */
+/*                                                                            */
+/******************************************************************************/
+void raise_exception_string(TaskData *taskData, int id, const char *str)
 /* Raise an exception with a C string as the argument. */
 {
-    return raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)), throwEx);
+    raise_exception(taskData, id, SAVE(C_string_to_Poly(taskData, str)));
+    /*NOTREACHED*/
 }
 
 // Raise a SysErr exception with a given error code.
 // The string part must match the result of OS.errorMsg
-Handle raiseSyscallError(TaskData *taskData, int err, bool throwEx)
+void raiseSyscallError(TaskData *taskData, int err)
 {
     Handle errornum = Make_fixed_precision(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
@@ -319,11 +336,11 @@ Handle raiseSyscallError(TaskData *taskData, int err, bool throwEx)
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
 
-    return raise_exception(taskData, EXC_syserr, pair, throwEx);
+    raise_exception(taskData, EXC_syserr, pair);
 }
 
 // Raise a SysErr exception which does not correspond to an error code.
-Handle raiseSyscallMessage(TaskData *taskData, const char *errmsg, bool throwEx)
+void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
 {
     Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
     Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
@@ -331,23 +348,23 @@ Handle raiseSyscallMessage(TaskData *taskData, const char *errmsg, bool throwEx)
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
 
-    return raise_exception(taskData, EXC_syserr, pair, throwEx);
+    raise_exception(taskData, EXC_syserr, pair);
 }
 
 // This was the previous version.  The errmsg argument is ignored unless err is zero.
 // Calls to it should really be replaced with calls to either raiseSyscallMessage
 // or raiseSyscallError but it's been left because there may be cases where errno
 // actually contains zero.
-Handle raise_syscall(TaskData *taskData, const char *errmsg, int err, bool throwEx)
+void raise_syscall(TaskData *taskData, const char *errmsg, int err)
 {
-    if (err == 0) return raiseSyscallMessage(taskData, errmsg);
-    else return raiseSyscallError(taskData, err, throwEx);
+    if (err == 0) raiseSyscallMessage(taskData, errmsg);
+    else raiseSyscallError(taskData, err);
 }
 
 // Raises a Fail exception.
-Handle raise_fail(TaskData *taskData, const char *errmsg, bool throwEx)
+void raise_fail(TaskData *taskData, const char *errmsg)
 {
-    return raise_exception_string(taskData, EXC_Fail, errmsg, throwEx);
+    raise_exception_string(taskData, EXC_Fail, errmsg);
 }
 
 /* "Polymorphic" function to generate a list. */
@@ -461,7 +478,7 @@ Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)
     taskData->set_hr((PolyWord*)(handler->AsStackAddr()));
     // Raise this as an exception.  The handler will be able to
     // print the trace and reraise the exception.
-    return raise_exception(taskData, EXC_extrace, pair);
+    raise_exception(taskData, EXC_extrace, pair);
 }
 
 // Return the address of the iovec entry for a given index.

@@ -1387,7 +1387,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
                            Handle args, PolyWord flags, PolyWord stacksize)
 {
     if (singleThreaded)
-        return raise_exception_string(taskData, EXC_thread, "Threads not available");
+        raise_exception_string(taskData, EXC_thread, "Threads not available");
 
     try {
         // Create a taskData object for the new thread
@@ -1412,7 +1412,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         {
             schedLock.Unlock();
             // Raise an exception although the thread may exit before we get there.
-            return raise_exception_string(taskData, EXC_thread, "Thread is exiting");
+            raise_exception_string(taskData, EXC_thread, "Thread is exiting");
         }
 
         // See if there's a spare entry in the array.
@@ -1433,7 +1433,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
             {
                 delete(newTaskData);
                 schedLock.Unlock();
-                return raise_exception_string(taskData, EXC_thread, "Too many threads");
+                raise_exception_string(taskData, EXC_thread, "Too many threads");
             }
         }
         // Add into the new entry
@@ -1445,7 +1445,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         if (newTaskData->stack == 0)
         {
             delete(newTaskData);
-            return raise_exception_string(taskData, EXC_thread, "Unable to allocate thread stack");
+            raise_exception_string(taskData, EXC_thread, "Unable to allocate thread stack");
         }
 
         // Allocate anything needed for the new stack in the parent's heap.
@@ -1486,10 +1486,10 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         if (debugOptions & DEBUG_THREADS)
             Log("THREAD: Fork from thread %p failed\n", taskData);
 
-        return raise_exception_string(taskData, EXC_thread, "Thread creation failed");
+        raise_exception_string(taskData, EXC_thread, "Thread creation failed");
     }
     catch (std::bad_alloc &) {
-        return raise_exception_string(taskData, EXC_thread, "Insufficient memory");
+            raise_exception_string(taskData, EXC_thread, "Insufficient memory");
     }
 }
 

@@ -219,10 +219,8 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
            follow Unix here.  */
         if (err == ERROR_BROKEN_PIPE)
             return true; /* At EOF - will not block. */
-        else {
-            raiseSyscallError(taskData, -err);
-            return false;
-        }
+        else raiseSyscallError(taskData, -err);
+        /*NOTREACHED*/
     }
 
     else if (isConsole(strm)) return isConsoleInput();
@@ -1204,7 +1202,7 @@ Handle change_dirc(TaskData *taskData, Handle name)
        raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
     if (chdir(cDirName) != 0)
-        raise_syscall(taskData, "chdir failed", errno, false);
+        raise_syscall(taskData, "chdir failed", errno);
 #endif
     return SAVE(TAGGED(0));
 }
