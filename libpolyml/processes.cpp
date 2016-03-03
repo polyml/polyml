@@ -305,33 +305,6 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
-// Called from interface vector.  Generally the assembly code will be
-// used instead of this.
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
-{
-    return taskData->AtomicIncrement(mutexp);
-}
-
-// Called from interface vector.  Generally the assembly code will be
-// used instead of this.
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    return taskData->AtomicDecrement(mutexp);
-}
-
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
-{
-    taskData->AtomicReset(mutexp);
-    return SAVE(TAGGED(0)); // Push the unit result
-}
-
-// Return the thread object for the current thread.
-// On most platforms this will be done with a piece of assembly code.
-Handle ThreadSelf(TaskData *taskData)
-{
-    return SAVE(taskData->threadObject);
-}
-
 // Called from interface vector.  This is the normal entry point for
 // the thread functions.
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)

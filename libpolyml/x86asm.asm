@@ -2821,20 +2821,6 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-
-;# This implements atomic subtraction in the same way as atomic_decrement
-CALLMACRO INLINE_ROUTINE X86AsmAtomicDecrement
-IFNDEF HOSTARCHITECTURE_X86_64
-    MOVL    4[Resp],Reax
-ELSE
-    MOVL    Redi,Reax            ;# On X86_64 the argument is passed in Redi
-ENDIF
-    MOVL    CONST -2,Recx
-    LOCKXADDL Recx,[Reax]
-    MOVL    Recx,Reax
-    SUBL    CONST 2,Reax
-    ret
-
 ;# LargeWord.word operations.  These are 32 or 64-bit values in a single-word byte
 ;# memory cell.
 CALLMACRO INLINE_ROUTINE eq_longword

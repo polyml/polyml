@@ -242,11 +242,8 @@ public:
     virtual void SetException(poly_exn *exc);
     virtual int  GetIOFunctionRegisterMask(int ioCall);
 
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
+    // Release a mutex in exactly the same way as compiler code
     virtual Handle AtomicIncrement(Handle mutexp);
-    virtual Handle AtomicDecrement(Handle mutexp);
-    // Set a mutex to one.
     virtual void AtomicReset(Handle mutexp);
 
     // These are retained for the moment.
@@ -1950,14 +1947,6 @@ Handle X86TaskData::AtomicIncrement(Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
     POLYUNSIGNED result = X86AsmAtomicIncrement(p);
-    return this->saveVec.push(PolyWord::FromUnsigned(result));
-}
-
-// Decrement the value contained in the first word of the mutex.
-Handle X86TaskData::AtomicDecrement(Handle mutexp)
-{
-    PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = X86AsmAtomicDecrement(p);
     return this->saveVec.push(PolyWord::FromUnsigned(result));
 }
 

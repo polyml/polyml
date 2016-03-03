@@ -122,10 +122,10 @@ public:
 
     virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
 
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
+    // The scheduler needs versions of atomic increment and atomic reset that
+    // work in exactly the same way as the code-generated versions (if any).
+    // Atomic decrement isn't needed since it only ever releases a mutex.
     virtual Handle AtomicIncrement(Handle mutexp) = 0;
-    virtual Handle AtomicDecrement(Handle mutexp) = 0;
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
     virtual void AtomicReset(Handle mutexp) = 0;
@@ -188,10 +188,6 @@ private:
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
-Handle ThreadSelf(TaskData *taskData);
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
 class ScanAddress;
