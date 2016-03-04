@@ -1562,6 +1562,7 @@ CALLMACRO   CALL_IO    POLY_SYS_alloc_store
 CALLMACRO INLINE_ROUTINE touch_final
 ;# This is really a pseudo-op
     MOVL    CONST UNIT,Reax
+    ret
 CALLMACRO   RegMask touch_final,(M_Reax)
 
 CALLMACRO INLINE_ROUTINE add_long
