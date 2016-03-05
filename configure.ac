@@ -32,7 +32,6 @@ AC_CANONICAL_HOST
 # a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
-poly_windows_assembler=no
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
@@ -52,13 +51,11 @@ case "${host_os}" in
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
-        poly_windows_assembler=yes
         CFLAGS="$CFLAGS -mthreads"
         CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
-        poly_windows_assembler=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
                 AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
@@ -513,7 +510,6 @@ AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_size
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
-AM_CONDITIONAL([WINDOWS_ASSEMBLER], [test "$poly_windows_assembler" = yes])
 
 # Test whether this is a git directory and set the version if possible
 AC_CHECK_PROG([gitinstalled], [git], [yes], [no])

@@ -139,20 +139,15 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
 	reals.cpp rts_module.cpp run_time.cpp save_vec.cpp \
 	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
-	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp ux64.S \
-	win64.S interpret.cpp ux32.S win32.S machoexport.cpp \
-	elfexport.cpp pecoffexport.cpp unix_specific.cpp Console.cpp \
-	windows_specific.cpp
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_FALSE@am__objects_1 = x86_dep.lo \
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_FALSE@	ux64.lo
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_TRUE@am__objects_1 = x86_dep.lo \
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_TRUE@	win64.lo
+	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
+	x86assembly_gas64.S interpret.cpp x86assembly_gas32.S \
+	machoexport.cpp elfexport.cpp pecoffexport.cpp \
+	unix_specific.cpp Console.cpp windows_specific.cpp
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@am__objects_1 = interpret.lo
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_FALSE@am__objects_1 = x86_dep.lo \
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_FALSE@	ux32.lo
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_TRUE@am__objects_1 = x86_dep.lo \
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_TRUE@	win32.lo
+@ARCHI386_TRUE@am__objects_1 = x86_dep.lo x86assembly_gas32.lo
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@am__objects_2 =  \
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@	machoexport.lo
 @EXPELF_TRUE@@EXPPECOFF_FALSE@am__objects_2 = elfexport.lo
@@ -416,14 +411,12 @@ AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 7:0:0 $(am__append_1)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_FALSE@ARCHSOURCE = x86_dep.cpp ux64.S
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS_ASSEMBLER_TRUE@ARCHSOURCE = x86_dep.cpp win64.S
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@ARCHSOURCE = interpret.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@ARCHSOURCE = interpret.cpp
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_FALSE@ARCHSOURCE = x86_dep.cpp ux32.S
 
 # Select the architecture-specific modules
-@ARCHI386_TRUE@@WINDOWS_ASSEMBLER_TRUE@ARCHSOURCE = x86_dep.cpp win32.S
+@ARCHI386_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@EXPORTSOURCE = machoexport.cpp
 @EXPELF_TRUE@@EXPPECOFF_FALSE@EXPORTSOURCE = elfexport.cpp
 
@@ -658,12 +651,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/statistics.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/timing.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/unix_specific.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ux32.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ux64.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/win32.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/win64.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/windows_specific.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86_dep.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas32.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas64.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xwindows.Plo@am__quote@
 
 .S.o:
