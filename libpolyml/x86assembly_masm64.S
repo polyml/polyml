@@ -1362,7 +1362,7 @@ fixed_add:
     lea     rax,(-TAG)[rax]
     add     rax,rbx
     jo      raiseOverflowEx
-	ret
+    ret
 
 Mask_fixed_add      EQU     (M_Reax)
 
@@ -1371,7 +1371,7 @@ fixed_sub:
     sub     rax,rbx
     jo      raiseOverflowEx
     add     rax,TAG
-	ret
+    ret
 
 Mask_fixed_sub      EQU     (M_Reax)
 
@@ -1424,9 +1424,9 @@ fixed_div:
     cqo
     idiv    rbx
     cmp     rdx,0
-    jz		fixed_div1		; If the remainder if non-zero ...
+    jz      fixed_div1      ; If the remainder if non-zero ...
     xor     rbx,rdx
-    jns		fixed_div1
+    jns     fixed_div1
     sub     rax,1
 fixed_div1:
     lea     rax,1[rax*2]
@@ -1444,9 +1444,9 @@ fixed_mod:
     idiv     rbx
 ; Result is in rdx.  We have to change the result so that it has the sign as the divisor.
     cmp     rdx,0
-    jz      fixed_mod1	; Result is zero - no change
+    jz      fixed_mod1  ; Result is zero - no change
     xor     rbx,rdx
-    jns		fixed_mod1	; Skip if they had the same signs
+    jns     fixed_mod1  ; Skip if they had the same signs
     xor     rbx,rdx
     add     rdx,rbx
 fixed_mod1:
@@ -1532,9 +1532,9 @@ mem_for_real:
 ; Temporarily: push these registers to the stack
 ; and pop them afterwards.  This isn't the final version of this code
 ; but is useful as a test.
-    push	 rax
+    push     rax
     push    rbx
-    call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    call     X86AsmCallExtraRETURN_HEAP_OVERFLOW
     pop     rbx
     pop     rax
 mem_for_real1:
@@ -1760,8 +1760,8 @@ set_exception_trace:
 ; We need to push the addresses of some code.  To make it position-independent we use
 ; CALLs in a non-standard way.
     mov     rdx,rax
-	push	HandlerRegister[rbp]		; Previous handler
-	call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
+    push    HandlerRegister[rbp]        ; Previous handler
+    call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
     ; This is the code that is called if we get an exception.
     ; The exception packet is the first argument.
     mov     byte ptr [RequestCode+rbp],POLY_SYS_give_ex_trace_fn
@@ -2095,9 +2095,9 @@ Mask_cmem_load_32      EQU     (M_Reax OR M_Rebx)
 
 PUBLIC  cmem_load_asm_64
 cmem_load_asm_64:
-    push	r8						; Save r8 which isn't saved in mem_for_largeword
+    push    r8                      ; Save r8 which isn't saved in mem_for_largeword
     call    mem_for_largeword
-    pop	r8
+    pop r8
     mov     rax,[rax]
     sar     rbx,TAGSHIFT
     add     rax,rbx
@@ -2111,9 +2111,9 @@ Mask_cmem_load_64      EQU     (M_Reax OR M_Rebx OR M_Recx)
 
 PUBLIC  cmem_load_asm_float
 cmem_load_asm_float:
-    push	r8						; Save r8 which isn't saved in mem_for_largeword
+    push    r8                      ; Save r8 which isn't saved in mem_for_largeword
     call    mem_for_real
-    pop	r8						; Save r8 which isn't saved in mem_for_largeword
+    pop r8                      ; Save r8 which isn't saved in mem_for_largeword
     mov     rax,[rax]
     sar     rbx,TAGSHIFT
     add     rax,rbx
@@ -2127,9 +2127,9 @@ Mask_cmem_load_float      EQU     (M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
 PUBLIC  cmem_load_asm_double
 cmem_load_asm_double:
-    push	r8						; Save r8 which isn't saved in mem_for_largeword
+    push    r8                      ; Save r8 which isn't saved in mem_for_largeword
     call    mem_for_real
-    pop	    r8
+    pop     r8
     mov     rax,[rax]
     sar     rbx,TAGSHIFT
     add     rax,rbx
@@ -2374,7 +2374,7 @@ registerMaskVector  dd  Mask_all                ; 0 is unused
     dd  Mask_all                 ; 51
     dd  Mask_all                 ; 52
     dd  Mask_eq_longword         ; 53
-    dd  Mask_all				 ; 54 is no longer used
+    dd  Mask_all                 ; 54 is no longer used
     dd  Mask_geq_longword        ; 55
     dd  Mask_leq_longword        ; 56
     dd  Mask_gt_longword         ; 57
@@ -2537,7 +2537,7 @@ registerMaskVector  dd  Mask_all                ; 0 is unused
     dd  Mask_bytes_per_word      ; 214
     dd  Mask_offset_address      ; 215
     dd  Mask_shift_right_word    ; 216
-    dd  Mask_all				 ; 217 - no longer used
+    dd  Mask_all                 ; 217 - no longer used
     dd  Mask_not_bool            ; 218
     dd  Mask_fixed_geq           ; 219
     dd  Mask_fixed_leq           ; 220
