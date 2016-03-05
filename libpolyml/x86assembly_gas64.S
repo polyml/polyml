@@ -237,6 +237,10 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushq   %r13
     pushq   %r14
     pushq   %r15
+#ifdef _WIN32
+    pushq   %rdi                            # Callee save in Windows
+    pushq   %rsi
+#endif
     movq    %rsp,SavedSp(%rcx)              # savedSp:=%%rsp - Save the system stack pointer.
     movq    %rcx,%rbp                       # Put address of MemRegisters where it belongs
     movq    PolyStack(%rbp),%rax
@@ -315,6 +319,10 @@ SaveFullState:
     movq    %rsp,SP_OFF(%rax)
     movb    $1,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
     movq    SavedSp(%rbp),%rsp
+#ifdef _WIN32
+    popq    %rsi
+    popq    %rdi
+#endif
     popq    %r15                            # Restore callee-save registers
     popq    %r14
     popq    %r13
@@ -343,6 +351,10 @@ SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative 
     movq    %rsp,SP_OFF(%rax)
     movb    $1,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
     movq    SavedSp(%rbp),%rsp
+#ifdef _WIN32
+    popq    %rsi
+    popq    %rdi
+#endif
     popq    %r15                            # Restore callee-save registers
     popq    %r14
     popq    %r13
