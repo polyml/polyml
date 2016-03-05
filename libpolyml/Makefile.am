@@ -21,11 +21,7 @@ endif
 
 # Select the architecture-specific modules
 if ARCHI386
-if WINDOWS_ASSEMBLER
-ARCHSOURCE = x86_dep.cpp win32.S
-else
-ARCHSOURCE = x86_dep.cpp ux32.S
-endif
+ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 else
 if ARCHINTERPRET
 ARCHSOURCE = interpret.cpp
@@ -34,11 +30,7 @@ if ARCHINTERPRET64
 ARCHSOURCE = interpret.cpp
 else
 if ARCHX86_64
-if WINDOWS_ASSEMBLER
-ARCHSOURCE = x86_dep.cpp win64.S
-else
-ARCHSOURCE = x86_dep.cpp ux64.S
-endif
+ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
 endif
 endif

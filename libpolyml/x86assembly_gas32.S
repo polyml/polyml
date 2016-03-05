@@ -311,7 +311,7 @@ cct2:                                           # Finished - enter function
 
 
 
-	RegMask(callcodeTupled,Mask_all)             # All because we're calling an unknown function
+    RegMask(callcodeTupled,Mask_all)             # All because we're calling an unknown function
 /*
 A number of functions implemented in Assembly for efficiency reasons
 */
@@ -321,7 +321,7 @@ INLINE_ROUTINE(int_to_word)
     testl   $TAG,%eax
     jz      get_first_long_word_a1
     ret                 # Return the argument
-	RegMask(int_to_word,(M_Reax))
+    RegMask(int_to_word,(M_Reax))
 
  # This is now used in conjunction with isShort in Word.fromInt.
 INLINE_ROUTINE(get_first_long_word_a)
@@ -331,9 +331,9 @@ get_first_long_word_a1:
     jz      gfw1
     negl    %eax            # We can ignore overflow
 gfw1:
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     ret
-	RegMask(get_first_long_word,(M_Reax))
+    RegMask(get_first_long_word,(M_Reax))
 
 
 
@@ -372,7 +372,7 @@ mvb1:
     cld
     ret     $12
 
-	RegMask(move_bytes,Mask_all)
+    RegMask(move_bytes,Mask_all)
 
 
 INLINE_ROUTINE(move_words)
@@ -405,7 +405,7 @@ mvw1:
     cld
     ret     $12
 
-	RegMask(move_words,Mask_all)
+    RegMask(move_words,Mask_all)
 #
 
 RetFalse:
@@ -419,24 +419,24 @@ RetTrue:
 INLINE_ROUTINE(not_bool)
     xorl    $(TRUE-TAG),%eax   # Change the value but leave the tag
     ret
-	RegMask(not_bool,(M_Reax))
+    RegMask(not_bool,(M_Reax))
 
  # or, and, xor shift etc. assume the values are tagged integers
 INLINE_ROUTINE(or_word)
     orl     %ebx,%eax
     ret
-	RegMask(or_word,(M_Reax))
+    RegMask(or_word,(M_Reax))
 
 INLINE_ROUTINE(and_word)
     andl    %ebx,%eax
     ret
-	RegMask(and_word,(M_Reax))
+    RegMask(and_word,(M_Reax))
 
 INLINE_ROUTINE(xor_word)
     xorl    %ebx,%eax
     orl     $TAG,%eax  # restore the tag
     ret
-	RegMask(xor_word,(M_Reax))
+    RegMask(xor_word,(M_Reax))
 
 INLINE_ROUTINE(shift_left_word)
  # Assume that both args are tagged integers
@@ -453,7 +453,7 @@ slw1:
     orl     $TAG,%eax  # restore the tag
     movl    %eax,%ecx       # clobber %%ecx
     ret
-	RegMask(shift_left_word,(M_Reax | M_Recx))
+    RegMask(shift_left_word,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(shift_right_word)
  # Word.>>(a,b) is defined to return 0 if b > Word.wordSize
@@ -468,7 +468,7 @@ srw1:
     orl     $TAG,%eax  # restore the tag
     movl    %eax,%ecx       # clobber %%ecx
     ret
-	RegMask(shift_right_word,(M_Reax | M_Recx))
+    RegMask(shift_right_word,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(shift_right_arith_word)
  # Word.~>>(a,b) is defined to return 0 or ~1 if b > Word.wordSize
@@ -483,14 +483,14 @@ sra1:
     orl     $TAG,%eax  # restore the tag
     movl    %eax,%ecx       # clobber %%ecx
     ret
-	RegMask(shift_right_arith_word,(M_Reax | M_Recx))
+    RegMask(shift_right_arith_word,(M_Reax | M_Recx))
 
 # Clears the "mutable" bit on a segment
 INLINE_ROUTINE(locksega)
     andb    $(0xff-B_mutable),-1(%eax)
     movl     $TAGGED(0),%eax   # Return Unit,
     ret
-	RegMask(lockseg,M_Reax)
+    RegMask(lockseg,M_Reax)
 
 INLINE_ROUTINE(get_length_a)
     movl    (-POLYWORDSIZE)(%eax),%eax
@@ -498,7 +498,7 @@ INLINE_ROUTINE(get_length_a)
     shrl    $(8-TAGSHIFT),%eax  # Make it a tagged integer
     orl $TAG,%eax
     ret
-	RegMask(get_length,(M_Reax))
+    RegMask(get_length,(M_Reax))
 
 
 INLINE_ROUTINE(is_shorta)
@@ -506,17 +506,17 @@ INLINE_ROUTINE(is_shorta)
     andl    $TAG,%eax
     jz      RetFalse
     jmp     RetTrue
-	RegMask(is_short,(M_Reax))
+    RegMask(is_short,(M_Reax))
 
 INLINE_ROUTINE(string_length)
     testl   $TAG,%eax  # Single char strings are represented by the
     jnz     RetOne      # character.
     movl    (%eax),%eax # Get length field
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     ret
 RetOne: movl    $TAGGED(1),%eax
     ret
-	RegMask(string_length,(M_Reax))
+    RegMask(string_length,(M_Reax))
 
  # Store the length of a string in the first word.
 INLINE_ROUTINE(set_string_length_a)
@@ -525,10 +525,11 @@ INLINE_ROUTINE(set_string_length_a)
     movl    $UNIT,%eax     # Return unit
     movl    %eax,%ebx           # Clobber untagged value
     ret
-	RegMask(set_string_length,(M_Reax | M_Rebx))
+    RegMask(set_string_length,(M_Reax | M_Rebx))
 
 # raisex (formerly raisexn) is used by compiled code.
 INLINE_ROUTINE(raisex)
+raisexlocal:
     movl    HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
     jmp     *(%ecx)
 
@@ -536,16 +537,16 @@ INLINE_ROUTINE(load_byte)
     movl    %ebx,%edi
     shrl    $TAGSHIFT,%edi
     movzbl  (%eax,%edi,1),%edi
-	MAKETAGGED(%edi,%eax)
+    MAKETAGGED(%edi,%eax)
     movl    %eax,%edi       # Clobber bad value in %%edi
     ret
-	RegMask(load_byte,(M_Reax | M_Redi))
+    RegMask(load_byte,(M_Reax | M_Redi))
 
 INLINE_ROUTINE(load_word)
     movl    (-2)(%eax,%ebx,2),%eax
     movl    %eax,%ebx
     ret
-	RegMask(load_word,(M_Reax))
+    RegMask(load_word,(M_Reax))
 
 INLINE_ROUTINE(assign_byte)
 # We can assume that the data value will not overflow 30 bits (it is only 1 byte!)
@@ -560,7 +561,7 @@ INLINE_ROUTINE(assign_byte)
     movl    %eax,%ebx                   # Clobber bad value in %%ebx
     movl    %eax,%ecx                   # and %%ecx
     ret     $4
-	RegMask(assign_byte,(M_Reax | M_Rebx | M_Recx))
+    RegMask(assign_byte,(M_Reax | M_Rebx | M_Recx))
 
 
 INLINE_ROUTINE(assign_word)
@@ -568,7 +569,7 @@ INLINE_ROUTINE(assign_word)
     movl    %ecx,(-2)(%eax,%ebx,2)
     movl    $UNIT,%eax           # The function returns unit
     ret     $4
-	RegMask(assign_word,(M_Reax | M_Recx))
+    RegMask(assign_word,(M_Reax | M_Recx))
 
 /* Allocate a piece of memory that does not need to be initialised.
    We can't actually risk leaving word objects uninitialised so for the
@@ -579,7 +580,7 @@ INLINE_ROUTINE(alloc_uninit)
     pushl   %ecx                # Restore the return address
 # Drop through into alloc_store
 
-	RegMask(alloc_uninit,Mask_all) # All, because we may call RTS
+    RegMask(alloc_uninit,Mask_all) # All, because we may call RTS
 
 
 /* alloc(size, flags, initial).  Allocates a segment of a given size and
@@ -642,19 +643,19 @@ allst3:
     movl    %eax,%edi
     ret     $4
 
-	RegMask(alloc_store,Mask_all) # All, because we may use RTS call
+    RegMask(alloc_store,Mask_all) # All, because we may use RTS call
 
 # This is used if we have reached the store limit and need to garbage-collect.
 alloc_in_rts:
     movl    %eax,%edx       # Clobber these first
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_alloc_store)
+    CALL_IO(POLY_SYS_alloc_store)
 
 INLINE_ROUTINE(touch_final)
 # This is really a pseudo-op
     movl    $UNIT,%eax
     ret
-	RegMask(touch_final,(M_Reax))
+    RegMask(touch_final,(M_Reax))
 
 INLINE_ROUTINE(add_long)
     movl    %eax,%edi
@@ -668,8 +669,8 @@ INLINE_ROUTINE(add_long)
     ret
 add_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_aplus)
-	RegMask(aplus,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_aplus)
+    RegMask(aplus,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(sub_long)
     movl    %eax,%edi
@@ -684,8 +685,8 @@ INLINE_ROUTINE(sub_long)
     ret
 sub_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_aminus)
-	RegMask(aminus,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_aminus)
+    RegMask(aminus,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(mult_long)
     movl    %eax,%edi
@@ -705,8 +706,8 @@ INLINE_ROUTINE(mult_long)
 mul_really_long:
     movl    %eax,%esi       # Clobber this
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_amul)
-	RegMask(amul,(M_Reax | M_Redi | M_Resi | Mask_all))
+    CALL_IO(POLY_SYS_amul)
+    RegMask(amul,(M_Reax | M_Redi | M_Resi | Mask_all))
 
 INLINE_ROUTINE(div_long)
     movl    %eax,%edi
@@ -723,14 +724,14 @@ INLINE_ROUTINE(div_long)
     sarl    $TAGSHIFT,%edi
     cdq
     idiv    %edi
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     movl    %eax,%edx
     movl    %eax,%edi
     ret
 div_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_adiv)
-	RegMask(adiv,(M_Reax | M_Redi | M_Redx | Mask_all))
+    CALL_IO(POLY_SYS_adiv)
+    RegMask(adiv,(M_Reax | M_Redi | M_Redx | Mask_all))
 
 INLINE_ROUTINE(rem_long)
     movl    %eax,%edi
@@ -747,14 +748,14 @@ INLINE_ROUTINE(rem_long)
     sarl    $TAGSHIFT,%edi
     cdq
     idiv    %edi
-	MAKETAGGED(%edx,%eax)
+    MAKETAGGED(%edx,%eax)
     movl    %eax,%edx
     movl    %eax,%edi
     ret
 rem_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_amod)
-	RegMask(amod,(M_Reax | M_Redi | M_Redx | Mask_all))
+    CALL_IO(POLY_SYS_amod)
+    RegMask(amod,(M_Reax | M_Redi | M_Redx | Mask_all))
 
 /* Combined quotient and remainder.  We have to use the long form
    if the arguments are long or there's an overflow.  The first two
@@ -779,8 +780,8 @@ INLINE_ROUTINE(quotrem_long)
     sarl    $TAGSHIFT,%edi
     cdq
     idiv    %edi
-	MAKETAGGED(%eax,%eax)
-	MAKETAGGED(%edx,%edx)
+    MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%edx,%edx)
     movl    %eax,%edi
     movl    %eax,(%ecx)
     movl    %edx,POLYWORDSIZE(%ecx)
@@ -792,8 +793,8 @@ mem_for_remquot1:  # Not enough store: clobber bad value in ecx.
 
 quotrem_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_quotrem)
-	RegMask(quotrem,(M_Reax | M_Redi | M_Redx | Mask_all))
+    CALL_IO(POLY_SYS_quotrem)
+    RegMask(quotrem,(M_Reax | M_Redi | M_Redx | Mask_all))
 
 # TODO: Isn't this byte equality?
 INLINE_ROUTINE(equal_long)
@@ -804,8 +805,8 @@ INLINE_ROUTINE(equal_long)
     andl    $TAG,%eax
     jnz     RetFalse
     movl    %ecx,%eax
-	CALL_IO(POLY_SYS_equala)
-	RegMask(equala,(M_Reax | M_Recx | Mask_all))
+    CALL_IO(POLY_SYS_equala)
+    RegMask(equala,(M_Reax | M_Recx | Mask_all))
 
 
 INLINE_ROUTINE(or_long)
@@ -819,8 +820,8 @@ INLINE_ROUTINE(or_long)
     ret
 or_really_long:
 #endif
-	CALL_IO(POLY_SYS_ora)
-	RegMask(ora,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_ora)
+    RegMask(ora,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(xor_long)
 #ifdef NOTATTHEMOMENT
@@ -834,8 +835,8 @@ INLINE_ROUTINE(xor_long)
     ret
 xor_really_long:
 #endif
-	CALL_IO(POLY_SYS_xora)
-	RegMask(xora,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_xora)
+    RegMask(xora,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(and_long)
 #ifdef NOTATTHEMOMENT
@@ -848,8 +849,8 @@ INLINE_ROUTINE(and_long)
     ret
 and_really_long:
 #endif
-	CALL_IO(POLY_SYS_anda)
-	RegMask(anda,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_anda)
+    RegMask(anda,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(neg_long)
     testl   $TAG,%eax
@@ -861,8 +862,8 @@ INLINE_ROUTINE(neg_long)
     ret
 neg_really_long:
     movl    %eax,%edi
-	CALL_IO(POLY_SYS_aneg)
-	RegMask(aneg,(M_Reax | M_Redi | Mask_all))
+    CALL_IO(POLY_SYS_aneg)
+    RegMask(aneg,(M_Reax | M_Redi | Mask_all))
 
 INLINE_ROUTINE(int_geq)
     testl   $TAG,%eax # Is first arg short?
@@ -889,8 +890,8 @@ igeq2:
 
 igeq3:
  # Both long
-	CALL_IO(POLY_SYS_int_geq)
-	RegMask(int_geq,(M_Reax | Mask_all))
+    CALL_IO(POLY_SYS_int_geq)
+    RegMask(int_geq,(M_Reax | Mask_all))
 
 
 INLINE_ROUTINE(int_leq)
@@ -917,8 +918,8 @@ ileq2:
     jmp     RetFalse
 
 ileq3:
-	CALL_IO(POLY_SYS_int_leq)
-	RegMask(int_leq,(M_Reax | M_Recx | Mask_all))
+    CALL_IO(POLY_SYS_int_leq)
+    RegMask(int_leq,(M_Reax | M_Recx | Mask_all))
 
 
 INLINE_ROUTINE(int_gtr)
@@ -945,8 +946,8 @@ igtr2:
     jmp     RetFalse
 
 igtr3:
-	CALL_IO(POLY_SYS_int_gtr)
-	RegMask(int_gtr,(M_Reax | M_Recx | Mask_all))
+    CALL_IO(POLY_SYS_int_gtr)
+    RegMask(int_gtr,(M_Reax | M_Recx | Mask_all))
 
 
 INLINE_ROUTINE(int_lss)
@@ -973,8 +974,8 @@ ilss2:
     jmp     RetFalse
 
 ilss3:
-	CALL_IO(POLY_SYS_int_lss)
-	RegMask(int_lss,(M_Reax | M_Recx | Mask_all))
+    CALL_IO(POLY_SYS_int_lss)
+    RegMask(int_lss,(M_Reax | M_Recx | Mask_all))
 
 INLINE_ROUTINE(offset_address)
  # This is needed in the code generator, but is a very risky thing to do.
@@ -982,7 +983,7 @@ INLINE_ROUTINE(offset_address)
     addl    %ebx,%eax       # and add in
     movl    %eax,%ebx
     ret
-	RegMask(offset_address,(M_Reax | M_Rebx))
+    RegMask(offset_address,(M_Reax | M_Rebx))
 
 # General test routine.  Returns with the condition codes set
 # appropriately.
@@ -1053,32 +1054,32 @@ INLINE_ROUTINE(str_compare)
     je      RetFalse        # Return TAGGED(0) if it's equal
     movl    $MINUS1,%eax   # Return TAGGED(-1) if it's less.
     ret
-	RegMask(str_compare,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(str_compare,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 
 INLINE_ROUTINE(teststrgeq)
     call    teststr
     jnb     RetTrue
     jmp     RetFalse
-	RegMask(teststrgeq,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(teststrgeq,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 INLINE_ROUTINE(teststrleq)
     call    teststr
     jna     RetTrue
     jmp     RetFalse
-	RegMask(teststrleq,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(teststrleq,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 INLINE_ROUTINE(teststrlss)
     call    teststr
     jb      RetTrue
     jmp     RetFalse
-	RegMask(teststrlss,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(teststrlss,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 INLINE_ROUTINE(teststrgtr)
     call    teststr
     ja      RetTrue
     jmp     RetFalse
-	RegMask(teststrgtr,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(teststrgtr,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 
 INLINE_ROUTINE(bytevec_eq)
@@ -1109,17 +1110,17 @@ bvTrue:
 bvRet:
     ret     $12
 
-	RegMask(bytevec_eq,(M_Reax | M_Recx | M_Redi | M_Resi))
+    RegMask(bytevec_eq,(M_Reax | M_Recx | M_Redi | M_Resi))
 
 
 INLINE_ROUTINE(is_big_endian)
     jmp     RetFalse    # I386/486 is little-endian
-	RegMask(is_big_endian,(M_Reax))
+    RegMask(is_big_endian,(M_Reax))
 
 INLINE_ROUTINE(bytes_per_word)
     movl    $TAGGED(POLYWORDSIZE),%eax  # 4/8 bytes per word
     ret
-	RegMask(bytes_per_word,(M_Reax))
+    RegMask(bytes_per_word,(M_Reax))
 
  # Word functions.  These are all unsigned and do not raise Overflow
  
@@ -1131,119 +1132,119 @@ INLINE_ROUTINE(mul_word)
     movl    %eax,%edx           # clobber this which has the high-end result
     movl    %eax,%ebx           # and the other bad result.
     ret
-	RegMask(mul_word,(M_Reax | M_Rebx | M_Redx))
+    RegMask(mul_word,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(plus_word)
     leal    (-TAG)(%eax,%ebx),%eax  # Add the values and subtract a tag
     ret
-	RegMask(plus_word,(M_Reax))
+    RegMask(plus_word,(M_Reax))
 
 INLINE_ROUTINE(minus_word)
     subl    %ebx,%eax
     addl    $TAG,%eax          # Put back the tag
     ret
-	RegMask(minus_word,(M_Reax))
+    RegMask(minus_word,(M_Reax))
 
 INLINE_ROUTINE(div_word)
     shrl    $TAGSHIFT,%ebx     # Check for division by zero is done in ML
     shrl    $TAGSHIFT,%eax
     movl    $0,%edx
     div     %ebx
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(div_word,(M_Reax | M_Rebx | M_Redx))
+    RegMask(div_word,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(mod_word)
     shrl    $TAGSHIFT,%ebx # Check for division by zero is done in ML
     shrl    $TAGSHIFT,%eax
     movl    $0,%edx
     div     %ebx
-	MAKETAGGED(%edx,%eax)
+    MAKETAGGED(%edx,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(mod_word,(M_Reax | M_Rebx | M_Redx))
+    RegMask(mod_word,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(word_eq)
     cmpl    %ebx,%eax
     jz      RetTrue         # True if they are equal.
     jmp     RetFalse
-	RegMask(word_eq,(M_Reax))
+    RegMask(word_eq,(M_Reax))
 
 INLINE_ROUTINE(word_geq)
     cmpl    %ebx,%eax
     jnb     RetTrue
     jmp     RetFalse
-	RegMask(word_geq,(M_Reax))
+    RegMask(word_geq,(M_Reax))
 
 INLINE_ROUTINE(word_leq)
     cmpl    %ebx,%eax
     jna     RetTrue
     jmp     RetFalse
-	RegMask(word_leq,(M_Reax))
+    RegMask(word_leq,(M_Reax))
 
 INLINE_ROUTINE(word_gtr)
     cmpl    %ebx,%eax
     ja      RetTrue
     jmp     RetFalse
-	RegMask(word_gtr,(M_Reax))
+    RegMask(word_gtr,(M_Reax))
 
  INLINE_ROUTINE(word_lss)
     cmpl    %ebx,%eax
     jb      RetTrue
     jmp     RetFalse
-	RegMask(word_lss,(M_Reax))
+    RegMask(word_lss,(M_Reax))
 
 INLINE_ROUTINE(fixed_geq)
     cmpl    %ebx,%eax
     jge     RetTrue
     jmp     RetFalse
-	RegMask(fixed_geq,(M_Reax))
+    RegMask(fixed_geq,(M_Reax))
 
 INLINE_ROUTINE(fixed_leq)
     cmpl    %ebx,%eax
     jle     RetTrue
     jmp     RetFalse
-	RegMask(fixed_leq,(M_Reax))
+    RegMask(fixed_leq,(M_Reax))
 
 INLINE_ROUTINE(fixed_gtr)
     cmpl    %ebx,%eax
     jg      RetTrue
     jmp     RetFalse
-	RegMask(fixed_gtr,(M_Reax))
+    RegMask(fixed_gtr,(M_Reax))
 
 INLINE_ROUTINE(fixed_lss)
     cmpl    %ebx,%eax
     jl      RetTrue
     jmp     RetFalse
-	RegMask(fixed_lss,(M_Reax))
+    RegMask(fixed_lss,(M_Reax))
 
 INLINE_ROUTINE(fixed_add)
-	leal    (-TAG)(%eax),%eax
-	addl	%ebx,%eax
+    leal    (-TAG)(%eax),%eax
+    addl    %ebx,%eax
     jo      raiseOverflowEx
-	ret
-	RegMask(fixed_add,(M_Reax))
+    ret
+    RegMask(fixed_add,(M_Reax))
 
 INLINE_ROUTINE(fixed_sub)
-	subl	%ebx,%eax
-	jo      raiseOverflowEx
-	addl    $TAG,%eax      # Put back the tag
-	ret
-	RegMask(fixed_sub,(M_Reax))
+    subl    %ebx,%eax
+    jo      raiseOverflowEx
+    addl    $TAG,%eax      # Put back the tag
+    ret
+    RegMask(fixed_sub,(M_Reax))
 
 INLINE_ROUTINE(fixed_mul)
     sarl    $TAGSHIFT,%ebx # Untag the multiplier
     subl    $TAG,%eax      # Remove the tag from the multiplicand
     imull   %ebx,%eax           # signed multiplication
-	jo      raiseOverflowEx
+    jo      raiseOverflowEx
     addl    $TAG,%eax      # Add back the tag, but don`t shift
     movl    %eax,%edx           # clobber this which has the high-end result
     movl    %eax,%ebx           # and the other bad result.
     ret
-	RegMask(fixed_mul,(M_Reax | M_Rebx | M_Redx))
+    RegMask(fixed_mul,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(fixed_quot)
 # Checking for overflow and zero is done in ML
@@ -1251,22 +1252,22 @@ INLINE_ROUTINE(fixed_quot)
     sarl    $TAGSHIFT,%eax
     cdq
     idiv    %ebx
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(fixed_quot,(M_Reax | M_Rebx | M_Redx))
+    RegMask(fixed_quot,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(fixed_rem)
     sarl    $TAGSHIFT,%ebx
     sarl    $TAGSHIFT,%eax
     cdq
     idiv     %ebx
-	MAKETAGGED(%edx,%eax)
+    MAKETAGGED(%edx,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(fixed_rem,(M_Reax | M_Rebx | M_Redx))
+    RegMask(fixed_rem,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(fixed_div)
 # Checking for overflow and zero is done in ML
@@ -1274,17 +1275,17 @@ INLINE_ROUTINE(fixed_div)
     sarl    $TAGSHIFT,%eax
     cdq
     idiv    %ebx
-	cmpl	$0,%edx
-	jz		fixed_div1		        # If the remainder if non-zero ...
-	xorl	%edx,%ebx		        # and has a different sign from the divisor ...
-	jns		fixed_div1
-	subl	$1,%eax	                # subtract one to round to -infinity rather than zero.
+    cmpl    $0,%edx
+    jz      fixed_div1              # If the remainder if non-zero ...
+    xorl    %edx,%ebx               # and has a different sign from the divisor ...
+    jns     fixed_div1
+    subl    $1,%eax                 # subtract one to round to -infinity rather than zero.
 fixed_div1:
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(fixed_div,(M_Reax | M_Rebx | M_Redx))
+    RegMask(fixed_div,(M_Reax | M_Rebx | M_Redx))
 
 INLINE_ROUTINE(fixed_mod)
     sarl    $TAGSHIFT,%ebx
@@ -1292,18 +1293,18 @@ INLINE_ROUTINE(fixed_mod)
     cdq
     idiv     %ebx
 # Result is in %edx.  We have to change the result so that it has the sign as the divisor.
-	cmpl	$0,%edx
-	jz      fixed_mod1	# Result is zero - no change
-	xorl    %edx,%ebx
-	jns		fixed_mod1	# Skip if they had the same signs
-	xorl	%edx,%ebx	# Restore the original divisor
-	addl	%ebx,%edx	# And add it in
+    cmpl    $0,%edx
+    jz      fixed_mod1  # Result is zero - no change
+    xorl    %edx,%ebx
+    jns     fixed_mod1  # Skip if they had the same signs
+    xorl    %edx,%ebx   # Restore the original divisor
+    addl    %ebx,%edx   # And add it in
 fixed_mod1:
-	MAKETAGGED(%edx,%eax)
+    MAKETAGGED(%edx,%eax)
     movl    %eax,%edx
     movl    %eax,%ebx
     ret
-	RegMask(fixed_mod,(M_Reax | M_Rebx | M_Redx))
+    RegMask(fixed_mod,(M_Reax | M_Rebx | M_Redx))
 
 raiseOverflowEx:
 # Build the exception packet.
@@ -1325,7 +1326,7 @@ atomic_incr:                    # Internal name in case "atomic_increment" is mu
     movl    %ebx,%eax
     ret
 
-	RegMask(atomic_incr,(M_Reax | M_Rebx))
+    RegMask(atomic_incr,(M_Reax | M_Rebx))
 
 # Atomically decrement the value at the address of the arg and return the
 # updated value.  Since the xadd instruction returns the original value
@@ -1338,7 +1339,7 @@ atomic_decr:
     subl    $2,%eax
     ret
 
-	RegMask(atomic_decr,(M_Reax | M_Rebx))
+    RegMask(atomic_decr,(M_Reax | M_Rebx))
 
 /* Reset a mutex to (tagged) one.  Because the increment and decrements
    are atomic this doesn't have to do anything special. */
@@ -1347,13 +1348,13 @@ INLINE_ROUTINE(atomic_reset)
     movl    $UNIT,%eax  # The function returns unit
     ret
 
-	RegMask(atomic_reset,M_Reax)
+    RegMask(atomic_reset,M_Reax)
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
     movl    ThreadId(%ebp),%eax
     ret
-	RegMask(thread_self,(M_Reax))
+    RegMask(thread_self,(M_Reax))
 
 
 
@@ -1378,11 +1379,11 @@ mem_for_largeword:
   Temporarily: push these registers to the stack
   and pop them afterwards.  This isn't the final version of this code
   but is useful as a test. */
-		pushl	 %eax
-		pushl    %ebx
-        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
-		popl     %ebx
-		popl     %eax
+        pushl   %eax
+        pushl    %ebx
+        call     callheapOverflowLocal
+        popl     %ebx
+        popl     %eax
 mem_for_largeword1:
         movl    %ecx,LocalMpointer(%ebp) # Updated allocation pointer
         movl    $0x01000001,(-4)(%ecx)     # Length word
@@ -1405,11 +1406,11 @@ mem_for_real:
   Temporarily: push these registers to the stack
   and pop them afterwards.  This isn't the final version of this code
   but is useful as a test. */
-		pushl	 %eax
-		pushl    %ebx
-        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
-		popl     %ebx
-		popl     %eax
+        pushl   %eax
+        pushl    %ebx
+        call     callheapOverflowLocal
+        popl     %ebx
+        popl     %eax
 mem_for_real1:
         movl    %ecx,LocalMpointer(%ebp) # Updated allocation pointer
         movl    $0x01000002,(-4)(%ecx)     # Two words plus tag
@@ -1427,7 +1428,7 @@ INLINE_ROUTINE(real_add)
 
 /* The mask includes FP7 rather than FP0 because this pushes a value which
    overwrites the bottom of the stack. */
-	RegMask(real_add,(M_Reax | M_Recx | M_Redx | M_FP7))
+    RegMask(real_add,(M_Reax | M_Recx | M_Redx | M_FP7))
 
 
 
@@ -1439,7 +1440,7 @@ INLINE_ROUTINE(real_sub)
     movl    %ecx,%eax
     ret
 
-	RegMask(real_sub,(M_Reax | M_Recx | M_Redx | M_FP7))
+    RegMask(real_sub,(M_Reax | M_Recx | M_Redx | M_FP7))
 
 
 INLINE_ROUTINE(real_mul)
@@ -1450,7 +1451,7 @@ INLINE_ROUTINE(real_mul)
     movl    %ecx,%eax
     ret
 
-	RegMask(real_mul,(M_Reax | M_Recx | M_Redx | M_FP7))
+    RegMask(real_mul,(M_Reax | M_Recx | M_Redx | M_FP7))
 
 
 INLINE_ROUTINE(real_div)
@@ -1461,14 +1462,14 @@ INLINE_ROUTINE(real_div)
     movl    %ecx,%eax
     ret
 
-	RegMask(real_div,(M_Reax | M_Recx | M_Redx | M_FP7))
+    RegMask(real_div,(M_Reax | M_Recx | M_Redx | M_FP7))
 
 
 # For all values except NaN it's possible to do this by a test such as
 # "if x < 0.0 then ~ x else x" but the test always fails for NaNs
 
 INLINE_ROUTINE(real_abs)
-    movl	%eax,%ebx                # Put a valid value in %ebx
+    movl    %eax,%ebx                # Put a valid value in %ebx
     call    mem_for_real
 # N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
     fldl    (%eax)
@@ -1477,11 +1478,11 @@ INLINE_ROUTINE(real_abs)
     movl    %ecx,%eax
     ret
 
-	RegMask(real_abs,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)          # Temporarily include %ebx)
+    RegMask(real_abs,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)          # Temporarily include %ebx)
 
 
 INLINE_ROUTINE(real_neg)
-    movl	%eax,%ebx                # Put a valid value in %ebx
+    movl    %eax,%ebx                # Put a valid value in %ebx
     call    mem_for_real
 # Do the operation and put the result in the allocated
 # space.
@@ -1492,7 +1493,7 @@ INLINE_ROUTINE(real_neg)
     movl    %ecx,%eax
     ret
 
-	RegMask(real_neg,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)         # Temporarily include %ebx)
+    RegMask(real_neg,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)         # Temporarily include %ebx)
 
 
 
@@ -1506,7 +1507,7 @@ INLINE_ROUTINE(real_eq)
     cmpl    $16384,%eax        # 0x4000
     je      RetTrue
     jmp     RetFalse
-	RegMask(real_eq,(M_Reax | M_FP7))
+    RegMask(real_eq,(M_Reax | M_FP7))
 
 
 INLINE_ROUTINE(real_neq)
@@ -1518,7 +1519,7 @@ INLINE_ROUTINE(real_neq)
     jne     RetTrue
     jmp     RetFalse
 
-	RegMask(real_neq,(M_Reax | M_FP7))
+    RegMask(real_neq,(M_Reax | M_FP7))
 
 
 INLINE_ROUTINE(real_lss)
@@ -1532,7 +1533,7 @@ INLINE_ROUTINE(real_lss)
     je      RetTrue
     jmp     RetFalse
 
-	RegMask(real_lss,(M_Reax | M_FP7))
+    RegMask(real_lss,(M_Reax | M_FP7))
 
 
 INLINE_ROUTINE(real_gtr)
@@ -1545,7 +1546,7 @@ INLINE_ROUTINE(real_gtr)
     je      RetTrue
     jmp     RetFalse
 
-	RegMask(real_gtr,(M_Reax | M_FP7))
+    RegMask(real_gtr,(M_Reax | M_FP7))
 
 
 INLINE_ROUTINE(real_leq)
@@ -1558,7 +1559,7 @@ INLINE_ROUTINE(real_leq)
     je      RetTrue
     jmp     RetFalse
 
-	RegMask(real_leq,(M_Reax | M_FP7))
+    RegMask(real_leq,(M_Reax | M_FP7))
 
 
 INLINE_ROUTINE(real_geq)
@@ -1570,12 +1571,12 @@ INLINE_ROUTINE(real_geq)
     je      RetTrue
     jmp     RetFalse
 
-	RegMask(real_geq,(M_Reax | M_FP7))
+    RegMask(real_geq,(M_Reax | M_FP7))
 
 INLINE_ROUTINE(real_from_int)
     testl   $TAG,%eax   # Is it long ?
     jz      real_float_1
-    movl	%eax,%ebx                # Put a valid value in %ebx
+    movl    %eax,%ebx                # Put a valid value in %ebx
     call    mem_for_real
     sarl    $TAGSHIFT,%eax # Untag the value
     movl    %eax,RealTemp(%ebp) # Save it in a temporary (N.B. It's now untagged)
@@ -1585,12 +1586,12 @@ INLINE_ROUTINE(real_from_int)
     ret
 
 real_float_1:
-    	CALL_IO(POLY_SYS_int_to_real)
+        CALL_IO(POLY_SYS_int_to_real)
 
-	RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
+    RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
 
 INLINE_ROUTINE(fixed_to_real)
-    movl	%eax,%ebx                # Put a valid value in %ebx
+    movl    %eax,%ebx                # Put a valid value in %ebx
     call    mem_for_real
     sarl    $TAGSHIFT,%eax # Untag the value
     movl    %eax,RealTemp(%ebp) # Save it in a temporary (N.B. It's now untagged)
@@ -1599,19 +1600,19 @@ INLINE_ROUTINE(fixed_to_real)
     movl    %ecx,%eax
     ret
 
-	RegMask(fixed_to_real,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)    # Temporarily include %ebx)
+    RegMask(fixed_to_real,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)    # Temporarily include %ebx)
 
 INLINE_ROUTINE(set_exception_trace)
 /* The argument is the closure to call.  The return address is already on the stack.
    We need to push the addresses of some code.  To make it position-independent we use
    CALLs in a non-standard way. */
-	movl	%eax,%edx					# Target closure
-	pushl	HandlerRegister(%ebp)		# Previous handler
-	CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
+    movl    %eax,%edx                   # Target closure
+    pushl   HandlerRegister(%ebp)       # Previous handler
+    CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
     /* This is the code that is called if we get an exception.
        The exception packet is the first argument. */
     movb    $POLY_SYS_give_ex_trace_fn,RequestCode(%ebp)
-    jmp     X86AsmSaveStateAndReturn
+    jmp     SaveStateAndReturnLocal
     #
 setexct1:
     movl    %esp,HandlerRegister(%ebp)  # Set up the handler
@@ -1629,15 +1630,15 @@ setexct2:
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
         movb    $POLY_SYS_kill_self,RequestCode(%ebp)
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 
 INLINE_ROUTINE(X86AsmCallbackReturn)
         movb    $RETURN_CALLBACK_RETURN,ReturnReason(%ebp)
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 
 INLINE_ROUTINE(X86AsmCallbackException)
         movb    $RETURN_CALLBACK_EXCEPTION,ReturnReason(%ebp)
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
@@ -1660,7 +1661,7 @@ INLINE_ROUTINE(eq_longword)
     cmpl    (%ebx),%eax
     jz      RetTrue         # True if they are equal.
     jmp     RetFalse
-	RegMask(eq_longword,(M_Reax))
+    RegMask(eq_longword,(M_Reax))
 
 INLINE_ROUTINE(geq_longword)
 
@@ -1668,55 +1669,55 @@ INLINE_ROUTINE(geq_longword)
     cmpl    (%ebx),%eax
     jnb     RetTrue
     jmp     RetFalse
-	RegMask(geq_longword,(M_Reax))
+    RegMask(geq_longword,(M_Reax))
 
 INLINE_ROUTINE(leq_longword)
     movl    (%eax),%eax
     cmpl    (%ebx),%eax
     jna     RetTrue
     jmp     RetFalse
-	RegMask(leq_longword,(M_Reax))
+    RegMask(leq_longword,(M_Reax))
 
 INLINE_ROUTINE(gt_longword)
     movl    (%eax),%eax
     cmpl    (%ebx),%eax
     ja      RetTrue
     jmp     RetFalse
-	RegMask(gt_longword,(M_Reax))
+    RegMask(gt_longword,(M_Reax))
 
 INLINE_ROUTINE(lt_longword)
     movl    (%eax),%eax
     cmpl    (%ebx),%eax
     jb      RetTrue
     jmp     RetFalse
-	RegMask(lt_longword,(M_Reax))
+    RegMask(lt_longword,(M_Reax))
 
 INLINE_ROUTINE(longword_to_tagged)
 # Load the value and tag it, discarding the top bit
     movl    (%eax),%eax
-    	MAKETAGGED(%eax,%eax)
+        MAKETAGGED(%eax,%eax)
     ret
-	RegMask(longword_to_tagged,(M_Reax))
+    RegMask(longword_to_tagged,(M_Reax))
 
 INLINE_ROUTINE(signed_to_longword)
 # Shift the value to remove the tag and store it.
-	movl	%eax,%ebx					# mem_for_largeword may push rebx
+    movl    %eax,%ebx                   # mem_for_largeword may push rebx
     call    mem_for_largeword
     sarl    $TAGSHIFT,%eax         # Arithmetic shift, preserve sign
     movl    %eax,(%ecx)
     movl    %ecx,%eax
     ret
-	RegMask(signed_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %ebx)
+    RegMask(signed_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %ebx)
 
 INLINE_ROUTINE(unsigned_to_longword)
 # Shift the value to remove the tag and store it.
-	movl	%eax,%ebx					# mem_for_largeword may push rebx
+    movl    %eax,%ebx                   # mem_for_largeword may push rebx
     call    mem_for_largeword
     shrl    $TAGSHIFT,%eax         # Logical shift, zero top bit
     movl    %eax,(%ecx)
     movl    %ecx,%eax
     ret
-	RegMask(unsigned_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %ebx)
+    RegMask(unsigned_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %ebx)
 
 INLINE_ROUTINE(plus_longword)
     call    mem_for_largeword
@@ -1725,7 +1726,7 @@ INLINE_ROUTINE(plus_longword)
     movl    %eax,(%ecx)
     movl    %ecx,%eax
     ret
-	RegMask(plus_longword,(M_Reax | M_Recx))
+    RegMask(plus_longword,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(minus_longword)
     call    mem_for_largeword
@@ -1734,7 +1735,7 @@ INLINE_ROUTINE(minus_longword)
     movl    %eax,(%ecx)
     movl    %ecx,%eax
     ret
-	RegMask(minus_longword,(M_Reax | M_Recx))
+    RegMask(minus_longword,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(mul_longword)
     call    mem_for_largeword
@@ -1744,7 +1745,7 @@ INLINE_ROUTINE(mul_longword)
     movl    %ecx,%eax
     movl    %eax,%edx           # clobber this which has the high-end result
     ret
-	RegMask(mul_longword,(M_Reax | M_Recx | M_Redx))
+    RegMask(mul_longword,(M_Reax | M_Recx | M_Redx))
 
 INLINE_ROUTINE(div_longword)
 # Check for division by zero is done in ML
@@ -1757,7 +1758,7 @@ INLINE_ROUTINE(div_longword)
     movl    %eax,%edx           # clobber this which has the remainder
     ret
 
-	RegMask(div_longword,(M_Reax | M_Recx | M_Redx))
+    RegMask(div_longword,(M_Reax | M_Recx | M_Redx))
 
 INLINE_ROUTINE(mod_longword)
 # Check for division by zero is done in ML
@@ -1770,7 +1771,7 @@ INLINE_ROUTINE(mod_longword)
     movl    %eax,%edx           # clobber this which has the remainder
     ret
 
-	RegMask(mod_longword,(M_Reax | M_Recx | M_Redx))
+    RegMask(mod_longword,(M_Reax | M_Recx | M_Redx))
 
 INLINE_ROUTINE(andb_longword)
     call    mem_for_largeword
@@ -1780,7 +1781,7 @@ INLINE_ROUTINE(andb_longword)
     movl    %ecx,%eax
     ret
 
-	RegMask(andb_longword,(M_Reax | M_Recx))
+    RegMask(andb_longword,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(orb_longword)
     call    mem_for_largeword
@@ -1790,7 +1791,7 @@ INLINE_ROUTINE(orb_longword)
     movl    %ecx,%eax
     ret
 
-	RegMask(orb_longword,(M_Reax | M_Recx))
+    RegMask(orb_longword,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(xorb_longword)
     call    mem_for_largeword
@@ -1800,7 +1801,7 @@ INLINE_ROUTINE(xorb_longword)
     movl    %ecx,%eax
     ret
 
-	RegMask(xorb_longword,(M_Reax | M_Recx))
+    RegMask(xorb_longword,(M_Reax | M_Recx))
 
 INLINE_ROUTINE(shift_left_longword)
     call    mem_for_largeword
@@ -1825,7 +1826,7 @@ sllw2:
     movl    %edx,%eax
     movl    %eax,%ecx           # Clobber %ecx
     ret
-	RegMask(shift_left_longword,(M_Reax | M_Recx | M_Redx))
+    RegMask(shift_left_longword,(M_Reax | M_Recx | M_Redx))
 
 INLINE_ROUTINE(shift_right_longword)
     call    mem_for_largeword
@@ -1850,7 +1851,7 @@ srlw2:
     movl    %edx,%eax
     movl    %eax,%ecx           # Clobber %ecx
     ret
-	RegMask(shift_right_longword,(M_Reax | M_Recx | M_Redx))
+    RegMask(shift_right_longword,(M_Reax | M_Recx | M_Redx))
 
 INLINE_ROUTINE(shift_right_arith_longword)
     call    mem_for_largeword
@@ -1878,7 +1879,7 @@ sralw1:
     movl    %edx,%eax
     movl    %eax,%ecx           # Clobber %ecx
     ret
-	RegMask(shift_right_arith_longword,(M_Reax | M_Rebx | M_Recx | M_Redx))
+    RegMask(shift_right_arith_longword,(M_Reax | M_Rebx | M_Recx | M_Redx))
 
 # C-memory operations.
 INLINE_ROUTINE(cmem_load_asm_8)
@@ -1896,10 +1897,10 @@ INLINE_ROUTINE(cmem_load_asm_8)
 #else
     movzbq  (%eax,%ebx,1),%eax
 #endif
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     movl    %eax,%ebx       # Clobber bad value in %%ebx
     ret $4
-	RegMask(cmem_load_8,(M_Reax | M_Rebx))
+    RegMask(cmem_load_8,(M_Reax | M_Rebx))
 
 INLINE_ROUTINE(cmem_load_asm_16)
     movl    (%eax),%eax             # The address is boxed.
@@ -1916,9 +1917,9 @@ INLINE_ROUTINE(cmem_load_asm_16)
 #else
     movzwq  -1(%eax,%ebx,1),%eax
 #endif
-	MAKETAGGED(%eax,%eax)
+    MAKETAGGED(%eax,%eax)
     ret $4
-	RegMask(cmem_load_16,(M_Reax | M_Rebx))
+    RegMask(cmem_load_16,(M_Reax | M_Rebx))
 
 INLINE_ROUTINE(cmem_load_asm_32)
 # 32-bit mode - the result is boxed
@@ -1932,7 +1933,7 @@ INLINE_ROUTINE(cmem_load_asm_32)
     movl    %ecx,%eax               # Copy the result address
     ret $4
 
-	RegMask(cmem_load_32,(M_Reax | M_Rebx | M_Recx))
+    RegMask(cmem_load_32,(M_Reax | M_Rebx | M_Recx))
 
 INLINE_ROUTINE(cmem_load_asm_float)
     call    mem_for_real
@@ -1945,7 +1946,7 @@ INLINE_ROUTINE(cmem_load_asm_float)
     movl    %ecx,%eax
     ret $4
 
-	RegMask(cmem_load_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+    RegMask(cmem_load_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
 
 INLINE_ROUTINE(cmem_load_asm_double)
     call    mem_for_real
@@ -1958,7 +1959,7 @@ INLINE_ROUTINE(cmem_load_asm_double)
     movl    %ecx,%eax
     ret $4
 
-	RegMask(cmem_load_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+    RegMask(cmem_load_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
    
 INLINE_ROUTINE(cmem_store_asm_8)
     movl    (%eax),%eax             # The address is boxed.
@@ -1973,7 +1974,7 @@ INLINE_ROUTINE(cmem_store_asm_8)
     movl    %eax,%ebx                   # Clobber bad value in %%ebx
     movl    %eax,%ecx                   # and %%ecx
     ret $8
-	RegMask(cmem_store_8,(M_Reax | M_Rebx | M_Recx))
+    RegMask(cmem_store_8,(M_Reax | M_Rebx | M_Recx))
 
 INLINE_ROUTINE(cmem_store_asm_16)
     movl    (%eax),%eax             # The address is boxed.
@@ -1986,7 +1987,7 @@ INLINE_ROUTINE(cmem_store_asm_16)
     movl    $UNIT,%eax             # The function returns unit
     movl    %eax,%ecx                   # Bad value in %%ecx
     ret $8
-	RegMask(cmem_store_16,(M_Reax | M_Rebx | M_Recx))
+    RegMask(cmem_store_16,(M_Reax | M_Rebx | M_Recx))
 
 INLINE_ROUTINE(cmem_store_asm_32)
     movl    (%eax),%eax             # The address is boxed.
@@ -1999,7 +2000,7 @@ INLINE_ROUTINE(cmem_store_asm_32)
     movl    $UNIT,%eax             # The function returns unit
     movl    %eax,%ecx                   # Bad value in %%ecx
     ret $8
-	RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
+    RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
 
 INLINE_ROUTINE(cmem_store_asm_float)
     movl    (%eax),%eax             # The address is boxed.
@@ -2012,7 +2013,7 @@ INLINE_ROUTINE(cmem_store_asm_float)
     movl    $UNIT,%eax         # The function returns unit
     movl    %eax,%ebx               # Bad value in %%ebx
     ret $8
-	RegMask(cmem_store_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+    RegMask(cmem_store_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
 
 INLINE_ROUTINE(cmem_store_asm_double)
     movl    (%eax),%eax             # The address is boxed.
@@ -2025,7 +2026,7 @@ INLINE_ROUTINE(cmem_store_asm_double)
     movl    $UNIT,%eax         # The function returns unit
     movl    %eax,%ebx               # Bad value in %%ebx
     ret $8
-	RegMask(cmem_store_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+    RegMask(cmem_store_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
 
 #define CREATE_IO_CALL(index) \
     INLINE_ROUTINE(Call##index##) \
@@ -2035,43 +2036,45 @@ INLINE_ROUTINE(cmem_store_asm_double)
     INLINE_ROUTINE(X86AsmCallExtra##index##) \
     CALL_EXTRA(index)
 
-	CREATE_IO_CALL(POLY_SYS_exit)
-# 	CREATE_IO_CALL(POLY_SYS_chdir)
-	CREATE_IO_CALL(POLY_SYS_get_flags)
-	CREATE_IO_CALL(POLY_SYS_profiler)
-	CREATE_IO_CALL(POLY_SYS_Real_str)
-	CREATE_IO_CALL(POLY_SYS_Real_Dispatch)
-	CREATE_IO_CALL(POLY_SYS_conv_real)
-	CREATE_IO_CALL(POLY_SYS_real_to_int)
-	CREATE_IO_CALL(POLY_SYS_sqrt_real)
-	CREATE_IO_CALL(POLY_SYS_sin_real)
-	CREATE_IO_CALL(POLY_SYS_signal_handler)
-	CREATE_IO_CALL(POLY_SYS_os_specific)
-	CREATE_IO_CALL(POLY_SYS_network)
-	CREATE_IO_CALL(POLY_SYS_io_dispatch)
-	CREATE_IO_CALL(POLY_SYS_poly_specific)
-	CREATE_IO_CALL(POLY_SYS_set_code_constant)
-	CREATE_IO_CALL(POLY_SYS_code_flags)
-	CREATE_IO_CALL(POLY_SYS_shrink_stack)
-	CREATE_IO_CALL(POLY_SYS_process_env)
-	CREATE_IO_CALL(POLY_SYS_foreign_dispatch)
-	CREATE_IO_CALL(POLY_SYS_ffi)
-	CREATE_IO_CALL(POLY_SYS_stack_trace)
-	CREATE_IO_CALL(POLY_SYS_full_gc)
-	CREATE_IO_CALL(POLY_SYS_XWindows)
-	CREATE_IO_CALL(POLY_SYS_timing_dispatch)
-	CREATE_IO_CALL(POLY_SYS_kill_self)
-	CREATE_IO_CALL(POLY_SYS_thread_dispatch)
-	CREATE_IO_CALL(POLY_SYS_io_operation)
-	CREATE_IO_CALL(POLY_SYS_ln_real)
-	CREATE_IO_CALL(POLY_SYS_exp_real)
-	CREATE_IO_CALL(POLY_SYS_arctan_real)
-	CREATE_IO_CALL(POLY_SYS_cos_real)
+    CREATE_IO_CALL(POLY_SYS_exit)
+#   CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_get_flags)
+    CREATE_IO_CALL(POLY_SYS_profiler)
+    CREATE_IO_CALL(POLY_SYS_Real_str)
+    CREATE_IO_CALL(POLY_SYS_Real_Dispatch)
+    CREATE_IO_CALL(POLY_SYS_conv_real)
+    CREATE_IO_CALL(POLY_SYS_real_to_int)
+    CREATE_IO_CALL(POLY_SYS_sqrt_real)
+    CREATE_IO_CALL(POLY_SYS_sin_real)
+    CREATE_IO_CALL(POLY_SYS_signal_handler)
+    CREATE_IO_CALL(POLY_SYS_os_specific)
+    CREATE_IO_CALL(POLY_SYS_network)
+    CREATE_IO_CALL(POLY_SYS_io_dispatch)
+    CREATE_IO_CALL(POLY_SYS_poly_specific)
+    CREATE_IO_CALL(POLY_SYS_set_code_constant)
+    CREATE_IO_CALL(POLY_SYS_code_flags)
+    CREATE_IO_CALL(POLY_SYS_shrink_stack)
+    CREATE_IO_CALL(POLY_SYS_process_env)
+    CREATE_IO_CALL(POLY_SYS_foreign_dispatch)
+    CREATE_IO_CALL(POLY_SYS_ffi)
+    CREATE_IO_CALL(POLY_SYS_stack_trace)
+    CREATE_IO_CALL(POLY_SYS_full_gc)
+    CREATE_IO_CALL(POLY_SYS_XWindows)
+    CREATE_IO_CALL(POLY_SYS_timing_dispatch)
+    CREATE_IO_CALL(POLY_SYS_kill_self)
+    CREATE_IO_CALL(POLY_SYS_thread_dispatch)
+    CREATE_IO_CALL(POLY_SYS_io_operation)
+    CREATE_IO_CALL(POLY_SYS_ln_real)
+    CREATE_IO_CALL(POLY_SYS_exp_real)
+    CREATE_IO_CALL(POLY_SYS_arctan_real)
+    CREATE_IO_CALL(POLY_SYS_cos_real)
 
-	CREATE_EXTRA_CALL(RETURN_HEAP_OVERFLOW)
-	CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
-	CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
-	CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
+callheapOverflowLocal:
+    CREATE_EXTRA_CALL(RETURN_HEAP_OVERFLOW)
+
+    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
+    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
+    CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
 
 # Direct calls to the RTS
 
@@ -2088,7 +2091,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
         pushl   $0                             # Alignment - Needed??
         pushl   %eax                                # Argument
         pushl   %ebp                                # Memregs address
-        call    X86ChDir
+        call    EXTNAME(X86ChDir)
         movl    Mr_ESP(%ebp),%esp                   # Restore ML stack ptr
         cmpl    $UNIT,ExceptionPacket(%ebp)
         jne     cpsdraisex
@@ -2098,7 +2101,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
 
 cpsdraisex:
         movl    ExceptionPacket(%ebp),%eax
-        jmp     raisex
+        jmp     raisexlocal
 
 
 /* Register mask vector. - extern int registerMaskVector();
@@ -2161,7 +2164,7 @@ EXTNAME(registerMaskVector):
     .long  Mask_all                 # 51
     .long  Mask_all                 # 52
     .long  Mask_eq_longword         # 53
-    .long  Mask_all				 # 54 is no longer used
+    .long  Mask_all              # 54 is no longer used
     .long  Mask_geq_longword        # 55
     .long  Mask_leq_longword        # 56
     .long  Mask_gt_longword         # 57
@@ -2324,7 +2327,7 @@ EXTNAME(registerMaskVector):
     .long  Mask_bytes_per_word      # 214
     .long  Mask_offset_address      # 215
     .long  Mask_shift_right_word    # 216
-    .long  Mask_all				 # 217 - no longer used
+    .long  Mask_all              # 217 - no longer used
     .long  Mask_not_bool            # 218
     .long  Mask_fixed_geq           # 219
     .long  Mask_fixed_leq           # 220
