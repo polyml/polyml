@@ -1934,9 +1934,6 @@ INLINE_ROUTINE(cmem_load_asm_32)
 
 	RegMask(cmem_load_32,(M_Reax | M_Rebx | M_Recx))
 
-INLINE_ROUTINE(cmem_load_asm_64 # The result is boxed in 64-bit mode. Not implemented in 32-bit mode)
-
-
 INLINE_ROUTINE(cmem_load_asm_float)
     call    mem_for_real
     movl    (%eax),%eax             # The address is boxed.
@@ -2003,9 +2000,6 @@ INLINE_ROUTINE(cmem_store_asm_32)
     movl    %eax,%ecx                   # Bad value in %%ecx
     ret $8
 	RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
-
-INLINE_ROUTINE(cmem_store_asm_64 # The value is boxed in 64-bit mode. Not implemented in 32-bit mode)
-
 
 INLINE_ROUTINE(cmem_store_asm_float)
     movl    (%eax),%eax             # The address is boxed.
