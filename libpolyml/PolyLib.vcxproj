@@ -430,21 +430,29 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|Win32'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "%(FullPath)"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">cl /nologo /EP  /I. /D_MSC_VER "%(FullPath)" &gt; $(IntDir)%(Filename).asm
+ml /nologo /DWINDOWS /Fo $(IntDir)%(Filename).obj /c /coff "$(IntDir)%(Filename).asm"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='IntDebug|x64'">$(IntDir)%(Filename).obj</Outputs>
     </CustomBuild>
     <CustomBuild Include="x86assembly_masm64.S">
