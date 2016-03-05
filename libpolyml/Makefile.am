@@ -21,7 +21,11 @@ endif
 
 # Select the architecture-specific modules
 if ARCHI386
-ARCHSOURCE = x86_dep.cpp x86asmtemp.S
+if WINDOWS_ASSEMBLER
+ARCHSOURCE = x86_dep.cpp win32.S
+else
+ARCHSOURCE = x86_dep.cpp ux32.S
+endif
 else
 if ARCHINTERPRET
 ARCHSOURCE = interpret.cpp
@@ -30,7 +34,11 @@ if ARCHINTERPRET64
 ARCHSOURCE = interpret.cpp
 else
 if ARCHX86_64
-ARCHSOURCE = x86_dep.cpp x86asmtemp.S
+if WINDOWS_ASSEMBLER
+ARCHSOURCE = x86_dep.cpp win64.S
+else
+ARCHSOURCE = x86_dep.cpp ux64.S
+endif
 else
 endif
 endif
@@ -159,10 +167,6 @@ pkgconfig_DATA = polyml.pc
 # Convert the portable format to a native binary
 polyexport.o: polyimport exportPoly.sml
 	(cd ..; driver/polyimport driver/$(POLYIMPORT) < driver/exportPoly.sml > /dev/null)
-
-# Special rule for x86 assembly code.
-x86asmtemp.S: x86asm.asm
-	sed -f $(srcdir)/masm2gas <  $(srcdir)/x86asm.asm > $@ || { rm -f $@; false; }
 
 clean-local:
 	rm -f x86asmtemp.S ppcasmtemp.s

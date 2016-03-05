@@ -641,6 +641,8 @@ INTINFISINT_TRUE
 moduledir
 GIT_VERSION
 gitinstalled
+WINDOWS_ASSEMBLER_FALSE
+WINDOWS_ASSEMBLER_TRUE
 NO_UNDEFINED_FALSE
 NO_UNDEFINED_TRUE
 NATIVE_WINDOWS_FALSE
@@ -3618,6 +3620,7 @@ case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
 # a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
+poly_windows_assembler=no
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
@@ -3731,11 +3734,13 @@ fi
 
         poly_native_windows=yes
         poly_no_undefined=yes
+        poly_windows_assembler=yes
         CFLAGS="$CFLAGS -mthreads"
         CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
+        poly_windows_assembler=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
                 OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
@@ -21927,6 +21932,14 @@ else
   NO_UNDEFINED_FALSE=
 fi
 
+ if test "$poly_windows_assembler" = yes; then
+  WINDOWS_ASSEMBLER_TRUE=
+  WINDOWS_ASSEMBLER_FALSE='#'
+else
+  WINDOWS_ASSEMBLER_TRUE='#'
+  WINDOWS_ASSEMBLER_FALSE=
+fi
+
 
 # Test whether this is a git directory and set the version if possible
 # Extract the first word of "git", so it can be a program name with args.
@@ -22208,6 +22221,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
   as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WINDOWS_ASSEMBLER_TRUE}" && test -z "${WINDOWS_ASSEMBLER_FALSE}"; then
+  as_fn_error $? "conditional \"WINDOWS_ASSEMBLER\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${INTINFISINT_TRUE}" && test -z "${INTINFISINT_FALSE}"; then
