@@ -18,9 +18,9 @@
 */
 
 /*
-   This is the 64-bit Unix version of the assembly code file.
-   There are separate versions of 32/64 and Windows (Intel syntax)
-   and Unix (gas syntax).
+   This is the 64-bit gas version of the assembly code file.
+   There are separate versions of 32/64 and MAMS (Intel syntax) and
+   and GCC (gas syntax).
 */
 
 /*
@@ -225,8 +225,12 @@ EXTNAME(id):
   5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
       either because the stack can't be grown or because Interrupt has been raised. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
+#ifdef _WIN32
+# The argument to the function is passed in %rcx
+#else
 # The argument to the function is passed in %rdi
     movq    %rdi,%rcx
+#endif
     pushq   %rbp                             # Save callee--save registers
     pushq   %rbx
     pushq   %r12
@@ -1707,7 +1711,11 @@ INLINE_ROUTINE(X86AsmCallbackException)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
+#ifdef _WIN32
+    movq    %rcx,%rax       # On Windows the argument is passed in %rcx
+#else
     movq    %rdi,%rax   # On X86_64 the argument is passed in %rdi
+#endif
 # Use %rcx and %rax because they are volatile (unlike %rbx on X86/64/Unix)
     movq    $2,%rcx
     lock xaddq %rcx,(%rax)
@@ -2136,16 +2144,25 @@ INLINE_ROUTINE(cmem_store_asm_double)
 
 /* chdir.  May raise an exception which means it may allocate space for the exception packet. */
 /* The caller is supposed to preserve RBP */
+/* N.B.  We don't actually need to remove any arguments from the C stack because
+   we always set the C stack pointer to the value when we were first called. */
 INLINE_ROUTINE(CallPOLY_SYS_chdir)
-        movq    $UNIT,ExceptionPacket(%rbp)    # Clear the exception
+        movq    $UNIT,ExceptionPacket(%rbp)         # Clear the exception
         movq    %rsp,Mr_ESP(%rbp)                   # Preserve the ML stack pointer
         movq    SavedSp(%rbp),%rsp                  # Switch to the C stack
-        movq    %r15,LocalMpointer(%rbp)             # Save the heap pointer
+        movq    %r15,LocalMpointer(%rbp)            # Save the heap pointer
+#ifdef _WIN32
+        pushq   $0                                  # Alignment - Needed??
+        movq    %rcx,%rbp                           # First argument
+        movq    %rdx,%rax                           # Second argument
+        subq    $32,%rsp                            # Create save area
+#else
         movq    %rbp,%rdi
-        pushq   $0                             # Alignment - Needed??
+        pushq   $0                                  # Alignment - Needed??
         movq    %rax,%rsi
+#endif
         call    X86ChDir
-        movq    LocalMpointer(%rbp),%r15             # Restore the heap pointer register
+        movq    LocalMpointer(%rbp),%r15            # Restore the heap pointer register
         movq    Mr_ESP(%rbp),%rsp                   # Restore ML stack ptr
         cmpq    $UNIT,ExceptionPacket(%rbp)
         jne     cpsdraisex
