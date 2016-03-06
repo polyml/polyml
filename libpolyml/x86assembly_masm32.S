@@ -527,7 +527,7 @@ set_string_length_a:
 
 Mask_set_string_length      EQU     (M_Reax OR M_Rebx)
 
-; raisex (formerly raisexn) is used by compiled code.
+; raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
 PUBLIC  raisex
 raisex:
     mov     ecx,HandlerRegister[ebp]

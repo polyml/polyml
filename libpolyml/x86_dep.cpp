@@ -215,7 +215,7 @@ typedef struct _MemRegisters {
     byte        *heapOverflow;      // Called when the heap limit is reached
     byte        *stackOverflow;     // Called when the stack limit is reached
     byte        *stackOverflowEx;   // Called when the stack limit is reached (alternate)
-    byte        *raiseException;    // Called to raise an exception.  The packet is passed in eax.
+    byte        *unusedNow1;        // No longer used
     byte        *ioEntry;           // Called for an IO function
     X86TaskData *parentPtr;         // Get the containing Taskdata pointer.
     byte        *unusedNow2;        // Previously arbitrary precision emulation.
@@ -673,8 +673,6 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
     memRegisters.parentPtr = this;
     memRegisters.inRTS = 1; // We start off in the RTS.
-    // Point "raiseException" at the assembly code for "raisex"
-    memRegisters.raiseException = (byte*)entryPointVector[POLY_SYS_raisex];
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;

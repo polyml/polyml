@@ -108,7 +108,6 @@ ReturnReason        EQU     42  ; Byte: Reason for returning from ML.
 FullRestore         EQU     43  ; Byte: Full/partial restore
 PolyStack           EQU     48  ; Current stack base
 SavedSp             EQU     56  ; Saved stack pointer
-RaiseExEntry        EQU     88  ; Raise exception
 ThreadId            EQU     120 ; My thread id
 RealTemp            EQU     128 ; Space for int-real conversions
 RaiseOverflow       EQU     136 ; Call to raise the Overflow exception

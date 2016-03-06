@@ -137,7 +137,6 @@ EXTNAME(id):
 .set    HeapOverflow,64
 .set    StackOverflow,72
 .set    StackOverflowEx,80
-.set    RaiseExEntry,88
 .set    ThreadId,120
 .set    RealTemp,128
 .set    RaiseOverflow,136

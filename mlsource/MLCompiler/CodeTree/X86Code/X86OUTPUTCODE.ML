@@ -191,7 +191,6 @@ struct
     and memRegHeapOverflowCall    = wordSize*8
     and memRegStackOverflowCall   = wordSize*9
     and memRegStackOverflowCallEx = wordSize*10
-    and memRegRaiseException      = wordSize*11
     and memRegThreadSelf          = wordSize*15
     and memRegRaiseOverflow       = wordSize*17
 
@@ -2196,7 +2195,6 @@ Calling conventions:
                 if entry = memRegStackOverflowCall then stream "StackOverflowCall"
                 else if entry = memRegHeapOverflowCall then stream "HeapOverflow"
                 else if entry = memRegStackOverflowCallEx then stream "StackOverflowCallEx"
-                else if entry = memRegRaiseException then stream "RaiseException"
                 else if entry = memRegRaiseOverflow then stream "RaiseOverflow"
                 else stream(Int.toString entry)
             )
