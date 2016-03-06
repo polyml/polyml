@@ -87,9 +87,9 @@ Mask_all    EQU     1FFFFFH
 ; The first few offsets are built into the compiled code.
 ; All the offsets are built into x86_dep.c .
 
-LocalMpointer       EQU     0
-HandlerRegister     EQU     4
-LocalMbottom        EQU     8
+LocalMpointer       EQU     -28
+HandlerRegister     EQU     -24
+LocalMbottom        EQU     -20
 ExceptionPacket     EQU     16  ;# Address of packet to raise
 RequestCode         EQU     20  ;# Byte: Io function to call.
 InRTS               EQU     21  ;# Byte: Set when in the RTS
@@ -1706,7 +1706,7 @@ setexct1:
     call    setexct2                    ; Jump to setexct2 pushing the next addr to the stack
     ; This is the code that is called if we return without raising an exception
     add     esp,POLYWORDSIZE
-    pop    HandlerRegister[ebp]
+    pop     HandlerRegister[ebp]
     RET
 setexct2:
     mov     eax,UNIT

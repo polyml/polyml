@@ -184,15 +184,15 @@ struct
 
   (* %ebp points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
-    val memRegLocalMPointer       = 0
-    and memRegHandlerRegister     = wordSize
-    and memRegLocalMbottom        = wordSize*2
-    and memRegStackLimit          = wordSize*3
-    and memRegHeapOverflowCall    = wordSize*8
-    and memRegStackOverflowCall   = wordSize*9
-    and memRegStackOverflowCallEx = wordSize*10
-    and memRegThreadSelf          = wordSize*15
-    and memRegRaiseOverflow       = wordSize*17
+    val memRegLocalMPointer       = if isX64 then 0 else ~28
+    and memRegHandlerRegister     = if isX64 then wordSize else ~24
+    and memRegLocalMbottom        = if isX64 then wordSize*2 else ~20
+    and memRegStackLimit          = if isX64 then wordSize*3 else ~16
+    and memRegHeapOverflowCall    = if isX64 then wordSize*8 else ~40
+    and memRegStackOverflowCall   = if isX64 then wordSize*9 else ~36
+    and memRegStackOverflowCallEx = if isX64 then wordSize*10 else ~32
+    and memRegThreadSelf          = if isX64 then wordSize*15 else ~44
+    and memRegRaiseOverflow       = if isX64 then wordSize*17 else ~48
 
   (* Several operations are not generated immediately but recorded and
      generated later.  Labels (i.e. the destination of a branch) are recorded

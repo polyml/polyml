@@ -111,9 +111,9 @@ EXTNAME(id):
 /* The "memory registers" are pointed to by %ebp within the ML code
   The first few offsets are built into the compiled code.
   All the offsets are built into x86_dep.c . */
-.set    LocalMpointer,0
-.set    HandlerRegister,4
-.set    LocalMbottom,8
+.set    LocalMpointer,-28
+.set    HandlerRegister,-24
+.set    LocalMbottom,-20
 .set    ExceptionPacket,16
 .set    RequestCode,20
 .set    InRTS,21
