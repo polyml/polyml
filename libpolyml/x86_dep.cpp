@@ -1283,7 +1283,6 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     ((PolyWord*)newStack)[topStack+2] = TAGGED(0); // Probably no longer needed
     // Set the default handler and return address to point to this code.
 
-    X86TaskData *mdParentTask = (X86TaskData*)parentTaskData;
     PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
     // Exception handler.
     ((PolyWord*)newStack)[topStack+1] = killJump;
@@ -1465,8 +1464,6 @@ void X86TaskData::SetMemRegisters()
 // This is called whenever we have returned from ML to C.
 void X86TaskData::SaveMemRegisters()
 {
-    // Check a few items on the stack to see it hasn't been overwritten
-    StackObject *st = this->stack->stack();
     this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
     // We need to restore all the registers if we are emulating an instruction or

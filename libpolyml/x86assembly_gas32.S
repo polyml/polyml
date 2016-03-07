@@ -108,23 +108,40 @@ EXTNAME(id):
 .set    B_mutablebytes, 0x41
 .set    Max_Length,0x00ffffff
 
-/* The "memory registers" are pointed to by %ebp within the ML code
-  The first few offsets are built into the compiled code.
-  All the offsets are built into x86_dep.c . */
-.set    LocalMpointer,-28
-.set    HandlerRegister,-24
-.set    LocalMbottom,-20
-.set    ExceptionPacket,16
-.set    RequestCode,20
-.set    InRTS,21
-.set    ReturnReason,22
-.set    FullRestore,23
-.set    PolyStack,24
-.set    SavedSp,28
-.set    ThreadId,60
-.set    RealTemp,64
-.set    RaiseOverflow,68
-.set    Mr_ESP,72
+
+/* The "stack frame" pointed to by ebp acts as the "memory registers". */
+#define Fr_RaiseOverflow            -48
+#define Fr_ThreadId                 -44
+#define Fr_HeapOverflow             -40
+#define Fr_StackOverflow            -36
+#define Fr_StackOverflowEx          -32
+#define Fr_LocalMpointer            -28
+#define Fr_HandlerRegister          -24
+#define Fr_LocalMbottom             -20
+#define Fr_StackLimit               -16
+#define Fr_SavedEsi                 -12
+#define Fr_SavedEdi                 -8
+#define Fr_SavedEbx                 -4
+#define Fr_SavedEBP                 0
+#define Fr_Argument                 8
+/* Extra entries on the C stack */
+#define Fr_SavedMLSP                -52
+
+#define Fr_Size                     56
+
+/* This is the argument vector passed in to X86AsmSwitchToPoly
+   It is used to initialise the frame.  A few values are updated
+   when ML returns. */
+#define Arg_LocalMpointer           0
+#define Arg_HandlerRegister         4
+#define Arg_LocalMbottom            8
+#define Arg_StackLimit              12
+#define Arg_ExceptionPacket         16  /* Address of packet to raise */
+#define Arg_RequestCode             20  /* Byte: Io function to call. */
+#define Arg_ReturnReason            22  /* Byte: Reason for returning from ML. */
+#define Arg_FullRestore             23  /* Byte: Full/partial restore */
+#define Arg_PolyStack               24  /* Current stack base */
+#define Arg_ThreadId                32  /* My thread id */
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -137,32 +154,17 @@ EXTNAME(id):
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
 
-/*
-  Stack format from objects.h is:
-   typedef struct
-   {                byte offset of start
-     word  p_space ;            0 -- Now unused - remove
-     byte *p_pc ;               4
-     word *p_sp ;               8 -- Now unused - remove
-     word *p_hr ;              12
-     word  p_nreg ;            16  -- Now unused - remove
-     word  p_reg(1) ;          20
-   } StackObject ;
-*/
- 
 /* Starting offsets */
 
-#.set    SPACE_OFF,  0
-.set    PC_OFF,     4
-.set    SP_OFF,     8
-.set    EAX_OFF,    20
-.set    EBX_OFF,    24
-.set    ECX_OFF,    28
-.set    EDX_OFF,    32
-.set    ESI_OFF,    36
-.set    EDI_OFF,    40
-.set    FLAGS_OFF,  48
-.set    FPREGS_OFF, 52
+#define    PC_OFF     4
+#define    SP_OFF     8
+#define    EAX_OFF    20
+#define    EBX_OFF    24
+#define    ECX_OFF    28
+#define    EDX_OFF    32
+#define    ESI_OFF    36
+#define    EDI_OFF    40
+#define    FPREGS_OFF 44
 
 # Mark the stack as non-executable when compiling for Linux
 #ifdef __linux__
@@ -181,11 +183,15 @@ EXTNAME(id):
    if the function was called directly and not via the closure register. */
 
 #define CALL_IO(index) \
-        movb  $index,RequestCode(%ebp); \
+        movl  Fr_Argument(%ebp),%ecx; \
+        movb  $index,Arg_RequestCode(%ecx); \
         jmp   SaveStateAndReturnLocal;
 
 #define CALL_EXTRA(index) \
-        movb  $index,ReturnReason(%ebp); \
+        pushl %ecx; \
+        movl  Fr_Argument(%ebp),%ecx; \
+        movb  $index,Arg_ReturnReason(%ecx); \
+        popl  %ecx; \
         jmp   SaveFullState;
 
 /* Load the registers from the ML stack and jump to the code.
@@ -199,31 +205,42 @@ EXTNAME(id):
   5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
       either because the stack can't be grown or because Interrupt has been raised. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
-    movl    4(%esp),%ecx                    # Argument - address of MemRegisters - goes into %ebp
-    pushal                                  # Save all the registers just to be safe
-    movl    %esp,SavedSp(%ecx)              # savedSp:=%%esp - Save the system stack pointer.
-
-    movl    %ecx,%ebp                       # Put address of MemRegisters where it belongs
-    movl    PolyStack(%ebp),%eax
+    pushl   %ebp                            # Standard entry sequence
+    movl    %esp,%ebp
+    pushl   %ebx
+    pushl   %edi
+    pushl   %esi                            # Push callee-save registers
+    subl    $(Fr_Size-12),%esp              # Allocate frame
+    movl    Fr_Argument(%ebp),%ecx          # Address of argument vector
+    movl    Arg_StackLimit(%ecx),%eax
+    movl    %eax,Fr_StackLimit(%ebp)
+    movl    Arg_LocalMbottom(%ecx),%eax
+    movl    %eax,Fr_LocalMbottom(%ebp)
+    movl    Arg_HandlerRegister(%ecx),%eax
+    movl    %eax,Fr_HandlerRegister(%ebp)
+    movl    Arg_LocalMpointer(%ecx),%eax
+    movl    %eax,Fr_LocalMpointer(%ebp)
+    movl    $X86AsmCallExtraRETURN_STACK_OVERFLOWEX,%eax
+    movl    %eax,Fr_StackOverflowEx(%ebp)
+    movl    $X86AsmCallExtraRETURN_STACK_OVERFLOW,%eax
+    movl    %eax,Fr_StackOverflow(%ebp)
+    movl    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%eax
+    movl    %eax,Fr_HeapOverflow(%ebp)
+    movl    Arg_ThreadId(%ecx),%eax
+    movl    %eax,Fr_ThreadId(%ebp)
+    movl    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%eax
+    movl    %eax,Fr_RaiseOverflow(%ebp)
+    movl    Arg_PolyStack(%ecx),%eax
     movl    SP_OFF(%eax),%esp               # Set the new stack ptr
     pushl   PC_OFF(%eax)                    # Push the code address
-    testb   $ 1,FullRestore(%ebp)       # Should we restore or clear the regs?
+    testb   $ 1,Arg_FullRestore(%ecx)           # Should we restore or clear the regs?
     jnz     sw2polyfull
-/* We're returning from an RTS call.  We need to clear the registers we're
-   not restoring so that they are valid if we GC.  We restore EDX and the
-   argument regs because this may have been CallCode */
-    movl    EBX_OFF(%eax),%ebx
-    movl    $ ZERO,%ecx
-    movl    EDX_OFF(%eax),%edx
-    movl    $ZERO,%esi
-    movl    $ZERO,%edi
-    movl    EAX_OFF(%eax),%eax
+/* We're returning from an RTS call. */
+    movl    EAX_OFF(%eax),%eax              # The return value
     cld                                     # Clear this just in case
-    movb    $0,InRTS(%ebp)             # inRTS:=0 (stack now kosher)
     ret                                     # Jump to code address
 
 sw2polyfull:
-    pushl   FLAGS_OFF(%eax)                 # Push the flags
     FRSTOR  FPREGS_OFF(%eax)
     movl    EBX_OFF(%eax),%ebx              # Load the registers
     movl    ECX_OFF(%eax),%ecx
@@ -232,38 +249,44 @@ sw2polyfull:
     movl    EDI_OFF(%eax),%edi
     cld                                     # Clear this just in case
     movl    EAX_OFF(%eax),%eax
-    popfl                                   # reset flags
-    movb    $0,InRTS(%ebp)             # inRTS:=0 (stack now kosher)
     ret                                     # Jump to code address
 
 
 /* Code to save the state and switch to C
    This saves the full register state. */
 SaveFullState:
-    pushfl                      # Save flags
-    pushl   %eax                # Save eax
-    movl    PolyStack(%ebp),%eax
+    pushl   %eax                            # Save eax
+    movl    Fr_Argument(%ebp),%eax
+    movl    Arg_PolyStack(%eax),%eax
     movl    %ebx,EBX_OFF(%eax)
     movl    %ecx,ECX_OFF(%eax)
     movl    %edx,EDX_OFF(%eax)
     movl    %esi,ESI_OFF(%eax)
     movl    %edi,EDI_OFF(%eax)
-    FNSAVE  FPREGS_OFF(%eax)          # Save FP state.  Also resets the state so...
-    FLDCW   FPREGS_OFF(%eax)          # ...load because we need the same rounding mode in the RTS
-    popl    %ebx                # Get old eax value
+    fnsave  FPREGS_OFF(%eax)                # Save FP state.  Also resets the state so...
+    fldcw   FPREGS_OFF(%eax)                # ...load because we need the same rounding mode in the RTS
+    popl    %ebx                            # Get old eax value
     movl    %ebx,EAX_OFF(%eax)
+    movl    %esp,SP_OFF(%eax)               # Save ML stack pointer
+    movl    Fr_Argument(%ebp),%eax
+    movl    Fr_LocalMpointer(%ebp),%ebx     # Copy back heap pointer
+    movl    %ebx,Arg_LocalMpointer(%eax)
+    movl    Fr_HandlerRegister(%ebp),%ebx   # and handler pointer
+    movl    %ebx,Arg_HandlerRegister(%eax)
+    movl    %ebp,%esp                       # Restore C stack pointer
+    subl    $12,%esp                        # Sp is just before the registers
+    popl    %esi
+    popl    %edi
     popl    %ebx
-    movl    %ebx,FLAGS_OFF(%eax)
-    movl    %esp,SP_OFF(%eax)
-    movb    $1,InRTS(%ebp)             # inRTS:=0 (stack now kosher)
-    movl    SavedSp(%ebp),%esp
-    popal
+    popl    %ebp
     ret
 
 # As X86AsmSaveFullState but only save what is necessary for an RTS call.
 INLINE_ROUTINE(X86AsmSaveStateAndReturn)
 SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
-
+    jmp SaveFullState
+    
+#if (0)
     pushl   %eax                # Save eax
     movl    PolyStack(%ebp),%eax
     movl    %ebx,EBX_OFF(%eax)
@@ -278,16 +301,17 @@ SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative 
     movl    SavedSp(%ebp),%esp
     popal
     ret
+#endif
 
 /* CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
    to constant arguments.  Oddly, compared with other RTS functions, it takes a single
    argument that is a pair containing the function closure and an argument vector. */
 INLINE_ROUTINE(callcodeTupled)
     movl    (%eax),%edx                         # closure
-    movl    POLYWORDSIZE(%eax),%esi            # address of arg vector
-    cmpl    $NIL,%esi                      # If calling a function without args this could be nil
+    movl    POLYWORDSIZE(%eax),%esi             # address of arg vector
+    cmpl    $NIL,%esi                           # If calling a function without args this could be nil
     je      cct2
-    movl    $Max_Length,%ecx               # Mask for length removing any flags
+    movl    $Max_Length,%ecx                    # Mask for length removing any flags
     andl    (-POLYWORDSIZE)(%esi),%ecx          # Load and mask length
     jz      cct2
     movl    (%esi),%eax                         # First argument
@@ -305,7 +329,7 @@ cct1:                                           # Push the remaining args to the
     LOOP    cct1
     pushl   %edi                                # Push the return address
 cct2:                                           # Finished - enter function
-    movl    $UNIT,%esi                     # Clobber, for the moment
+    movl    $UNIT,%esi                          # Clobber, for the moment
     movl    $UNIT,%ecx
     jmp     *(%edx)
 
@@ -530,7 +554,7 @@ INLINE_ROUTINE(set_string_length_a)
 # raisex (formerly raisexn) is used by compiled code.
 INLINE_ROUTINE(raisex)
 raisexlocal:
-    movl    HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
+    movl    Fr_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
     jmp     *(%ecx)
 
 INLINE_ROUTINE(load_byte)
@@ -599,18 +623,18 @@ allsts:
     ja      alloc_in_rts                # Get the RTS to raise an exception
     incl    %edi                        # Add 1 word
     shll    $2,%edi                     # Get length in bytes
-    movl    LocalMpointer(%ebp),%edx
+    movl    Fr_LocalMpointer(%ebp),%edx
     subl    %edi,%edx                   # Allocate the space
     movl    %eax,%edi                   # Clobber bad value in %edi
-    cmpl    LocalMbottom(%ebp),%edx     # Check for free space
+    cmpl    Fr_LocalMbottom(%ebp),%edx     # Check for free space
     jb      alloc_in_rts
 /* Normally the above test is sufficient but if LocalMpointer is near the bottom of
    memory and the store requested is very large the value in %edx can be negative
    which is greater, unsigned, than LocalMbottom.  We have to check it is less
    than, unsigned, the allocation pointer. */
-    cmpl    LocalMpointer(%ebp),%edx
+    cmpl    Fr_LocalMpointer(%ebp),%edx
     jnb     alloc_in_rts
-    movl    %edx,LocalMpointer(%ebp)             # Put back in the heap ptr
+    movl    %edx,Fr_LocalMpointer(%ebp)             # Put back in the heap ptr
     shrl    $TAGSHIFT,%eax
     movl    %eax,(-4)(%edx)         # Put in length
     shrl    $TAGSHIFT,%ebx     # remove tag from flag
@@ -1313,7 +1337,7 @@ raiseOverflowEx:
 # Set second word to the string "Overflow" - That's going to need allocation.
 # Set third and fourth words to TAGGED(0)
 # Raise the exception.
-    jmp     *RaiseOverflow(%ebp)
+    jmp     *Fr_RaiseOverflow(%ebp)
 
 # Atomically increment the value at the address of the arg and return the
 # updated value.  Since the xadd instruction returns the original value
@@ -1352,7 +1376,7 @@ INLINE_ROUTINE(atomic_reset)
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
-    movl    ThreadId(%ebp),%eax
+    movl    Fr_ThreadId(%ebp),%eax
     ret
     RegMask(thread_self,(M_Reax))
 
@@ -1366,13 +1390,13 @@ INLINE_ROUTINE(thread_self)
   registers across the trap but not to examine them for pointers.  Temporarily we
   don't do that but instead clear all the registers across a trap. */
 mem_for_largeword:
-        movl    LocalMpointer(%ebp),%ecx
+        movl    Fr_LocalMpointer(%ebp),%ecx
         subl    $8,%ecx        # Length word (4 bytes) + 4 bytes
 #ifdef TEST_ALLOC
 # Test case - this will always force a call into RTS.
-        cmpl    LocalMpointer(%ebp),%ecx
+        cmpl    Fr_LocalMpointer(%ebp),%ecx
 #else
-        cmpl    LocalMbottom(%ebp),%ecx
+        cmpl    Fr_LocalMbottom(%ebp),%ecx
 #endif
         jnb      mem_for_largeword1
 /* ********************************
@@ -1385,7 +1409,7 @@ mem_for_largeword:
         popl     %ebx
         popl     %eax
 mem_for_largeword1:
-        movl    %ecx,LocalMpointer(%ebp) # Updated allocation pointer
+        movl    %ecx,Fr_LocalMpointer(%ebp) # Updated allocation pointer
         movl    $0x01000001,(-4)(%ecx)     # Length word
         ret
 
@@ -1393,13 +1417,13 @@ mem_for_largeword1:
 
 mem_for_real:
 # Allocate memory for the result.
-        movl    LocalMpointer(%ebp),%ecx
+        movl    Fr_LocalMpointer(%ebp),%ecx
         subl    $12,%ecx        # Length word (4 bytes) + 8 bytes
 #ifdef TEST_ALLOC
 # Test case - this will always force a call into RTS.
-        cmpl    LocalMpointer(%ebp),%ecx
+        cmpl    Fr_LocalMpointer(%ebp),%ecx
 #else
-        cmpl    LocalMbottom(%ebp),%ecx
+        cmpl    Fr_LocalMbottom(%ebp),%ecx
 #endif
         jnb      mem_for_real1
 /* ********************************
@@ -1412,7 +1436,7 @@ mem_for_real:
         popl     %ebx
         popl     %eax
 mem_for_real1:
-        movl    %ecx,LocalMpointer(%ebp) # Updated allocation pointer
+        movl    %ecx,Fr_LocalMpointer(%ebp) # Updated allocation pointer
         movl    $0x01000002,(-4)(%ecx)     # Two words plus tag
         ret
 
@@ -1575,27 +1599,21 @@ INLINE_ROUTINE(real_geq)
 
 INLINE_ROUTINE(real_from_int)
     testl   $TAG,%eax   # Is it long ?
-    jz      real_float_1
-    movl    %eax,%ebx                # Put a valid value in %ebx
-    call    mem_for_real
-    sarl    $TAGSHIFT,%eax # Untag the value
-    movl    %eax,RealTemp(%ebp) # Save it in a temporary (N.B. It's now untagged)
-    fildl   RealTemp(%ebp)
-    fstpl   (%ecx)
-    movl    %ecx,%eax
-    ret
+    jnz      fixed_to_real_internal
 
 real_float_1:
-        CALL_IO(POLY_SYS_int_to_real)
+    CALL_IO(POLY_SYS_int_to_real)
 
     RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
 
 INLINE_ROUTINE(fixed_to_real)
+fixed_to_real_internal:
     movl    %eax,%ebx                # Put a valid value in %ebx
     call    mem_for_real
     sarl    $TAGSHIFT,%eax # Untag the value
-    movl    %eax,RealTemp(%ebp) # Save it in a temporary (N.B. It's now untagged)
-    fildl   RealTemp(%ebp)
+    pushl   %eax                     # Push it to the stack.  We can only load it from memory
+    fildl   (%esp)
+    popl    %eax
     fstpl   (%ecx)
     movl    %ecx,%eax
     ret
@@ -1607,19 +1625,20 @@ INLINE_ROUTINE(set_exception_trace)
    We need to push the addresses of some code.  To make it position-independent we use
    CALLs in a non-standard way. */
     movl    %eax,%edx                   # Target closure
-    pushl   HandlerRegister(%ebp)       # Previous handler
+    pushl   Fr_HandlerRegister(%ebp)       # Previous handler
     CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
     /* This is the code that is called if we get an exception.
        The exception packet is the first argument. */
-    movb    $POLY_SYS_give_ex_trace_fn,RequestCode(%ebp)
+    movl    Fr_Argument(%ebp),%ecx
+    movb    $POLY_SYS_give_ex_trace_fn,Arg_RequestCode(%ecx)
     jmp     SaveStateAndReturnLocal
     #
 setexct1:
-    movl    %esp,HandlerRegister(%ebp)  # Set up the handler
+    movl    %esp,Fr_HandlerRegister(%ebp)  # Set up the handler
     CALL    setexct2                    # Jump to setexct2 pushing the next addr to the stack
     # This is the code that is called if we return without raising an exception
     addl    $POLYWORDSIZE,%esp     # Remove handler
-    popl    HandlerRegister(%ebp)
+    popl    Fr_HandlerRegister(%ebp)
     RET
 setexct2:
     movl    $UNIT,%eax             # The function takes a unit arg.
@@ -1629,16 +1648,13 @@ setexct2:
 
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
-        movb    $POLY_SYS_kill_self,RequestCode(%ebp)
-        jmp     SaveStateAndReturnLocal
+    CALL_IO(POLY_SYS_kill_self)
 
 INLINE_ROUTINE(X86AsmCallbackReturn)
-        movb    $RETURN_CALLBACK_RETURN,ReturnReason(%ebp)
-        jmp     SaveStateAndReturnLocal
+    CALL_EXTRA(RETURN_CALLBACK_RETURN)
 
 INLINE_ROUTINE(X86AsmCallbackException)
-        movb    $RETURN_CALLBACK_EXCEPTION,ReturnReason(%ebp)
-        jmp     SaveStateAndReturnLocal
+    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
@@ -2079,28 +2095,31 @@ callheapOverflowLocal:
 # Direct calls to the RTS
 
 /* chdir.  May raise an exception which means it may allocate space for the exception packet. */
-/* The caller is supposed to preserve RBP */
 INLINE_ROUTINE(CallPOLY_SYS_chdir)
-        movl    $UNIT,ExceptionPacket(%ebp)    # Clear the exception
-        movl    %esp,Mr_ESP(%ebp)                   # Preserve the ML stack pointer
-        movl    SavedSp(%ebp),%esp                  # Switch to the C stack
-/* X86 calling conventions.  We keep a 16-byte stack alignment because GCC likes it.
-   No need to save/restore the heap pointer since it's in memregs.
-   N.B.  We don't actually need to remove any arguments from the C stack because
-   we always set the C stack pointer to the value when we were first called. */
-        pushl   $0                             # Alignment - Needed??
+        movl    Fr_Argument(%ebp),%ecx
+        movl    $UNIT,Arg_ExceptionPacket(%ecx)     # Clear the exception
+        movl    Fr_LocalMpointer(%ebp),%edx         # Copy heap pointer
+        movl    %edx,Arg_LocalMpointer(%ecx)
+        movl    %esp,%ecx                           # ML stack pointer
+        movl    %ebp,%esp                           # Switch to C stack
+        subl    $Fr_Size,%esp
+        movl    %ecx,Fr_SavedMLSP(%ebp)
+        pushl   $0                                  # Alignment - Needed??
         pushl   %eax                                # Argument
-        pushl   %ebp                                # Memregs address
+        pushl   Fr_Argument(%ebp)
         call    EXTNAME(X86ChDir)
-        movl    Mr_ESP(%ebp),%esp                   # Restore ML stack ptr
-        cmpl    $UNIT,ExceptionPacket(%ebp)
-        jne     cpsdraisex
-        cmpl    $UNIT,ExceptionPacket(%ebp)
+        movl    Fr_SavedMLSP(%ebp),%esp             # Restore the ML stack ptr
+        movl    Fr_Argument(%ebp),%ecx
+        movl    Arg_LocalMpointer(%ecx),%edx        # Update heap pointer
+        movl    %edx,Fr_LocalMpointer(%ebp)
+        movl    Arg_LocalMbottom(%ecx),%edx         # and heap base because we may have GCd
+        movl    %edx,Fr_LocalMbottom(%ebp)
+        cmpl    $UNIT,Arg_ExceptionPacket(%ecx)
         jne     cpsdraisex
         ret
 
 cpsdraisex:
-        movl    ExceptionPacket(%ebp),%eax
+        movl    Arg_ExceptionPacket(%ecx),%eax
         jmp     raisexlocal
 
 
