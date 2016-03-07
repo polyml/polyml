@@ -557,6 +557,9 @@
 /* Define if the host is an ARM (64-bit) */
 #undef HOSTARCHITECTURE_AARCH64
 
+/* Define if the host is an Alpha (64-bit) */
+#undef HOSTARCHITECTURE_ALPHA
+
 /* Define if the host is an ARM (32-bit) */
 #undef HOSTARCHITECTURE_ARM
 
