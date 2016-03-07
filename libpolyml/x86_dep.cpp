@@ -176,8 +176,6 @@ public:
     PolyWord        p_r13;
     PolyWord        p_r14;
 #endif
-    POLYUNSIGNED    p_nUnchecked;
-    POLYUNSIGNED    p_flags;
     struct fpSaveArea p_fp;
 };
 
@@ -196,47 +194,25 @@ public:
 
 class X86TaskData;
 
-// These "memory registers" are referenced from the assembly code.
-// Some are actually referenced from ML code so the offsets are built in.
-typedef struct _MemRegisters {
-    byte        *raiseOverflow;
-    PolyObject  *threadId;
-    byte        *heapOverflow;
-    byte        *stackOverflow;
-    byte        *stackOverflowEx;
+// This is passed as the argument vector to X86AsmSwitchToPoly.
+// The offsets are built into the assembly code.  Some of the entries
+// are used to initialise entries on the stack that are referenced from
+// compiled code.  "localMpointer" is updated before control returns to C.
+typedef struct _AssemblyArgs {
+    // These offsets are built into the assembly code
     PolyWord    *localMpointer;     // Allocation ptr + 1 word
     PolyWord    *handlerRegister;   // Current exception handler
     PolyWord    *localMbottom;      // Base of memory + 1 word
     PolyWord    *stackLimit;        // Lower limit of stack
-    byte        *savedEsi;
-    byte        *savedEdi;
-    byte        *savedEdx;
-
-    // These offsets are built into the code generator and assembly code
-    PolyWord    *localMpointer1;     // Allocation ptr + 1 word
-    PolyWord    *handlerRegister1;   // Current exception handler
-    PolyWord    *localMbottom1;      // Base of memory + 1 word
-    PolyWord    *stackLimit1;        // Lower limit of stack
-    PolyWord    exceptionPacket;   // Set if there is an exception
-    // These offsets are built into the assembly code section
+    PolyWord    exceptionPacket;    // Set if there is an exception
     byte        requestCode;        // IO function to call.
-    byte        inRTS;              // Flag indicating we're not in ML
+    byte        unusedFlag;         // No longer used
     byte        returnReason;       // Reason for returning from ML.
     byte        fullRestore;        // 0 => clear registers, 1 => reload registers
     StackObject *polyStack;         // Current stack base
-    PolyWord    *savedSp;           // Saved C stack pointer
-    byte        *heapOverflow1;      // Called when the heap limit is reached
-    byte        *stackOverflow1;     // Called when the stack limit is reached
-    byte        *stackOverflowEx1;   // Called when the stack limit is reached (alternate)
-    byte        *unusedNow1;        // No longer used
-    byte        *ioEntry;           // Called for an IO function
     X86TaskData *parentPtr;         // Get the containing Taskdata pointer.
-    byte        *unusedNow2;        // Previously arbitrary precision emulation.
-    PolyObject  *threadId1;          // My thread id.  Saves having to call into RTS for it.
-    POLYSIGNED  real_temp;          // Space used to convert integers to reals.
-    byte        *raiseOverflow1;     // Called to raise the Overflow exception.
-    POLYSIGNED  mr_esp;             // Saved SP value.
-} MemRegisters;
+    PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
+} AssemblyArgs;
 
 class X86TaskData: public TaskData {
 public:
@@ -244,7 +220,7 @@ public:
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
     Handle callBackResult;
-    MemRegisters memRegisters;
+    AssemblyArgs assemblyInterface;
 
     virtual void GCStack(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode);
@@ -260,10 +236,14 @@ public:
     virtual void AtomicReset(Handle mutexp);
 
     // These are retained for the moment.
+    // pc is used in "alloc" to profile allocations in the RTS.
     virtual POLYCODEPTR pc(void) const { return stack->stack()->p_pc; }
+    // sp is also used in "alloc" and also stack tracing
     virtual PolyWord *sp(void) const { return stack->stack()->p_sp; }
-    virtual PolyWord *hr(void) const { return memRegisters.handlerRegister; }
-    virtual void set_hr(PolyWord *hr) { memRegisters.handlerRegister = hr; }
+    // hr is used only in buildStackList.
+    virtual PolyWord *hr(void) const { return assemblyInterface.handlerRegister; }
+    // set_hr is used only in exceptionToTraceException
+    virtual void set_hr(PolyWord *hr) { assemblyInterface.handlerRegister = hr; }
     // Return the minimum space occupied by the stack if we are considering shrinking it.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->stack->stack()->p_sp) + OVERFLOW_STACK_SIZE; }
 
@@ -326,8 +306,6 @@ inline PolyWord& PSP_R10(TaskData *taskData) { return x86Stack(taskData)->p_r10;
 //inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
 #endif
 
-inline POLYUNSIGNED& PSP_EFLAGS(TaskData *taskData) { return x86Stack(taskData)->p_flags; }
-
 #define EFLAGS_CF               0x0001
 #define EFLAGS_PF               0x0004
 #define EFLAGS_AF               0x0010
@@ -338,7 +316,7 @@ inline POLYUNSIGNED& PSP_EFLAGS(TaskData *taskData) { return x86Stack(taskData)-
 inline POLYCODEPTR& PSP_IC(TaskData *taskData) { return x86Stack(taskData)->p_pc; }
 inline void PSP_INCR_PC(TaskData *taskData, int /* May be -ve */n) { x86Stack(taskData)->p_pc += n; }
 inline PolyWord*& PSP_SP(TaskData *taskData) { return x86Stack(taskData)->p_sp; }
-inline PolyWord*& PSP_HR(X86TaskData *taskData) { return taskData->memRegisters.handlerRegister; }
+inline PolyWord*& PSP_HR(X86TaskData *taskData) { return taskData->assemblyInterface.handlerRegister; }
 
 
 // Values for the returnReason byte
@@ -684,16 +662,8 @@ static byte *entryPointVector[256] =
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
-    memRegisters.parentPtr = this;
-    memRegisters.inRTS = 1; // We start off in the RTS.
-    // Entry point to save the state for an IO call.  This is the common entry
-    // point for all the return and IO-call cases.
-    memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
-    memRegisters.heapOverflow = memRegisters.heapOverflow1 = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
-    memRegisters.stackOverflow = memRegisters.stackOverflow1 = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
-    memRegisters.stackOverflowEx = memRegisters.stackOverflowEx1 = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
-    memRegisters.raiseOverflow = memRegisters.raiseOverflow1 = (byte*)X86AsmCallExtraRETURN_RAISE_OVERFLOW;
-    memRegisters.fullRestore = 1; // To force the floating point to 64-bit
+    assemblyInterface.parentPtr = this;
+    assemblyInterface.fullRestore = 1; // To force the floating point to 64-bit
 }
 
 void X86TaskData::GCStack(ScanAddress *process)
@@ -768,7 +738,7 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
 
     new_stack->p_pc    = old_stack->p_pc;
     new_stack->p_sp    = old_stack->p_sp + offset;
-    memRegisters.handlerRegister    = memRegisters.handlerRegister + offset;
+    assemblyInterface.handlerRegister    = assemblyInterface.handlerRegister + offset;
 
     POLYUNSIGNED i;
     for (i = 0; i < CHECKED_REGS; i++)
@@ -786,12 +756,6 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
         else *nrr = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
     }
 
-    /* Copy unchecked registers. - The next "register" is the number of
-       unchecked registers to copy. Unchecked registers are used for 
-       values that might look like addresses, i.e. don't have tag bits, 
-       but are not. */
-    new_stack->p_nUnchecked = old_stack->p_nUnchecked;
-    new_stack->p_flags = old_stack->p_flags;
     new_stack->p_fp = old_stack->p_fp;
 
     /* Skip the unused part of the stack. */
@@ -1092,6 +1056,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_stack_trace:
+                // This uses hr() via buildStackList
                 CallIO0(this, & stack_trace_c);
                 break;
 
@@ -1146,7 +1111,9 @@ Handle X86TaskData::EnterPolyCode()
             // This is called from assembly code and doesn't actually have an entry in the
             // io vector.
             case POLY_SYS_give_ex_trace_fn:
+                // This calls hr() via buildStackList.
                 CallIO1(this, exceptionToTraceException);
+                // It updates the handler register via set_hr.
                 break;
 
             default:
@@ -1159,10 +1126,11 @@ Handle X86TaskData::EnterPolyCode()
 }
 
 extern "C" {
-    POLYUNSIGNED X86ChDir(MemRegisters *mr, PolyWord arg);
+    POLYUNSIGNED X86ChDir(AssemblyArgs *mr, PolyWord arg);
 }
 
-POLYUNSIGNED X86ChDir(MemRegisters *mr, PolyWord arg)
+// Called from ML via the assembly code.
+POLYUNSIGNED X86ChDir(AssemblyArgs *mr, PolyWord arg)
 {
     X86TaskData *taskData = mr->parentPtr;
     Handle pushedArg = taskData->saveVec.push(arg);
@@ -1175,7 +1143,7 @@ POLYUNSIGNED X86ChDir(MemRegisters *mr, PolyWord arg)
 }
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
 // whenever the ML requires assistance from the rest of the RTS it simply
-// returns to C with the appropriate values set in memRegisters.requestCode and
+// returns to C with the appropriate values set in assemblyInterface.requestCode and
 // 
 
 int X86TaskData::SwitchToPoly()
@@ -1188,16 +1156,16 @@ int X86TaskData::SwitchToPoly()
         this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         SetMemRegisters();
 
-        X86AsmSwitchToPoly(&this->memRegisters.localMpointer1);
+        X86AsmSwitchToPoly(&this->assemblyInterface);
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
         // Handle any heap/stack overflows or arbitrary precision traps.
-        switch (this->memRegisters.returnReason)
+        switch (this->assemblyInterface.returnReason)
         {
 
         case RETURN_IO_CALL:
-            return this->memRegisters.requestCode;
+            return this->assemblyInterface.requestCode;
 
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.  Pop the return address into the program counter.
@@ -1266,7 +1234,7 @@ int X86TaskData::SwitchToPoly()
             Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
 
         default:
-            Crash("Unknown return reason code %u", this->memRegisters.returnReason);
+            Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
         }
 
     } while (1);
@@ -1280,7 +1248,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-3;
     newStack->p_sp    = (PolyWord*)newStack+topStack; 
-    this->memRegisters.handlerRegister    = (PolyWord*)newStack+topStack+1;
+    this->assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+1;
 
     /* If this function takes an argument store it in the argument register. */
     if (arg == 0) newStack->p_eax = TAGGED(0);
@@ -1300,9 +1268,6 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     newStack->p_r13 = TAGGED(0);
     newStack->p_r14 = TAGGED(0);
 #endif
-
-    newStack->p_nUnchecked = UNCHECKED_REGS; // 1 unchecked register plus FP area
-    newStack->p_flags = 0;
 
     // Floating point save area.
     ASSERT(sizeof(struct fpSaveArea) == 108);
@@ -1339,17 +1304,9 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
+// This version gets the actual sp and pc if we are in ML.
 bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, POLYCODEPTR &pc)
 {
-    // Check carefully for valid pointers.  Because this can be called
-    // at any time some of these may be invalid.
-    if (this->memRegisters.inRTS)
-    {
-        if (this->stack == 0) return false;
-        sp = PSP_SP(this);
-        pc = PSP_IC(this);
-        return true;
-    }
     if (context == 0) return false;
 // The tests for HAVE_UCONTEXT_T, HAVE_STRUCT_SIGCONTEXT and HAVE_WINDOWS_H need
 // to follow the tests in processes.h.
@@ -1432,7 +1389,7 @@ void X86TaskData::InterruptCode()
     // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
     if (this->stack != 0) 
-        this->memRegisters.stackLimit = this->stack->top-1;
+        this->assemblyInterface.stackLimit = this->stack->top-1;
     this->pendingInterrupt = true;
 }
 
@@ -1485,24 +1442,24 @@ void X86TaskData::SetMemRegisters()
     if (this->allocPointer == 0) this->allocPointer += MAX_OBJECT_SIZE;
     if (this->allocLimit == 0) this->allocLimit += MAX_OBJECT_SIZE;
 
-    this->memRegisters.localMbottom = this->memRegisters.localMbottom1 = this->allocLimit + 1;
-    this->memRegisters.localMpointer = this->memRegisters.localMpointer1 = this->allocPointer + 1;
+    this->assemblyInterface.localMbottom = this->allocLimit + 1;
+    this->assemblyInterface.localMpointer = this->allocPointer + 1;
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
     if (profileMode == kProfileStoreAllocation)
-        this->memRegisters.localMbottom = this->memRegisters.localMpointer;
+        this->assemblyInterface.localMbottom = this->assemblyInterface.localMpointer;
 
-    this->memRegisters.polyStack = this->stack->stack();
+    this->assemblyInterface.polyStack = this->stack->stack();
     // Whenever the ML code enters a function it checks that the stack pointer is above
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
-    if (this->pendingInterrupt) this->memRegisters.stackLimit = this->memRegisters.stackLimit1 = this->stack->top - 1;
-    else this->memRegisters.stackLimit = this->memRegisters.stackLimit1 = this->stack->bottom + OVERFLOW_STACK_SIZE;
-    this->memRegisters.requestCode = 0; // Clear these because only one will be set.
-    this->memRegisters.returnReason = RETURN_IO_CALL;
+    if (this->pendingInterrupt) this->assemblyInterface.stackLimit = this->stack->top - 1;
+    else this->assemblyInterface.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
+    this->assemblyInterface.requestCode = 0; // Clear these because only one will be set.
+    this->assemblyInterface.returnReason = RETURN_IO_CALL;
 
-    this->memRegisters.threadId = this->memRegisters.threadId1 = this->threadObject;
+    this->assemblyInterface.threadId = this->threadObject;
 }
 
 // This is called whenever we have returned from ML to C.
@@ -1510,14 +1467,12 @@ void X86TaskData::SaveMemRegisters()
 {
     // Check a few items on the stack to see it hasn't been overwritten
     StackObject *st = this->stack->stack();
-    if (st->p_nUnchecked != UNCHECKED_REGS)
-        Crash("Stack overwritten\n");
-    this->allocPointer = this->memRegisters.localMpointer - 1;
+    this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
     // We need to restore all the registers if we are emulating an instruction or
     // are handling a heap or stack overflow.  For the moment we just consider
     // all cases apart from an RTS call.
-    this->memRegisters.fullRestore = this->memRegisters.returnReason != 0 ? 1 : 0;
+    this->assemblyInterface.fullRestore = this->assemblyInterface.returnReason != 0 ? 1 : 0;
 }
 
 PolyWord *X86TaskData::get_reg(int n)
@@ -1581,7 +1536,7 @@ void X86TaskData::HeapOverflowTrap()
     PolyWord reg_val = *reg;
     // The space we need is the difference between this register
     // and the current value of newptr.
-    // The +1 here is because memRegisters.localMpointer is A.M.pointer +1.  The reason
+    // The +1 here is because assemblyInterface.localMpointer is A.M.pointer +1.  The reason
     // is that after the allocation we have the register pointing at the address we will
     // actually use.
     wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
@@ -1641,7 +1596,7 @@ void X86TaskData::SetException(poly_exn *exc)
     PSP_EDX(this) = (PolyObject*)IoEntry(POLY_SYS_raisex);
     PSP_IC(this)  = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
     PSP_EAX(this) = exc; /* put exception data into eax */
-    memRegisters.exceptionPacket = exc;
+    assemblyInterface.exceptionPacket = exc;
 }
 
 // Sets up a callback function on the current stack.  The present state is that

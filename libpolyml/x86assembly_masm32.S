@@ -83,25 +83,46 @@ Mask_all    EQU     1FFFFFH
 #define B_mutable       40h
 #define Max_Length      0ffffffh
 
-; The "memory registers" are pointed to by ebp within the ML code
-; The first few offsets are built into the compiled code.
-; All the offsets are built into x86_dep.c .
+; The "stack frame" pointed to by ebp acts as the "memory registers".
+Fr_RaiseOverflow    EQU     -48
+Fr_ThreadId         EQU     -44
+Fr_HeapOverflow     EQU     -40
+Fr_StackOverflow    EQU     -36
+Fr_StackOverflowEx  EQU     -32
+Fr_LocalMpointer    EQU     -28
+Fr_HandlerRegister  EQU     -24
+Fr_LocalMbottom     EQU     -20
+Fr_StackLimit       EQU     -16
+Fr_SavedEsi         EQU     -12
+Fr_SavedEdi         EQU     -8
+Fr_SavedEbx         EQU     -4
+Fr_SavedEBP         EQU     0
+Fr_Argument         EQU     8
 
-LocalMpointer       EQU     -28
-HandlerRegister     EQU     -24
-LocalMbottom        EQU     -20
-ExceptionPacket     EQU     16  ;# Address of packet to raise
-RequestCode         EQU     20  ;# Byte: Io function to call.
-InRTS               EQU     21  ;# Byte: Set when in the RTS
-ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
-FullRestore         EQU     23  ;# Byte: Full/partial restore
-PolyStack           EQU     24  ;# Current stack base
-SavedSp             EQU     28  ;# Saved stack pointer
-ThreadId            EQU     60  ;# My thread id
-RealTemp            EQU     64  ;# Space for int-real conversions
-RaiseOverflow       EQU     68  ;# Call to raise the Overflow exception
-Mr_ESP              EQU     72  ;# Saved esp value
+; Extra entries on the C stack
+Fr_SavedMLSP        EQU     -52
 
+Fr_Size             EQU     56
+
+;LocalMpointer       EQU     -28
+;HandlerRegister     EQU     -24
+;LocalMbottom        EQU     -20
+
+; This is the argument vector passed in to X86AsmSwitchToPoly
+; It is used to initialise the frame.  A few values are updated
+; when ML returns.
+Arg_LocalMpointer   EQU     0
+Arg_HandlerRegister EQU     4
+Arg_LocalMbottom    EQU     8
+Arg_StackLimit      EQU     12
+Arg_ExceptionPacket EQU     16  ;# Address of packet to raise
+Arg_RequestCode     EQU     20  ;# Byte: Io function to call.
+Arg_ReturnReason    EQU     22  ;# Byte: Reason for returning from ML.
+Arg_FullRestore     EQU     23  ;# Byte: Full/partial restore
+Arg_PolyStack       EQU     24  ;# Current stack base
+Arg_ThreadId        EQU     32  ;# My thread id
+
+; Codes to indicate the reason for return.  Zero indicates an RTS call.
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
@@ -109,19 +130,6 @@ RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_RAISE_OVERFLOW       EQU 8
 
-;
-; Stack format from objects.h is:
-;  typedef struct
-;  {                byte offset of start
-;    word  p_space ;            0 -- Now unused - remove
-;    byte *p_pc ;               4
-;    word *p_sp ;               8 -- Now unused - remove
-;    word *p_hr ;              12
-;    word  p_nreg ;            16  -- Now unused - remove
-;    word  p_reg[1] ;          20
-;  } StackObject ;
-;
- 
 ;
 ; Starting offsets
 PC_OFF      EQU     4
@@ -132,8 +140,7 @@ ECX_OFF     EQU     28
 EDX_OFF     EQU     32
 ESI_OFF     EQU     36
 EDI_OFF     EQU     40
-FLAGS_OFF   EQU     48
-FPREGS_OFF  EQU     52
+FPREGS_OFF  EQU     44
 
 ;
 ; CODE STARTS HERE
@@ -144,16 +151,32 @@ FPREGS_OFF  EQU     52
 ; These are defined as Masm macros because there are multiple instructions.
 
 CALL_IO    MACRO   index
-    mov     byte ptr [RequestCode+ebp],index
+    mov     ecx,[Fr_Argument+ebp]
+    mov     byte ptr [Arg_RequestCode+ecx],index
     jmp     SaveStateAndReturnLocal
 ENDM
 
 CALL_EXTRA  MACRO   index
-    mov     byte ptr [ReturnReason+ebp],index
+    push    ecx
+    mov     ecx,[Fr_Argument+ebp]
+    mov     byte ptr [Arg_ReturnReason+ecx],index
+    pop     ecx
     jmp     SaveFullState
 ENDM
 
 
+; RTS call to kill the current thread. 
+PUBLIC  X86AsmKillSelf
+X86AsmKillSelf:
+    CALL_IO POLY_SYS_kill_self
+
+PUBLIC  X86AsmCallbackReturn
+X86AsmCallbackReturn:
+    CALL_EXTRA RETURN_CALLBACK_RETURN
+
+PUBLIC  X86AsmCallbackException
+X86AsmCallbackException:
+    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 ; Load the registers from the ML stack and jump to the code.
 ; This is used to start ML code.
@@ -167,32 +190,44 @@ ENDM
 ;     either because the stack can't be grown or because Interrupt has been raised.
 PUBLIC  X86AsmSwitchToPoly
 X86AsmSwitchToPoly:
-    mov     ecx,[esp+4]                     ; Argument - address of MemRegisters - goes into ebp
-    pushad                                  ; Save all the registers just to be safe
-    mov     [SavedSp+ecx],esp               ; savedSp:=%esp - Save the system stack pointer.
-    mov     ebp,ecx                         ; Put address of MemRegisters where it belongs
-    mov     eax,PolyStack[ebp]
+    push    ebp                             ; Standard entry sequence
+    mov     ebp,esp
+    push    ebx                             ; Push callee-save registers
+    push    edi
+    push    esi
+    sub     esp,(Fr_size-12)                ; Allocate frame
+    mov     ecx,[Fr_Argument+ebp]           ; Address of argument vector
+    mov     eax,[Arg_StackLimit+ecx]
+    mov     [Fr_StackLimit+ebp],eax
+    mov     eax,[Arg_LocalMbottom+ecx]
+    mov     [Fr_LocalMbottom+ebp],eax
+    mov     eax,[Arg_HandlerRegister+ecx]
+    mov     [Fr_HandlerRegister+ebp],eax
+    mov     eax,[Arg_LocalMpointer+ecx]
+    mov     [Fr_LocalMpointer+ebp],eax
+    mov     eax,offset X86AsmCallExtraRETURN_STACK_OVERFLOWEX
+    mov     [Fr_StackOverflowEx+ebp],eax
+    mov     eax,offset X86AsmCallExtraRETURN_STACK_OVERFLOW
+    mov     [Fr_StackOverflow+ebp],eax
+    mov     eax,offset X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    mov     [Fr_HeapOverflow+ebp],eax
+    mov     eax,[Arg_ThreadId+ecx]
+    mov     [Fr_ThreadId+ebp],eax
+    mov     eax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
+    mov     [Fr_RaiseOverflow+ebp],eax
+    mov     eax,Arg_PolyStack[ecx]
     mov     esp,SP_OFF[eax]
     push    PC_OFF[eax]                    ; Push the code address
-    test    byte ptr [ebp+FullRestore],1   ; Should we restore or clear the regs?
+    test    byte ptr [ecx+Arg_FullRestore],1   ; Should we restore or clear the regs?
 
     jnz     sw2polyfull
-; We're returning from an RTS call.  We need to clear the registers we're
-; not restoring so that they are valid if we GC.  We restore EDX and the
-; argument regs because this may have been CallCode
-    mov     ebx,EBX_OFF[eax]
-    mov     ecx,1
-    mov     edx,EDX_OFF[eax]
-    mov     esi,1
-    mov     edi,1
-    mov     eax,EAX_OFF[eax]
+; We're returning from an RTS call.
+    mov     eax,EAX_OFF[eax]                ; The return value
     cld                                     ; Clear this just in case
-    mov     byte ptr [InRTS+ebp],0
     ret                                     ; Jump to code address
 
 sw2polyfull:
-    push   FLAGS_OFF[eax]                 ; Push the flags
-    FRSTOR  FPREGS_OFF[eax]
+    frstor  FPREGS_OFF[eax]
     mov     ebx,EBX_OFF[eax]
     mov     ecx,ECX_OFF[eax]
     mov     edx,EDX_OFF[eax]
@@ -200,39 +235,45 @@ sw2polyfull:
     mov     edi,EDI_OFF[eax]
     cld                                     ; Clear this just in case
     mov     eax,EAX_OFF[eax]
-    popfd                                   ; reset flags
-    mov     byte ptr [InRTS+ebp],0
     ret                                     ; Jump to code address
 
 
 ; Code to save the state and switch to C
 ; This saves the full register state.
 SaveFullState:
-    pushfd                      ; Save flags
-    push    eax                ; Save eax
-    mov     eax,PolyStack[ebp]
+    push    eax                             ; Save eax
+    mov     eax,[Fr_Argument+ebp]
+    mov     eax,[Arg_PolyStack+eax]
     mov     EBX_OFF[eax],ebx
     mov     ECX_OFF[eax],ecx
     mov     EDX_OFF[eax],edx
     mov     ESI_OFF[eax],esi
     mov     EDI_OFF[eax],edi
-    FNSAVE  FPREGS_OFF[eax]          ; Save FP state.  Also resets the state so...
-    FLDCW   FPREGS_OFF[eax]          ; ...load because we need the same rounding mode in the RTS
-    pop     ebx                ; Get old eax value
+    FNSAVE  FPREGS_OFF[eax]                 ; Save FP state.  Also resets the state so...
+    FLDCW   FPREGS_OFF[eax]                 ; ...load because we need the same rounding mode in the RTS
+    pop     ebx                             ; Get old eax value
     mov     EAX_OFF[eax],ebx
+    mov     SP_OFF[eax],esp                 ; Save ML stack pointer
+    mov     eax,[Fr_Argument+ebp]
+    mov     ebx,[Fr_LocalMpointer+ebp]      ; Copy back heap pointer
+    mov     [Arg_LocalMpointer+eax],ebx
+    mov     ebx,[Fr_HandlerRegister+ebp]    ; and handler pointer
+    mov     [Arg_HandlerRegister+eax],ebx
+    mov     esp,ebp                         ; Restore C stack pointer
+    sub     esp,12                          ; Sp is just before the registers
+    pop     esi                             ; Restore saved registers
+    pop     edi
     pop     ebx
-    mov     FLAGS_OFF[eax],ebx
-    mov     SP_OFF[eax],esp
-    mov     byte ptr [InRTS+ebp],1
-    mov     esp,SavedSp[ebp]
-    popad
+    pop     ebp
     ret
+
 
 ; As X86AsmSaveFullState but only save what is necessary for an RTS call.
 PUBLIC  X86AsmSaveStateAndReturn
 X86AsmSaveStateAndReturn:
 SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative address
-
+    jmp     SaveFullState
+IFDEF NOTNOW
     push   eax                ; Save eax
     mov     eax,PolyStack[ebp]
     mov     EBX_OFF[eax],ebx
@@ -247,6 +288,7 @@ SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative 
     mov     esp,SavedSp[ebp]
     popad
     ret
+ENDIF
 
 ; CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
 ; to constant arguments.  Oddly, compared with other RTS functions, it takes a single
@@ -530,7 +572,7 @@ Mask_set_string_length      EQU     (M_Reax OR M_Rebx)
 ; raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
 PUBLIC  raisex
 raisex:
-    mov     ecx,HandlerRegister[ebp]
+    mov     ecx,Fr_HandlerRegister[ebp]
     jmp     dword ptr [ecx]
 
 PUBLIC  load_byte
@@ -608,18 +650,18 @@ allsts:
     ja      alloc_in_rts                ; Get the RTS to raise an exception
     inc     edi                         ; Add 1 word
     shl     edi,2                       ; Get length in bytes
-    mov     edx,LocalMpointer[ebp]
+    mov     edx,Fr_LocalMpointer[ebp]
     sub     edx,edi                     ; Allocate the space
     mov     edi,eax                     ; Clobber bad value in edi
-    cmp     edx,LocalMbottom[ebp]       ; Check for free space
+    cmp     edx,Fr_LocalMbottom[ebp]       ; Check for free space
     jb      alloc_in_rts
 ; Normally the above test is sufficient but if LocalMpointer is near the bottom of
 ; memory and the store requested is very large the value in edx can be negative
 ; which is greater, unsigned, than LocalMbottom.  We have to check it is less
 ; than, unsigned, the allocation pointer.
-    cmp     edx,LocalMpointer[ebp]
+    cmp     edx,Fr_LocalMpointer[ebp]
     jnb     alloc_in_rts
-    mov     LocalMpointer[ebp],edx     ; Put back in the heap ptr
+    mov     Fr_LocalMpointer[ebp],edx     ; Put back in the heap ptr
     shr     eax,TAGSHIFT
     mov     (-4)[edx],eax               ; Put in length
     shr     ebx,TAGSHIFT                ; remove tag from flag
@@ -1383,7 +1425,7 @@ raiseOverflowEx:
 ; Set second word to the string "Overflow" - That's going to need allocation.
 ; Set third and fourth words to TAGGED(0)
 ; Raise the exception.
-    jmp     dword ptr [RaiseOverflow+ebp]
+    jmp     dword ptr [Fr_RaiseOverflow+ebp]
 
 ; Atomically increment the value at the address of the arg and return the
 ; updated value.  Since the xadd instruction returns the original value
@@ -1426,7 +1468,7 @@ Mask_atomic_reset      EQU     M_Reax
 ; Return the thread id object for the current thread
 PUBLIC  thread_self
 thread_self:
-    mov     eax,ThreadId[ebp]
+    mov     eax,Fr_ThreadId[ebp]
     ret
 
 Mask_thread_self      EQU     (M_Reax)
@@ -1441,9 +1483,9 @@ Mask_thread_self      EQU     (M_Reax)
 ; registers across the trap but not to examine them for pointers.  Temporarily we
 ; don't do that but instead clear all the registers across a trap.
 mem_for_largeword:
-    mov     ecx,LocalMpointer[ebp]
+    mov     ecx,Fr_LocalMpointer[ebp]
     sub     ecx,8                       ; Length word (4 bytes) + 4 bytes
-    cmp     ecx,LocalMbottom[ebp]
+    cmp     ecx,Fr_LocalMbottom[ebp]
     jnb     mem_for_largeword1
 ; ********************************
 ; Temporarily: push these registers to the stack
@@ -1455,15 +1497,15 @@ mem_for_largeword:
 	pop     ebx
 	pop     eax
 mem_for_largeword1:
-    mov     LocalMpointer[ebp],ecx             ; Updated allocation pointer
+    mov     Fr_LocalMpointer[ebp],ecx             ; Updated allocation pointer
     mov     dword ptr (-4)[ecx],01000001h      ; Length word:
     ret
 
 mem_for_real:
 ; Allocate memory for the result.
-    mov     ecx,LocalMpointer[ebp]
+    mov     ecx,Fr_LocalMpointer[ebp]
     sub     ecx,12                       ;# Length word (4 bytes) + 8 bytes
-    cmp     ecx,LocalMbottom[ebp]
+    cmp     ecx,Fr_LocalMbottom[ebp]
     jnb     mem_for_real1
 ; ********************************
 ; Temporarily: push these registers to the stack
@@ -1475,7 +1517,7 @@ mem_for_real:
     pop     ebx
     pop     eax
 mem_for_real1:
-    mov     LocalMpointer[ebp],ecx
+    mov     Fr_LocalMpointer[ebp],ecx
     mov     dword ptr (-4)[ecx],01000002h       ; Length word:
     ret
 
@@ -1660,17 +1702,8 @@ Mask_real_geq      EQU     (M_Reax OR M_FP7)
 PUBLIC  real_from_int
 real_from_int:
     test    eax,TAG
-    jz      real_float_1
-    mov     ebx,eax                         ; Put a valid value in ebx
-    call    mem_for_real
-    sar     eax,TAGSHIFT
-    mov     RealTemp[ebp],eax
-    fild    dword ptr RealTemp[ebp]         ; Save it in a temporary (N.B. It's now untagged)
-    fstp    qword ptr [ecx]
-    mov     eax,ecx
-    ret
+    jnz     fixed_to_real
 
-real_float_1:
     CALL_IO    POLY_SYS_int_to_real
 
 Mask_real_from_int      EQU     (M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
@@ -1680,8 +1713,9 @@ fixed_to_real:
     mov     ebx,eax                 ; Put a valid value in ebx
     call    mem_for_real
     sar     eax,TAGSHIFT
-    mov     RealTemp[ebp],eax
-    fild    dword ptr RealTemp[ebp]
+    push    eax                     ; Push it to the stack.  We can only load it from memory
+    fild    dword ptr [esp]
+    pop     eax
     fstp    qword ptr [ecx]
     mov     eax,ecx
     ret
@@ -1694,41 +1728,26 @@ set_exception_trace:
 ; We need to push the addresses of some code.  To make it position-independent we use
 ; CALLs in a non-standard way.
     mov     edx,eax
-	push	HandlerRegister[ebp]		; Previous handler
-	call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
+    push    Fr_HandlerRegister[ebp]		; Previous handler
+    call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
     ; This is the code that is called if we get an exception.
     ; The exception packet is the first argument.
-    mov     byte ptr [RequestCode+ebp],POLY_SYS_give_ex_trace_fn
-    jmp     X86AsmSaveStateAndReturn
+    mov     ecx,[Fr_Argument+ebp]
+    mov     byte ptr [Arg_RequestCode+ecx],POLY_SYS_give_ex_trace_fn
+    jmp     SaveStateAndReturnLocal
 
 setexct1:
-    mov     HandlerRegister[ebp],esp
+    mov     Fr_HandlerRegister[ebp],esp
     call    setexct2                    ; Jump to setexct2 pushing the next addr to the stack
     ; This is the code that is called if we return without raising an exception
     add     esp,POLYWORDSIZE
-    pop     HandlerRegister[ebp]
+    pop     Fr_HandlerRegister[ebp]
     RET
 setexct2:
     mov     eax,UNIT
     jmp     dword ptr [edx]         ; Jump to the function
 
 ; Additional assembly code routines
-
-; RTS call to kill the current thread. 
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    mov     byte ptr [RequestCode+ebp],POLY_SYS_kill_self
-    jmp     X86AsmSaveStateAndReturn
-
-PUBLIC  X86AsmCallbackReturn
-X86AsmCallbackReturn:
-    mov     byte ptr [ReturnReason+ebp],RETURN_CALLBACK_RETURN
-    jmp     X86AsmSaveStateAndReturn
-
-PUBLIC  X86AsmCallbackException
-X86AsmCallbackException:
-    mov     byte ptr [ReturnReason+ebp],RETURN_CALLBACK_EXCEPTION
-    jmp     X86AsmSaveStateAndReturn
 
 ; This implements atomic addition in the same way as atomic_increment
 ; N.B. It is called from the RTS so uses C linkage conventions.
@@ -2190,27 +2209,34 @@ CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
 ; Direct calls to the RTS
 
 ; chdir.  May raise an exception which means it may allocate space for the exception packet.
-; The caller is supposed to preserve RBP
 EXTRN   X86ChDir:PROC
 PUBLIC  CallPOLY_SYS_chdir
 ; N.B.  We don't actually need to remove any arguments from the C stack because
 ; we always set the C stack pointer to the value when we were first called.
 CallPOLY_SYS_chdir:
-    mov     dword ptr ExceptionPacket[ebp],1
-    mov     Mr_ESP[ebp],esp
-    mov     esp,SavedSp[ebp]
+    mov     ecx,[Fr_Argument+ebp]
+    mov     dword ptr [Arg_ExceptionPacket+ecx],1       ; Clear exception
+    mov     edx,[Fr_LocalMpointer+ebp]                  ; Copy heap pointer
+    mov     [Arg_LocalMpointer+ecx],edx
+    mov     ecx,esp                                     ; ML stack ptr
+    mov     esp,ebp                                     ; Switch to C stack
+    sub     esp,Fr_size
+    mov     [Fr_SavedMLSP+ebp],ecx
     push    eax
-    push    ebp
+    push    dword ptr [Fr_Argument+ebp]
     call    X86ChDir
-    mov     esp,Mr_ESP[ebp]
-    cmp     dword ptr ExceptionPacket[ebp],1
-    jne     cpsdraisex
-    cmp     dword ptr ExceptionPacket[ebp],1
+    mov     esp,[Fr_SavedMLSP+ebp]                      ; Restore the ML stack ptr
+    mov     ecx,[Fr_Argument+ebp]
+    mov     edx,[Arg_LocalMpointer+ecx]                 ; Update heap pointer
+    mov     [Fr_LocalMpointer+ebp],edx
+    mov     edx,[Arg_LocalMbottom+ecx]
+    mov     [Fr_LocalMbottom+ebp],edx                   ; and heap base because we may have GCd
+    cmp     dword ptr [Arg_ExceptionPacket+ecx],1       ; Do we want to raise an exception?
     jne     cpsdraisex
     ret
 
 cpsdraisex:
-    mov     eax,ExceptionPacket[ebp]
+    mov     eax,[Arg_ExceptionPacket+ecx]
     jmp     raisex
 
 
