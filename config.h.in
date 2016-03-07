@@ -566,6 +566,9 @@
 /* Define if the host is a MIPS (32-bit) */
 #undef HOSTARCHITECTURE_MIPS
 
+/* Define if the host is a MIPS (64-bit) */
+#undef HOSTARCHITECTURE_MIPS64
+
 /* Define if the host is a PowerPC (32-bit) */
 #undef HOSTARCHITECTURE_PPC
 
