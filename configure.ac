@@ -435,6 +435,10 @@ case "${host_cpu}" in
                 polyarch=interpret
             fi
             ;;
+      sparc64*)
+            AC_DEFINE([HOSTARCHITECTURE_SPARC64], [1], [Define if the host is a Sparc (64-bit)])
+            polyarch=interpret
+            ;;
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32-bit)])
             polyarch=interpret

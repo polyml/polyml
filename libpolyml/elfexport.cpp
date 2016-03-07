@@ -397,6 +397,13 @@ void ELFExport::exportStore(void)
        though, it adds the value in the location being relocated (as with ELF32_Rel
        relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
        relocation we always zero the location to be relocated. */
+#elif defined(HOSTARCHITECTURE_SPARC64)
+    fhdr.e_machine = EM_SPARCV9;
+    directReloc = R_SPARC_64;
+    /* Use the most relaxed memory model. At link time, the most restrictive one is
+       chosen, so it does no harm to be as permissive as possible here. */
+    fhdr.e_flags = EF_SPARCV9_RMO;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_X86_64)
     /* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
        Linux will support either so we now use Rela on X86-64. */
