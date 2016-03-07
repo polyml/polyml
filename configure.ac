@@ -447,6 +447,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is an Itanium])
             polyarch=interpret
             ;;
+      m68k*)
+            AC_DEFINE([HOSTARCHITECTURE_M68K], [1], [Define if the host is a Motorola 68000])
+            polyarch=interpret
+            ;;
       mips*)
             AC_DEFINE([HOSTARCHITECTURE_MIPS], [1], [Define if the host is a MIPS (32-bit)])
             polyarch=interpret
