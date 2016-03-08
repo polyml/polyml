@@ -20,14 +20,14 @@
 ;
 ; Registers used :-
 ;
-;  rax: First argument to function.  Result of function call.
-;  rbx: Second argument to function.
-;  rcx: General register
-;  rdx: Closure pointer in call.
-;  rbp: Points to memory used for extra registers
-;  rsi: General register.
-;  rdi: General register.
-;  rsp: Stack pointer.
+;  rax:  First argument to function.  Result of function call.
+;  rbx:  Second argument to function.
+;  rcx:  General register
+;  rdx:  Closure pointer in call.
+;  rbp:  Points to memory used for extra registers
+;  rsi:  General register.
+;  rdi:  General register.
+;  rsp:  Stack pointer.
 ;  r8:   Third argument to function
 ;  r9:   Fourth argument to function
 ;  r10:  Fifth argument to function
@@ -99,8 +99,8 @@ Mask_all    EQU     1FFFFFH
 ; All the offsets are built into x86_dep.c .
 
 LocalMpointer       EQU     0
-HandlerRegister     EQU     8
-LocalMbottom        EQU     16
+HandlerRegister     EQU     -80
+LocalMbottom        EQU     -72
 ExceptionPacket     EQU     32  ; Address of packet to raise
 RequestCode         EQU     40  ; Byte: Io function to call.
 InRTS               EQU     41  ; Byte: Set when in the RTS
@@ -108,9 +108,9 @@ ReturnReason        EQU     42  ; Byte: Reason for returning from ML.
 FullRestore         EQU     43  ; Byte: Full/partial restore
 PolyStack           EQU     48  ; Current stack base
 SavedSp             EQU     56  ; Saved stack pointer
-ThreadId            EQU     120 ; My thread id
+ThreadId            EQU     -112 ; My thread id
 RealTemp            EQU     128 ; Space for int-real conversions
-RaiseOverflow       EQU     136 ; Call to raise the Overflow exception
+RaiseOverflow       EQU     -120 ; Call to raise the Overflow exception
 Mr_ESP              EQU     144 ; Saved esp value
 
 RETURN_HEAP_OVERFLOW        EQU 1
@@ -287,30 +287,30 @@ PUBLIC  X86AsmSaveStateAndReturn
 X86AsmSaveStateAndReturn:
 SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative address
 
-    push   rax                ; Save eax
-            mov     rax,PolyStack[rbp]
-            mov     EBX_OFF[rax],rbx
-            mov     EDX_OFF[rax],rdx
+    push    rax                ; Save eax
+    mov     rax,PolyStack[rbp]
+    mov     EBX_OFF[rax],rbx
+    mov     EDX_OFF[rax],rdx
     FSTCW   FPREGS_OFF[rax]
     FNINIT                     ; Reset the FP state.
     FLDCW   FPREGS_OFF[rax]   ; But reload the rounding mode
-            mov     R8_OFF[rax],r8
-            mov     R9_OFF[rax],r9
-            mov     R10_OFF[rax],r10
-            mov     LocalMpointer[rbp],r15
-    pop    rbx                ; Get old eax value
-            mov     EAX_OFF[rax],rbx
-            mov     SP_OFF[rax],rsp
+    mov     R8_OFF[rax],r8
+    mov     R9_OFF[rax],r9
+    mov     R10_OFF[rax],r10
+    mov     LocalMpointer[rbp],r15
+    pop     rbx                ; Get old eax value
+    mov     EAX_OFF[rax],rbx
+    mov     SP_OFF[rax],rsp
     mov     byte ptr [InRTS+rbp],1
-            mov     rsp,SavedSp[rbp]
-    pop    rsi
-    pop    rdi
-    pop    r15                            ; Restore callee-save registers
-    pop    r14
-    pop    r13
-    pop    r12
-    pop    rbx
-    pop    rbp
+    mov     rsp,SavedSp[rbp]
+    pop     rsi
+    pop     rdi
+    pop     r15                            ; Restore callee-save registers
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbx
+    pop     rbp
     ret
 
 ; CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
@@ -318,32 +318,32 @@ SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative 
 ; argument that is a pair containing the function closure and an argument vector.
 PUBLIC  callcodeTupled
 callcodeTupled:
-            mov     rdx,[rax]
-            mov     rsi,POLYWORDSIZE[rax]
-            cmp     rsi,1
+    mov     rdx,[rax]
+    mov     rsi,POLYWORDSIZE[rax]
+    cmp     rsi,1
     je      cct2
-            mov     rcx,Max_Length
-            and     rcx,(-POLYWORDSIZE)[rsi]
+    mov     rcx,Max_Length
+    and     rcx,(-POLYWORDSIZE)[rsi]
     jz      cct2
-            mov     rax,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     rax,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     rbx,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     rbx,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r8,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r8,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r9,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r9,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r10,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r10,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
     pop    rdi                                ; Get the return address
 cct1:                                           ; Push the remaining args to the stack
@@ -1771,7 +1771,7 @@ setexct1:
     call    setexct2                    ; Jump to setexct2 pushing the next addr to the stack
     ; This is the code that is called if we return without raising an exception
     add     rsp,POLYWORDSIZE
-    pop    HandlerRegister[rbp]
+    pop     HandlerRegister[rbp]
     RET
 setexct2:
     mov     rax,UNIT

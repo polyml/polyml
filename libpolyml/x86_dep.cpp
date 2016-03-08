@@ -199,6 +199,22 @@ class X86TaskData;
 // These "memory registers" are referenced from the assembly code.
 // Some are actually referenced from ML code so the offsets are built in.
 typedef struct _MemRegisters {
+    byte        *raiseOverflow1;
+    PolyObject  *threadId1;
+    byte        *heapOverflow1;
+    byte        *stackOverflow1;
+    byte        *stackOverflowEx1;
+    PolyWord    *handlerRegister1;   // Current exception handler
+    PolyWord    *localMbottom1;      // Base of memory + 1 word
+    PolyWord    *stackLimit1;        // Lower limit of stack
+    byte        *savedRdi;
+    byte        *savedRsi;
+    byte        *savedR15;
+    byte        *savedR14;
+    byte        *savedR13;
+    byte        *savedR12;
+    byte        *savedRbx;
+
     // These offsets are built into the code generator and assembly code
     PolyWord    *localMpointer;     // Allocation ptr + 1 word
     PolyWord    *handlerRegister;   // Current exception handler
@@ -344,7 +360,7 @@ enum RETURN_REASON {
 extern "C" {
 
     // These are declared in the assembly code segment.
-    void X86AsmSwitchToPoly(MemRegisters *);
+    void X86AsmSwitchToPoly(void *);
     void X86AsmSaveStateAndReturn(void);
 
     extern int X86AsmKillSelf(void);
@@ -676,10 +692,10 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
-    memRegisters.heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
-    memRegisters.stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
-    memRegisters.stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
-    memRegisters.raiseOverflow = (byte*)X86AsmCallExtraRETURN_RAISE_OVERFLOW;
+    memRegisters.heapOverflow = memRegisters.heapOverflow1 = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    memRegisters.stackOverflow = memRegisters.stackOverflow1 = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    memRegisters.stackOverflowEx = memRegisters.stackOverflowEx1 = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    memRegisters.raiseOverflow = memRegisters.raiseOverflow1 = (byte*)X86AsmCallExtraRETURN_RAISE_OVERFLOW;
     memRegisters.fullRestore = 1; // To force the floating point to 64-bit
 }
 
@@ -756,6 +772,7 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     new_stack->p_pc    = old_stack->p_pc;
     new_stack->p_sp    = old_stack->p_sp + offset;
     memRegisters.handlerRegister    = memRegisters.handlerRegister + offset;
+    memRegisters.handlerRegister1 = memRegisters.handlerRegister;
 
     POLYUNSIGNED i;
     for (i = 0; i < CHECKED_REGS; i++)
@@ -1175,7 +1192,7 @@ int X86TaskData::SwitchToPoly()
         this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         SetMemRegisters();
 
-        X86AsmSwitchToPoly(&this->memRegisters);
+        X86AsmSwitchToPoly(&this->memRegisters.localMpointer);
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
@@ -1267,7 +1284,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-3;
     newStack->p_sp    = (PolyWord*)newStack+topStack; 
-    this->memRegisters.handlerRegister    = (PolyWord*)newStack+topStack+1;
+    this->memRegisters.handlerRegister    = this->memRegisters.handlerRegister1 = (PolyWord*)newStack+topStack+1;
 
     /* If this function takes an argument store it in the argument register. */
     if (arg == 0) newStack->p_eax = TAGGED(0);
@@ -1472,7 +1489,7 @@ void X86TaskData::SetMemRegisters()
     if (this->allocPointer == 0) this->allocPointer += MAX_OBJECT_SIZE;
     if (this->allocLimit == 0) this->allocLimit += MAX_OBJECT_SIZE;
 
-    this->memRegisters.localMbottom = this->allocLimit + 1;
+    this->memRegisters.localMbottom = this->memRegisters.localMbottom1 = this->allocLimit + 1;
     this->memRegisters.localMpointer = this->allocPointer + 1;
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
@@ -1486,10 +1503,11 @@ void X86TaskData::SetMemRegisters()
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
     if (this->pendingInterrupt) this->memRegisters.stackLimit = this->stack->top - 1;
     else this->memRegisters.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
+    this->memRegisters.stackLimit1 = this->memRegisters.stackLimit;
     this->memRegisters.requestCode = 0; // Clear these because only one will be set.
     this->memRegisters.returnReason = RETURN_IO_CALL;
 
-    this->memRegisters.threadId = this->threadObject;
+    this->memRegisters.threadId = this->memRegisters.threadId1 = this->threadObject;
 }
 
 // This is called whenever we have returned from ML to C.
