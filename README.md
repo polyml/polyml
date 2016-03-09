@@ -7,9 +7,9 @@ language called [Poly](http://www.polyml.org/Doc.html#poly). It has been
 fully compatible with the [ML97 standard](http://sml-family.org/sml97-defn.pdf)
 since version 4.0. For a full history, see [here](http://www.polyml.org/FAQ.html#history).
 
-Poly/ML is a conservative implementation compared to others such as SML/NJ -
-which has experimental support for a variety of features outside the
-Standard ML definition. However, Poly/ML's active development and unique
+Poly/ML takes a conservative approach to the Standard ML language and avoids
+incompatible extensions.  It has added various library extensions particularly
+the thread library. Poly/ML's active development and unique
 features make it an exceptional implementation.
 
 ## Table of Contents
@@ -31,7 +31,8 @@ features make it an exceptional implementation.
 * [Windows programming interface](http://www.polyml.org/documentation/Tutorials/WindowsProgramming.html)
 * [Thread library](http://www.polyml.org/documentation/Reference/Threads.html) - provides a
   simplified version of Posix threads modified for Standard ML and
-  allows Poly/ML to make use of multiple cores (for instance during garbage collection).
+  allows Poly/ML programs to make use of multiple cores.  The garbage collector is also
+  parallelised.
 
 ## Basis
 
