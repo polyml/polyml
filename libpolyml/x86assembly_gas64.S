@@ -2155,7 +2155,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
     movq    %rbp,%rsp                           # Switch to C stack
     subq    $Fr_Size,%rsp
 #ifdef _WIN32
-    movq    %rdx,%rax                           # Second argument. First arg is already in rcx
+    movq    %rax,%rdx                           # Second argument. First arg is already in rcx
     subq    $32,%rsp                            # Create save area
 #else
     movq    %rcx,%rdi
