@@ -20,14 +20,14 @@
 ;
 ; Registers used :-
 ;
-;  rax: First argument to function.  Result of function call.
-;  rbx: Second argument to function.
-;  rcx: General register
-;  rdx: Closure pointer in call.
-;  rbp: Points to memory used for extra registers
-;  rsi: General register.
-;  rdi: General register.
-;  rsp: Stack pointer.
+;  rax:  First argument to function.  Result of function call.
+;  rbx:  Second argument to function.
+;  rcx:  General register
+;  rdx:  Closure pointer in call.
+;  rbp:  Points to memory used for extra registers
+;  rsi:  General register.
+;  rdi:  General register.
+;  rsp:  Stack pointer.
 ;  r8:   Third argument to function
 ;  r9:   Fourth argument to function
 ;  r10:  Fifth argument to function
@@ -94,24 +94,50 @@ Mask_all    EQU     1FFFFFH
 #define B_mutable       40h
 #define Max_Length      00ffffffffffffffh              
 
-; The "memory registers" are pointed to by rbp within the ML code
-; The first few offsets are built into the compiled code.
-; All the offsets are built into x86_dep.c .
+; The "stack frame" pointed to by rbp acts as the "memory registers".
+Fr_RaiseOverflow    EQU     -120
+Fr_ThreadId         EQU     -112
+Fr_HeapOverflow     EQU     -104
+Fr_StackOverflow    EQU     -96
+Fr_StackOverflowEx  EQU     -88
+Fr_HandlerRegister  EQU     -80
+Fr_LocalMbottom     EQU     -72
+Fr_StackLimit       EQU     -64
+Fr_Argument         EQU     16
 
-LocalMpointer       EQU     0
-HandlerRegister     EQU     8
-LocalMbottom        EQU     16
-ExceptionPacket     EQU     32  ; Address of packet to raise
-RequestCode         EQU     40  ; Byte: Io function to call.
-InRTS               EQU     41  ; Byte: Set when in the RTS
-ReturnReason        EQU     42  ; Byte: Reason for returning from ML.
-FullRestore         EQU     43  ; Byte: Full/partial restore
-PolyStack           EQU     48  ; Current stack base
-SavedSp             EQU     56  ; Saved stack pointer
-ThreadId            EQU     120 ; My thread id
-RealTemp            EQU     128 ; Space for int-real conversions
-RaiseOverflow       EQU     136 ; Call to raise the Overflow exception
-Mr_ESP              EQU     144 ; Saved esp value
+; Extra entries on the C stack
+Fr_SavedMLSP        EQU     -128
+
+Fr_Size             EQU     144         ; Must be multiple of 16 to get alignment correct
+
+; This is the argument vector passed in to X86AsmSwitchToPoly
+; It is used to initialise the frame.  A few values are updated
+; when ML returns.
+Arg_LocalMpointer   EQU     0
+Arg_HandlerRegister EQU     8
+Arg_LocalMbottom    EQU     16
+Arg_StackLimit      EQU     24
+Arg_ExceptionPacket EQU     32  ;# Address of packet to raise
+Arg_RequestCode     EQU     40  ;# Byte: Io function to call.
+Arg_ReturnReason    EQU     42  ;# Byte: Reason for returning from ML.
+Arg_FullRestore     EQU     43  ;# Byte: Full/partial restore
+Arg_PolyStack       EQU     48  ;# Current stack base
+Arg_ThreadId        EQU     64  ;# My thread id
+
+;LocalMpointer       EQU     0
+;HandlerRegister     EQU     -80
+;LocalMbottom        EQU     -72
+;ExceptionPacket     EQU     32  ; Address of packet to raise
+;RequestCode         EQU     40  ; Byte: Io function to call.
+;InRTS               EQU     41  ; Byte: Set when in the RTS
+;ReturnReason        EQU     42  ; Byte: Reason for returning from ML.
+;FullRestore         EQU     43  ; Byte: Full/partial restore
+;PolyStack           EQU     48  ; Current stack base
+;SavedSp             EQU     56  ; Saved stack pointer
+;ThreadId            EQU     -112 ; My thread id
+;RealTemp            EQU     128 ; Space for int-real conversions
+;RaiseOverflow       EQU     -120 ; Call to raise the Overflow exception
+;Mr_ESP              EQU     144 ; Saved esp value
 
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
@@ -120,19 +146,6 @@ RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_RAISE_OVERFLOW       EQU 8
 
-;
-; Stack format from objects.h is:
-;  typedef struct
-;  {                byte offset of start
-;    word  p_space ;            0 -- Now unused - remove
-;    byte *p_pc ;               4
-;    word *p_sp ;               8 -- Now unused - remove
-;    word *p_hr ;              12
-;    word  p_nreg ;            16  -- Now unused - remove
-;    word  p_reg[1] ;          20
-;  } StackObject ;
-;
- 
 ;
 ; Starting offsets
 PC_OFF      EQU     8
@@ -150,8 +163,7 @@ R11_OFF     EQU     112
 R12_OFF     EQU     120
 R13_OFF     EQU     128
 R14_OFF     EQU     136
-FLAGS_OFF   EQU     152
-FPREGS_OFF  EQU     160
+FPREGS_OFF  EQU     144
 
 ;
 ; CODE STARTS HERE
@@ -162,12 +174,16 @@ FPREGS_OFF  EQU     160
 ; These are defined as Masm macros because there are multiple instructions.
 
 CALL_IO    MACRO   index
-    mov     byte ptr [RequestCode+rbp],index
+    mov     rcx,[Fr_Argument+rbp]
+    mov     byte ptr [Arg_RequestCode+rcx],index
     jmp     SaveStateAndReturnLocal
 ENDM
 
 CALL_EXTRA  MACRO   index
-    mov     byte ptr [ReturnReason+rbp],index
+    push    rcx
+    mov     rcx,[Fr_Argument+rbp]
+    mov     byte ptr [Arg_ReturnReason+rcx],index
+    pop     rcx
     jmp     SaveFullState
 ENDM
 
@@ -185,45 +201,46 @@ ENDM
 ;     either because the stack can't be grown or because Interrupt has been raised.
 PUBLIC  X86AsmSwitchToPoly
 X86AsmSwitchToPoly:
-    push   rbp                             ; Save callee--save registers
-    push   rbx
-    push   r12
-    push   r13
-    push   r14
-    push   r15
-    push   rdi                            ; Callee save in Windows
-    push   rsi
-    mov     SavedSp[rcx],rsp
-    mov     rbp,rcx
-    mov     rax,PolyStack[rbp]
-    mov     r15,LocalMpointer[rbp]
+    mov     [rsp+8],rcx                     ; Save argument for use later
+    push    rbp                             ; Standard entry sequence
+    mov     rbp,rsp                         
+    push    rbx                             ; Save callee--save registers
+    push    r12
+    push    r13
+    push    r14
+    push    r15
+    push    rdi                             ; Callee save in Windows
+    push    rsi
+    sub     esp,(Fr_size-56)
+    mov     rax,[Arg_StackLimit+rcx]
+    mov     [Fr_StackLimit+rbp],rax
+    mov     rax,[Arg_LocalMbottom+rcx]
+    mov     [Fr_LocalMbottom+rbp],rax
+    mov     rax,[Arg_HandlerRegister+rcx]
+    mov     [Fr_HandlerRegister+rbp],rax
+    mov     rax,offset X86AsmCallExtraRETURN_STACK_OVERFLOWEX
+    mov     [Fr_StackOverflowEx+rbp],rax
+    mov     rax,offset X86AsmCallExtraRETURN_STACK_OVERFLOW
+    mov     [Fr_StackOverflow+rbp],rax
+    mov     rax,offset X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    mov     [Fr_HeapOverflow+rbp],rax
+    mov     rax,[Arg_ThreadId+rcx]
+    mov     [Fr_ThreadId+rbp],rax
+    mov     rax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
+    mov     [Fr_RaiseOverflow+rbp],rax
+    mov     r15,[Arg_LocalMpointer+rcx]
+    mov     rax,Arg_PolyStack[rcx]
     mov     rsp,SP_OFF[rax]
-    push   PC_OFF[rax]                    ; Push the code address
-    test    byte ptr [rbp+FullRestore],1   ; Should we restore or clear the regs?
+    push    PC_OFF[rax]                    ; Push the code address
+    test    byte ptr [rcx+Arg_FullRestore],1   ; Should we restore or clear the regs?
 
     jnz     sw2polyfull
-; We're returning from an RTS call.  We need to clear the registers we're
-; not restoring so that they are valid if we GC.  We restore EDX and the
-; argument regs because this may have been CallCode
-    mov     rbx,EBX_OFF[rax]
-    mov     rcx,1
-    mov     rdx,EDX_OFF[rax]
-    mov     rsi,1
-    mov     rdi,1
-    mov     r8,R8_OFF[rax]
-    mov     r9,R9_OFF[rax]
-    mov     r10,R10_OFF[rax]
-    mov     r11,1
-    mov     r12,1
-    mov     r13,1
-    mov     r14,1
+; We're returning from an RTS call.
     mov     rax,EAX_OFF[rax]
     cld                                     ; Clear this just in case
-    mov     byte ptr [InRTS+rbp],0
     ret                                     ; Jump to code address
 
 sw2polyfull:
-    push   FLAGS_OFF[rax]                 ; Push the flags
     FRSTOR  FPREGS_OFF[rax]
     mov     rbx,EBX_OFF[rax]
     mov     rcx,ECX_OFF[rax]
@@ -239,17 +256,15 @@ sw2polyfull:
     mov     r14,R14_OFF[rax]
     cld                                     ; Clear this just in case
     mov     rax,EAX_OFF[rax]
-    popfq                                   ; reset flags
-    mov     byte ptr [InRTS+rbp],0
     ret                                     ; Jump to code address
 
 
 ; Code to save the state and switch to C
 ; This saves the full register state.
 SaveFullState:
-    pushfq                      ; Save flags
-    push    rax                ; Save eax
-    mov     rax,PolyStack[rbp]
+    push    rax                ; Save rax
+    mov     rax,[Fr_Argument+rbp]
+    mov     rax,[Arg_PolyStack+rax]
     mov     EBX_OFF[rax],rbx
     mov     ECX_OFF[rax],rcx
     mov     EDX_OFF[rax],rdx
@@ -264,14 +279,15 @@ SaveFullState:
     mov     R12_OFF[rax],r12
     mov     R13_OFF[rax],r13
     mov     R14_OFF[rax],r14
-    mov     LocalMpointer[rbp],r15
-    pop     rbx                ; Get old eax value
+    pop     rbx                             ; Get old rax value
     mov     EAX_OFF[rax],rbx
-    pop     rbx
-    mov     FLAGS_OFF[rax],rbx
     mov     SP_OFF[rax],rsp
-    mov     byte ptr [InRTS+rbp],1
-    mov     rsp,SavedSp[rbp]
+    mov     rax,[Fr_Argument+rbp]
+    mov     [Arg_LocalMpointer+rax],r15     ; Save back heap pointer
+    mov     rbx,[Fr_HandlerRegister+rbp]    ; Copy back handler pointer
+    mov     [Arg_HandlerRegister+rax],rbx
+    mov     rsp,rbp                         ; Restore C stack pointer
+    sub     rsp,56
     pop     rsi
     pop     rdi
     pop     r15                            ; Restore callee-save registers
@@ -286,75 +302,77 @@ SaveFullState:
 PUBLIC  X86AsmSaveStateAndReturn
 X86AsmSaveStateAndReturn:
 SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative address
-
-    push   rax                ; Save eax
-            mov     rax,PolyStack[rbp]
-            mov     EBX_OFF[rax],rbx
-            mov     EDX_OFF[rax],rdx
+jmp     SaveFullState
+IFDEF NOTNOW
+    push    rax                ; Save rax
+    mov     rax,PolyStack[rbp]
+    mov     EBX_OFF[rax],rbx
+    mov     EDX_OFF[rax],rdx
     FSTCW   FPREGS_OFF[rax]
     FNINIT                     ; Reset the FP state.
     FLDCW   FPREGS_OFF[rax]   ; But reload the rounding mode
-            mov     R8_OFF[rax],r8
-            mov     R9_OFF[rax],r9
-            mov     R10_OFF[rax],r10
-            mov     LocalMpointer[rbp],r15
-    pop    rbx                ; Get old eax value
-            mov     EAX_OFF[rax],rbx
-            mov     SP_OFF[rax],rsp
+    mov     R8_OFF[rax],r8
+    mov     R9_OFF[rax],r9
+    mov     R10_OFF[rax],r10
+    mov     LocalMpointer[rbp],r15
+    pop     rbx                ; Get old rax value
+    mov     EAX_OFF[rax],rbx
+    mov     SP_OFF[rax],rsp
     mov     byte ptr [InRTS+rbp],1
-            mov     rsp,SavedSp[rbp]
-    pop    rsi
-    pop    rdi
-    pop    r15                            ; Restore callee-save registers
-    pop    r14
-    pop    r13
-    pop    r12
-    pop    rbx
-    pop    rbp
+    mov     rsp,SavedSp[rbp]
+    pop     rsi
+    pop     rdi
+    pop     r15                            ; Restore callee-save registers
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbx
+    pop     rbp
     ret
+ENDIF
 
 ; CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
 ; to constant arguments.  Oddly, compared with other RTS functions, it takes a single
 ; argument that is a pair containing the function closure and an argument vector.
 PUBLIC  callcodeTupled
 callcodeTupled:
-            mov     rdx,[rax]
-            mov     rsi,POLYWORDSIZE[rax]
-            cmp     rsi,1
+    mov     rdx,[rax]
+    mov     rsi,POLYWORDSIZE[rax]
+    cmp     rsi,1
     je      cct2
-            mov     rcx,Max_Length
-            and     rcx,(-POLYWORDSIZE)[rsi]
+    mov     rcx,Max_Length
+    and     rcx,(-POLYWORDSIZE)[rsi]
     jz      cct2
-            mov     rax,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     rax,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     rbx,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     rbx,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r8,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r8,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r9,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r9,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-            mov     r10,[rsi]
-            add     rsi,POLYWORDSIZE
-            sub     rcx,1
+    mov     r10,[rsi]
+    add     rsi,POLYWORDSIZE
+    sub     rcx,1
     jz      cct2
-    pop    rdi                                ; Get the return address
+    pop     rdi                                ; Get the return address
 cct1:                                           ; Push the remaining args to the stack
-    push   [rsi]
-            add     rsi,POLYWORDSIZE
+    push    [rsi]
+    add     rsi,POLYWORDSIZE
     LOOP    cct1
-    push   rdi                                ; Push the return address
+    push    rdi                                ; Push the return address
 
 cct2:                                           ; Finished - enter function
-            mov     rsi,1
-            mov     rcx,1
+    mov     rsi,1
+    mov     rcx,1
     jmp     qword ptr [rdx]
 
 
@@ -606,10 +624,10 @@ set_string_length_a:
 
 Mask_set_string_length      EQU     (M_Reax OR M_Rebx)
 
-; raisex (formerly raisexn) is used by compiled code.
+; raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
 PUBLIC  raisex
 raisex:
-    mov     rcx,HandlerRegister[rbp]
+    mov     rcx,Fr_HandlerRegister[rbp]
     jmp     qword ptr [rcx]
 
 PUBLIC  load_byte
@@ -690,7 +708,7 @@ allsts:
     mov     rdx,r15
     sub     rdx,rdi                     ; Allocate the space
     mov     rdi,rax                     ; Clobber bad value in rdi
-    cmp     rdx,LocalMbottom[rbp]       ; Check for free space
+    cmp     rdx,Fr_LocalMbottom[rbp]       ; Check for free space
     jb      alloc_in_rts
 ; Normally the above test is sufficient but if LocalMpointer is near the bottom of
 ; memory and the store requested is very large the value in rdx can be negative
@@ -889,7 +907,7 @@ quotrem_long:
     mov     rax,rcx
     ret
 
-mem_for_remquot1:  ; Not enough store: clobber bad value in ecx.
+mem_for_remquot1:  ; Not enough store: clobber bad value in rcx.
     mov     rcx,1
 
 quotrem_really_long:
@@ -1463,7 +1481,7 @@ raiseOverflowEx:
 ; Set second word to the string "Overflow" - That's going to need allocation.
 ; Set third and fourth words to TAGGED(0)
 ; Raise the exception.
-    jmp     qword ptr [RaiseOverflow+rbp]
+    jmp     qword ptr [Fr_RaiseOverflow+rbp]
 
 ; Atomically increment the value at the address of the arg and return the
 ; updated value.  Since the xadd instruction returns the original value
@@ -1506,7 +1524,7 @@ Mask_atomic_reset      EQU     M_Reax
 ; Return the thread id object for the current thread
 PUBLIC  thread_self
 thread_self:
-    mov     rax,ThreadId[rbp]
+    mov     rax,Fr_ThreadId[rbp]
     ret
 
 Mask_thread_self      EQU     (M_Reax)
@@ -1525,7 +1543,7 @@ mem_for_real:
 ; Allocate memory for the result.
     mov     rcx,r15
     sub     rcx,16
-    cmp     rcx,LocalMbottom[rbp]
+    cmp     rcx,Fr_LocalMbottom[rbp]
     jnb      mem_for_real1
 ; ********************************
 ; Temporarily: push these registers to the stack
@@ -1725,15 +1743,7 @@ Mask_real_geq      EQU     (M_Reax OR M_FP7)
 PUBLIC  real_from_int
 real_from_int:
     test    rax,TAG
-    jz      real_float_1
-    mov     rbx,rax                         ; Put a valid value in rbx
-    call    mem_for_real
-    sar     rax,TAGSHIFT
-    mov     RealTemp[rbp],rax
-    fild    qword ptr RealTemp[rbp]         ; Save it in a temporary (N.B. It's now untagged)
-    fstp    qword ptr [rcx]
-    mov     rax,rcx
-    ret
+    jnz     fixed_to_real
 
 real_float_1:
     CALL_IO    POLY_SYS_int_to_real
@@ -1745,8 +1755,9 @@ fixed_to_real:
     mov     rbx,rax                 ; Put a valid value in rbx
     call    mem_for_real
     sar     rax,TAGSHIFT
-    mov     RealTemp[rbp],rax
-    fild    qword ptr RealTemp[rbp]
+    push    rax                     ; Push it to the stack.  We can only load it from memory
+    fild    qword ptr [rsp]
+    pop     rax
     fstp    qword ptr [rcx]
     mov     rax,rcx
     ret
@@ -1759,19 +1770,18 @@ set_exception_trace:
 ; We need to push the addresses of some code.  To make it position-independent we use
 ; CALLs in a non-standard way.
     mov     rdx,rax
-    push    HandlerRegister[rbp]        ; Previous handler
+    push    Fr_HandlerRegister[rbp]        ; Previous handler
     call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
     ; This is the code that is called if we get an exception.
     ; The exception packet is the first argument.
-    mov     byte ptr [RequestCode+rbp],POLY_SYS_give_ex_trace_fn
-    jmp     X86AsmSaveStateAndReturn
+    CALL_IO POLY_SYS_give_ex_trace_fn
 
 setexct1:
-    mov     HandlerRegister[rbp],rsp
+    mov     Fr_HandlerRegister[rbp],rsp
     call    setexct2                    ; Jump to setexct2 pushing the next addr to the stack
     ; This is the code that is called if we return without raising an exception
     add     rsp,POLYWORDSIZE
-    pop    HandlerRegister[rbp]
+    pop     Fr_HandlerRegister[rbp]
     RET
 setexct2:
     mov     rax,UNIT
@@ -1782,18 +1792,15 @@ setexct2:
 ; RTS call to kill the current thread. 
 PUBLIC  X86AsmKillSelf
 X86AsmKillSelf:
-    mov     byte ptr [RequestCode+rbp],POLY_SYS_kill_self
-    jmp     X86AsmSaveStateAndReturn
+    CALL_IO POLY_SYS_kill_self
 
 PUBLIC  X86AsmCallbackReturn
 X86AsmCallbackReturn:
-    mov     byte ptr [ReturnReason+rbp],RETURN_CALLBACK_RETURN
-    jmp     X86AsmSaveStateAndReturn
+    CALL_EXTRA RETURN_CALLBACK_RETURN
 
 PUBLIC  X86AsmCallbackException
 X86AsmCallbackException:
-    mov     byte ptr [ReturnReason+rbp],RETURN_CALLBACK_EXCEPTION
-    jmp     X86AsmSaveStateAndReturn
+    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 ; This implements atomic addition in the same way as atomic_increment
 PUBLIC  X86AsmAtomicIncrement
@@ -2290,26 +2297,29 @@ CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
 EXTRN   X86ChDir:PROC
 PUBLIC  CallPOLY_SYS_chdir
 CallPOLY_SYS_chdir:
-    mov     qword ptr ExceptionPacket[rbp],1
-    mov     Mr_ESP[rbp],rsp
-    mov     rsp,SavedSp[rbp]
-    mov     LocalMpointer[rbp],r15
+    mov     rcx,[Fr_Argument+rbp]
+    mov     qword ptr [Arg_ExceptionPacket+rcx],1           ; Clear exception
+    mov     r15,[Arg_LocalMpointer+rcx]
+    mov     rcx,rsp                                         ; ML stack ptr
+    mov     rsp,rbp                                         ; Switch to C stack
+    sub     rsp,Fr_size
+    mov     [Fr_SavedMLSP+rbp],rcx
     ; X86-64 Windows calling conventions.
-    push    0                               ; Alignment - Needed??
-    mov     rdx,rax                         ; Second argument
-    sub     rsp,32                          ; Create save area
-    mov     rcx,rbp                         ; First argument
+    mov     rdx,rax                                         ; Second argument
+    sub     rsp,32                                          ; Create save area
+    mov     rcx,[Fr_Argument+rbp]                           ; First argument
     call    X86ChDir
-    mov     r15,LocalMpointer[rbp]
-    mov     rsp,Mr_ESP[rbp]
-    cmp     qword ptr ExceptionPacket[rbp],1
-    jne     cpsdraisex
-    cmp     qword ptr ExceptionPacket[rbp],1
+    mov     rsp,[Fr_SavedMLSP+rbp]                          ; Restore the ML stack ptr
+    mov     ecx,[Fr_Argument+rbp]
+    mov     r15,[Arg_LocalMpointer+rcx]                     ; Update heap pointer
+    mov     rdx,[Arg_LocalMbottom+rcx]
+    mov     [Fr_LocalMbottom+rbp],rdx                       ; and heap base because we may have GCd
+    cmp     qword ptr [Arg_ExceptionPacket+rcx],1
     jne     cpsdraisex
     ret
 
 cpsdraisex:
-    mov     rax,ExceptionPacket[rbp]
+    mov     rax,[Arg_ExceptionPacket+rcx]
     jmp     raisex
 
 

@@ -93,10 +93,6 @@ Fr_LocalMpointer    EQU     -28
 Fr_HandlerRegister  EQU     -24
 Fr_LocalMbottom     EQU     -20
 Fr_StackLimit       EQU     -16
-Fr_SavedEsi         EQU     -12
-Fr_SavedEdi         EQU     -8
-Fr_SavedEbx         EQU     -4
-Fr_SavedEBP         EQU     0
 Fr_Argument         EQU     8
 
 ; Extra entries on the C stack
@@ -163,20 +159,6 @@ CALL_EXTRA  MACRO   index
     pop     ecx
     jmp     SaveFullState
 ENDM
-
-
-; RTS call to kill the current thread. 
-PUBLIC  X86AsmKillSelf
-X86AsmKillSelf:
-    CALL_IO POLY_SYS_kill_self
-
-PUBLIC  X86AsmCallbackReturn
-X86AsmCallbackReturn:
-    CALL_EXTRA RETURN_CALLBACK_RETURN
-
-PUBLIC  X86AsmCallbackException
-X86AsmCallbackException:
-    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 ; Load the registers from the ML stack and jump to the code.
 ; This is used to start ML code.
@@ -1732,9 +1714,7 @@ set_exception_trace:
     call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
     ; This is the code that is called if we get an exception.
     ; The exception packet is the first argument.
-    mov     ecx,[Fr_Argument+ebp]
-    mov     byte ptr [Arg_RequestCode+ecx],POLY_SYS_give_ex_trace_fn
-    jmp     SaveStateAndReturnLocal
+    CALL_IO POLY_SYS_give_ex_trace_fn
 
 setexct1:
     mov     Fr_HandlerRegister[ebp],esp
@@ -1748,6 +1728,19 @@ setexct2:
     jmp     dword ptr [edx]         ; Jump to the function
 
 ; Additional assembly code routines
+
+; RTS call to kill the current thread. 
+PUBLIC  X86AsmKillSelf
+X86AsmKillSelf:
+    CALL_IO POLY_SYS_kill_self
+
+PUBLIC  X86AsmCallbackReturn
+X86AsmCallbackReturn:
+    CALL_EXTRA RETURN_CALLBACK_RETURN
+
+PUBLIC  X86AsmCallbackException
+X86AsmCallbackException:
+    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 ; This implements atomic addition in the same way as atomic_increment
 ; N.B. It is called from the RTS so uses C linkage conventions.
