@@ -563,6 +563,9 @@
 /* Define if the host is an Itanium */
 #undef HOSTARCHITECTURE_IA64
 
+/* Define if the host is a Motorola 68000 */
+#undef HOSTARCHITECTURE_M68K
+
 /* Define if the host is a MIPS (32-bit) */
 #undef HOSTARCHITECTURE_MIPS
 
