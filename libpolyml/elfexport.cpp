@@ -154,7 +154,15 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
         ElfXX_Rela reloc;
         // Set the offset within the section we're scanning.
         setRelocationAddress(relocAddr, &reloc.r_offset);
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+#endif
         reloc.r_addend = offset;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
@@ -163,7 +171,15 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
     else {
         ElfXX_Rel reloc;
         setRelocationAddress(relocAddr, &reloc.r_offset);
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+#endif
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
         return PolyWord::FromUnsigned(offset);
@@ -284,7 +300,15 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
     if (useRela)
     {
         ElfXX_Rela reloc;
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = sym;
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+#endif
         reloc.r_offset = offset;
         reloc.r_addend = addend;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -293,7 +317,15 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
     else
     {
         ElfXX_Rel reloc;
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = sym;
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+#endif
         reloc.r_offset = offset;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
@@ -403,6 +435,13 @@ void ELFExport::exportStore(void)
 #elif defined(HOSTARCHITECTURE_ALPHA)
     fhdr.e_machine = EM_ALPHA;
     directReloc = R_ALPHA_REFQUAD;
+#elif defined(HOSTARCHITECTURE_MIPS64)
+    fhdr.e_machine = EM_MIPS;
+    directReloc = R_MIPS_64;
+    fhdr.e_flags = EF_MIPS_ARCH_64;
+#ifdef __PIC__
+    fhdr.e_flags |= EF_MIPS_CPIC;
+#endif
     useRela = true;
 #else
 #error "No support for exporting on this architecture"
