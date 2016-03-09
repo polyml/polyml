@@ -432,9 +432,6 @@ void ELFExport::exportStore(void)
     fhdr.e_flags = EF_MIPS_CPIC;
 #endif
     useRela = true;
-#elif defined(HOSTARCHITECTURE_ALPHA)
-    fhdr.e_machine = EM_ALPHA;
-    directReloc = R_ALPHA_REFQUAD;
 #elif defined(HOSTARCHITECTURE_MIPS64)
     fhdr.e_machine = EM_MIPS;
     directReloc = R_MIPS_64;
@@ -442,6 +439,10 @@ void ELFExport::exportStore(void)
 #ifdef __PIC__
     fhdr.e_flags |= EF_MIPS_CPIC;
 #endif
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_ALPHA)
+    fhdr.e_machine = EM_ALPHA;
+    directReloc = R_ALPHA_REFQUAD;
     useRela = true;
 #else
 #error "No support for exporting on this architecture"
