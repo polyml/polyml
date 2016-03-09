@@ -124,21 +124,6 @@ Arg_FullRestore     EQU     43  ;# Byte: Full/partial restore
 Arg_PolyStack       EQU     48  ;# Current stack base
 Arg_ThreadId        EQU     64  ;# My thread id
 
-;LocalMpointer       EQU     0
-;HandlerRegister     EQU     -80
-;LocalMbottom        EQU     -72
-;ExceptionPacket     EQU     32  ; Address of packet to raise
-;RequestCode         EQU     40  ; Byte: Io function to call.
-;InRTS               EQU     41  ; Byte: Set when in the RTS
-;ReturnReason        EQU     42  ; Byte: Reason for returning from ML.
-;FullRestore         EQU     43  ; Byte: Full/partial restore
-;PolyStack           EQU     48  ; Current stack base
-;SavedSp             EQU     56  ; Saved stack pointer
-;ThreadId            EQU     -112 ; My thread id
-;RealTemp            EQU     128 ; Space for int-real conversions
-;RaiseOverflow       EQU     -120 ; Call to raise the Overflow exception
-;Mr_ESP              EQU     144 ; Saved esp value
-
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
@@ -226,7 +211,7 @@ X86AsmSwitchToPoly  PROC FRAME
     push    rsi
     .PUSHREG rsi
     .endprolog
-    sub     esp,(Fr_size-56)
+    sub     rsp,(Fr_size-56)
     mov     rax,[Arg_StackLimit+rcx]
     mov     [Fr_StackLimit+rbp],rax
     mov     rax,[Arg_LocalMbottom+rcx]
@@ -2326,10 +2311,9 @@ CallPOLY_SYS_chdir PROC FRAME
     mov     rcx,[Fr_Argument+rbp]
     mov     qword ptr [Arg_ExceptionPacket+rcx],1           ; Clear exception
     mov     r15,[Arg_LocalMpointer+rcx]
-    mov     rcx,rsp                                         ; ML stack ptr
+    mov     [Fr_SavedMLSP+rbp],rsp                          ; ML stack ptr
     mov     rsp,rbp                                         ; Switch to C stack
     sub     rsp,Fr_size
-    mov     [Fr_SavedMLSP+rbp],rcx
     ; X86-64 Windows calling conventions.
     mov     rdx,rax                                         ; Second argument
     sub     rsp,32                                          ; Create save area

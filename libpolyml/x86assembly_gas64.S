@@ -26,22 +26,22 @@
 /*
  Registers used :-
 
-  %%rax: First argument to function.  Result of function call.
-  %%rbx: Second argument to function.
-  %%rcx: General register
-  %%rdx: Closure pointer in call.
-  %%rbp: Points to memory used for extra registers
-  %%rsi: General register.
-  %%rdi: General register.
-  %%rsp: Stack pointer.
-  %%r8:   Third argument to function
-  %%r9:   Fourth argument to function
-  %%r10:  Fifth argument to function
-  %%r11:  General register
-  %%r12:  General register
-  %%r13:  General register
-  %%r14:  General register
-  %%r15:  Memory allocation pointer
+  %rax: First argument to function.  Result of function call.
+  %rbx: Second argument to function.
+  %rcx: General register
+  %rdx: Closure pointer in call.
+  %rbp: Points to memory used for extra registers
+  %rsi: General register.
+  %rdi: General register.
+  %rsp: Stack pointer.
+  %r8:   Third argument to function
+  %r9:   Fourth argument to function
+  %r10:  Fifth argument to function
+  %r11:  General register
+  %r12:  General register
+  %r13:  General register
+  %r14:  General register
+  %r15:  Memory allocation pointer
 */
 
 
@@ -120,27 +120,42 @@ EXTNAME(id):
 .set    B_mutablebytes, 0x41
 .set    Max_Length,0x00ffffffffffffff
 
+/* The "stack frame" pointed to by rbp acts as the "memory registers". */
+#define Fr_RaiseOverflow        -120
+#define Fr_ThreadId             -112
+#define Fr_HeapOverflow         -104
+#define Fr_StackOverflow        -96
+#define Fr_StackOverflowEx      -88
+#define Fr_HandlerRegister      -80
+#define Fr_LocalMbottom         -72
+#define Fr_StackLimit           -64
 
-/* The "memory registers" are pointed to by %rbp within the ML code
-  The first few offsets are built into the compiled code.
-  All the offsets are built into x86_dep.c . */
-.set    LocalMpointer,0
-.set    HandlerRegister,8
-.set    LocalMbottom,16
-.set    ExceptionPacket,32
-.set    RequestCode,40
-.set    InRTS,41
-.set    ReturnReason,42
-.set    FullRestore,43
-.set    PolyStack,48
-.set    SavedSp,56
-.set    HeapOverflow,64
-.set    StackOverflow,72
-.set    StackOverflowEx,80
-.set    ThreadId,120
-.set    RealTemp,128
-.set    RaiseOverflow,136
-.set    Mr_ESP,144
+/* The Windows calling convention reserves space for arguments in the
+   call.  In Unix we instead save the argument in an unused save location. */
+#ifdef _WIN32
+#define Fr_Argument             16
+#else
+#define Fr_Argument             -32
+#endif
+
+; Extra entries on the C stack
+#define Fr_SavedMLSP            -128
+
+#define Fr_Size                 144         /* Must be multiple of 16 to get alignment correct */
+
+; This is the argument vector passed in to X86AsmSwitchToPoly
+; It is used to initialise the frame.  A few values are updated
+; when ML returns.
+#define Arg_LocalMpointer       0
+#define Arg_HandlerRegister     8
+#define Arg_LocalMbottom        16
+#define Arg_StackLimit          24
+#define Arg_ExceptionPacket     32  /* Address of packet to raise */
+#define Arg_RequestCode         40  /* Byte: Io function to call. */
+#define Arg_ReturnReason        42  /* Byte: Reason for returning from ML. */
+#define Arg_FullRestore         43  /* Byte: Full/partial restore */
+#define Arg_PolyStack           48  /* Current stack base */
+#define Arg_ThreadId            64  /* My thread id */
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -153,25 +168,10 @@ EXTNAME(id):
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
 
-/*
-  Stack format from objects.h is:
-   typedef struct
-   {                byte offset of start
-     word  p_space ;            0 -- Now unused - remove
-     byte *p_pc ;               4
-     word *p_sp ;               8 -- Now unused - remove
-     word *p_hr ;              12
-     word  p_nreg ;            16  -- Now unused - remove
-     word  p_reg(1) ;          20
-   } StackObject ;
-*/
- 
 /* Starting offsets */
 
-#.set    SPACE_OFF,  0
 .set    PC_OFF,     8
 .set    SP_OFF,     16
-# 32 is the count of the number of checked registers
 .set    EAX_OFF,    40
 .set    EBX_OFF,    48
 .set    ECX_OFF,    56
@@ -185,9 +185,7 @@ EXTNAME(id):
 .set    R12_OFF,    120
 .set    R13_OFF,    128
 .set    R14_OFF,    136
-# 144 is the count of the number of unchecked registers
-.set    FLAGS_OFF,  152
-.set    FPREGS_OFF, 160
+.set    FPREGS_OFF, 144
 
 # Mark the stack as non-executable when compiling for Linux
 #ifdef __linux__
@@ -206,11 +204,15 @@ EXTNAME(id):
    if the function was called directly and not via the closure register. */
 
 #define CALL_IO(index) \
-        movb  $index,RequestCode(%rbp); \
+        movq  Fr_Argument(%rbp),%rcx; \
+        movb  $index,Arg_RequestCode(%rcx); \
         jmp   SaveStateAndReturnLocal;
 
 #define CALL_EXTRA(index) \
-        movb  $index,ReturnReason(%rbp); \
+        pushl %rcx; \
+        movq  Fr_Argument(%rbp),%rcx; \
+        movb  $index,Arg_ReturnReason(%rcx); \
+        popl  %rcx; \
         jmp   SaveFullState;
 
 /* Load the registers from the ML stack and jump to the code.
@@ -224,12 +226,8 @@ EXTNAME(id):
   5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
       either because the stack can't be grown or because Interrupt has been raised. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
-#ifdef _WIN32
-# The argument to the function is passed in %rcx
-#else
-# The argument to the function is passed in %rdi
-    movq    %rdi,%rcx
-#endif
+    pushq   %rbp                            # Standard entry sequence
+    movq    %rsp,%rbp
     pushq   %rbp                             # Save callee--save registers
     pushq   %rbx
     pushq   %r12
@@ -239,37 +237,41 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #ifdef _WIN32
     pushq   %rdi                            # Callee save in Windows
     pushq   %rsi
+    subq    $(Fr_size-56),%rsp              # Argument is already in %rcx
+#else
+    subq    $(Fr_size-40),%rsp
+    movq    %rcx,%rdi                       # Argument is in %rdi
 #endif
-    movq    %rsp,SavedSp(%rcx)              # savedSp:=%%rsp - Save the system stack pointer.
-    movq    %rcx,%rbp                       # Put address of MemRegisters where it belongs
-    movq    PolyStack(%rbp),%rax
-    movq    LocalMpointer(%rbp),%r15         # Set the heap pointer register
+    movq    Fr_Argument(%rbp),%rcx
+    movq    Arg_StackLimit(%rcx),%rax
+    movq    %rax,Fr_StackLimit(%rbp)
+    movq    Arg_LocalMbottom(%rcx),%rax
+    movq    %rax,Fr_LocalMbottom(%rbp)
+    movq    Arg_HandlerRegister(%rcx),%rax
+    movq    %rax,Fr_HandlerRegister(%rbp)
+    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOWEX,%rax
+    movq    %rax,Fr_StackOverflowEx(%rbp)
+    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOW,%rax
+    movq    %rax,Fr_StackOverflow(%rbp)
+    movq    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%rax
+    movq    %rax,Fr_HeapOverflow(%rbp)
+    movq    Arg_ThreadId(%rcx),%rax
+    movq    %rax,Fr_ThreadId(%rbp)
+    movq    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%rax
+    movq    %rax,Fr_RaiseOverflow(%rbp)
+    movq    Arg_PolyStack(%rcx),%rax
+    movq    Arg_LocalMpointer(%rcx),%r15
+    mov     Arg_PolyStack(%rcx),%rax
     movq    SP_OFF(%rax),%rsp               # Set the new stack ptr
     pushq   PC_OFF(%rax)                    # Push the code address
-    testb   $ 1,FullRestore(%rbp)       # Should we restore or clear the regs?
+    testb   $ 1,Arg_FullRestore(%rcx)       # Should we restore or clear the regs?
     jnz     sw2polyfull
-/* We're returning from an RTS call.  We need to clear the registers we're
-   not restoring so that they are valid if we GC.  We restore EDX and the
-   argument regs because this may have been CallCode */
-    movq    EBX_OFF(%rax),%rbx
-    movq    $ ZERO,%rcx
-    movq    EDX_OFF(%rax),%rdx
-    movq    $ZERO,%rsi
-    movq    $ZERO,%rdi
-    movq    R8_OFF(%rax),%r8
-    movq    R9_OFF(%rax),%r9
-    movq    R10_OFF(%rax),%r10
-    movq    $ZERO,%r11
-    movq    $ZERO,%r12
-    movq    $ZERO,%r13
-    movq    $ZERO,%r14
+/* We're returning from an RTS call. */
     movq    EAX_OFF(%rax),%rax
     cld                                     # Clear this just in case
-    movb    $0,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
     ret                                     # Jump to code address
 
 sw2polyfull:
-    pushq   FLAGS_OFF(%rax)                 # Push the flags
     FRSTOR  FPREGS_OFF(%rax)
     movq    EBX_OFF(%rax),%rbx              # Load the registers
     movq    ECX_OFF(%rax),%rcx
@@ -285,17 +287,15 @@ sw2polyfull:
     movq    R14_OFF(%rax),%r14
     cld                                     # Clear this just in case
     movq    EAX_OFF(%rax),%rax
-    popfq                                   # reset flags
-    movb    $0,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
     ret                                     # Jump to code address
 
 
 /* Code to save the state and switch to C
    This saves the full register state. */
 SaveFullState:
-    pushfq                      # Save flags
-    pushq   %rax                # Save eax
-    movq    PolyStack(%rbp),%rax
+    pushq   %rax                        # Save rax
+    movq    Fr_Argument(%rbp),%rax
+    movq    Arg_PolyStack(%rax),%rax
     movq    %rbx,EBX_OFF(%rax)
     movq    %rcx,ECX_OFF(%rax)
     movq    %rdx,EDX_OFF(%rax)
@@ -310,19 +310,22 @@ SaveFullState:
     movq    %r12,R12_OFF(%rax)
     movq    %r13,R13_OFF(%rax)
     movq    %r14,R14_OFF(%rax)
-    movq    %r15,LocalMpointer(%rbp)  # Save the heap pointer
-    popq    %rbx                # Get old eax value
+    popq    %rbx                                # Get old eax value
     movq    %rbx,EAX_OFF(%rax)
-    popq    %rbx
-    movq    %rbx,FLAGS_OFF(%rax)
     movq    %rsp,SP_OFF(%rax)
-    movb    $1,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
-    movq    SavedSp(%rbp),%rsp
+    movq    Fr_Argument(%rbp),%rax
+    movq    %r15,Arg_LocalMpointer(%rax)        # Save back heap pointer
+    movq    Fr_HandlerRegister(%rbp),%rbx       # and handler pointer
+    movq    %rbx,Arg_HandlerRegister(%rax)
+    movq    %rbp,%rsp                           # Restore C stack pointer
 #ifdef _WIN32
+    subq    $56,%rsp
     popq    %rsi
     popq    %rdi
+#else
+    subq    $40,%rsp
 #endif
-    popq    %r15                            # Restore callee-save registers
+    popq    %r15                                # Restore callee-save registers
     popq    %r14
     popq    %r13
     popq    %r12
@@ -333,7 +336,9 @@ SaveFullState:
 # As X86AsmSaveFullState but only save what is necessary for an RTS call.
 INLINE_ROUTINE(X86AsmSaveStateAndReturn)
 SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
-
+    jmp SaveFullState
+    
+#if (0)
     pushq   %rax                # Save eax
     movq    PolyStack(%rbp),%rax
     movq    %rbx,EBX_OFF(%rax)
@@ -361,6 +366,7 @@ SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative 
     popq    %rbx
     popq    %rbp
     ret
+#endif
 
 /* CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
    to constant arguments.  Oddly, compared with other RTS functions, it takes a single
@@ -459,7 +465,7 @@ mvb1:
     rep; movsb                      # Copy the bytes
     movq    $UNIT,%rax              # The function returns unit
     movq    %rax,%rbx               # Clobber bad value in %rbx
-    movq    %rax,%rcx               # and %%rcx
+    movq    %rax,%rcx               # and %rcx
     movq    %rax,%rdi
     movq    %rax,%rsi
  # Visual Studio 5 C++ seems to assume that the direction flag
@@ -548,7 +554,7 @@ slw1:
     subq    $TAG,%rax
     shlq    %cl,%rax
     orq     $TAG,%rax  # restore the tag
-    movq    %rax,%rcx       # clobber %%rcx
+    movq    %rax,%rcx       # clobber %rcx
     ret
     RegMask(shift_left_word,(M_Reax | M_Recx))
 
@@ -563,7 +569,7 @@ srw1:
     shrq    $TAGSHIFT,%rcx # remove tag
     shrq    %cl,%rax
     orq     $TAG,%rax  # restore the tag
-    movq    %rax,%rcx       # clobber %%rcx
+    movq    %rax,%rcx       # clobber %rcx
     ret
     RegMask(shift_right_word,(M_Reax | M_Recx))
 
@@ -578,7 +584,7 @@ sra1:
     shrq    $TAGSHIFT,%rcx # remove tag
     sarq    %cl,%rax
     orq     $TAG,%rax  # restore the tag
-    movq    %rax,%rcx       # clobber %%rcx
+    movq    %rax,%rcx       # clobber %rcx
     ret
     RegMask(shift_right_arith_word,(M_Reax | M_Recx))
 
@@ -624,9 +630,9 @@ INLINE_ROUTINE(set_string_length_a)
     ret
     RegMask(set_string_length,(M_Reax | M_Rebx))
 
-# raisex (formerly raisexn) is used by compiled code.
+# raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
 INLINE_ROUTINE(raisex)
-    movq    HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
+    movq    Fr_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
     jmp     *(%rcx)
 
 INLINE_ROUTINE(load_byte)
@@ -634,7 +640,7 @@ INLINE_ROUTINE(load_byte)
     shrq    $TAGSHIFT,%rdi
     movzbq  (%rax,%rdi,1),%rdi
     MAKETAGGED(%rdi,%rax)
-    movq    %rax,%rdi       # Clobber bad value in %%rdi
+    movq    %rax,%rdi       # Clobber bad value in %rdi
     ret
     RegMask(load_byte,(M_Reax | M_Redi))
 
@@ -654,8 +660,8 @@ INLINE_ROUTINE(assign_byte)
     movb    %cl,(%rax,%rbx)
 
     movq    $UNIT,%rax             # The function returns unit
-    movq    %rax,%rbx                   # Clobber bad value in %%rbx
-    movq    %rax,%rcx                   # and %%rcx
+    movq    %rax,%rbx                   # Clobber bad value in %rbx
+    movq    %rax,%rcx                   # and %rcx
     ret
     RegMask(assign_byte,(M_Reax | M_Rebx | M_Recx))
 
@@ -695,7 +701,7 @@ allsts:
     movq    %r15,%rdx
     subq    %rdi,%rdx               # Allocate the space
     movq    %rax,%rdi               # Clobber bad value in %rdi
-    cmpq    LocalMbottom(%rbp),%rdx            # Check for free space
+    cmpq    Fr_LocalMbottom(%rbp),%rdx            # Check for free space
     jb      alloc_in_rts
 /* Normally the above test is sufficient but if LocalMpointer is near the bottom of
    memory and the store requested is very large the value in %rdx can be negative
@@ -804,7 +810,7 @@ mul_really_long:
 INLINE_ROUTINE(div_long)
     movq    %rax,%rdi
     andq    %rbx,%rdi
-    andq    $TAG,%rdi          # %%rdi now contains $0 or $1 (both legal!)
+    andq    $TAG,%rdi          # %rdi now contains $0 or $1 (both legal!)
     jz      div_really_long
     cmpq    $TAGGED(0),%rbx    # Check that it's non-zero
     jz      div_really_long         # We don't want a trap.
@@ -828,7 +834,7 @@ div_really_long:
 INLINE_ROUTINE(rem_long)
     movq    %rax,%rdi
     andq    %rbx,%rdi
-    andq    $TAG,%rdi      # %%rdi now contains $0 or $1 (both legal!
+    andq    $TAG,%rdi      # %rdi now contains $0 or $1 (both legal!
     jz      rem_really_long
     cmpq    $TAGGED(0),%rbx    # Check that it's non-zero
     jz      rem_really_long         # We don't want a trap.
@@ -1405,7 +1411,7 @@ raiseOverflowEx:
 # Set second word to the string "Overflow" - That's going to need allocation.
 # Set third and fourth words to TAGGED(0)
 # Raise the exception.
-    jmp     *RaiseOverflow(%rbp)
+    jmp     *Fr_RaiseOverflow(%rbp)
 
 # Atomically increment the value at the address of the arg and return the
 # updated value.  Since the xadd instruction returns the original value
@@ -1444,7 +1450,7 @@ INLINE_ROUTINE(atomic_reset)
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
-    movq    ThreadId(%rbp),%rax
+    movq    Fr_ThreadId(%rbp),%rax
     ret
     RegMask(thread_self,(M_Reax))
 
@@ -1466,22 +1472,17 @@ mem_for_real:
 # Allocate memory for the result.
     movq    %r15,%rcx
     subq    $16,%rcx        # Length word (8 bytes) + 8 bytes
-#ifdef TEST_ALLOC
-# Test case - this will always force a call into RTS.
-    cmpq    LocalMpointer(%rbp),%rcx
-#else
-    cmpq    LocalMbottom(%rbp),%rcx
-#endif
-    jnb      mem_for_real1
+    cmpq    Fr_LocalMbottom(%rbp),%rcx
+    jnb     mem_for_real1
 /* ********************************
 Temporarily: push these registers to the stack
 and pop them afterwards.  This isn't the final version of this code
 but is useful as a test. */
-    pushq    %rax
-    pushq    %rbx
-    call     X86AsmCallExtraRETURN_HEAP_OVERFLOW
-    popq     %rbx
-    popq     %rax
+    pushq   %rax
+    pushq   %rbx
+    call    X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    popq    %rbx
+    popq    %rax
 mem_for_real1:
     movq    %rcx,%r15                        # Updated allocation pointer
     movq    $1,(-8)(%rcx)      # One word
@@ -1490,7 +1491,7 @@ mem_for_real1:
 
 
 INLINE_ROUTINE(real_add)
-        call    mem_for_real
+    call    mem_for_real
 /* Do the operation and put the result in the allocated space. */
     FLDL    (%rax)
     FADDL   (%rbx)
@@ -1655,27 +1656,21 @@ INLINE_ROUTINE(real_geq)
 
 INLINE_ROUTINE(real_from_int)
     testq   $TAG,%rax   # Is it long ?
-    jz      real_float_1
-    movq    %rax,%rbx                # Put a valid value in %rbx
-    call    mem_for_real
-    sarq    $TAGSHIFT,%rax # Untag the value
-    movq    %rax,RealTemp(%rbp) # Save it in a temporary (N.B. It's now untagged)
-    FILDQ   RealTemp(%rbp)
-    FSTPL   (%rcx)
-    movq    %rcx,%rax
-    ret
+    jnz      fixed_to_real_internal
 
 real_float_1:
-        CALL_IO(POLY_SYS_int_to_real)
+    CALL_IO(POLY_SYS_int_to_real)
 
     RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
 
 INLINE_ROUTINE(fixed_to_real)
+fixed_to_real_internal:
     movq    %rax,%rbx                # Put a valid value in %rbx
     call    mem_for_real
     sarq    $TAGSHIFT,%rax # Untag the value
-    movq    %rax,RealTemp(%rbp) # Save it in a temporary (N.B. It's now untagged)
-    FILDQ   RealTemp(%rbp)
+    pushq   %rax                     # Push it to the stack.  We can only load it from memory
+    fildl   (%rsp)
+    popl    %rax
     FSTPL   (%rcx)
     movq    %rcx,%rax
     ret
@@ -1687,19 +1682,18 @@ INLINE_ROUTINE(set_exception_trace)
    We need to push the addresses of some code.  To make it position-independent we use
    CALLs in a non-standard way. */
     movq    %rax,%rdx                   # Target closure
-    pushq   HandlerRegister(%rbp)       # Previous handler
+    pushq   Fr_HandlerRegister(%rbp)       # Previous handler
     CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
     /* This is the code that is called if we get an exception.
        The exception packet is the first argument. */
-    movb    $POLY_SYS_give_ex_trace_fn,RequestCode(%rbp)
-    jmp     X86AsmSaveStateAndReturn
+    CALL_IO POLY_SYS_give_ex_trace_fn
     #
 setexct1:
-    movq    %rsp,HandlerRegister(%rbp)  # Set up the handler
+    movq    %rsp,Fr_HandlerRegister(%rbp)  # Set up the handler
     CALL    setexct2                    # Jump to setexct2 pushing the next addr to the stack
     # This is the code that is called if we return without raising an exception
     addq    $POLYWORDSIZE,%rsp     # Remove handler
-    popq    HandlerRegister(%rbp)
+    popq    Fr_HandlerRegister(%rbp)
     RET
 setexct2:
     movq    $UNIT,%rax             # The function takes a unit arg.
@@ -1709,16 +1703,13 @@ setexct2:
 
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
-        movb    $POLY_SYS_kill_self,RequestCode(%rbp)
-        jmp     X86AsmSaveStateAndReturn
+    CALL_IO POLY_SYS_kill_self
 
 INLINE_ROUTINE(X86AsmCallbackReturn)
-        movb    $RETURN_CALLBACK_RETURN,ReturnReason(%rbp)
-        jmp     X86AsmSaveStateAndReturn
+    CALL_EXTRA RETURN_CALLBACK_RETURN
 
 INLINE_ROUTINE(X86AsmCallbackException)
-        movb    $RETURN_CALLBACK_EXCEPTION,ReturnReason(%rbp)
-        jmp     X86AsmSaveStateAndReturn
+    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
@@ -1954,7 +1945,7 @@ INLINE_ROUTINE(cmem_load_asm_8)
     sarq    $TAGSHIFT,%rbx     # That's also tagged
     movzbq  (%rax,%rbx,1),%rax
     MAKETAGGED(%rax,%rax)
-    movq    %rax,%rbx       # Clobber bad value in %%rbx
+    movq    %rax,%rbx       # Clobber bad value in %rbx
     ret
     RegMask(cmem_load_8,(M_Reax | M_Rebx))
 
@@ -1976,7 +1967,7 @@ INLINE_ROUTINE(cmem_load_asm_32)
     addq    %rbx,%rax               # Add it in
     movl    -2(%rax,%r8,2),%eax
     MAKETAGGED(%rax,%rax)
-    movq    %rax,%rbx       # Clobber bad value in %%rbx
+    movq    %rax,%rbx       # Clobber bad value in %rbx
     ret
 
     RegMask(cmem_load_32,(M_Reax | M_Rebx))
@@ -2036,8 +2027,8 @@ INLINE_ROUTINE(cmem_store_asm_8)
     sarq    $TAGSHIFT,%rcx
     movb    %cl,(%rax,%rbx)
     movq    $UNIT,%rax             # The function returns unit
-    movq    %rax,%rbx                   # Clobber bad value in %%rbx
-    movq    %rax,%rcx                   # and %%rcx
+    movq    %rax,%rbx                   # Clobber bad value in %rbx
+    movq    %rax,%rcx                   # and %rcx
     ret
     RegMask(cmem_store_8,(M_Reax | M_Rebx | M_Recx))
 
@@ -2050,7 +2041,7 @@ INLINE_ROUTINE(cmem_store_asm_16)
     sarq    $TAGSHIFT,%rcx     # Untag the value to store
     movw    %cx,-1(%rax,%rbx,1)
     movq    $UNIT,%rax             # The function returns unit
-    movq    %rax,%rcx                   # Bad value in %%rcx
+    movq    %rax,%rcx                   # Bad value in %rcx
     ret
     RegMask(cmem_store_16,(M_Reax | M_Rebx | M_Recx))
 
@@ -2063,7 +2054,7 @@ INLINE_ROUTINE(cmem_store_asm_32)
     sarq    $TAGSHIFT,%rcx     # Untag the value to store
     movl    %ecx,-2(%rax,%rbx,2)
     movq    $UNIT,%rax             # The function returns unit
-    movq    %rax,%rcx                   # Bad value in %%rcx
+    movq    %rax,%rcx                   # Bad value in %rcx
     ret
     RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
 
@@ -2074,7 +2065,7 @@ INLINE_ROUTINE(cmem_store_asm_64)
     movq    (%r9),%rbx               # Value to store
     movq    %rbx,(-4)(%rax,%r8,4)    # Store it
     movq    $UNIT,%rax         # The function returns unit
-    movq    %rax,%rbx               # Bad value in %%rbx
+    movq    %rax,%rbx               # Bad value in %rbx
     ret
 
     RegMask(cmem_store_64,(M_Reax | M_Rebx | M_Recx))
@@ -2088,7 +2079,7 @@ INLINE_ROUTINE(cmem_store_asm_float)
     FLDL    (%rcx)
     FSTPS    -2(%rax,%rbx,2)
     movq    $UNIT,%rax         # The function returns unit
-    movq    %rax,%rbx               # Bad value in %%rbx
+    movq    %rax,%rbx               # Bad value in %rbx
     ret
     RegMask(cmem_store_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
 
@@ -2101,7 +2092,7 @@ INLINE_ROUTINE(cmem_store_asm_double)
     FLDL    (%rcx)
     FSTPL    -4(%rax,%rbx,4)
     movq    $UNIT,%rax         # The function returns unit
-    movq    %rax,%rbx               # Bad value in %%rbx
+    movq    %rax,%rbx               # Bad value in %rbx
     ret
     RegMask(cmem_store_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
 
@@ -2158,32 +2149,32 @@ INLINE_ROUTINE(cmem_store_asm_double)
 /* N.B.  We don't actually need to remove any arguments from the C stack because
    we always set the C stack pointer to the value when we were first called. */
 INLINE_ROUTINE(CallPOLY_SYS_chdir)
-        movq    $UNIT,ExceptionPacket(%rbp)         # Clear the exception
-        movq    %rsp,Mr_ESP(%rbp)                   # Preserve the ML stack pointer
-        movq    SavedSp(%rbp),%rsp                  # Switch to the C stack
-        movq    %r15,LocalMpointer(%rbp)            # Save the heap pointer
+    movq    Fr_Argument(%rbp),%rcx
+    movq    $UNIT,Arg_ExceptionPacket(%rcx)     # Clear the exception
+    movq    %r15,Arg_LocalMpointer(%rcx)        # Save the heap pointer
+    movq    %rsp,Fr_SavedMLSP(%rbp)             # ML stack ptr
+    movq    %rbp,%rsp                           # Switch to C stack
+    subq    $Fr_size,rsp
 #ifdef _WIN32
-        pushq   $0                                  # Alignment - Needed??
-        movq    %rcx,%rbp                           # First argument
-        movq    %rdx,%rax                           # Second argument
-        subq    $32,%rsp                            # Create save area
+    movq    %rdx,%rax                           # Second argument. First arg is already in rcx
+    subq    $32,%rsp                            # Create save area
 #else
-        movq    %rbp,%rdi
-        pushq   $0                                  # Alignment - Needed??
-        movq    %rax,%rsi
+    movq    %rcx,%rdi
+    movq    %rax,%rsi
 #endif
-        call    X86ChDir
-        movq    LocalMpointer(%rbp),%r15            # Restore the heap pointer register
-        movq    Mr_ESP(%rbp),%rsp                   # Restore ML stack ptr
-        cmpq    $UNIT,ExceptionPacket(%rbp)
-        jne     cpsdraisex
-        cmpq    $UNIT,ExceptionPacket(%rbp)
-        jne     cpsdraisex
-        ret
+    call    X86ChDir
+    movq    Fr_SavedMLSP(%rbp),%rsp             # Restore ML stack ptr
+    movq    Fr_Argument(%rbp),%rcx
+    movq    Arg_LocalMpointer(%rcx),%r15        # Restore the heap pointer register
+    movq    Arg_LocalMbottom(%rcx),%rdx
+    movq    %rdx,Fr_LocalMbottom(%rbp)          # and heap base because we may have GCd
+    cmpq    $UNIT,Arg_ExceptionPacket(%rcx)
+    jne     cpsdraisex
+    ret
 
 cpsdraisex:
-        movq    ExceptionPacket(%rbp),%rax
-        jmp     raisex
+    movq    Arg_ExceptionPacket(%rcx),%rax
+    jmp     raisex
 
 
 /* Register mask vector. - extern int registerMaskVector();
