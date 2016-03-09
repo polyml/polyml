@@ -21815,6 +21815,8 @@ $as_echo "#define HOSTARCHITECTURE_IA64 1" >>confdefs.h
 
 $as_echo "#define HOSTARCHITECTURE_M68K 1" >>confdefs.h
 
+            polyarch=interpret
+            ;;
       mips64*)
 
 $as_echo "#define HOSTARCHITECTURE_MIPS64 1" >>confdefs.h
