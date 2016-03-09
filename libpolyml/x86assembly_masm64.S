@@ -199,18 +199,33 @@ ENDM
 ; 4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
 ; 5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
 ;     either because the stack can't be grown or because Interrupt has been raised.
-PUBLIC  X86AsmSwitchToPoly
-X86AsmSwitchToPoly:
+
+; Switch from C code to ML.  This code uses the X86/64 Windows calling conventions.  It
+; saves the callee-save registers and records this information so that debuggers can find
+; the call stack and exception handlers can unwind the frame.  We don't actually use the
+; ability to raise C++ exceptions across ML.  N.B. Any calls from ML to C need to
+; duplicate the frame information.
+X86AsmSwitchToPoly  PROC FRAME
     mov     [rsp+8],rcx                     ; Save argument for use later
     push    rbp                             ; Standard entry sequence
+    .PUSHREG rbp
+    .SETFRAME rbp,0
     mov     rbp,rsp                         
     push    rbx                             ; Save callee--save registers
+    .PUSHREG rbx
     push    r12
+    .PUSHREG r12
     push    r13
+    .PUSHREG r13
     push    r14
+    .PUSHREG r14
     push    r15
+    .PUSHREG r15
     push    rdi                             ; Callee save in Windows
+    .PUSHREG rdi
     push    rsi
+    .PUSHREG rsi
+    .endprolog
     sub     esp,(Fr_size-56)
     mov     rax,[Arg_StackLimit+rcx]
     mov     [Fr_StackLimit+rbp],rax
@@ -239,6 +254,9 @@ X86AsmSwitchToPoly:
     mov     rax,EAX_OFF[rax]
     cld                                     ; Clear this just in case
     ret                                     ; Jump to code address
+
+; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
+X86AsmSwitchToPoly ENDP
 
 sw2polyfull:
     FRSTOR  FPREGS_OFF[rax]
@@ -2294,9 +2312,17 @@ CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
 
 ; chdir.  May raise an exception which means it may allocate space for the exception packet.
 ; The caller is supposed to preserve RBP
-EXTRN   X86ChDir:PROC
-PUBLIC  CallPOLY_SYS_chdir
-CallPOLY_SYS_chdir:
+CallPOLY_SYS_chdir PROC FRAME
+    .PUSHREG rbp                    ; Fake the frame.  It has been set up in X86AsmSwitchToPoly
+    .SETFRAME rbp,0
+    .PUSHREG rbx
+    .PUSHREG r12
+    .PUSHREG r13
+    .PUSHREG r14
+    .PUSHREG r15
+    .PUSHREG rdi
+    .PUSHREG rsi
+    .endprolog
     mov     rcx,[Fr_Argument+rbp]
     mov     qword ptr [Arg_ExceptionPacket+rcx],1           ; Clear exception
     mov     r15,[Arg_LocalMpointer+rcx]
@@ -2308,6 +2334,7 @@ CallPOLY_SYS_chdir:
     mov     rdx,rax                                         ; Second argument
     sub     rsp,32                                          ; Create save area
     mov     rcx,[Fr_Argument+rbp]                           ; First argument
+EXTRN   X86ChDir:PROC
     call    X86ChDir
     mov     rsp,[Fr_SavedMLSP+rbp]                          ; Restore the ML stack ptr
     mov     ecx,[Fr_Argument+rbp]
@@ -2321,7 +2348,7 @@ CallPOLY_SYS_chdir:
 cpsdraisex:
     mov     rax,[Arg_ExceptionPacket+rcx]
     jmp     raisex
-
+CallPOLY_SYS_chdir ENDP
 
 ; Register mask vector. - extern int registerMaskVector[];
 ; Each entry in this vector is a set of the registers modified
