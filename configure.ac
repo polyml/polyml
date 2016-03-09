@@ -463,6 +463,15 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_S390], [1], [Define if the host is an S/390 (32-bit)])
             polyarch=interpret
             ;;
+      alpha*)
+            AC_DEFINE([HOSTARCHITECTURE_ALPHA], [1], [Define if the host is an Alpha (64-bit)])
+            polyarch=interpret
+            # GCC defaults to non-conforming floating-point, and does not respect the rounding mode
+            # in the floating-point control register, so we force it to conform to IEEE and use the
+            # dynamic suffix on the floating-point instructions it produces.
+            CFLAGS="$CFLAGS -mieee -mfp-rounding-mode=d"
+            CXXFLAGS="$CXXFLAGS -mieee -mfp-rounding-mode=d"
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
