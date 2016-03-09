@@ -138,14 +138,14 @@ EXTNAME(id):
 #define Fr_Argument             -32
 #endif
 
-; Extra entries on the C stack
+/* Extra entries on the C stack */
 #define Fr_SavedMLSP            -128
 
 #define Fr_Size                 144         /* Must be multiple of 16 to get alignment correct */
 
-; This is the argument vector passed in to X86AsmSwitchToPoly
-; It is used to initialise the frame.  A few values are updated
-; when ML returns.
+/* This is the argument vector passed in to X86AsmSwitchToPoly
+   It is used to initialise the frame.  A few values are updated
+   when ML returns. */
 #define Arg_LocalMpointer       0
 #define Arg_HandlerRegister     8
 #define Arg_LocalMbottom        16
@@ -209,10 +209,10 @@ EXTNAME(id):
         jmp   SaveStateAndReturnLocal;
 
 #define CALL_EXTRA(index) \
-        pushl %rcx; \
+        pushq %rcx; \
         movq  Fr_Argument(%rbp),%rcx; \
         movb  $index,Arg_ReturnReason(%rcx); \
-        popl  %rcx; \
+        popq  %rcx; \
         jmp   SaveFullState;
 
 /* Load the registers from the ML stack and jump to the code.
@@ -228,7 +228,6 @@ EXTNAME(id):
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushq   %rbp                            # Standard entry sequence
     movq    %rsp,%rbp
-    pushq   %rbp                             # Save callee--save registers
     pushq   %rbx
     pushq   %r12
     pushq   %r13
@@ -237,12 +236,12 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #ifdef _WIN32
     pushq   %rdi                            # Callee save in Windows
     pushq   %rsi
-    subq    $(Fr_size-56),%rsp              # Argument is already in %rcx
+    subq    $(Fr_Size-56),%rsp              # Argument is already in %rcx
 #else
-    subq    $(Fr_size-40),%rsp
-    movq    %rcx,%rdi                       # Argument is in %rdi
+    subq    $(Fr_Size-40),%rsp
+    movq    %rdi,%rcx                       # Argument is in %rdi
 #endif
-    movq    Fr_Argument(%rbp),%rcx
+    movq    %rcx,Fr_Argument(%rbp)
     movq    Arg_StackLimit(%rcx),%rax
     movq    %rax,Fr_StackLimit(%rbp)
     movq    Arg_LocalMbottom(%rcx),%rax
@@ -1670,7 +1669,7 @@ fixed_to_real_internal:
     sarq    $TAGSHIFT,%rax # Untag the value
     pushq   %rax                     # Push it to the stack.  We can only load it from memory
     fildl   (%rsp)
-    popl    %rax
+    popq    %rax
     FSTPL   (%rcx)
     movq    %rcx,%rax
     ret
@@ -1686,7 +1685,7 @@ INLINE_ROUTINE(set_exception_trace)
     CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
     /* This is the code that is called if we get an exception.
        The exception packet is the first argument. */
-    CALL_IO POLY_SYS_give_ex_trace_fn
+    CALL_IO(POLY_SYS_give_ex_trace_fn)
     #
 setexct1:
     movq    %rsp,Fr_HandlerRegister(%rbp)  # Set up the handler
@@ -1703,13 +1702,13 @@ setexct2:
 
 # RTS call to kill the current thread. 
 INLINE_ROUTINE(X86AsmKillSelf)
-    CALL_IO POLY_SYS_kill_self
+    CALL_IO(POLY_SYS_kill_self)
 
 INLINE_ROUTINE(X86AsmCallbackReturn)
-    CALL_EXTRA RETURN_CALLBACK_RETURN
+    CALL_EXTRA(RETURN_CALLBACK_RETURN)
 
 INLINE_ROUTINE(X86AsmCallbackException)
-    CALL_EXTRA RETURN_CALLBACK_EXCEPTION
+    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
@@ -2154,7 +2153,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
     movq    %r15,Arg_LocalMpointer(%rcx)        # Save the heap pointer
     movq    %rsp,Fr_SavedMLSP(%rbp)             # ML stack ptr
     movq    %rbp,%rsp                           # Switch to C stack
-    subq    $Fr_size,rsp
+    subq    $Fr_Size,%rsp
 #ifdef _WIN32
     movq    %rdx,%rax                           # Second argument. First arg is already in rcx
     subq    $32,%rsp                            # Create save area
