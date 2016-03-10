@@ -2101,7 +2101,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
         movl    %esp,Fr_SavedMLSP(%ebp)             # ML stack pointer
         movl    %ebp,%esp                           # Switch to C stack
         subl    $Fr_Size,%esp
-        pushl   $0                                  # Alignment - Needed??
+        subl	$8,%esp                             # Try to maintain 16 byte alignment after args.
         pushl   %eax                                # Argument
         pushl   Arg_ThreadId(%ecx)
         call    EXTNAME(X86ChDir)
