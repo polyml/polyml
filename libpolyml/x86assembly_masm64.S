@@ -96,7 +96,7 @@ Mask_all    EQU     1FFFFFH
 
 ; The "stack frame" pointed to by rbp acts as the "memory registers".
 Fr_RaiseOverflow    EQU     -120
-Fr_ThreadId         EQU     -112
+
 Fr_HeapOverflow     EQU     -104
 Fr_StackOverflow    EQU     -96
 Fr_StackOverflowEx  EQU     -88
@@ -122,7 +122,7 @@ Arg_RequestCode     EQU     40  ;# Byte: Io function to call.
 Arg_ReturnReason    EQU     42  ;# Byte: Reason for returning from ML.
 Arg_FullRestore     EQU     43  ;# Byte: Full/partial restore
 Arg_PolyStack       EQU     48  ;# Current stack base
-Arg_ThreadId        EQU     64  ;# My thread id
+Arg_ThreadId        EQU     56  ;# My thread id
 
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
@@ -224,8 +224,6 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     [Fr_StackOverflow+rbp],rax
     mov     rax,offset X86AsmCallExtraRETURN_HEAP_OVERFLOW
     mov     [Fr_HeapOverflow+rbp],rax
-    mov     rax,[Arg_ThreadId+rcx]
-    mov     [Fr_ThreadId+rbp],rax
     mov     rax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
     mov     [Fr_RaiseOverflow+rbp],rax
     mov     r15,[Arg_LocalMpointer+rcx]
@@ -1527,7 +1525,8 @@ Mask_atomic_reset      EQU     M_Reax
 ; Return the thread id object for the current thread
 PUBLIC  thread_self
 thread_self:
-    mov     rax,Fr_ThreadId[rbp]
+    mov     rax,[Fr_Argument+rbp]
+    mov     rax,[Arg_ThreadId+rax]
     ret
 
 Mask_thread_self      EQU     (M_Reax)
@@ -2315,9 +2314,9 @@ CallPOLY_SYS_chdir PROC FRAME
     mov     rsp,rbp                                         ; Switch to C stack
     sub     rsp,Fr_size
     ; X86-64 Windows calling conventions.
+    mov     rcx,[Arg_ThreadId+rcx]                          ; First argument - thread Id
     mov     rdx,rax                                         ; Second argument
     sub     rsp,32                                          ; Create save area
-    mov     rcx,[Fr_Argument+rbp]                           ; First argument
 EXTRN   X86ChDir:PROC
     call    X86ChDir
     mov     rsp,[Fr_SavedMLSP+rbp]                          ; Restore the ML stack ptr

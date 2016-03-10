@@ -113,7 +113,7 @@ class IntTaskData: public TaskData {
 public:
     IntTaskData(): interrupt_requested(false) {}
 
-    virtual void GCStack(ScanAddress *process);
+    virtual void GarbageCollect(ScanAddress *process);
     PolyWord ScanStackAddress(ScanAddress *process, PolyWord val, StackSpace *stack, bool isCode);
     virtual Handle EnterPolyCode(); // Start running ML
 
@@ -1359,8 +1359,10 @@ int IntTaskData::SwitchToPoly()
      return 0;
 } /* MD_switch_to_poly */
 
-void IntTaskData::GCStack(ScanAddress *process)
+void IntTaskData::GarbageCollect(ScanAddress *process)
 {
+    TaskData::GarbageCollect(process);
+
     if (stack != 0)
     {
         StackSpace *stackSpace = stack;

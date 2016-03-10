@@ -105,8 +105,7 @@ public:
     virtual ~TaskData();
 
     void FillUnusedSpace(void);
-    void GarbageCollect(ScanAddress *process);
-    virtual void GCStack(ScanAddress *process) = 0;
+    virtual void GarbageCollect(ScanAddress *process);
 
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
@@ -152,6 +151,9 @@ public:
     bool        pendingInterrupt; // The thread should trap into the RTS soon.
     PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
+
+    // Get a TaskData pointer given the ML taskId.
+    static TaskData *FindTaskForId(PolyObject *taskId);
 
 private:
     // If a thread has to block it will block on this.

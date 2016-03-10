@@ -85,7 +85,6 @@ Mask_all    EQU     1FFFFFH
 
 ; The "stack frame" pointed to by ebp acts as the "memory registers".
 Fr_RaiseOverflow    EQU     -48
-Fr_ThreadId         EQU     -44
 Fr_HeapOverflow     EQU     -40
 Fr_StackOverflow    EQU     -36
 Fr_StackOverflowEx  EQU     -32
@@ -116,7 +115,7 @@ Arg_RequestCode     EQU     20  ;# Byte: Io function to call.
 Arg_ReturnReason    EQU     22  ;# Byte: Reason for returning from ML.
 Arg_FullRestore     EQU     23  ;# Byte: Full/partial restore
 Arg_PolyStack       EQU     24  ;# Current stack base
-Arg_ThreadId        EQU     32  ;# My thread id
+Arg_ThreadId        EQU     28  ;# My thread id
 
 ; Codes to indicate the reason for return.  Zero indicates an RTS call.
 RETURN_HEAP_OVERFLOW        EQU 1
@@ -193,8 +192,6 @@ X86AsmSwitchToPoly:
     mov     [Fr_StackOverflow+ebp],eax
     mov     eax,offset X86AsmCallExtraRETURN_HEAP_OVERFLOW
     mov     [Fr_HeapOverflow+ebp],eax
-    mov     eax,[Arg_ThreadId+ecx]
-    mov     [Fr_ThreadId+ebp],eax
     mov     eax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
     mov     [Fr_RaiseOverflow+ebp],eax
     mov     eax,Arg_PolyStack[ecx]
@@ -1450,7 +1447,8 @@ Mask_atomic_reset      EQU     M_Reax
 ; Return the thread id object for the current thread
 PUBLIC  thread_self
 thread_self:
-    mov     eax,Fr_ThreadId[ebp]
+    mov     eax,[Fr_Argument+ebp]
+    mov     eax,[Arg_ThreadId+eax]
     ret
 
 Mask_thread_self      EQU     (M_Reax)
@@ -2202,21 +2200,19 @@ CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
 ; Direct calls to the RTS
 
 ; chdir.  May raise an exception which means it may allocate space for the exception packet.
-EXTRN   X86ChDir:PROC
-PUBLIC  CallPOLY_SYS_chdir
+CallPOLY_SYS_chdir PROC
 ; N.B.  We don't actually need to remove any arguments from the C stack because
 ; we always set the C stack pointer to the value when we were first called.
-CallPOLY_SYS_chdir:
     mov     ecx,[Fr_Argument+ebp]
     mov     dword ptr [Arg_ExceptionPacket+ecx],1       ; Clear exception
     mov     edx,[Fr_LocalMpointer+ebp]                  ; Copy heap pointer
     mov     [Arg_LocalMpointer+ecx],edx
-    mov     ecx,esp                                     ; ML stack ptr
+    mov     [Fr_SavedMLSP+ebp],esp                      ; ML stack ptr
     mov     esp,ebp                                     ; Switch to C stack
     sub     esp,Fr_size
-    mov     [Fr_SavedMLSP+ebp],ecx
-    push    eax
-    push    dword ptr [Fr_Argument+ebp]
+    push    eax                                         ; Push argument
+    push    dword ptr [Arg_ThreadId+ecx]                ; Push thread id
+    EXTRN   X86ChDir:PROC
     call    X86ChDir
     mov     esp,[Fr_SavedMLSP+ebp]                      ; Restore the ML stack ptr
     mov     ecx,[Fr_Argument+ebp]
@@ -2231,7 +2227,7 @@ CallPOLY_SYS_chdir:
 cpsdraisex:
     mov     eax,[Arg_ExceptionPacket+ecx]
     jmp     raisex
-
+CallPOLY_SYS_chdir ENDP
 
 ; Register mask vector. - extern int registerMaskVector[];
 ; Each entry in this vector is a set of the registers modified

@@ -111,7 +111,6 @@ EXTNAME(id):
 
 /* The "stack frame" pointed to by ebp acts as the "memory registers". */
 #define Fr_RaiseOverflow            -48
-#define Fr_ThreadId                 -44
 #define Fr_HeapOverflow             -40
 #define Fr_StackOverflow            -36
 #define Fr_StackOverflowEx          -32
@@ -141,7 +140,7 @@ EXTNAME(id):
 #define Arg_ReturnReason            22  /* Byte: Reason for returning from ML. */
 #define Arg_FullRestore             23  /* Byte: Full/partial restore */
 #define Arg_PolyStack               24  /* Current stack base */
-#define Arg_ThreadId                32  /* My thread id */
+#define Arg_ThreadId                28  /* My thread id */
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -226,8 +225,6 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    %eax,Fr_StackOverflow(%ebp)
     movl    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%eax
     movl    %eax,Fr_HeapOverflow(%ebp)
-    movl    Arg_ThreadId(%ecx),%eax
-    movl    %eax,Fr_ThreadId(%ebp)
     movl    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%eax
     movl    %eax,Fr_RaiseOverflow(%ebp)
     movl    Arg_PolyStack(%ecx),%eax
@@ -1376,7 +1373,8 @@ INLINE_ROUTINE(atomic_reset)
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
-    movl    Fr_ThreadId(%ebp),%eax
+    movl    Fr_Argument(%ebp),%eax
+    movl    Arg_ThreadId(%eax),%eax
     ret
     RegMask(thread_self,(M_Reax))
 
@@ -2100,13 +2098,12 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
         movl    $UNIT,Arg_ExceptionPacket(%ecx)     # Clear the exception
         movl    Fr_LocalMpointer(%ebp),%edx         # Copy heap pointer
         movl    %edx,Arg_LocalMpointer(%ecx)
-        movl    %esp,%ecx                           # ML stack pointer
+        movl    %esp,Fr_SavedMLSP(%ebp)             # ML stack pointer
         movl    %ebp,%esp                           # Switch to C stack
         subl    $Fr_Size,%esp
-        movl    %ecx,Fr_SavedMLSP(%ebp)
         pushl   $0                                  # Alignment - Needed??
         pushl   %eax                                # Argument
-        pushl   Fr_Argument(%ebp)
+        pushl   Arg_ThreadId(%ecx)
         call    EXTNAME(X86ChDir)
         movl    Fr_SavedMLSP(%ebp),%esp             # Restore the ML stack ptr
         movl    Fr_Argument(%ebp),%ecx

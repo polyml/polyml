@@ -210,7 +210,6 @@ typedef struct _AssemblyArgs {
     byte        returnReason;       // Reason for returning from ML.
     byte        fullRestore;        // 0 => clear registers, 1 => reload registers
     StackObject *polyStack;         // Current stack base
-    X86TaskData *parentPtr;         // Get the containing Taskdata pointer.
     PolyObject  *threadId;          // My thread id.  Saves having to call into RTS for it.
 } AssemblyArgs;
 
@@ -222,7 +221,7 @@ public:
     Handle callBackResult;
     AssemblyArgs assemblyInterface;
 
-    virtual void GCStack(ScanAddress *process);
+    virtual void GarbageCollect(ScanAddress *process);
     void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
@@ -662,12 +661,14 @@ static byte *entryPointVector[256] =
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
-    assemblyInterface.parentPtr = this;
     assemblyInterface.fullRestore = 1; // To force the floating point to 64-bit
 }
 
-void X86TaskData::GCStack(ScanAddress *process)
+void X86TaskData::GarbageCollect(ScanAddress *process)
 {
+    TaskData::GarbageCollect(process); // Process the parent first
+    assemblyInterface.threadId = threadObject;
+
     if (stack != 0)
     {
         StackSpace *stackSpace = stack;
@@ -1126,13 +1127,14 @@ Handle X86TaskData::EnterPolyCode()
 }
 
 extern "C" {
-    POLYUNSIGNED X86ChDir(AssemblyArgs *mr, PolyWord arg);
+    POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg);
 }
 
 // Called from ML via the assembly code.
-POLYUNSIGNED X86ChDir(AssemblyArgs *mr, PolyWord arg)
+POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg)
 {
-    X86TaskData *taskData = mr->parentPtr;
+    X86TaskData *taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
     Handle pushedArg = taskData->saveVec.push(arg);
     taskData->SaveMemRegisters();  // Need to save the current heap pointer
     try {

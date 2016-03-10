@@ -122,7 +122,6 @@ EXTNAME(id):
 
 /* The "stack frame" pointed to by rbp acts as the "memory registers". */
 #define Fr_RaiseOverflow        -120
-#define Fr_ThreadId             -112
 #define Fr_HeapOverflow         -104
 #define Fr_StackOverflow        -96
 #define Fr_StackOverflowEx      -88
@@ -155,7 +154,7 @@ EXTNAME(id):
 #define Arg_ReturnReason        42  /* Byte: Reason for returning from ML. */
 #define Arg_FullRestore         43  /* Byte: Full/partial restore */
 #define Arg_PolyStack           48  /* Current stack base */
-#define Arg_ThreadId            64  /* My thread id */
+#define Arg_ThreadId            56  /* My thread id */
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -254,8 +253,6 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    %rax,Fr_StackOverflow(%rbp)
     movq    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%rax
     movq    %rax,Fr_HeapOverflow(%rbp)
-    movq    Arg_ThreadId(%rcx),%rax
-    movq    %rax,Fr_ThreadId(%rbp)
     movq    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%rax
     movq    %rax,Fr_RaiseOverflow(%rbp)
     movq    Arg_PolyStack(%rcx),%rax
@@ -1449,7 +1446,8 @@ INLINE_ROUTINE(atomic_reset)
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
-    movq    Fr_ThreadId(%rbp),%rax
+    movq    Fr_Argument(%rbp),%rax
+    movq    Arg_ThreadId(%rax),%rax
     ret
     RegMask(thread_self,(M_Reax))
 
@@ -2155,10 +2153,11 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
     movq    %rbp,%rsp                           # Switch to C stack
     subq    $Fr_Size,%rsp
 #ifdef _WIN32
-    movq    %rax,%rdx                           # Second argument. First arg is already in rcx
+    movq    Arg_ThreadId(%rcx),%rcx             # First argument - thread Id
+    movq    %rax,%rdx                           # Second argument.
     subq    $32,%rsp                            # Create save area
 #else
-    movq    %rcx,%rdi
+    movq    Arg_ThreadId(%rcx),%rdi
     movq    %rax,%rsi
 #endif
     call    X86ChDir
