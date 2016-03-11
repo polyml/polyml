@@ -56,7 +56,7 @@
 #include "../polyexports.h"
 #include "version.h"
 #include "polystring.h"
-
+#include "timing.h"
 
 #ifdef _DEBUG
 /* MS C defines _DEBUG for debug builds. */
@@ -183,8 +183,7 @@ void PECOFFExport::exportStore(void)
     unsigned i;
     // These are written out as the description of the data.
     exportDescription exports;
-    time_t now;
-    time(&now);
+    time_t now = getBuildTime();
 
     sections = new IMAGE_SECTION_HEADER [memTableEntries+1]; // Plus one for the tables.
 
@@ -197,7 +196,7 @@ void PECOFFExport::exportStore(void)
     fhdr.Machine = IMAGE_FILE_MACHINE_I386; // i386
 #endif
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
-    (void)time((time_t*)&fhdr.TimeDateStamp);
+    fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
@@ -208,7 +207,14 @@ void PECOFFExport::exportStore(void)
         sections[i].SizeOfRawData = (DWORD)memTable[i].mtLength;
         sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
 
-        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (i == ioMemEntry)
+        {
+            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
+            strcpy((char*)sections[i].Name, ".bss");
+            sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_UNINITIALIZED_DATA;
+        }
+        else if (memTable[i].mtFlags & MTF_WRITEABLE)
         {
             // Mutable data
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
@@ -313,8 +319,11 @@ void PECOFFExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        sections[i].PointerToRawData = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        if (i != ioMemEntry)
+        {
+            sections[i].PointerToRawData = ftell(exportFile);
+            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        }
     }
 
     sections[memTableEntries].PointerToRawData = ftell(exportFile);
