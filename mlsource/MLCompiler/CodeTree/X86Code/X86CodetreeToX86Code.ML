@@ -706,7 +706,7 @@ struct
      
             else testRegAndTrap (esp, memRegStackOverflowCall)
     in
-        createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ ops), (* Registers modified. *)RegSet.allRegisters, newCode)
+        createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ ops), newCode)
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =

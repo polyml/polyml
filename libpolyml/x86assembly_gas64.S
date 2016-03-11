@@ -59,36 +59,6 @@
 #define EXTNAME(x)  x
 #endif
 
-# Register mask entries - must match coding used in I386CODECONS.ML
-#define     M_Reax  0x000001
-#define     M_Recx  0x000002
-#define     M_Redx  0x000004
-#define     M_Rebx  0x000008
-#define     M_Resi  0x000010
-#define     M_Redi  0x000020
-#define     M_R8         64
-#define     M_R9        128
-#define     M_R10       256
-#define     M_R11       512
-#define     M_R12      1024
-#define     M_R13      2048
-#define     M_R14      4096
-
-            # Floating point registers.
-#define     M_FP0   0x002000
-#define     M_FP1   0x004000
-#define     M_FP2   0x008000
-#define     M_FP3   0x010000
-#define     M_FP4   0x020000
-#define     M_FP5   0x040000
-#define     M_FP6   0x080000
-#define     M_FP7   0x100000
-
-#define     Mask_all 0x1FFFFF
-
-#define     RegMask(name,mask) \
-.set        Mask_##name,    mask
-
 /* Macro to begin the hand-coded functions */
 #ifdef MACOSX
 #define GLOBAL .globl
@@ -408,7 +378,6 @@ cct2:                                           # Finished - enter function
 
 
 
-    RegMask(callcodeTupled,Mask_all)             # All because we're calling an unknown function
 /*
 A number of functions implemented in Assembly for efficiency reasons
 */
@@ -418,7 +387,6 @@ INLINE_ROUTINE(int_to_word)
     testq   $TAG,%rax
     jz      get_first_long_word_a1
     ret                 # Return the argument
-    RegMask(int_to_word,(M_Reax))
 
  # This is now used in conjunction with isShort in Word.fromInt.
 INLINE_ROUTINE(get_first_long_word_a)
@@ -430,7 +398,6 @@ get_first_long_word_a1:
 gfw1:
     MAKETAGGED(%rax,%rax)
     ret
-    RegMask(get_first_long_word,(M_Reax))
 
 
 
@@ -469,7 +436,6 @@ mvb1:
     cld
     ret
 
-    RegMask(move_bytes,Mask_all)
 
 
 INLINE_ROUTINE(move_words)
@@ -504,7 +470,7 @@ mvw1:
     cld
     ret
 
-    RegMask(move_words,Mask_all)
+
 #
 
 RetFalse:
@@ -518,24 +484,24 @@ RetTrue:
 INLINE_ROUTINE(not_bool)
     xorq    $(TRUE-TAG),%rax   # Change the value but leave the tag
     ret
-    RegMask(not_bool,(M_Reax))
+
 
  # or, and, xor shift etc. assume the values are tagged integers
 INLINE_ROUTINE(or_word)
     orq     %rbx,%rax
     ret
-    RegMask(or_word,(M_Reax))
+
 
 INLINE_ROUTINE(and_word)
     andq    %rbx,%rax
     ret
-    RegMask(and_word,(M_Reax))
+
 
 INLINE_ROUTINE(xor_word)
     xorq    %rbx,%rax
     orq     $TAG,%rax  # restore the tag
     ret
-    RegMask(xor_word,(M_Reax))
+
 
 INLINE_ROUTINE(shift_left_word)
  # Assume that both args are tagged integers
@@ -552,7 +518,7 @@ slw1:
     orq     $TAG,%rax  # restore the tag
     movq    %rax,%rcx       # clobber %rcx
     ret
-    RegMask(shift_left_word,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(shift_right_word)
  # Word.>>(a,b) is defined to return 0 if b > Word.wordSize
@@ -567,7 +533,7 @@ srw1:
     orq     $TAG,%rax  # restore the tag
     movq    %rax,%rcx       # clobber %rcx
     ret
-    RegMask(shift_right_word,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(shift_right_arith_word)
  # Word.~>>(a,b) is defined to return 0 or ~1 if b > Word.wordSize
@@ -582,14 +548,14 @@ sra1:
     orq     $TAG,%rax  # restore the tag
     movq    %rax,%rcx       # clobber %rcx
     ret
-    RegMask(shift_right_arith_word,(M_Reax | M_Recx))
+
 
 # Clears the "mutable" bit on a segment
 INLINE_ROUTINE(locksega)
     andb    $(0xff-B_mutable),-1(%rax)
     movq     $TAGGED(0),%rax   # Return Unit,
     ret
-    RegMask(lockseg,M_Reax)
+
 
 INLINE_ROUTINE(get_length_a)
     movq    (-POLYWORDSIZE)(%rax),%rax
@@ -597,7 +563,7 @@ INLINE_ROUTINE(get_length_a)
     shrq    $(8-TAGSHIFT),%rax  # Make it a tagged integer
     orq $TAG,%rax
     ret
-    RegMask(get_length,(M_Reax))
+
 
 
 INLINE_ROUTINE(is_shorta)
@@ -605,7 +571,7 @@ INLINE_ROUTINE(is_shorta)
     andq    $TAG,%rax
     jz      RetFalse
     jmp     RetTrue
-    RegMask(is_short,(M_Reax))
+
 
 INLINE_ROUTINE(string_length)
     testq   $TAG,%rax  # Single char strings are represented by the
@@ -615,7 +581,7 @@ INLINE_ROUTINE(string_length)
     ret
 RetOne: movq    $TAGGED(1),%rax
     ret
-    RegMask(string_length,(M_Reax))
+
 
  # Store the length of a string in the first word.
 INLINE_ROUTINE(set_string_length_a)
@@ -624,7 +590,7 @@ INLINE_ROUTINE(set_string_length_a)
     movq    $UNIT,%rax     # Return unit
     movq    %rax,%rbx           # Clobber untagged value
     ret
-    RegMask(set_string_length,(M_Reax | M_Rebx))
+
 
 # raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
 INLINE_ROUTINE(raisex)
@@ -638,13 +604,13 @@ INLINE_ROUTINE(load_byte)
     MAKETAGGED(%rdi,%rax)
     movq    %rax,%rdi       # Clobber bad value in %rdi
     ret
-    RegMask(load_byte,(M_Reax | M_Redi))
+
 
 INLINE_ROUTINE(load_word)
     movq    (-4)(%rax,%rbx,4),%rax
     movq    %rax,%rbx
     ret
-    RegMask(load_word,(M_Reax))
+
 
 INLINE_ROUTINE(assign_byte)
 # We can assume that the data value will not overflow 30 bits (it is only 1 byte!)
@@ -659,14 +625,14 @@ INLINE_ROUTINE(assign_byte)
     movq    %rax,%rbx                   # Clobber bad value in %rbx
     movq    %rax,%rcx                   # and %rcx
     ret
-    RegMask(assign_byte,(M_Reax | M_Rebx | M_Recx))
+
 
 
 INLINE_ROUTINE(assign_word)
     movq    %r8,(-4)(%rax,%rbx,4)      # The offset is tagged already
     movq    $UNIT,%rax           # The function returns unit
     ret
-    RegMask(assign_word,(M_Reax))
+
 
 /* Allocate a piece of memory that does not need to be initialised.
    We can't actually risk leaving word objects uninitialised so for the
@@ -675,7 +641,7 @@ INLINE_ROUTINE(alloc_uninit)
     movq    $ZERO,%r8
 
 # Drop through into alloc_store
-    RegMask(alloc_uninit,Mask_all) # All, because we may call RTS
+
 
 /* alloc(size, flags, initial).  Allocates a segment of a given size and
    initialises it.
@@ -737,7 +703,7 @@ allst3:
     movq    %rax,%rbx
     movq    %rax,%rdi
     ret
-    RegMask(alloc_store,Mask_all) # All, because we may use RTS call
+
 
 # This is used if we have reached the store limit and need to garbage-collect.
 alloc_in_rts:
@@ -749,7 +715,7 @@ INLINE_ROUTINE(touch_final)
 # This is really a pseudo-op
     movq    $UNIT,%rax
     ret
-    RegMask(touch_final,(M_Reax))
+
 
 INLINE_ROUTINE(add_long)
     movq    %rax,%rdi
@@ -764,7 +730,7 @@ INLINE_ROUTINE(add_long)
 add_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_aplus)
-    RegMask(aplus,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(sub_long)
     movq    %rax,%rdi
@@ -780,7 +746,7 @@ INLINE_ROUTINE(sub_long)
 sub_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_aminus)
-    RegMask(aminus,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(mult_long)
     movq    %rax,%rdi
@@ -801,7 +767,7 @@ mul_really_long:
     movq    %rax,%rsi       # Clobber this
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_amul)
-    RegMask(amul,(M_Reax | M_Redi | M_Resi | Mask_all))
+
 
 INLINE_ROUTINE(div_long)
     movq    %rax,%rdi
@@ -825,7 +791,7 @@ INLINE_ROUTINE(div_long)
 div_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_adiv)
-    RegMask(adiv,(M_Reax | M_Redi | M_Redx | Mask_all))
+
 
 INLINE_ROUTINE(rem_long)
     movq    %rax,%rdi
@@ -849,7 +815,7 @@ INLINE_ROUTINE(rem_long)
 rem_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_amod)
-    RegMask(amod,(M_Reax | M_Redi | M_Redx | Mask_all))
+
 
 /* Combined quotient and remainder.  We have to use the long form
    if the arguments are long or there's an overflow.  The first two
@@ -888,7 +854,7 @@ mem_for_remquot1:  # Not enough store: clobber bad value in ecx.
 quotrem_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_quotrem)
-    RegMask(quotrem,(M_Reax | M_Redi | M_Redx | Mask_all))
+
 
 # TODO: Isn't this byte equality?
 INLINE_ROUTINE(equal_long)
@@ -900,7 +866,7 @@ INLINE_ROUTINE(equal_long)
     jnz     RetFalse
     movq    %rcx,%rax
     CALL_IO(POLY_SYS_equala)
-    RegMask(equala,(M_Reax | M_Recx | Mask_all))
+
 
 
 INLINE_ROUTINE(or_long)
@@ -915,7 +881,7 @@ INLINE_ROUTINE(or_long)
 or_really_long:
 #endif
     CALL_IO(POLY_SYS_ora)
-    RegMask(ora,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(xor_long)
 #ifdef NOTATTHEMOMENT
@@ -930,7 +896,7 @@ INLINE_ROUTINE(xor_long)
 xor_really_long:
 #endif
     CALL_IO(POLY_SYS_xora)
-    RegMask(xora,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(and_long)
 #ifdef NOTATTHEMOMENT
@@ -944,7 +910,7 @@ INLINE_ROUTINE(and_long)
 and_really_long:
 #endif
     CALL_IO(POLY_SYS_anda)
-    RegMask(anda,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(neg_long)
     testq   $TAG,%rax
@@ -957,7 +923,7 @@ INLINE_ROUTINE(neg_long)
 neg_really_long:
     movq    %rax,%rdi
     CALL_IO(POLY_SYS_aneg)
-    RegMask(aneg,(M_Reax | M_Redi | Mask_all))
+
 
 INLINE_ROUTINE(int_geq)
     testq   $TAG,%rax # Is first arg short?
@@ -985,7 +951,7 @@ igeq2:
 igeq3:
  # Both long
     CALL_IO(POLY_SYS_int_geq)
-    RegMask(int_geq,(M_Reax | Mask_all))
+
 
 
 INLINE_ROUTINE(int_leq)
@@ -1013,7 +979,7 @@ ileq2:
 
 ileq3:
     CALL_IO(POLY_SYS_int_leq)
-     RegMask(int_leq,(M_Reax | M_Recx | Mask_all))
+
 
 
 INLINE_ROUTINE(int_gtr)
@@ -1041,7 +1007,7 @@ igtr2:
 
 igtr3:
     CALL_IO(POLY_SYS_int_gtr)
-    RegMask(int_gtr,(M_Reax | M_Recx | Mask_all))
+
 
 
 INLINE_ROUTINE(int_lss)
@@ -1069,7 +1035,7 @@ ilss2:
 
 ilss3:
      CALL_IO(POLY_SYS_int_lss)
-     RegMask(int_lss,(M_Reax | M_Recx | Mask_all))
+
 
 INLINE_ROUTINE(offset_address)
  # This is needed in the code generator, but is a very risky thing to do.
@@ -1077,7 +1043,7 @@ INLINE_ROUTINE(offset_address)
     addq    %rbx,%rax       # and add in
     movq    %rax,%rbx
     ret
-    RegMask(offset_address,(M_Reax | M_Rebx))
+
 
 # General test routine.  Returns with the condition codes set
 # appropriately.
@@ -1148,32 +1114,32 @@ INLINE_ROUTINE(str_compare)
     je      RetFalse        # Return TAGGED(0) if it's equal
     movq    $MINUS1,%rax   # Return TAGGED(-1) if it's less.
     ret
-    RegMask(str_compare,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 
 INLINE_ROUTINE(teststrgeq)
     call    teststr
     jnb     RetTrue
     jmp     RetFalse
-    RegMask(teststrgeq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 INLINE_ROUTINE(teststrleq)
     call    teststr
     jna     RetTrue
     jmp     RetFalse
-    RegMask(teststrleq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 INLINE_ROUTINE(teststrlss)
     call    teststr
     jb      RetTrue
     jmp     RetFalse
-    RegMask(teststrlss,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 INLINE_ROUTINE(teststrgtr)
     call    teststr
     ja      RetTrue
     jmp     RetFalse
-    RegMask(teststrgtr,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 
 INLINE_ROUTINE(bytevec_eq)
@@ -1204,17 +1170,17 @@ bvTrue:
 bvRet:
     ret
 
-    RegMask(bytevec_eq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
 
 
 INLINE_ROUTINE(is_big_endian)
     jmp     RetFalse    # I386/486 is little-endian
-     RegMask(is_big_endian,(M_Reax))
+
 
 INLINE_ROUTINE(bytes_per_word)
     movq    $TAGGED(POLYWORDSIZE),%rax  # 4/8 bytes per word
     ret
-    RegMask(bytes_per_word,(M_Reax))
+
 
  # Word functions.  These are all unsigned and do not raise Overflow
  
@@ -1226,18 +1192,18 @@ INLINE_ROUTINE(mul_word)
     movq    %rax,%rdx           # clobber this which has the high-end result
     movq    %rax,%rbx           # and the other bad result.
     ret
-    RegMask(mul_word,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(plus_word)
     leaq    (-TAG)(%rax,%rbx),%rax  # Add the values and subtract a tag
     ret
-    RegMask(plus_word,(M_Reax))
+
 
 INLINE_ROUTINE(minus_word)
     subq    %rbx,%rax
     addq    $TAG,%rax          # Put back the tag
     ret
-    RegMask(minus_word,(M_Reax))
+
 
 INLINE_ROUTINE(div_word)
     shrq    $TAGSHIFT,%rbx     # Check for division by zero is done in ML
@@ -1248,7 +1214,7 @@ INLINE_ROUTINE(div_word)
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(div_word,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(mod_word)
     shrq    $TAGSHIFT,%rbx # Check for division by zero is done in ML
@@ -1259,75 +1225,75 @@ INLINE_ROUTINE(mod_word)
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(mod_word,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(word_eq)
     cmpq    %rbx,%rax
     jz      RetTrue         # True if they are equal.
     jmp     RetFalse
-    RegMask(word_eq,(M_Reax))
+
 
 INLINE_ROUTINE(word_geq)
     cmpq    %rbx,%rax
     jnb     RetTrue
     jmp     RetFalse
-    RegMask(word_geq,(M_Reax))
+
 
 INLINE_ROUTINE(word_leq)
     cmpq    %rbx,%rax
     jna     RetTrue
     jmp     RetFalse
-    RegMask(word_leq,(M_Reax))
+
 
 INLINE_ROUTINE(word_gtr)
     cmpq    %rbx,%rax
     ja      RetTrue
     jmp     RetFalse
-    RegMask(word_gtr,(M_Reax))
+
 
  INLINE_ROUTINE(word_lss)
     cmpq    %rbx,%rax
     jb      RetTrue
     jmp     RetFalse
-    RegMask(word_lss,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_geq)
     cmpq    %rbx,%rax
     jge     RetTrue
     jmp     RetFalse
-    RegMask(fixed_geq,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_leq)
     cmpq    %rbx,%rax
     jle     RetTrue
     jmp     RetFalse
-    RegMask(fixed_leq,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_gtr)
     cmpq    %rbx,%rax
     jg      RetTrue
     jmp     RetFalse
-    RegMask(fixed_gtr,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_lss)
     cmpq    %rbx,%rax
     jl      RetTrue
     jmp     RetFalse
-    RegMask(fixed_lss,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_add)
     leaq   (-TAG)(%rax),%rax
     addq    %rbx,%rax
     jo      raiseOverflowEx
     ret
-    RegMask(fixed_add,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_sub)
     subq   %rbx,%rax
     jo      raiseOverflowEx
     addq    $TAG,%rax      # Put back the tag
     ret
-   RegMask(fixed_sub,(M_Reax))
+
 
 INLINE_ROUTINE(fixed_mul)
     sarq    $TAGSHIFT,%rbx # Untag the multiplier
@@ -1338,7 +1304,7 @@ INLINE_ROUTINE(fixed_mul)
     movq    %rax,%rdx           # clobber this which has the high-end result
     movq    %rax,%rbx           # and the other bad result.
     ret
-    RegMask(fixed_mul,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(fixed_quot)
 # Checking for overflow and zero is done in ML
@@ -1350,7 +1316,7 @@ INLINE_ROUTINE(fixed_quot)
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(fixed_quot,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(fixed_rem)
     sarq    $TAGSHIFT,%rbx
@@ -1361,7 +1327,7 @@ INLINE_ROUTINE(fixed_rem)
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(fixed_rem,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(fixed_div)
 # Checking for overflow and zero is done in ML
@@ -1379,7 +1345,7 @@ fixed_div1:
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(fixed_div,(M_Reax | M_Rebx | M_Redx))
+
 
 INLINE_ROUTINE(fixed_mod)
     sarq    $TAGSHIFT,%rbx
@@ -1398,7 +1364,7 @@ fixed_mod1:
     movq    %rax,%rdx
     movq    %rax,%rbx
     ret
-    RegMask(fixed_mod,(M_Reax | M_Rebx | M_Redx))
+
 
 raiseOverflowEx:
 # Build the exception packet.
@@ -1420,7 +1386,7 @@ atomic_incr:                    # Internal name in case "atomic_increment" is mu
     movq    %rbx,%rax
     ret
 
-    RegMask(atomic_incr,(M_Reax | M_Rebx))
+
 
 # Atomically decrement the value at the address of the arg and return the
 # updated value.  Since the xadd instruction returns the original value
@@ -1433,7 +1399,7 @@ atomic_decr:
     subq    $2,%rax
     ret
 
-    RegMask(atomic_decr,(M_Reax | M_Rebx))
+
 
 /* Reset a mutex to (tagged) one.  Because the increment and decrements
    are atomic this doesn't have to do anything special. */
@@ -1442,14 +1408,14 @@ INLINE_ROUTINE(atomic_reset)
     movq    $UNIT,%rax  # The function returns unit
     ret
 
-    RegMask(atomic_reset,M_Reax)
+
 
 # Return the thread id object for the current thread
 INLINE_ROUTINE(thread_self)
     movq    Fr_Argument(%rbp),%rax
     movq    Arg_ThreadId(%rax),%rax
     ret
-    RegMask(thread_self,(M_Reax))
+
 
 
 
@@ -1498,7 +1464,7 @@ INLINE_ROUTINE(real_add)
 
 # The mask includes FP7 rather than FP0 because this pushes a value which
 # overwrites the bottom of the stack.
-    RegMask(real_add,(M_Reax | M_Recx | M_Redx | M_FP7))
+
 
 
 
@@ -1512,7 +1478,7 @@ INLINE_ROUTINE(real_sub)
     movq    %rcx,%rax
     ret
 
-    RegMask(real_sub,(M_Reax | M_Recx | M_Redx | M_FP7))
+
 
 
 INLINE_ROUTINE(real_mul)
@@ -1525,7 +1491,7 @@ INLINE_ROUTINE(real_mul)
     movq    %rcx,%rax
     ret
 
-    RegMask(real_mul,(M_Reax | M_Recx | M_Redx | M_FP7))
+
 
 
 INLINE_ROUTINE(real_div)
@@ -1538,7 +1504,7 @@ INLINE_ROUTINE(real_div)
     movq    %rcx,%rax
     ret
 
-    RegMask(real_div,(M_Reax | M_Recx | M_Redx | M_FP7))
+
 
 
 # For all values except NaN it's possible to do this by a test such as
@@ -1556,7 +1522,7 @@ INLINE_ROUTINE(real_abs)
     movq    %rcx,%rax
     ret
 
-    RegMask(real_abs,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)          # Temporarily include %rbx)
+
 
 
 INLINE_ROUTINE(real_neg)
@@ -1571,7 +1537,7 @@ INLINE_ROUTINE(real_neg)
     movq    %rcx,%rax
     ret
 
-    RegMask(real_neg,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)         # Temporarily include %rbx)
+
 
 
 
@@ -1585,7 +1551,7 @@ INLINE_ROUTINE(real_eq)
     cmpq    $16384,%rax        # 0x4000
     je      RetTrue
     jmp     RetFalse
-    RegMask(real_eq,(M_Reax | M_FP7))
+
 
 
 INLINE_ROUTINE(real_neq)
@@ -1597,7 +1563,7 @@ INLINE_ROUTINE(real_neq)
     jne     RetTrue
     jmp     RetFalse
 
-    RegMask(real_neq,(M_Reax | M_FP7))
+
 
 
 INLINE_ROUTINE(real_lss)
@@ -1611,7 +1577,7 @@ INLINE_ROUTINE(real_lss)
     je      RetTrue
     jmp     RetFalse
 
-    RegMask(real_lss,(M_Reax | M_FP7))
+
 
 
 INLINE_ROUTINE(real_gtr)
@@ -1624,7 +1590,7 @@ INLINE_ROUTINE(real_gtr)
     je      RetTrue
     jmp     RetFalse
 
-    RegMask(real_gtr,(M_Reax | M_FP7))
+
 
 
 INLINE_ROUTINE(real_leq)
@@ -1637,7 +1603,7 @@ INLINE_ROUTINE(real_leq)
     je      RetTrue
     jmp     RetFalse
 
-    RegMask(real_leq,(M_Reax | M_FP7))
+
 
 
 INLINE_ROUTINE(real_geq)
@@ -1649,7 +1615,7 @@ INLINE_ROUTINE(real_geq)
     je      RetTrue
     jmp     RetFalse
 
-    RegMask(real_geq,(M_Reax | M_FP7))
+
 
 INLINE_ROUTINE(real_from_int)
     testq   $TAG,%rax   # Is it long ?
@@ -1658,7 +1624,7 @@ INLINE_ROUTINE(real_from_int)
 real_float_1:
     CALL_IO(POLY_SYS_int_to_real)
 
-    RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
+
 
 INLINE_ROUTINE(fixed_to_real)
 fixed_to_real_internal:
@@ -1672,7 +1638,7 @@ fixed_to_real_internal:
     movq    %rcx,%rax
     ret
 
-    RegMask(fixed_to_real,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)    # Temporarily include %rbx)
+
 
 INLINE_ROUTINE(set_exception_trace)
 /* The argument is the closure to call.  The return address is already on the stack.
@@ -1729,7 +1695,7 @@ INLINE_ROUTINE(eq_longword)
     cmpq    (%rbx),%rax
     jz      RetTrue         # True if they are equal.
     jmp     RetFalse
-    RegMask(eq_longword,(M_Reax))
+
 
 INLINE_ROUTINE(geq_longword)
 
@@ -1737,35 +1703,35 @@ INLINE_ROUTINE(geq_longword)
     cmpq    (%rbx),%rax
     jnb     RetTrue
     jmp     RetFalse
-    RegMask(geq_longword,(M_Reax))
+
 
 INLINE_ROUTINE(leq_longword)
     movq    (%rax),%rax
     cmpq    (%rbx),%rax
     jna     RetTrue
     jmp     RetFalse
-    RegMask(leq_longword,(M_Reax))
+
 
 INLINE_ROUTINE(gt_longword)
     movq    (%rax),%rax
     cmpq    (%rbx),%rax
     ja      RetTrue
     jmp     RetFalse
-    RegMask(gt_longword,(M_Reax))
+
 
 INLINE_ROUTINE(lt_longword)
     movq    (%rax),%rax
     cmpq    (%rbx),%rax
     jb      RetTrue
     jmp     RetFalse
-    RegMask(lt_longword,(M_Reax))
+
 
 INLINE_ROUTINE(longword_to_tagged)
 # Load the value and tag it, discarding the top bit
     movq    (%rax),%rax
     MAKETAGGED(%rax,%rax)
     ret
-    RegMask(longword_to_tagged,(M_Reax))
+
 
 INLINE_ROUTINE(signed_to_longword)
 # Shift the value to remove the tag and store it.
@@ -1775,7 +1741,7 @@ INLINE_ROUTINE(signed_to_longword)
     movq    %rax,(%rcx)
     movq    %rcx,%rax
     ret
-    RegMask(signed_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %rbx)
+
 
 INLINE_ROUTINE(unsigned_to_longword)
 # Shift the value to remove the tag and store it.
@@ -1785,7 +1751,7 @@ INLINE_ROUTINE(unsigned_to_longword)
     movq    %rax,(%rcx)
     movq    %rcx,%rax
     ret
-    RegMask(unsigned_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %rbx)
+
 
 INLINE_ROUTINE(plus_longword)
     call    mem_for_largeword
@@ -1794,7 +1760,7 @@ INLINE_ROUTINE(plus_longword)
     movq    %rax,(%rcx)
     movq    %rcx,%rax
     ret
-    RegMask(plus_longword,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(minus_longword)
     call    mem_for_largeword
@@ -1803,7 +1769,7 @@ INLINE_ROUTINE(minus_longword)
     movq    %rax,(%rcx)
     movq    %rcx,%rax
     ret
-    RegMask(minus_longword,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(mul_longword)
     call    mem_for_largeword
@@ -1813,7 +1779,7 @@ INLINE_ROUTINE(mul_longword)
     movq    %rcx,%rax
     movq    %rax,%rdx           # clobber this which has the high-end result
     ret
-    RegMask(mul_longword,(M_Reax | M_Recx | M_Redx))
+
 
 INLINE_ROUTINE(div_longword)
 # Check for division by zero is done in ML
@@ -1826,7 +1792,7 @@ INLINE_ROUTINE(div_longword)
     movq    %rax,%rdx           # clobber this which has the remainder
     ret
 
-    RegMask(div_longword,(M_Reax | M_Recx | M_Redx))
+
 
 INLINE_ROUTINE(mod_longword)
 # Check for division by zero is done in ML
@@ -1839,7 +1805,7 @@ INLINE_ROUTINE(mod_longword)
     movq    %rax,%rdx           # clobber this which has the remainder
     ret
 
-    RegMask(mod_longword,(M_Reax | M_Recx | M_Redx))
+
 
 INLINE_ROUTINE(andb_longword)
     call    mem_for_largeword
@@ -1849,7 +1815,7 @@ INLINE_ROUTINE(andb_longword)
     movq    %rcx,%rax
     ret
 
-    RegMask(andb_longword,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(orb_longword)
     call    mem_for_largeword
@@ -1859,7 +1825,7 @@ INLINE_ROUTINE(orb_longword)
     movq    %rcx,%rax
     ret
 
-    RegMask(orb_longword,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(xorb_longword)
     call    mem_for_largeword
@@ -1869,7 +1835,7 @@ INLINE_ROUTINE(xorb_longword)
     movq    %rcx,%rax
     ret
 
-    RegMask(xorb_longword,(M_Reax | M_Recx))
+
 
 INLINE_ROUTINE(shift_left_longword)
     call    mem_for_largeword
@@ -1890,7 +1856,7 @@ sllw2:
     movq    %rdx,%rax
     movq    %rax,%rcx           # Clobber %rcx
     ret
-    RegMask(shift_left_longword,(M_Reax | M_Recx | M_Redx))
+
 
 INLINE_ROUTINE(shift_right_longword)
     call    mem_for_largeword
@@ -1911,7 +1877,7 @@ srlw2:
     movq    %rdx,%rax
     movq    %rax,%rcx           # Clobber %rcx
     ret
-    RegMask(shift_right_longword,(M_Reax | M_Recx | M_Redx))
+
 
 INLINE_ROUTINE(shift_right_arith_longword)
     call    mem_for_largeword
@@ -1931,7 +1897,7 @@ sralw1:
     movq    %rdx,%rax
     movq    %rax,%rcx           # Clobber %rcx
     ret
-    RegMask(shift_right_arith_longword,(M_Reax | M_Rebx | M_Recx | M_Redx))
+
 
 # C-memory operations.
 INLINE_ROUTINE(cmem_load_asm_8)
@@ -1944,7 +1910,7 @@ INLINE_ROUTINE(cmem_load_asm_8)
     MAKETAGGED(%rax,%rax)
     movq    %rax,%rbx       # Clobber bad value in %rbx
     ret
-    RegMask(cmem_load_8,(M_Reax | M_Rebx))
+
 
 INLINE_ROUTINE(cmem_load_asm_16)
     movq    (%rax),%rax             # The address is boxed.
@@ -1955,7 +1921,7 @@ INLINE_ROUTINE(cmem_load_asm_16)
     movzwq  -1(%rax,%rbx,1),%rax
     MAKETAGGED(%rax,%rax)
     ret
-    RegMask(cmem_load_16,(M_Reax | M_Rebx))
+
 
 INLINE_ROUTINE(cmem_load_asm_32)
 # 64-bit mode - the result is tagged
@@ -1967,7 +1933,7 @@ INLINE_ROUTINE(cmem_load_asm_32)
     movq    %rax,%rbx       # Clobber bad value in %rbx
     ret
 
-    RegMask(cmem_load_32,(M_Reax | M_Rebx))
+
 
 INLINE_ROUTINE(cmem_load_asm_64)
     pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
@@ -1982,7 +1948,7 @@ INLINE_ROUTINE(cmem_load_asm_64)
     movq    %rax,%rbx               # Clobber bad value
     ret
 
-    RegMask(cmem_load_64,(M_Reax | M_Rebx | M_Recx))
+
 
 INLINE_ROUTINE(cmem_load_asm_float)
     pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
@@ -1997,7 +1963,7 @@ INLINE_ROUTINE(cmem_load_asm_float)
     movq    %rcx,%rax
     ret
 
-    RegMask(cmem_load_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
 
 INLINE_ROUTINE(cmem_load_asm_double)
     pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
@@ -2012,7 +1978,7 @@ INLINE_ROUTINE(cmem_load_asm_double)
     movq    %rcx,%rax
     ret
 
-    RegMask(cmem_load_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
    
 INLINE_ROUTINE(cmem_store_asm_8)
     movq    (%rax),%rax             # The address is boxed.
@@ -2027,7 +1993,7 @@ INLINE_ROUTINE(cmem_store_asm_8)
     movq    %rax,%rbx                   # Clobber bad value in %rbx
     movq    %rax,%rcx                   # and %rcx
     ret
-    RegMask(cmem_store_8,(M_Reax | M_Rebx | M_Recx))
+
 
 INLINE_ROUTINE(cmem_store_asm_16)
     movq    (%rax),%rax             # The address is boxed.
@@ -2040,7 +2006,7 @@ INLINE_ROUTINE(cmem_store_asm_16)
     movq    $UNIT,%rax             # The function returns unit
     movq    %rax,%rcx                   # Bad value in %rcx
     ret
-    RegMask(cmem_store_16,(M_Reax | M_Rebx | M_Recx))
+
 
 INLINE_ROUTINE(cmem_store_asm_32)
     movq    (%rax),%rax             # The address is boxed.
@@ -2053,7 +2019,7 @@ INLINE_ROUTINE(cmem_store_asm_32)
     movq    $UNIT,%rax             # The function returns unit
     movq    %rax,%rcx                   # Bad value in %rcx
     ret
-    RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
+
 
 INLINE_ROUTINE(cmem_store_asm_64)
     movq    (%rax),%rax             # The address is boxed.
@@ -2065,7 +2031,7 @@ INLINE_ROUTINE(cmem_store_asm_64)
     movq    %rax,%rbx               # Bad value in %rbx
     ret
 
-    RegMask(cmem_store_64,(M_Reax | M_Rebx | M_Recx))
+
 
 INLINE_ROUTINE(cmem_store_asm_float)
     movq    (%rax),%rax             # The address is boxed.
@@ -2078,7 +2044,7 @@ INLINE_ROUTINE(cmem_store_asm_float)
     movq    $UNIT,%rax         # The function returns unit
     movq    %rax,%rbx               # Bad value in %rbx
     ret
-    RegMask(cmem_store_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
 
 INLINE_ROUTINE(cmem_store_asm_double)
     movq    (%rax),%rax             # The address is boxed.
@@ -2091,7 +2057,7 @@ INLINE_ROUTINE(cmem_store_asm_double)
     movq    $UNIT,%rax         # The function returns unit
     movq    %rax,%rbx               # Bad value in %rbx
     ret
-    RegMask(cmem_store_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
 
 #define CREATE_IO_CALL(index) \
     INLINE_ROUTINE(Call##index##) \
@@ -2173,268 +2139,3 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
 cpsdraisex:
     movq    Arg_ExceptionPacket(%rcx),%rax
     jmp     raisex
-
-
-/* Register mask vector. - extern int registerMaskVector();
-   Each entry in this vector is a set of the registers modified
-   by the function.  It is an untagged bitmap with the registers
-   encoded in the same way as the */
-        GLOBAL EXTNAME(registerMaskVector)
-EXTNAME(registerMaskVector):
-    .long  Mask_all                # 0 is unused
-    .long  Mask_all                 # 1
-    .long  Mask_all                 # 2
-    .long  Mask_all                 # 3 is unused
-    .long  Mask_all                 # 4 is unused
-    .long  Mask_all                 # 5 is unused
-    .long  Mask_all                 # 6
-    .long  Mask_all                 # 7 is unused
-    .long  Mask_all                 # 8 is unused
-    .long  Mask_all                 # 9
-    .long  Mask_all                 # 10 is unused
-    .long  Mask_alloc_store         # 11
-    .long  Mask_alloc_uninit        # 12
-    .long  Mask_all                 # return = 13
-    .long  Mask_all                 # raisex = 14
-    .long  Mask_get_length          # 15
-    .long  Mask_all                 # 16 is unused
-    .long  Mask_all                 # 17
-    .long  Mask_all                 # 18 is no longer used
-    .long  Mask_all                 # 19 is no longer used
-    .long  Mask_all                 # 20 is no longer used
-    .long  Mask_all                 # 21 is unused
-    .long  Mask_all                 # 22 is unused
-    .long  Mask_str_compare         # 23
-    .long  Mask_all                 # 24 is unused
-    .long  Mask_all                 # 25 is unused
-    .long  Mask_teststrgtr          # 26
-    .long  Mask_teststrlss          # 27
-    .long  Mask_teststrgeq          # 28
-    .long  Mask_teststrleq          # 29
-    .long  Mask_all                 # 30
-    .long  Mask_all                 # 31 is no longer used
-    .long  Mask_all                 # exception_trace_fn 32 - Calls unknown function
-    .long  Mask_all                 # 33 is no longer used
-    .long  Mask_all                 # 34 is no longer used
-    .long  Mask_all                 # 35 is no longer used
-    .long  Mask_all                 # 36 is no longer used
-    .long  Mask_all                 # 37 is unused
-    .long  Mask_all                 # 38 is unused
-    .long  Mask_all                 # 39 is unused
-    .long  Mask_all                 # 40
-    .long  Mask_all                 # 41 is unused
-    .long  Mask_all                 # 42
-    .long  Mask_all                 # 43
-    .long  Mask_all                 # 44 is no longer used
-    .long  Mask_all                 # 45 is no longer used
-    .long  Mask_all                 # 46
-    .long  Mask_lockseg             # 47
-    .long  Mask_all                 # nullorzero = 48
-    .long  Mask_all                 # 49 is no longer used
-    .long  Mask_all                 # 50 is no longer used
-    .long  Mask_all                 # 51
-    .long  Mask_all                 # 52
-    .long  Mask_eq_longword         # 53
-    .long  Mask_all              # 54 is no longer used
-    .long  Mask_geq_longword        # 55
-    .long  Mask_leq_longword        # 56
-    .long  Mask_gt_longword         # 57
-    .long  Mask_lt_longword         # 58
-    .long  Mask_all                 # 59 is unused
-    .long  Mask_all                 # 60 is unused
-    .long  Mask_all                 # 61
-    .long  Mask_all                 # 62
-    .long  Mask_all                 # 63 is unused
-    .long  Mask_all                 # 64 is unused
-    .long  Mask_all                 # 65 is unused
-    .long  Mask_all                 # 66 is unused
-    .long  Mask_all                 # 67 is unused
-    .long  Mask_all                 # 68 is unused
-    .long  Mask_atomic_reset        # 69
-    .long  Mask_atomic_incr         # 70
-    .long  Mask_atomic_decr         # 71
-    .long  Mask_thread_self         # 72
-    .long  Mask_all                 # 73
-    .long  Mask_plus_longword       # 74
-    .long  Mask_minus_longword      # 75
-    .long  Mask_mul_longword        # 76
-    .long  Mask_div_longword        # 77
-    .long  Mask_mod_longword        # 78
-    .long  Mask_andb_longword       # 79
-    .long  Mask_orb_longword        # 80
-    .long  Mask_xorb_longword       # 81
-    .long  Mask_all                 # 82 is unused
-    .long  Mask_all                 # 83 is now unused
-    .long  Mask_all                 # 84
-    .long  Mask_shift_left_longword # 85
-    .long  Mask_shift_right_longword # 86
-    .long  Mask_shift_right_arith_longword # 87
-    .long  Mask_all                 # 88
-    .long  Mask_longword_to_tagged  # 89
-    .long  Mask_signed_to_longword  # 90
-    .long  Mask_unsigned_to_longword # 91
-    .long  Mask_all                 # 92
-    .long  Mask_all                 # 93
-    .long  Mask_all                 # 94
-    .long  Mask_all                 # 95 is unused
-    .long  Mask_all                 # 96 is unused
-    .long  Mask_all                 # 97 is unused
-    .long  Mask_all                 # 98
-    .long  Mask_all                 # 99
-    .long  Mask_all                 # 100
-    .long  Mask_all                 # 101 is unused
-    .long  Mask_all                 # 102 is unused
-    .long  Mask_all                 # 103
-    .long  Mask_quotrem             # 104
-    .long  Mask_is_short            # 105
-    .long  Mask_aplus               # 106
-    .long  Mask_aminus              # 107
-    .long  Mask_amul                # 108
-    .long  Mask_adiv                # 109
-    .long  Mask_amod                # 110
-    .long  Mask_aneg                # 111
-    .long  Mask_xora                # 112
-    .long  Mask_equala              # 113
-    .long  Mask_ora                 # 114
-    .long  Mask_anda                # 115
-    .long  Mask_all                 # 116 is unused
-    .long  Mask_all                 # 117
-    .long  Mask_real_geq            # 118
-    .long  Mask_real_leq            # 119
-    .long  Mask_real_gtr            # 120
-    .long  Mask_real_lss            # 121
-    .long  Mask_real_eq             # 122
-    .long  Mask_real_neq            # 123
-    .long  Mask_all                 # 124
-    .long  Mask_real_add            # 125
-    .long  Mask_real_sub            # 126
-    .long  Mask_real_mul            # 127
-    .long  Mask_real_div            # 128
-    .long  Mask_real_abs            # 129
-    .long  Mask_real_neg            # 130
-    .long  Mask_all                 # 131 is unused
-    .long  Mask_all                 # 132
-    .long  Mask_all                 # 133
-    .long  Mask_all                 # 134
-    .long  Mask_real_from_int       # 135
-    .long  Mask_all                 # 136
-    .long  Mask_all                 # 137
-    .long  Mask_all                 # 138
-    .long  Mask_all                 # 139
-    .long  Mask_all                 # 140
-    .long  Mask_all                 # 141
-    .long  Mask_fixed_to_real       # 142
-    .long  Mask_all                 # 143 is unused
-    .long  Mask_all                 # 144 is unused
-    .long  Mask_all                 # 145 is unused
-    .long  Mask_all                 # 146 is unused
-    .long  Mask_all                 # 147 is unused
-    .long  Mask_all                 # stdin = 148
-    .long  Mask_all                 # stdout= 149
-    .long  Mask_all                 # 150
-    .long  Mask_set_string_length   # 151
-    .long  Mask_get_first_long_word # 152
-    .long  Mask_all                 # poly_specific = 153
-    .long  Mask_bytevec_eq          # 154
-    .long  Mask_all                 # 155 is unused
-    .long  Mask_all                 # 156 is unused
-    .long  Mask_all                 # 157 is unused
-    .long  Mask_all                 # 158 is unused
-    .long  Mask_all                 # 159 is unused
-    .long  Mask_cmem_load_8         # 160
-    .long  Mask_cmem_load_16        # 161
-    .long  Mask_cmem_load_32        # 162
-    .long  Mask_cmem_load_64        # 163
-    .long  Mask_cmem_load_float     # 164
-    .long  Mask_cmem_load_double    # 165
-    .long  Mask_cmem_store_8        # 166
-    .long  Mask_cmem_store_16       # 167
-    .long  Mask_cmem_store_32       # 168
-    .long  Mask_all                 # 169
-    .long  Mask_cmem_store_float    # 170
-    .long  Mask_cmem_store_double   # 171
-    .long  Mask_all                 # 172 is unused
-    .long  Mask_all                 # 173 is unused
-    .long  Mask_all                 # 174 is unused
-    .long  Mask_all                 # 175 is unused
-    .long  Mask_all                 # 176 is unused
-    .long  Mask_all                 # 177 is unused
-    .long  Mask_all                 # 178 is unused
-    .long  Mask_all                 # 179 is unused
-    .long  Mask_fixed_add           # 180
-    .long  Mask_fixed_sub           # 181
-    .long  Mask_fixed_mul           # 182
-    .long  Mask_fixed_quot          # 183
-    .long  Mask_fixed_rem           # 184
-    .long  Mask_fixed_div           # 185
-    .long  Mask_fixed_mod           # 186
-    .long  Mask_all                 # 187 is unused
-    .long  Mask_all                 # 188 is unused
-    .long  Mask_all                 # 189
-    .long  Mask_all                 # 190
-    .long  Mask_all                 # 191 is no longer used
-    .long  Mask_all                 # 192 is unused
-    .long  Mask_move_words          # 193
-    .long  Mask_all                 # 194
-    .long  Mask_move_words          # 195
-    .long  Mask_shift_right_arith_word  # 196
-    .long  Mask_int_to_word         # 197
-    .long  Mask_move_bytes          # 198
-    .long  Mask_move_bytes          # 199
-    .long  Mask_all                 # 200
-    .long  Mask_all                 # 201
-    .long  Mask_all                 # stderr = 202
-    .long  Mask_all                 # 203 now unused
-    .long  Mask_callcodeTupled      # 204 - callcode
-    .long  Mask_all                 # 205
-    .long  Mask_all                 # 206
-    .long  Mask_all                 # 207 is unused
-    .long  Mask_all                 # 208 now unused
-    .long  Mask_all                 # 209
-    .long  Mask_all                 # 210 is unused
-    .long  Mask_all                 # 211 is unused
-    .long  Mask_all                 # 212 is unused
-    .long  Mask_is_big_endian       # 213
-    .long  Mask_bytes_per_word      # 214
-    .long  Mask_offset_address      # 215
-    .long  Mask_shift_right_word    # 216
-    .long  Mask_all              # 217 - no longer used
-    .long  Mask_not_bool            # 218
-    .long  Mask_fixed_geq           # 219
-    .long  Mask_fixed_leq           # 220
-    .long  Mask_fixed_gtr           # 221
-    .long  Mask_fixed_lss           # 222
-    .long  Mask_string_length       # 223
-    .long  Mask_all                 # 224 is unused
-    .long  Mask_all                 # 225 is unused
-    .long  Mask_all                 # 226 is unused
-    .long  Mask_all                 # 227 is unused
-    .long  Mask_touch_final         # 228
-    .long  Mask_all                 # 229 - no longer used
-    .long  Mask_all                 # 230 - no longer used
-    .long  Mask_int_geq             # 231
-    .long  Mask_int_leq             # 232
-    .long  Mask_int_gtr             # 233
-    .long  Mask_int_lss             # 234
-    .long  Mask_load_byte           # load_byte_immut = 235
-    .long  Mask_load_word           # load_word_immut = 236
-    .long  Mask_all                 # 237 is unused
-    .long  Mask_mul_word            # 238
-    .long  Mask_plus_word           # 239
-    .long  Mask_minus_word          # 240
-    .long  Mask_div_word            # 241
-    .long  Mask_or_word             # 242
-    .long  Mask_and_word            # 243
-    .long  Mask_xor_word            # 244
-    .long  Mask_shift_left_word     # 245
-    .long  Mask_mod_word            # 246
-    .long  Mask_word_geq            # 247
-    .long  Mask_word_leq            # 248
-    .long  Mask_word_gtr            # 249
-    .long  Mask_word_lss            # 250
-    .long  Mask_word_eq             # 251
-    .long  Mask_load_byte           # 252
-    .long  Mask_load_word           # 253
-    .long  Mask_assign_byte         # 254
-    .long  Mask_assign_word         # 255
-

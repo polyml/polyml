@@ -456,48 +456,24 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 return Make_arbitrary_precision(taskData, 1);
             else return Make_arbitrary_precision(taskData, 0);
         }
-    case 103: /* Return the register mask for the given function.
-                 This is used by the code-generator to find out
-                 which registers are modified by the function and
-                 so need to be saved if they are used by the caller. */
+    case 103:
+        // Return the properties for an RTS address.  This indicates whether it can be applied at compile time.
+        // This used to return the register mask for all functions.
         {
             PolyObject *pt = DEREFWORDHANDLE(args);
             if (gMem.IsIOPointer(pt))
             {
-                /* IO area.  We need to get this from the vector. */
-                int i;
-                for (i=0; i < POLY_SYS_vecsize; i++)
+                for (unsigned i=0; i < POLY_SYS_vecsize; i++)
                 {
                     if (pt == (PolyObject*)IoEntry(i))
                     {
-                        int regMask = taskData->GetIOFunctionRegisterMask(i);
                         POLYUNSIGNED props = rtsProperties(taskData, i);
-                        return taskData->saveVec.push(TAGGED(regMask | props));
+                        return taskData->saveVec.push(TAGGED(props));
                     }
                 }
                 raise_exception_string(taskData, EXC_Fail, "Io pointer not found");
             }
-            else
-            {
-                /* We may have a pointer to the code or a pointer to
-                   a closure.  If it's a closure we have to find the
-                   code. */
-                if (! pt->IsCodeObject() && ! pt->IsByteObject())
-                    pt = pt->Get(0).AsObjPtr();
-
-                /* Should now be a code object. */
-                if (pt->IsCodeObject())
-                {
-                    /* Compiled code.  This is the second constant in the
-                       constant area. */
-                    PolyWord *codePt = pt->ConstPtrForCode();
-                    PolyWord mask = codePt[1];
-                    // A real mask will be an integer.
-                    if (IS_INT(mask)) return SAVE(mask);
-                    else raise_exception_string(taskData, EXC_Fail, "Invalid mask");
-                }
-                else raise_exception_string(taskData, EXC_Fail, "Not a code pointer");
-            }
+            else return taskData->saveVec.push(TAGGED(0));
         }
 
     case 104: return Make_arbitrary_precision(taskData, POLY_version_number);

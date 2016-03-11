@@ -131,8 +131,6 @@ public:
     // These aren't implemented in the interpreted version.
     virtual Handle EnterCallbackFunction(Handle func, Handle args) { ASSERT(0); return 0; }
 
-    virtual int GetIOFunctionRegisterMask(int ioCall) { return 0; }
-
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(Handle mutexp);

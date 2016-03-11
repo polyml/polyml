@@ -119,8 +119,6 @@ public:
     // ML callback function.
     virtual Handle EnterCallbackFunction(Handle func, Handle args) = 0;
 
-    virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
-
     // The scheduler needs versions of atomic increment and atomic reset that
     // work in exactly the same way as the code-generated versions (if any).
     // Atomic decrement isn't needed since it only ever releases a mutex.

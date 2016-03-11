@@ -228,7 +228,6 @@ public:
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
     virtual void SetException(poly_exn *exc);
-    virtual int  GetIOFunctionRegisterMask(int ioCall);
 
     // Release a mutex in exactly the same way as compiler code
     virtual Handle AtomicIncrement(Handle mutexp);
@@ -384,9 +383,6 @@ extern "C" {
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
 };
-
-// GCC doesn't seem to like these inside the brackets above.
-extern "C" int registerMaskVector[];
 
 // This vector could perfectly well be in x86asm.asm except that it would be more
 // complicated to make the code position independent.  Mac OS X wants PIC for dynamic
@@ -1901,11 +1897,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         default: Crash("Unknown opcode %d at %p\n", *pt, pt);
         }
     }
-}
-
-int X86TaskData::GetIOFunctionRegisterMask(int ioCall)
-{
-    return registerMaskVector[ioCall];
 }
 
 // Increment the value contained in the first word of the mutex.

@@ -54,7 +54,7 @@ struct
     val (*op <<+ = LargeWord.<< and *) op >>+ = LargeWord.>>
     val op <<- = Word8.<< and op >>- = Word8.>>
 
-    val op orb = Word.orb (*and op orbL = LargeWord.orb *) and op orb8 = Word8.orb
+    val op orb8 = Word8.orb
     val op andb8 = Word8.andb
 
     val op andb = Word.andb (* and op andbL = LargeWord.andb *)
@@ -592,57 +592,6 @@ struct
      end
 
     open RegSet
-
-    (* Encode and decode the mask of modified registers stored in compiled code and
-       maintained for the RTS.  N.B. This encoding is built into x86asm.asm in the RTS. *)
-    local
-        val regMap =
-        [
-            (eax, 0wx000001),
-            (ecx, 0wx000002),
-            (edx, 0wx000004),
-            (ebx, 0wx000008),
-            (esi, 0wx000010),
-            (edi, 0wx000020),
-            (r8,  0wx000040),
-            (r9,  0wx000080),
-            (r10, 0wx000100),
-            (r11, 0wx000200),
-            (r12, 0wx000400),
-            (r13, 0wx000800),
-            (r14, 0wx001000),
-            (* Floating point registers. *)
-            (fp0, 0wx002000),
-            (fp1, 0wx004000),
-            (fp2, 0wx008000),
-            (fp3, 0wx010000),
-            (fp4, 0wx020000),
-            (fp5, 0wx040000),
-            (fp6, 0wx080000),
-            (fp7, 0wx100000)
-        ]
-    in
-        fun getRegisterSet (rSet: Word.word): regSet =
-        let
-            fun testBit((reg, bit), acc) =
-                if (rSet andb bit) = 0w0
-                then acc
-                else reg :: acc
-            val regs = List.foldl testBit [] regMap
-        in
-            listToSet regs
-        end
-        
-        and encodeRegSet(regSet: regSet): word =
-        let
-            fun testBit((reg, bit), acc) =
-                if inSet(reg, regSet)
-                then acc orb bit
-                else acc
-        in
-            List.foldl testBit 0w0 regMap
-        end
-    end
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
   
@@ -3834,7 +3783,7 @@ Calling conventions:
     end (* printCode *);
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun createCodeSegment (operations, registerSet, cvec) : address =
+    fun createCodeSegment (operations, cvec) : address =
     let
         val () = codeGenerate(operations, cvec)
 
@@ -3875,7 +3824,7 @@ Calling conventions:
             val () = List.app putNonAddrConst constVec
         end
 
-        (* +4 for code size, function name, register mask and profile object. *)
+        (* +4 for code size, function name, register mask (no longer used) and profile object. *)
         val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4
 
         (* Now make the byte segment that we'll turn into the code segment *)
@@ -3902,7 +3851,7 @@ Calling conventions:
                into a proper code segment before it's safe to put in any ML values. *)
             val () = csegConvertToCode seg
             val () = csegPutWord (seg, endOfCode, toMachineWord procName)
-            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord(encodeRegSet registerSet))
+            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord 0 (* No longer used. *))
             (* Next the profile object. *)
             val () = csegPutWord (seg, endOfCode + 0w2, profileObject)
         end
@@ -3955,8 +3904,6 @@ Calling conventions:
                 then (* print out the code *)
                 (
                     printCode cvec seg endic;
-                    printStream "Register set = ";
-                    printStream(regSetRepr registerSet);
                     printStream "\n\n"
                 )
             else ()

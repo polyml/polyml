@@ -66,7 +66,6 @@ sig
         val regSetRepr: regSet -> string
         val oneOf: regSet -> reg
     end
-    val getRegisterSet: Word.word -> RegSet.regSet
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SLL | SRL | SRA
@@ -176,7 +175,7 @@ sig
 
     val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
-    val createCodeSegment: operations * RegSet.regSet * code -> address
+    val createCodeSegment: operations * code -> address
 
     val procName:   code -> string      (* Name of the procedure. *)
 
