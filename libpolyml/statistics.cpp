@@ -668,13 +668,26 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
     return result;
 #elif HAVE_MMAP
     // Find the shared memory in the user's home directory
-    int remMapFd = -1;
-    char remMapFileName[MAXPATHLEN];
-    remMapFileName[0] = 0;
     char *homeDir = getenv("HOME");
     if (homeDir == NULL)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
-    sprintf(remMapFileName, "%s/.polyml/" POLY_STATS_NAME "%" POLYUFMT, homeDir, pid);
+
+    int remMapFd = -1;
+    size_t remMapSize = 4096;
+    TempCString remMapFileName((char *)malloc(remMapSize));
+    if (remMapFileName == NULL)
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
+
+    while ((snprintf(remMapFileName, remMapSize, "%s/.polyml/" POLY_STATS_NAME "%" POLYUFMT, homeDir, pid), strlen(remMapFileName) >= remMapSize - 1)) {
+        if (remMapSize > SIZE_MAX / 2)
+            raise_exception_string(taskData, EXC_Fail, "No statistics available");
+        remMapSize *= 2;
+        char *newFileName = (char *)realloc(remMapFileName, remMapSize);
+        if (newFileName == NULL)
+            raise_exception_string(taskData, EXC_Fail, "No statistics available");
+        remMapFileName = newFileName;
+    }
+
     remMapFd = open(remMapFileName, O_RDONLY);
     if (remMapFd == -1)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
