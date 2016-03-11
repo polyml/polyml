@@ -44,12 +44,19 @@ the SML Family website [here](http://sml-family.org/Basis/manpages.html).
 ## Platforms and Installation
 
 Poly/ML has native support for i386 (32- and 64-bit) and bytecode support for unsupported
-architectures.
+architectures. For more information, see the [download](http://www.polyml.org/download.html)
+page.
 
 ### Debian/Ubuntu
 
 ```bash
 $ apt-get install polyml
+```
+
+### OS X
+
+```bash
+$ brew install polyml
 ```
 
 ### FreeBSD
@@ -58,7 +65,23 @@ $ apt-get install polyml
 $ cd /usr/ports/lang/polyml && make install
 ```
 
-## Support
+### Git
+
+To build:
+
+```bash
+$ ./configure
+$ make
+$ make compiler
+$ make install
+```
+
+To clean:
+```bash
+$ make clean-local clean distclean
+```
+
+## Support 
 
 Support for Poly/ML can be found on Stackoverflow using the [polyml](http://stackoverflow.com/questions/tagged/polyml)
 and [sml](http://stackoverflow.com/questions/tagged/sml) tags or on the Poly/ML
