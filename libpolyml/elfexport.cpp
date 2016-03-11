@@ -115,6 +115,7 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
+#include "timing.h"
 
 #define sym_last_local_sym sym_data_section
 
@@ -681,7 +682,7 @@ void ELFExport::exportStore(void)
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = useRela ? 0 : (void*)rootOffset;
-    exports.timeStamp = time(NULL);
+    exports.timeStamp = getBuildTime();
     exports.ioSpacing = ioSpacing;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;

@@ -78,7 +78,7 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
-
+#include "timing.h"
 
 // Mach-O seems to require each section to have a discrete virtual address range
 // so we have to adjust various offsets to fit.
@@ -491,7 +491,7 @@ void MachoExport::exportStore(void)
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = (void*)rootOffset;
-    exports.timeStamp = time(NULL);
+    exports.timeStamp = getBuildTime();
     exports.ioSpacing = ioSpacing;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;

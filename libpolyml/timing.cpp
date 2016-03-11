@@ -99,6 +99,8 @@
 #include <windows.h>
 #endif
 
+#include <limits>
+
 #include "locking.h"
 #include "globals.h"
 #include "arb.h"
@@ -143,8 +145,10 @@
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 static FILETIME startTime;
+#define StrToLL _strtoi64
 #else
 static struct timeval startTime;
+#define StrToLL strtoll
 #endif
 
 #if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
@@ -152,6 +156,9 @@ static struct timeval startTime;
 // re-entrant versions we need to use a lock.
 static PLock timeLock("Timing");
 #endif
+
+#define XSTR(X) STR(X)
+#define STR(X)  #X
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -512,4 +519,45 @@ void Timing::Init(void)
 #else
     gettimeofday(&startTime, NULL);
 #endif
+}
+
+// Windows headers define min/max macros, which messes up trying to use std::numeric_limits<T>::min/max()
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
+time_t getBuildTime(void)
+{
+    char *source_date_epoch = getenv("SOURCE_DATE_EPOCH");
+    if (source_date_epoch) {
+        errno = 0;
+        char *endptr;
+        long long epoch = StrToLL(source_date_epoch, &endptr, 10);
+        if ((errno == ERANGE && (epoch == LLONG_MIN || epoch == LLONG_MAX)) || (errno != 0 && epoch == 0)) {
+            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: " XSTR(StrToLL) ": %s\n", strerror(errno));
+            goto err;
+        }
+        if (endptr == source_date_epoch) {
+            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: No digits were found: %s\n", endptr);
+            goto err;
+        }
+        if (*endptr != '\0') {
+            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: Trailing garbage: %s\n", endptr);
+            goto err;
+        }
+        if (epoch < (long long)std::numeric_limits<time_t>::min()) {
+            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: value must be greater than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::min(), epoch);
+            goto err;
+        }
+        if (epoch > (long long)std::numeric_limits<time_t>::max()) {
+            fprintf(stderr, "Environment variable $SOURCE_DATE_EPOCH: value must be smaller than or equal to: %lld but was found to be: %lld\n", (long long)std::numeric_limits<time_t>::max(), epoch);
+            goto err;
+        }
+        return (time_t) epoch;
+    }
+err:
+    return time(NULL);
 }

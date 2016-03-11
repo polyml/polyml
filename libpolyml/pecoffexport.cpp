@@ -56,7 +56,7 @@
 #include "../polyexports.h"
 #include "version.h"
 #include "polystring.h"
-
+#include "timing.h"
 
 #ifdef _DEBUG
 /* MS C defines _DEBUG for debug builds. */
@@ -183,8 +183,7 @@ void PECOFFExport::exportStore(void)
     unsigned i;
     // These are written out as the description of the data.
     exportDescription exports;
-    time_t now;
-    time(&now);
+    time_t now = getBuildTime();
 
     sections = new IMAGE_SECTION_HEADER [memTableEntries+1]; // Plus one for the tables.
 
@@ -197,7 +196,7 @@ void PECOFFExport::exportStore(void)
     fhdr.Machine = IMAGE_FILE_MACHINE_I386; // i386
 #endif
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
-    (void)time((time_t*)&fhdr.TimeDateStamp);
+    fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 

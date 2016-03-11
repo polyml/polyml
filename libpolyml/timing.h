@@ -105,4 +105,6 @@ extern void subTimevals(struct timeval *result, const struct timeval *x);
 extern float timevalToSeconds(const struct timeval *x);
 #endif
 
+extern time_t getBuildTime(void);
+
 #endif
