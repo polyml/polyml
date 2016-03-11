@@ -833,10 +833,6 @@ local
     (* Time stamps. *)
     type timeStamp = Time.time;
     val firstTimeStamp : timeStamp = Time.zeroTime;
-    (* Get the current time. *)
-    val newTimeStamp : unit -> timeStamp = Time.now
-    (* Get the date of a file. *)
-    val fileTimeStamp : string -> timeStamp = OS.FileSys.modTime
     
     local
         open ProtectedTable
@@ -862,6 +858,27 @@ local
     (* Main make function *)
     fun make (targetName: string) : unit =
     let
+        local
+            val sourceDateEpochEnv : string option = OS.Process.getEnv "SOURCE_DATE_EPOCH";
+        in
+            val sourceDateEpoch : timeStamp option =
+                case sourceDateEpochEnv of
+                     NONE => NONE
+                   | SOME s =>
+                       (case Int.fromString s of
+                             NONE => NONE
+                           | SOME t => SOME(Time.fromSeconds t) handle Time.Time => NONE)
+        end;
+
+        (* Get the current time. *)
+        val newTimeStamp : unit -> timeStamp = case sourceDateEpoch of
+                                                    NONE => Time.now
+                                                  | SOME t => fn _ => t;
+        (* Get the date of a file. *)
+        val fileTimeStamp : string -> timeStamp = case sourceDateEpoch of
+                                                    NONE => OS.FileSys.modTime
+                                                  | SOME t => fn _ => t;
+
         (* This serves two purposes. It provides a list of objects which have been
            re-made to prevent them being made more than once, and it also prevents
            circular dependencies from causing infinite loops (e.g. let x = f(x)) *)

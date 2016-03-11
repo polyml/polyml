@@ -60,6 +60,38 @@
 #define ELFCLASSXX              ELFCLASS32
 #endif
 
+#ifdef HOSTARCHITECTURE_MIPS64
+/* MIPS N64 ABI has a different Elf64_Rel/Rela layout */
+
+typedef struct
+{
+  Elf64_Addr r_offset;      /* Address */
+  Elf64_Word r_sym;         /* Symbol index */
+  unsigned char r_ssym;     /* Special symbol */
+  unsigned char r_type3;    /* Third relocation type */
+  unsigned char r_type2;    /* Second relocation type */
+  unsigned char r_type;     /* First relocation type */
+} Elf64_Mips_Rel;
+
+typedef struct
+{
+  Elf64_Addr r_offset;      /* Address */
+  Elf64_Word r_sym;         /* Symbol index */
+  unsigned char r_ssym;     /* Special symbol */
+  unsigned char r_type3;    /* Third relocation type */
+  unsigned char r_type2;    /* Second relocation type */
+  unsigned char r_type;     /* First relocation type */
+  Elf64_Sxword r_addend;    /* Addend */
+} Elf64_Mips_Rela;
+
+#undef  ElfXX_Rel
+#define ElfXX_Rel   Elf64_Mips_Rel
+#undef  ElfXX_Rela
+#define ElfXX_Rela  Elf64_Mips_Rela
+/* Elf64_Mips_Rel/Rela has no r_info, so this macro is meaningless */
+#undef  ELFXX_R_INFO
+#endif
+
 class TaskData;
 
 class ELFExport: public Exporter, public ScanAddress

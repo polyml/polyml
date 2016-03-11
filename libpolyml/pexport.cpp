@@ -30,10 +30,6 @@
 #include <stdio.h>
 #endif
 
-#ifdef HAVE_TIME_H
-#include <time.h>
-#endif
-
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -272,8 +268,6 @@ void PExport::ScanConstant(byte *addr, ScanRelocationKind code)
 void PExport::exportStore(void)
 {
     unsigned i;
-    time_t now;
-    time(&now);
 
     // Calculate a first guess for the map size based on the space size
     totalBytes = 0;
