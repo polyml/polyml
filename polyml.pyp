@@ -2,6 +2,9 @@
 <polyproject>
 	<source name="basis\Array.sml" />
 	<source name="basis\Array2.sml" />
+	<source name="basis\Array2Signature.sml" />
+	<source name="basis\ArraySignature.sml" />
+	<source name="basis\ArraySliceSignature.sml" />
 	<source name="basis\ASN1.sml" />
 	<source name="basis\BasicStreamIO.sml" />
 	<source name="basis\BinIO.sml" />
@@ -13,6 +16,7 @@
 	<source name="basis\Byte.sml" />
 	<source name="basis\CommandLine.sml" />
 	<source name="basis\Date.sml" />
+	<source name="basis\DateSignature.sml" />
 	<source name="basis\ExnPrinter.sml" />
 	<source name="basis\FinalPolyML.sml" />
 	<source name="basis\Foreign.sml" />
@@ -60,6 +64,7 @@
 	<source name="basis\PrimIO.sml" />
 	<source name="basis\Real.sml" />
 	<source name="basis\RealArray.sml" />
+	<source name="basis\RealSignature.sml" />
 	<source name="basis\RuntimeCalls.ML" />
 	<source name="basis\Signal.sml" />
 	<source name="basis\SingleAssignment.sml" />
@@ -68,6 +73,7 @@
 	<source name="basis\Statistics.ML" />
 	<source name="basis\STREAM_IO.sml" />
 	<source name="basis\String.sml" />
+	<source name="basis\StringSignatures.sml" />
 	<source name="basis\SysWord.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
@@ -82,13 +88,16 @@
 	<source name="basis\UnixSock.sml" />
 	<source name="basis\Vector.sml" />
 	<source name="basis\VectorOperations.sml" />
+	<source name="basis\VectorSignature.sml" />
 	<source name="basis\VectorSliceOperations.sml" />
+	<source name="basis\VectorSliceSignature.sml" />
 	<source name="basis\Weak.sml" />
 	<source name="basis\Windows.sml" />
 	<source name="basis\Word32.sml" />
 	<source name="basis\Word32In64.sml" />
 	<source name="basis\Word8.sml" />
 	<source name="basis\Word8Array.sml" />
+	<source name="basis\WordSignature.sml" />
 	<source name="mlsource\MLCompiler\Address.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
@@ -196,5 +205,15 @@
 	<source name="mlsource\MLCompiler\VALUE_OPS.ML" />
 	<source name="mlsource\MLCompiler\ValueOps.ML" />
 	<source name="mlsource\MLCompiler\VALUEOPSSIG.sml" />
+	<source name="modules\IntAsIntInf\ArrayVector.sml" />
+	<source name="modules\IntAsIntInf\Date.sml" />
+	<source name="modules\IntAsIntInf\InputOutput.sml" />
+	<source name="modules\IntAsIntInf\Integer.sml" />
+	<source name="modules\IntAsIntInf\List.sml" />
+	<source name="modules\IntAsIntInf\RealStringCvt.sml" />
+	<source name="modules\IntAsIntInf\ROOT.sml" />
+	<source name="modules\IntAsIntInf\StringChar.sml" />
+	<source name="modules\IntAsIntInf\Word.sml" />
+	<source name="modules\IntAsIntInf\Word64.sml" />
 	<source name="Root.ML" root="true" />
 </polyproject>

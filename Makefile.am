@@ -12,12 +12,12 @@ else
 POLYIMPORT_OPTIONS =
 endif
 
-DIST_SUBDIRS = libpolyml libpolymain libffi
+DIST_SUBDIRS = libpolyml libpolymain libffi modules
 
 if INTERNAL_LIBFFI
-SUBDIRS = libffi libpolyml libpolymain
+SUBDIRS = libffi libpolyml libpolymain . modules
 else
-SUBDIRS = libpolyml libpolymain
+SUBDIRS = libpolyml libpolymain . modules
 endif
 
 bin_PROGRAMS = polyimport poly
@@ -26,7 +26,7 @@ dist_bin_SCRIPTS = polyc
 
 man_MANS = poly.1 polyimport.1 polyc.1
 
-# Select the architecture-specific modules
+# Select the architecture-specific pre-built compiler
 if ARCHI386
 POLYIMPORT = $(srcdir)/imports/polymli386.txt
 else

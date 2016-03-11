@@ -25,6 +25,7 @@ val () = Bootstrap.use "basis/General.sml";
 val () = Bootstrap.use "basis/LibrarySupport.sml";
 val () = Bootstrap.use "basis/PolyMLException.sml";
 val () = Bootstrap.use "basis/Option.sml";
+val () = Bootstrap.use "basis/ListSignature.sml";
 val () = Bootstrap.use "basis/List.sml";
 val () = Bootstrap.use "basis/VectorOperations.sml";
 val () = Bootstrap.use "basis/PolyVectorOperations.sml";
@@ -33,13 +34,27 @@ val () = Bootstrap.use "basis/MONO_VECTOR.sml";
 val () = Bootstrap.use "basis/MONO_VECTOR_SLICE.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY.sml";
 val () = Bootstrap.use "basis/MONO_ARRAY_SLICE.sml";
+
+structure Char = struct type char = char end; (* We need this for "scan". *)
+structure String = struct type string = string end; (* Needed for toString, fromString etc. *)
+structure StringCvt = struct type  ('a, 'b) reader = 'b -> ('a * 'b) option end;
+
+val () = Bootstrap.use "basis/StringSignatures.sml";
 val () = Bootstrap.use "basis/String.sml";
+
+structure Int = struct type int = int end;
+val () = Bootstrap.use "basis/INTEGER.sml";
 val () = Bootstrap.use "basis/Int.sml";
 val () = Bootstrap.use (if Bootstrap.intIsArbitraryPrecision then "basis/IntAsLargeInt.sml" else "basis/IntAsFixedInt.sml");
 val () =
     case FixedInt.precision of SOME 31 => Bootstrap.use "basis/Int31.sml" | SOME 63 => Bootstrap.use "basis/Int63.sml" | _ => ();
 val () = Bootstrap.use "basis/LargeWord.sml";
+val () = Bootstrap.use "basis/WordSignature.sml"; (* Depends on LargeWord. *)
+val () = Bootstrap.use "basis/VectorSignature.sml";
+val () = Bootstrap.use "basis/VectorSliceSignature.sml";
 val () = Bootstrap.use "basis/Vector.sml";
+val () = Bootstrap.use "basis/ArraySignature.sml";
+val () = Bootstrap.use "basis/ArraySliceSignature.sml"; (* Depends on VectorSlice. *)
 val () = Bootstrap.use "basis/Array.sml";
 
 val () = Bootstrap.use "basis/Text.sml"; (* Declares Char, String, CharArray, CharVector *)
@@ -54,10 +69,6 @@ val () =
     then Bootstrap.use "basis/Word32.sml"
     else if LargeWord.wordSize = 64
     then Bootstrap.use "basis/Word32In64.sml"
-    else if LargeWord.wordSize = 62
-    then Bootstrap.use "basis/Word32.550.sml"
-    else if LargeWord.wordSize = 126
-    then Bootstrap.use "basis/Word32In64.550.sml"
     else ();
 
 val () = Bootstrap.use "basis/Word8.sml";
@@ -71,8 +82,12 @@ val () = Bootstrap.use "basis/RealArray.sml";
 val () = Bootstrap.use "basis/IEEE_REAL.sml";
 val () = Bootstrap.use "basis/IEEEReal.sml";
 val () = Bootstrap.use "basis/MATH.sml";
+val () = Bootstrap.use "basis/MATH.sml";
+structure LargeReal = struct type real = real end;
+val () = Bootstrap.use "basis/RealSignature.sml";
 val () = Bootstrap.use "basis/Real.sml";
 val () = Bootstrap.use "basis/Time.sml";
+val () = Bootstrap.use "basis/DateSignature.sml";
 val () = Bootstrap.use "basis/Date.sml";
 val () = Bootstrap.use "basis/Thread.sml"; (* Non-standard. *)
 val () = Bootstrap.use "basis/Timer.sml";
@@ -101,6 +116,7 @@ val () = Bootstrap.use "basis/INetSock.sml";
 val () = Bootstrap.use "basis/UnixSock.sml";
 val () = Bootstrap.use "basis/PackRealBig.sml"; (* also declares PackRealLittle *)
 val () = Bootstrap.use "basis/PackWord8Big.sml"; (* also declares Pack8Little. ...*)
+val () = Bootstrap.use "basis/Array2Signature.sml";
 val () = Bootstrap.use "basis/Array2.sml";
 val () = Bootstrap.use "basis/IntArray2.sml";
 val () = Bootstrap.use "basis/SML90.sml";
