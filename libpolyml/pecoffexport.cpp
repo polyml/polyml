@@ -207,7 +207,14 @@ void PECOFFExport::exportStore(void)
         sections[i].SizeOfRawData = (DWORD)memTable[i].mtLength;
         sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
 
-        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (i == ioMemEntry)
+        {
+            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
+            strcpy((char*)sections[i].Name, ".bss");
+            sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_UNINITIALIZED_DATA;
+        }
+        else if (memTable[i].mtFlags & MTF_WRITEABLE)
         {
             // Mutable data
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
@@ -312,8 +319,11 @@ void PECOFFExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        sections[i].PointerToRawData = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        if (i != ioMemEntry)
+        {
+            sections[i].PointerToRawData = ftell(exportFile);
+            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        }
     }
 
     sections[memTableEntries].PointerToRawData = ftell(exportFile);

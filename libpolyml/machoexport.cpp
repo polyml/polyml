@@ -333,7 +333,15 @@ void MachoExport::exportStore(void)
     {
         memset(&(sections[i]), 0, sectionSize);
 
-        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (i == ioMemEntry)
+        {
+            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
+            sprintf(sections[i].sectname, "__bss");
+            sprintf(sections[i].segname, "__DATA");
+            sections[i].flags = S_ZEROFILL;
+        }
+        else if (memTable[i].mtFlags & MTF_WRITEABLE)
         {
             // Mutable areas
             ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
@@ -432,10 +440,10 @@ void MachoExport::exportStore(void)
     // Create and write out the relocations.
     for (i = 0; i < memTableEntries; i++)
     {
-        sections[i].reloff = ftell(exportFile);
-        relocationCount = 0;
         if (i != ioMemEntry) // Don't relocate the IO area
         {
+            sections[i].reloff = ftell(exportFile);
+            relocationCount = 0;
             // Create the relocation table and turn all addresses into offsets.
             char *start = (char*)memTable[i].mtAddr;
             char *end = start + memTable[i].mtLength;
@@ -449,8 +457,8 @@ void MachoExport::exportStore(void)
                 relocateObject(obj);
                 p += length;
             }
+            sections[i].nreloc = relocationCount;
         }
-        sections[i].nreloc = relocationCount;
     }
 
     // Additional relocations for the descriptors.
@@ -511,9 +519,16 @@ void MachoExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        alignFile(4);
-        sections[i].offset = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        if (i == ioMemEntry)
+        {
+            sections[i].offset = 0;
+        }
+        else
+        {
+            alignFile(4);
+            sections[i].offset = ftell(exportFile);
+            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        }
     }
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);
