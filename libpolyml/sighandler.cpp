@@ -478,8 +478,7 @@ static void *SignalDetectionThread(void *)
     sigset_t active_signals;    
     sigfillset(&active_signals);
     pthread_sigmask(SIG_SETMASK, &active_signals, NULL);
-    int readSignals[NSIG];
-    memset(readSignals, 0, sizeof(readSignals));
+    int readSignals[NSIG] = {0};
 
     while (true)
     {

@@ -100,6 +100,7 @@ typedef char TCHAR;
 #include "machine_dep.h"
 #include "osmem.h"
 #include "gc.h" // For FullGC.
+#include "timing.h"
 
 #if(!defined(MAXPATHLEN) && defined(MAX_PATH))
 #define MAXPATHLEN MAX_PATH
@@ -561,7 +562,7 @@ void SaveRequest::Perform()
         saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
         saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
     }
-    saveHeader.timeStamp = time(NULL);
+    saveHeader.timeStamp = getBuildTime();
     saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
     // Write out the header.
     fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
@@ -1321,6 +1322,13 @@ void ModuleStorer::Perform()
     // the executable because we've set the hierarchy to 1, using CopyScan.
     // It builds the tables in the export data structure then calls exportStore
     // to actually write the data.
+    if (! root->Word().IsDataPtr())
+    {
+        // If we have a completely empty module the list may be null.
+        // This needs to be dealt with at a higher level.
+        errorMessage = "Module root is not an address";
+        return;
+    }
     exporter.RunExport(root->WordP());
     errorMessage = exporter.errorMessage; // This will be null unless there's been an error.
 }
@@ -1343,7 +1351,7 @@ void ModuleExport::exportStore(void)
         modHeader.rootSegment = mt->mtIndex;
         modHeader.rootOffset = (char*)this->rootFunction - (char*)mt->mtAddr;
     }
-    modHeader.timeStamp = time(NULL);
+    modHeader.timeStamp = getBuildTime();
     modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
     // Write out the header.
     fwrite(&modHeader, sizeof(modHeader), 1, this->exportFile);

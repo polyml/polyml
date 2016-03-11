@@ -20,17 +20,17 @@ sig
    type <a href="#location">location</a> =
        {file: string, startLine: int, endLine: int, startPosition: int, endPosition: int}
 
-   structure <a href="#CodeTree">CodeTree</a> : sig ... end
+   structure <a href="PolyMLCodetree.html">CodeTree</a> : sig ... end
 
-   structure <a href="#Compiler">Compiler</a> : sig ... end 
+   structure <a href="PolyMLCompiler.html">Compiler</a> : sig ... end 
 
    val <a href="#compiler">compiler</a>: (unit -&gt; char option) * Compiler.compilerParameters list -&gt; unit -&gt; unit
 
-   structure <a href="#Debug">Debug</a> : sig ... end
+   structure <a href="PolyMLDebug.html">Debug</a> : sig ... end
 
-   structure <a href="#DebuggerInterface">DebuggerInterface</a> : sig ... end
+   structure <a href="PolyMLDebuggerInterface.html">DebuggerInterface</a> : sig ... end
 
-   structure <a href="#Exception">Exception</a> : sig ... end
+   structure <a href="PolyMLException.html">Exception</a> : sig ... end
    val <a href="#exceptionLocation">exceptionLocation</a>: exn -&gt; location option
    val <a href="#raiseWithLocation">raiseWithLocation</a> : exn * location -&gt; 'a
    val <a href="#exception_trace">exception_trace</a>: (unit -&gt; 'a) -&gt; 'a
@@ -38,12 +38,12 @@ sig
    structure <a href="#NameSpace">NameSpace</a> : sig ... end
    val <a href="#globalNameSpace">globalNameSpace</a>: NameSpace.nameSpace
 
-   structure <a href="#Profiling">Profiling</a>: sig ... end
+   structure <a href="PolyMLProfiling.html">Profiling</a>: sig ... end
 
-   structure <a href="#SaveState">SaveState</a> : sig ... end
+   structure <a href="PolyMLSaveState.html">SaveState</a> : sig ... end
    val <a href="#loadModule">loadModule</a>: string -&gt; unit
 
-   structure <a href="#Statistics">Statistics</a> : sig ... end
+   structure <a href="PolyMLStatistics.html">Statistics</a> : sig ... end
 
    structure IDEInterface :
    sig
@@ -219,6 +219,16 @@ end
       <span class="identifier"><a href="PolyMLNameSpace.html#nameSpace">nameSpace</a></span> 
       type. Values can be deleted using <span class="identifier"><a href="PolyMLCompiler.html#forgetValue">Compiler.forgetValue</a></span> 
       etc.</p>
+  </div>
+</div>
+<div class="entryblock">
+  <pre class="entrycode"><a name="Profiling"></a>structure Profiling : sig ... end
+</pre>
+  <div class="entrytext"> 
+    <p>The <a href="PolyMLProfiling.html" class="identifier">Profiling</a> structure 
+      contains functions to profile Poly/ML programs. As well as measuring the 
+      time spent in a function it can also measure the amount of memory allocated 
+      to identify functions that lead to excessive garbage-collection.</p>
   </div>
 </div>
 <div class="entryblock">

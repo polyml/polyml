@@ -225,7 +225,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 sigemptyset(&sigset);
                 sigprocmask(SIG_SETMASK, &sigset, 0);
                 // Reset other signals?
-                execve("/bin/sh", argv, environ);
+                execv("/bin/sh", argv);
                 _exit(1);
             }
 #endif

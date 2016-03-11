@@ -115,6 +115,7 @@
 #include "run_time.h"
 #include "version.h"
 #include "polystring.h"
+#include "timing.h"
 
 #define sym_last_local_sym sym_data_section
 
@@ -154,7 +155,15 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
         ElfXX_Rela reloc;
         // Set the offset within the section we're scanning.
         setRelocationAddress(relocAddr, &reloc.r_offset);
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+#endif
         reloc.r_addend = offset;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
@@ -163,7 +172,15 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
     else {
         ElfXX_Rel reloc;
         setRelocationAddress(relocAddr, &reloc.r_offset);
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+#endif
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
         return PolyWord::FromUnsigned(offset);
@@ -273,9 +290,8 @@ void ELFExport::writeSymbol(const char *symbolName, long value, long size, int b
 // Set the file alignment.
 void ELFExport::alignFile(int align)
 {
-    char pad[32]; // Maximum alignment
+    char pad[32] = {0}; // Maximum alignment
     int offset = ftell(exportFile);
-    memset(pad, 0, sizeof(pad));
     if ((offset % align) == 0) return;
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
@@ -285,7 +301,15 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
     if (useRela)
     {
         ElfXX_Rela reloc;
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = sym;
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+#endif
         reloc.r_offset = offset;
         reloc.r_addend = addend;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -294,7 +318,15 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
     else
     {
         ElfXX_Rel reloc;
+#ifdef HOSTARCHITECTURE_MIPS64
+        reloc.r_sym = sym;
+        reloc.r_ssym = 0;
+        reloc.r_type = directReloc;
+        reloc.r_type2 = 0;
+        reloc.r_type3 = 0;
+#else
         reloc.r_info = ELFXX_R_INFO(sym, directReloc);
+#endif
         reloc.r_offset = offset;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
@@ -306,9 +338,9 @@ void ELFExport::exportStore(void)
     PolyWord    *p;
     ElfXX_Ehdr fhdr;
     ElfXX_Shdr *sections = 0;
-    unsigned numSections = 6 + 2*memTableEntries;
+    unsigned numSections = 6 + 2*memTableEntries - 1;
     // The symbol table comes at the end.
-    unsigned sect_symtab = sect_data + 2*memTableEntries + 2;
+    unsigned sect_symtab = sect_data + 2*memTableEntries + 2 - 1;
     
     unsigned i;
 
@@ -390,12 +422,28 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_AARCH64;
     directReloc = R_AARCH64_ABS64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_M68K)
+    fhdr.e_machine = EM_68K;
+    directReloc = R_68K_32;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_MIPS)
     fhdr.e_machine = EM_MIPS;
     directReloc = R_MIPS_32;
 #ifdef __PIC__
     fhdr.e_flags = EF_MIPS_CPIC;
 #endif
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_MIPS64)
+    fhdr.e_machine = EM_MIPS;
+    directReloc = R_MIPS_64;
+    fhdr.e_flags = EF_MIPS_ARCH_64;
+#ifdef __PIC__
+    fhdr.e_flags |= EF_MIPS_CPIC;
+#endif
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_ALPHA)
+    fhdr.e_machine = EM_ALPHA;
+    directReloc = R_ALPHA_REFQUAD;
     useRela = true;
 #else
 #error "No support for exporting on this architecture"
@@ -431,6 +479,7 @@ void ELFExport::exportStore(void)
     // sections[sect_stringtable].sh_offset is set later
     // sections[sect_stringtable].sh_size is set later
 
+    unsigned long bssName = makeStringTableEntry(".bss", &sectionStrings);
     unsigned long dataName = makeStringTableEntry(".data", &sectionStrings);
     unsigned long dataRelName = makeStringTableEntry(useRela ? ".rela.data" : ".rel.data", &sectionStrings);
     unsigned long textName = makeStringTableEntry(".text", &sectionStrings);
@@ -439,41 +488,52 @@ void ELFExport::exportStore(void)
     // Main data sections.  Each one has a relocation section.
     for (i=0; i < memTableEntries; i++)
     {
-        unsigned s = sect_data + i*2;
-        sections[s].sh_type = SHT_PROGBITS;
+        unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
         sections[s].sh_addralign = 8; // 8-byte alignment
 
-        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        if (i == ioMemEntry)
         {
-            // Mutable areas
-            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
-            sections[s].sh_name = dataName;
+            ASSERT(memTable[i].mtFlags & MTF_WRITEABLE);
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE));
+            sections[s].sh_name = bssName;
+            sections[s].sh_type = SHT_NOBITS;
             sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
-            sections[s+1].sh_name = dataRelName; // Name of relocation section
         }
         else
         {
-            // Immutable areas are marked as executable.
-            sections[s].sh_name = textName;
-            sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
-            sections[s+1].sh_name = textRelName; // Name of relocation section
-        }
-        // sections[s].sh_size is set later
-        // sections[s].sh_offset is set later.
-        // sections[s].sh_size is set later.
+            sections[s].sh_type = SHT_PROGBITS;
+            if (memTable[i].mtFlags & MTF_WRITEABLE)
+            {
+                // Mutable areas
+                ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
+                sections[s].sh_name = dataName;
+                sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
+                sections[s+1].sh_name = dataRelName; // Name of relocation section
+            }
+            else
+            {
+                // Immutable areas are marked as executable.
+                sections[s].sh_name = textName;
+                sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
+                sections[s+1].sh_name = textRelName; // Name of relocation section
+            }
+            // sections[s].sh_size is set later
+            // sections[s].sh_offset is set later.
+            // sections[s].sh_size is set later.
 
-        // Relocation section
-        sections[s+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
-        sections[s+1].sh_link = sect_symtab; // Index to symbol table
-        sections[s+1].sh_info = s; // Applies to the data section
-        sections[s+1].sh_addralign = sizeof(long); // Align to a word
-        sections[s+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
-        // sections[s+1].sh_offset is set later.
-        // sections[s+1].sh_size is set later.
+            // Relocation section
+            sections[s+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+            sections[s+1].sh_link = sect_symtab; // Index to symbol table
+            sections[s+1].sh_info = s; // Applies to the data section
+            sections[s+1].sh_addralign = sizeof(long); // Align to a word
+            sections[s+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+            // sections[s+1].sh_offset is set later.
+            // sections[s+1].sh_size is set later.
+        }
     }
 
     // Table data - Poly tables that describe the memory layout.
-    unsigned sect_table_data = sect_data+2*memTableEntries;
+    unsigned sect_table_data = sect_data + 2*memTableEntries - 1;
 
     sections[sect_table_data].sh_name = dataName;
     sections[sect_table_data].sh_type = SHT_PROGBITS;
@@ -507,12 +567,13 @@ void ELFExport::exportStore(void)
     // Create symbols for the address areas.  AreaToSym assumes these come first.
     for (i = 0; i < memTableEntries; i++)
     {
+        unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
         if (i == ioMemEntry)
-            writeSymbol("ioarea", 0, 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
+            writeSymbol("ioarea", 0, 0, STB_LOCAL, STT_OBJECT, s);
         else {
             char buff[50];
             sprintf(buff, "area%1u", i);
-            writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
+            writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, s);
         }
     }
 
@@ -521,6 +582,7 @@ void ELFExport::exportStore(void)
     {
         if (i != ioMemEntry)
         {
+            unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
             char buff[50];
             // Write the names of the functions as local symbols.  This isn't necessary
             // but it makes debugging easier since the function names appear in gdb.
@@ -537,7 +599,7 @@ void ELFExport::exportStore(void)
                     // Copy as much of the name as will fit and ignore any extra.
                     // Do we need to worry about duplicates?
                     (void)Poly_string_to_C(*name, buff, sizeof(buff));
-                    writeSymbol(buff, ((char*)p - start), 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
+                    writeSymbol(buff, ((char*)p - start), 0, STB_LOCAL, STT_OBJECT, s);
                 }
                 p += length;
             }
@@ -556,12 +618,12 @@ void ELFExport::exportStore(void)
 
     for (i = 0; i < memTableEntries; i++)
     {
-        unsigned relocSection = sect_data+i*2+1;
-        alignFile(sections[relocSection].sh_addralign);
-        sections[relocSection].sh_offset = ftell(exportFile);
-        relocationCount = 0;
         if (i != ioMemEntry) // Don't relocate the IO area
         {
+            unsigned relocSection = sect_data + i*2 + 1 - (i > ioMemEntry ? 1 : 0);
+            alignFile(sections[relocSection].sh_addralign);
+            sections[relocSection].sh_offset = ftell(exportFile);
+            relocationCount = 0;
             // Create the relocation table and turn all addresses into offsets.
             char *start = (char*)memTable[i].mtAddr;
             char *end = start + memTable[i].mtLength;
@@ -577,9 +639,9 @@ void ELFExport::exportStore(void)
                 relocateObject(obj);
                 p += length;
             }
+            sections[relocSection].sh_size =
+                relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
         }
-        sections[relocSection].sh_size =
-            relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
     }
 
     // Relocations for "exports" and "memTable";
@@ -617,11 +679,15 @@ void ELFExport::exportStore(void)
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
-        unsigned dataSection = sect_data+i*2;
-        alignFile(sections[dataSection].sh_addralign);
-        sections[dataSection].sh_offset = ftell(exportFile);
+        unsigned dataSection = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
         sections[dataSection].sh_size = memTable[i].mtLength;
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+
+        if (i != ioMemEntry)
+        {
+            alignFile(sections[dataSection].sh_addralign);
+            sections[dataSection].sh_offset = ftell(exportFile);
+            fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        }
     }
 
     exportDescription exports;
@@ -634,7 +700,7 @@ void ELFExport::exportStore(void)
     // Set the value to be the offset relative to the base of the area.  We have set a relocation
     // already which will add the base of the area.
     exports.rootFunction = useRela ? 0 : (void*)rootOffset;
-    exports.timeStamp = time(NULL);
+    exports.timeStamp = getBuildTime();
     exports.ioSpacing = ioSpacing;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
