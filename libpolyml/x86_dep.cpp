@@ -1135,14 +1135,19 @@ POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg)
 {
     X86TaskData *taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
+    Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
     taskData->SaveMemRegisters();  // Need to save the current heap pointer
+
     try {
         (void)change_dirc(taskData, pushedArg);
     } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->SetMemRegisters(); // Restore the heap pointer.  Create a new heap area if there's been a GC.
     return TAGGED(0).AsUnsigned(); // Result is unit
 }
+
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that
 // whenever the ML requires assistance from the rest of the RTS it simply
 // returns to C with the appropriate values set in assemblyInterface.requestCode and
@@ -1576,10 +1581,6 @@ void X86TaskData::HeapOverflowTrap()
 // stored in iovec.  Values in iovec are never looked at with the
 // garbage collector so that's safe.
 
-// N.B.  The length of this code (7) is built into BuildKillSelf
-// It's 7 bytes on both x86 and X86_64.
-#define MAKE_CALL_SEQUENCE_BYTES     7
-
 void X86Dependent::InitInterfaceVector(void)
 {
     for (int i = 0; i < POLY_SYS_vecsize; i++)
@@ -1595,7 +1596,7 @@ void X86TaskData::SetException(poly_exn *exc)
     PSP_EDX(this) = (PolyObject*)IoEntry(POLY_SYS_raisex);
     PSP_IC(this)  = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
     PSP_EAX(this) = exc; /* put exception data into eax */
-    assemblyInterface.exceptionPacket = exc;
+    assemblyInterface.exceptionPacket = exc; // Set for direct calls.
 }
 
 // Sets up a callback function on the current stack.  The present state is that

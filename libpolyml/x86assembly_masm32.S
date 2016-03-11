@@ -548,7 +548,9 @@ set_string_length_a:
 
 Mask_set_string_length      EQU     (M_Reax OR M_Rebx)
 
-; raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
+; raisex is only used in ML as "raiseWithLocation" to bypass the normal ML "raise".
+; It is also used as the return address if an RTS function wants to raise an
+; exception.
 PUBLIC  raisex
 raisex:
     mov     ecx,Fr_HandlerRegister[ebp]
