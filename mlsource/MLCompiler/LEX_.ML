@@ -387,13 +387,9 @@ struct
                     (
                      nextCh state;
                      if ch = eofChar then raise EndOfLine
-                     else if Char.isPrint ch (* Ok if it's printable. *)
+                     else if Char.isPrint ch
                      then getString (ch :: soFar)
-                     else (* Report unprintable characters. *)
-                        (
-                        lexError(state, "unprintable character " ^ Char.toString ch ^ " found in string");
-                        getString soFar
-                        )
+                     else getString (List.rev (String.explode (Char.toString ch)) @ soFar)
                     )
          )
 
