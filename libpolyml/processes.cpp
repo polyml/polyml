@@ -194,7 +194,7 @@ public:
     virtual void TestAnyEvents(TaskData *taskData);
 
     // Set a thread to be interrupted or killed.  Wakes up the
-    // thread if necessary.  MUST be called with taskArrayLock held.
+    // thread if necessary.  MUST be called with schedLock held.
     void MakeRequest(TaskData *p, ThreadRequests request);
 
     // Profiling control.
@@ -214,8 +214,8 @@ public:
     PolyWord *FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg);
 
     // Find a task that matches the specified identifier and returns
-    // it if it exists.  MUST be called with taskArrayLock held.
-    TaskData *TaskForIdentifier(Handle taskId);
+    // it if it exists.  MUST be called with schedLock held.
+    TaskData *TaskForIdentifier(PolyObject *taskId);
 
     // Signal handling support.  The ML signal handler thread blocks until it is
     // woken up by the signal detection thread.
@@ -303,33 +303,6 @@ enum _mainThreadPhase mainThreadPhase = MTP_USER_CODE;
 static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 {
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
-}
-
-// Called from interface vector.  Generally the assembly code will be
-// used instead of this.
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
-{
-    return taskData->AtomicIncrement(mutexp);
-}
-
-// Called from interface vector.  Generally the assembly code will be
-// used instead of this.
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    return taskData->AtomicDecrement(mutexp);
-}
-
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
-{
-    taskData->AtomicReset(mutexp);
-    return SAVE(TAGGED(0)); // Push the unit result
-}
-
-// Return the thread object for the current thread.
-// On most platforms this will be done with a piece of assembly code.
-Handle ThreadSelf(TaskData *taskData)
-{
-    return SAVE(taskData->threadObject);
 }
 
 // Called from interface vector.  This is the normal entry point for
@@ -499,7 +472,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             // Acquire the schedLock first.  This ensures that this is
             // atomic with respect to waiting.
             schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args->WordP());
             if (p && p->threadObject == args->WordP())
             {
                 POLYUNSIGNED attrs = ThreadAttrs(p) & PFLAG_INTMASK;
@@ -525,7 +498,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 8: // Test if a thread is active
         {
             schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args->WordP());
             schedLock.Unlock();
             return SAVE(TAGGED(p != 0));
         }
@@ -533,7 +506,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 9: // Send an interrupt to a specific thread
         {
             schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args->WordP());
             if (p) MakeRequest(p, kRequestInterrupt);
             schedLock.Unlock();
             if (p == 0)
@@ -557,7 +530,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 12: // Kill a specific thread
         {
             schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args->WordP());
             if (p) MakeRequest(p, kRequestKill);
             schedLock.Unlock();
             if (p == 0)
@@ -633,20 +606,28 @@ TaskData::~TaskData()
 
 
 // Find a task that matches the specified identifier and returns
-// it if it exists.  MUST be called with taskArrayLock held.
-TaskData *Processes::TaskForIdentifier(Handle taskId)
+// it if it exists.  MUST be called with schedLock held.
+TaskData *Processes::TaskForIdentifier(PolyObject *taskId)
 {
     // The index is in the first word of the thread object.
-    unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->WordP()->Get(0)));
+    unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->Get(0)));
     // Check the index is valid and matches the object stored in the table.
     if (index < taskArraySize)
     {
         TaskData *p = taskArray[index];
-        if (p && p->threadObject == taskId->WordP())
+        if (p && p->threadObject == taskId)
             return p;
     }
     return 0;
 }
+
+// Return the task data for a task id.
+TaskData *TaskData::FindTaskForId(PolyObject *taskId)
+{
+    PLocker lock(&processesModule.schedLock);
+    return processesModule.TaskForIdentifier(taskId);
+}
+
 // Broadcast an interrupt to all relevant threads.
 void Processes::BroadcastInterrupt(void)
 {
@@ -1981,7 +1962,6 @@ void Processes::GarbageCollect(ScanAddress *process)
 void TaskData::GarbageCollect(ScanAddress *process)
 {
     saveVec.gcScan(process);
-    if (stack != 0) GCStack(process);
 
     if (threadObject != 0)
     {

@@ -106,7 +106,6 @@ class PolyObject;
 typedef PolyObject *POLYOBJPTR;
 
 typedef byte *POLYCODEPTR;
-#define PC_RETRY_SPECIAL    ((POLYCODEPTR)1)    // This was previously TAGGED(0)
 
 class PolyWord {
 public:

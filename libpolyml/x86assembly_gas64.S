@@ -1,0 +1,2440 @@
+/*
+   Title:  Assembly code routines for the poly system.
+   Author:    David Matthews
+   Copyright (c) David C. J. Matthews 2000-2016
+ 
+   This library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License version 2.1 as published by the Free Software Foundation.
+   
+   This library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+   
+   You should have received a copy of the GNU Lesser General Public
+   License along with this library; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+/*
+   This is the 64-bit gas version of the assembly code file.
+   There are separate versions of 32/64 and MAMS (Intel syntax) and
+   and GCC (gas syntax).
+*/
+
+/*
+ Registers used :-
+
+  %rax: First argument to function.  Result of function call.
+  %rbx: Second argument to function.
+  %rcx: General register
+  %rdx: Closure pointer in call.
+  %rbp: Points to memory used for extra registers
+  %rsi: General register.
+  %rdi: General register.
+  %rsp: Stack pointer.
+  %r8:   Third argument to function
+  %r9:   Fourth argument to function
+  %r10:  Fifth argument to function
+  %r11:  General register
+  %r12:  General register
+  %r13:  General register
+  %r14:  General register
+  %r15:  Memory allocation pointer
+*/
+
+
+#include "config.h"
+#if defined __MINGW64__
+#  if defined POLY_LINKAGE_PREFIX
+#    define EXTNAME(x) POLY_LINKAGE_PREFIX ## x
+#  else
+#    define EXTNAME(x) x
+#  endif    
+/* External names in older versions of FreeBSD have a leading underscore. */
+#elif ! defined(__ELF__)
+#define EXTNAME(x)  _##x
+#else
+#define EXTNAME(x)  x
+#endif
+
+# Register mask entries - must match coding used in I386CODECONS.ML
+#define     M_Reax  0x000001
+#define     M_Recx  0x000002
+#define     M_Redx  0x000004
+#define     M_Rebx  0x000008
+#define     M_Resi  0x000010
+#define     M_Redi  0x000020
+#define     M_R8         64
+#define     M_R9        128
+#define     M_R10       256
+#define     M_R11       512
+#define     M_R12      1024
+#define     M_R13      2048
+#define     M_R14      4096
+
+            # Floating point registers.
+#define     M_FP0   0x002000
+#define     M_FP1   0x004000
+#define     M_FP2   0x008000
+#define     M_FP3   0x010000
+#define     M_FP4   0x020000
+#define     M_FP5   0x040000
+#define     M_FP6   0x080000
+#define     M_FP7   0x100000
+
+#define     Mask_all 0x1FFFFF
+
+#define     RegMask(name,mask) \
+.set        Mask_##name,    mask
+
+/* Macro to begin the hand-coded functions */
+#ifdef MACOSX
+#define GLOBAL .globl
+#else
+#define GLOBAL .global
+#endif
+
+#define INLINE_ROUTINE(id) \
+GLOBAL EXTNAME(id); \
+EXTNAME(id):
+
+.set    TAG,        1
+.set    TAGSHIFT,   1
+.set    TAGMULT,    (1 << TAGSHIFT)
+
+#define TAGGED(i) ((i << TAGSHIFT) | TAG)
+#define MAKETAGGED(from,to)     leaq    TAG(,from,2),to
+
+.set    POLYWORDSIZE,8
+
+.set    NIL,        TAGGED(0)
+.set    UNIT,       TAGGED(0)
+.set    ZERO,       TAGGED(0)
+.set    FALSE,      TAGGED(0)
+.set    TRUE,       TAGGED(1)
+.set    MINUS1,     TAGGED(0-1)
+.set    B_bytes,    0x01
+.set    B_mutable,  0x40
+.set    B_mutablebytes, 0x41
+.set    Max_Length,0x00ffffffffffffff
+
+/* The "stack frame" pointed to by rbp acts as the "memory registers". */
+#define Fr_RaiseOverflow        -120
+#define Fr_HeapOverflow         -104
+#define Fr_StackOverflow        -96
+#define Fr_StackOverflowEx      -88
+#define Fr_HandlerRegister      -80
+#define Fr_LocalMbottom         -72
+#define Fr_StackLimit           -64
+
+/* The Windows calling convention reserves space for arguments in the
+   call.  In Unix we instead save the argument in an unused save location. */
+#ifdef _WIN32
+#define Fr_Argument             16
+#else
+#define Fr_Argument             -32
+#endif
+
+/* Extra entries on the C stack */
+#define Fr_SavedMLSP            -128
+
+#define Fr_Size                 144         /* Must be multiple of 16 to get alignment correct */
+
+/* This is the argument vector passed in to X86AsmSwitchToPoly
+   It is used to initialise the frame.  A few values are updated
+   when ML returns. */
+#define Arg_LocalMpointer       0
+#define Arg_HandlerRegister     8
+#define Arg_LocalMbottom        16
+#define Arg_StackLimit          24
+#define Arg_ExceptionPacket     32  /* Address of packet to raise */
+#define Arg_RequestCode         40  /* Byte: Io function to call. */
+#define Arg_ReturnReason        42  /* Byte: Reason for returning from ML. */
+#define Arg_FullRestore         43  /* Byte: Full/partial restore */
+#define Arg_PolyStack           48  /* Current stack base */
+#define Arg_ThreadId            56  /* My thread id */
+
+/* IO function numbers.  These are functions that are called
+   to handle special cases in this code */
+#include "sys.h"
+
+#define RETURN_HEAP_OVERFLOW        1
+#define RETURN_STACK_OVERFLOW       2
+#define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_CALLBACK_RETURN      6
+#define RETURN_CALLBACK_EXCEPTION   7
+#define RETURN_RAISE_OVERFLOW       8
+
+/* Starting offsets */
+
+.set    PC_OFF,     8
+.set    SP_OFF,     16
+.set    EAX_OFF,    40
+.set    EBX_OFF,    48
+.set    ECX_OFF,    56
+.set    EDX_OFF,    64
+.set    ESI_OFF,    72
+.set    EDI_OFF,    80
+.set    R8_OFF,     88
+.set    R9_OFF,     96
+.set    R10_OFF,    104
+.set    R11_OFF,    112
+.set    R12_OFF,    120
+.set    R13_OFF,    128
+.set    R14_OFF,    136
+.set    FPREGS_OFF, 144
+
+# Mark the stack as non-executable when compiling for Linux
+#ifdef __linux__
+#ifdef __ELF__
+.section .note.GNU-stack, "", @progbits
+#endif
+#endif
+
+#
+# CODE STARTS HERE
+#
+    .text
+
+/* Define standard call macro. CALL_IO ioCallNo  where ioCallNo is the io function to call.
+   We need to include M_Redx in the register sets.  MD_set_for_retry may modify it
+   if the function was called directly and not via the closure register. */
+
+#define CALL_IO(index) \
+        movq  Fr_Argument(%rbp),%rcx; \
+        movb  $index,Arg_RequestCode(%rcx); \
+        jmp   SaveStateAndReturnLocal;
+
+#define CALL_EXTRA(index) \
+        pushq %rcx; \
+        movq  Fr_Argument(%rbp),%rcx; \
+        movb  $index,Arg_ReturnReason(%rcx); \
+        popq  %rcx; \
+        jmp   SaveFullState;
+
+/* Load the registers from the ML stack and jump to the code.
+  This is used to start ML code.
+  The argument is the address of the MemRegisters struct and goes into %rbp.
+  This is the general code for switching control to ML.  There are a number of cases to consider:
+  1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
+  2.  Normal return from an RTS call.  Could just do a simple return.
+  3.  Exception raised in RTS call.
+  4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
+  5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
+      either because the stack can't be grown or because Interrupt has been raised. */
+INLINE_ROUTINE(X86AsmSwitchToPoly)
+    pushq   %rbp                            # Standard entry sequence
+    movq    %rsp,%rbp
+    pushq   %rbx
+    pushq   %r12
+    pushq   %r13
+    pushq   %r14
+    pushq   %r15
+#ifdef _WIN32
+    pushq   %rdi                            # Callee save in Windows
+    pushq   %rsi
+    subq    $(Fr_Size-56),%rsp              # Argument is already in %rcx
+#else
+    subq    $(Fr_Size-40),%rsp
+    movq    %rdi,%rcx                       # Argument is in %rdi
+#endif
+    movq    %rcx,Fr_Argument(%rbp)
+    movq    Arg_StackLimit(%rcx),%rax
+    movq    %rax,Fr_StackLimit(%rbp)
+    movq    Arg_LocalMbottom(%rcx),%rax
+    movq    %rax,Fr_LocalMbottom(%rbp)
+    movq    Arg_HandlerRegister(%rcx),%rax
+    movq    %rax,Fr_HandlerRegister(%rbp)
+    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOWEX,%rax
+    movq    %rax,Fr_StackOverflowEx(%rbp)
+    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOW,%rax
+    movq    %rax,Fr_StackOverflow(%rbp)
+    movq    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%rax
+    movq    %rax,Fr_HeapOverflow(%rbp)
+    movq    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%rax
+    movq    %rax,Fr_RaiseOverflow(%rbp)
+    movq    Arg_PolyStack(%rcx),%rax
+    movq    Arg_LocalMpointer(%rcx),%r15
+    mov     Arg_PolyStack(%rcx),%rax
+    movq    SP_OFF(%rax),%rsp               # Set the new stack ptr
+    pushq   PC_OFF(%rax)                    # Push the code address
+    testb   $ 1,Arg_FullRestore(%rcx)       # Should we restore or clear the regs?
+    jnz     sw2polyfull
+/* We're returning from an RTS call. */
+    movq    EAX_OFF(%rax),%rax
+    cld                                     # Clear this just in case
+    ret                                     # Jump to code address
+
+sw2polyfull:
+    FRSTOR  FPREGS_OFF(%rax)
+    movq    EBX_OFF(%rax),%rbx              # Load the registers
+    movq    ECX_OFF(%rax),%rcx
+    movq    EDX_OFF(%rax),%rdx
+    movq    ESI_OFF(%rax),%rsi
+    movq    EDI_OFF(%rax),%rdi
+    movq    R8_OFF(%rax),%r8
+    movq    R9_OFF(%rax),%r9
+    movq    R10_OFF(%rax),%r10
+    movq    R11_OFF(%rax),%r11
+    movq    R12_OFF(%rax),%r12
+    movq    R13_OFF(%rax),%r13
+    movq    R14_OFF(%rax),%r14
+    cld                                     # Clear this just in case
+    movq    EAX_OFF(%rax),%rax
+    ret                                     # Jump to code address
+
+
+/* Code to save the state and switch to C
+   This saves the full register state. */
+SaveFullState:
+    pushq   %rax                        # Save rax
+    movq    Fr_Argument(%rbp),%rax
+    movq    Arg_PolyStack(%rax),%rax
+    movq    %rbx,EBX_OFF(%rax)
+    movq    %rcx,ECX_OFF(%rax)
+    movq    %rdx,EDX_OFF(%rax)
+    movq    %rsi,ESI_OFF(%rax)
+    movq    %rdi,EDI_OFF(%rax)
+    FNSAVE  FPREGS_OFF(%rax)          # Save FP state.  Also resets the state so...
+    FLDCW   FPREGS_OFF(%rax)          # ...load because we need the same rounding mode in the RTS
+    movq    %r8,R8_OFF(%rax)
+    movq    %r9,R9_OFF(%rax)
+    movq    %r10,R10_OFF(%rax)
+    movq    %r11,R11_OFF(%rax)
+    movq    %r12,R12_OFF(%rax)
+    movq    %r13,R13_OFF(%rax)
+    movq    %r14,R14_OFF(%rax)
+    popq    %rbx                                # Get old eax value
+    movq    %rbx,EAX_OFF(%rax)
+    movq    %rsp,SP_OFF(%rax)
+    movq    Fr_Argument(%rbp),%rax
+    movq    %r15,Arg_LocalMpointer(%rax)        # Save back heap pointer
+    movq    Fr_HandlerRegister(%rbp),%rbx       # and handler pointer
+    movq    %rbx,Arg_HandlerRegister(%rax)
+    movq    %rbp,%rsp                           # Restore C stack pointer
+#ifdef _WIN32
+    subq    $56,%rsp
+    popq    %rsi
+    popq    %rdi
+#else
+    subq    $40,%rsp
+#endif
+    popq    %r15                                # Restore callee-save registers
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbx
+    popq    %rbp
+    ret
+
+# As X86AsmSaveFullState but only save what is necessary for an RTS call.
+INLINE_ROUTINE(X86AsmSaveStateAndReturn)
+SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
+    jmp SaveFullState
+    
+#if (0)
+    pushq   %rax                # Save eax
+    movq    PolyStack(%rbp),%rax
+    movq    %rbx,EBX_OFF(%rax)
+    movq    %rdx,EDX_OFF(%rax)
+    FSTCW   FPREGS_OFF(%rax)
+    FNINIT                     # Reset the FP state.
+    FLDCW   FPREGS_OFF(%rax)   # But reload the rounding mode
+    movq    %r8,R8_OFF(%rax)
+    movq    %r9,R9_OFF(%rax)
+    movq    %r10,R10_OFF(%rax)
+    movq    %r15,LocalMpointer(%rbp)  # Save the heap pointer
+    popq    %rbx                # Get old eax value
+    movq    %rbx,EAX_OFF(%rax)
+    movq    %rsp,SP_OFF(%rax)
+    movb    $1,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
+    movq    SavedSp(%rbp),%rsp
+#ifdef _WIN32
+    popq    %rsi
+    popq    %rdi
+#endif
+    popq    %r15                            # Restore callee-save registers
+    popq    %r14
+    popq    %r13
+    popq    %r12
+    popq    %rbx
+    popq    %rbp
+    ret
+#endif
+
+/* CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
+   to constant arguments.  Oddly, compared with other RTS functions, it takes a single
+   argument that is a pair containing the function closure and an argument vector. */
+INLINE_ROUTINE(callcodeTupled)
+    movq    (%rax),%rdx                         # closure
+    movq    POLYWORDSIZE(%rax),%rsi            # address of arg vector
+    cmpq    $NIL,%rsi                      # If calling a function without args this could be nil
+    je      cct2
+    movq    $Max_Length,%rcx               # Mask for length removing any flags
+    andq    (-POLYWORDSIZE)(%rsi),%rcx          # Load and mask length
+    jz      cct2
+    movq    (%rsi),%rax                         # First argument
+    addq    $POLYWORDSIZE,%rsi
+    subq    $1,%rcx
+    jz      cct2
+    movq    (%rsi),%rbx                         # Second argument
+    addq    $POLYWORDSIZE,%rsi
+    subq    $1,%rcx
+    jz      cct2
+    movq    (%rsi),%r8                           # Third argument
+    addq    $POLYWORDSIZE,%rsi
+    subq    $1,%rcx
+    jz      cct2
+    movq    (%rsi),%r9                           # Fourth argument
+    addq    $POLYWORDSIZE,%rsi
+    subq    $1,%rcx
+    jz      cct2
+    movq    (%rsi),%r10                          # Fifth argument
+    addq    $POLYWORDSIZE,%rsi
+    subq    $1,%rcx
+    jz      cct2
+    popq    %rdi                                # Get the return address
+cct1:                                           # Push the remaining args to the stack
+    pushq   (%rsi)
+    addq    $POLYWORDSIZE,%rsi
+    LOOP    cct1
+    pushq   %rdi                                # Push the return address
+cct2:                                           # Finished - enter function
+    movq    $UNIT,%rsi                     # Clobber, for the moment
+    movq    $UNIT,%rcx
+    jmp     *(%rdx)
+
+
+
+    RegMask(callcodeTupled,Mask_all)             # All because we're calling an unknown function
+/*
+A number of functions implemented in Assembly for efficiency reasons
+*/
+
+INLINE_ROUTINE(int_to_word)
+ # Extract the low order bits from a word.
+    testq   $TAG,%rax
+    jz      get_first_long_word_a1
+    ret                 # Return the argument
+    RegMask(int_to_word,(M_Reax))
+
+ # This is now used in conjunction with isShort in Word.fromInt.
+INLINE_ROUTINE(get_first_long_word_a)
+get_first_long_word_a1:
+    testb   $16,(-1)(%rax)     # 16 is the "negative" bit
+    movq    (%rax),%rax     # Extract the word which is already little-endian
+    jz      gfw1
+    negq    %rax            # We can ignore overflow
+gfw1:
+    MAKETAGGED(%rax,%rax)
+    ret
+    RegMask(get_first_long_word,(M_Reax))
+
+
+
+INLINE_ROUTINE(move_bytes)
+/* Move a segment of memory from one location to another.
+   Must deal with the case of overlapping segments correctly.
+   (source, sourc_offset, destination, dest_offset, length) */
+
+ # Assume that the offsets and length are all short integers.
+    movq    %r8,%rdi               # Destination address
+    movq    %r9,%rcx                # Destination offset, untagged
+    shrq    $TAGSHIFT,%rcx
+    addq    %rcx,%rdi
+    movq    %rax,%rsi                   # Source address
+    shrq    $TAGSHIFT,%rbx
+    addq    %rbx,%rsi
+    movq    %r10,%rcx                # Get the length to move
+    shrq    $TAGSHIFT,%rcx
+    cld                             # Default to increment %rdi,%rsi
+    cmpq    %rdi,%rsi                   # Check for potential overlap
+ # If dest > src then use decrementing moves else
+ # use incrementing moves.
+    ja      mvb1
+    std                             # Decrement %rdi,%rsi
+    leaq    (-1)(%rsi,%rcx),%rsi
+    leaq    (-1)(%rdi,%rcx),%rdi
+mvb1:
+    rep; movsb                      # Copy the bytes
+    movq    $UNIT,%rax              # The function returns unit
+    movq    %rax,%rbx               # Clobber bad value in %rbx
+    movq    %rax,%rcx               # and %rcx
+    movq    %rax,%rdi
+    movq    %rax,%rsi
+ # Visual Studio 5 C++ seems to assume that the direction flag
+ # is cleared.  I think that`s a bug but we have to go along with it.
+    cld
+    ret
+
+    RegMask(move_bytes,Mask_all)
+
+
+INLINE_ROUTINE(move_words)
+/* Move a segment of memory from one location to another.
+   Must deal with the case of overlapping segments correctly.
+   (source, source_offset, destination, dest_offset, length)
+   Assume that the offsets and length are all short integers. */
+    movq    %r8,%rdi               # Destination address
+    movq    %r9,%rcx                # Destination offset
+    leaq    (-4)(%rdi,%rcx,4),%rdi      # Destination address plus offset
+    leaq    (-4)(%rax,%rbx,4),%rsi      # Source address plus offset
+    movq    %r10,%rcx                # Get the length to move (words)
+    shrq    $TAGSHIFT,%rcx
+    cld                             # Default to increment %rdi,%rsi
+    cmpq    %rdi,%rsi                   # Check for potential overlap
+ # If dest > src then use decrementing moves else
+ # use incrementing moves.
+    ja      mvw1
+    std                             # Decrement %rdi,%rsi
+
+    leaq    (-POLYWORDSIZE)(%rsi,%rcx,POLYWORDSIZE),%rsi
+    leaq    (-POLYWORDSIZE)(%rdi,%rcx,POLYWORDSIZE),%rdi
+
+mvw1:
+    rep; movsq                           # Copy the words
+    movq    $UNIT,%rax             # The function returns unit
+    movq    %rax,%rcx               # Clobber bad values
+    movq    %rax,%rdi
+    movq    %rax,%rsi
+ # Visual Studio 5 C++ seems to assume that the direction flag
+ # is cleared.  I think that`s a bug but we have to go along with it.
+    cld
+    ret
+
+    RegMask(move_words,Mask_all)
+#
+
+RetFalse:
+    movq    $FALSE,%rax
+    ret
+
+RetTrue:
+    movq    $TRUE,%rax
+    ret
+
+INLINE_ROUTINE(not_bool)
+    xorq    $(TRUE-TAG),%rax   # Change the value but leave the tag
+    ret
+    RegMask(not_bool,(M_Reax))
+
+ # or, and, xor shift etc. assume the values are tagged integers
+INLINE_ROUTINE(or_word)
+    orq     %rbx,%rax
+    ret
+    RegMask(or_word,(M_Reax))
+
+INLINE_ROUTINE(and_word)
+    andq    %rbx,%rax
+    ret
+    RegMask(and_word,(M_Reax))
+
+INLINE_ROUTINE(xor_word)
+    xorq    %rbx,%rax
+    orq     $TAG,%rax  # restore the tag
+    ret
+    RegMask(xor_word,(M_Reax))
+
+INLINE_ROUTINE(shift_left_word)
+ # Assume that both args are tagged integers
+ # Word.<<(a,b) is defined to return 0 if b > Word.wordSize
+    cmpq    $TAGGED(63),%rbx
+    jb      slw1
+    movq    $ZERO,%rax
+    ret
+slw1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    subq    $TAG,%rax
+    shlq    %cl,%rax
+    orq     $TAG,%rax  # restore the tag
+    movq    %rax,%rcx       # clobber %rcx
+    ret
+    RegMask(shift_left_word,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(shift_right_word)
+ # Word.>>(a,b) is defined to return 0 if b > Word.wordSize
+    cmpq    $TAGGED(63),%rbx
+    jb      srw1
+    movq    $ZERO,%rax
+    ret
+srw1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    shrq    %cl,%rax
+    orq     $TAG,%rax  # restore the tag
+    movq    %rax,%rcx       # clobber %rcx
+    ret
+    RegMask(shift_right_word,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(shift_right_arith_word)
+ # Word.~>>(a,b) is defined to return 0 or ~1 if b > Word.wordSize
+ # The easiest way to do that is to set the shift to 31.
+    cmpq    $TAGGED(63),%rbx
+    jb      sra1
+    movq    $TAGGED(63),%rbx
+sra1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    sarq    %cl,%rax
+    orq     $TAG,%rax  # restore the tag
+    movq    %rax,%rcx       # clobber %rcx
+    ret
+    RegMask(shift_right_arith_word,(M_Reax | M_Recx))
+
+# Clears the "mutable" bit on a segment
+INLINE_ROUTINE(locksega)
+    andb    $(0xff-B_mutable),-1(%rax)
+    movq     $TAGGED(0),%rax   # Return Unit,
+    ret
+    RegMask(lockseg,M_Reax)
+
+INLINE_ROUTINE(get_length_a)
+    movq    (-POLYWORDSIZE)(%rax),%rax
+    shlq    $8,%rax            # Clear top byte
+    shrq    $(8-TAGSHIFT),%rax  # Make it a tagged integer
+    orq $TAG,%rax
+    ret
+    RegMask(get_length,(M_Reax))
+
+
+INLINE_ROUTINE(is_shorta)
+# Returns true if the argument is tagged
+    andq    $TAG,%rax
+    jz      RetFalse
+    jmp     RetTrue
+    RegMask(is_short,(M_Reax))
+
+INLINE_ROUTINE(string_length)
+    testq   $TAG,%rax  # Single char strings are represented by the
+    jnz     RetOne      # character.
+    movq    (%rax),%rax # Get length field
+    MAKETAGGED(%rax,%rax)
+    ret
+RetOne: movq    $TAGGED(1),%rax
+    ret
+    RegMask(string_length,(M_Reax))
+
+ # Store the length of a string in the first word.
+INLINE_ROUTINE(set_string_length_a)
+    shrq    $TAGSHIFT,%rbx # Untag the length
+    movq    %rbx,(%rax)
+    movq    $UNIT,%rax     # Return unit
+    movq    %rax,%rbx           # Clobber untagged value
+    ret
+    RegMask(set_string_length,(M_Reax | M_Rebx))
+
+# raisex is only used in "raiseWithLocation" to bypass the normal ML "raise".
+INLINE_ROUTINE(raisex)
+    movq    Fr_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
+    jmp     *(%rcx)
+
+INLINE_ROUTINE(load_byte)
+    movq    %rbx,%rdi
+    shrq    $TAGSHIFT,%rdi
+    movzbq  (%rax,%rdi,1),%rdi
+    MAKETAGGED(%rdi,%rax)
+    movq    %rax,%rdi       # Clobber bad value in %rdi
+    ret
+    RegMask(load_byte,(M_Reax | M_Redi))
+
+INLINE_ROUTINE(load_word)
+    movq    (-4)(%rax,%rbx,4),%rax
+    movq    %rax,%rbx
+    ret
+    RegMask(load_word,(M_Reax))
+
+INLINE_ROUTINE(assign_byte)
+# We can assume that the data value will not overflow 30 bits (it is only 1 byte!)
+    movq    %r8,%rcx
+    shrq    $TAGSHIFT,%rcx       # Remove tags from data value
+
+# We can assume that the index will not overflow 30 bits i.e. it is a tagged short
+    shrq    $TAGSHIFT,%rbx     # Remove tags from offset
+    movb    %cl,(%rax,%rbx)
+
+    movq    $UNIT,%rax             # The function returns unit
+    movq    %rax,%rbx                   # Clobber bad value in %rbx
+    movq    %rax,%rcx                   # and %rcx
+    ret
+    RegMask(assign_byte,(M_Reax | M_Rebx | M_Recx))
+
+
+INLINE_ROUTINE(assign_word)
+    movq    %r8,(-4)(%rax,%rbx,4)      # The offset is tagged already
+    movq    $UNIT,%rax           # The function returns unit
+    ret
+    RegMask(assign_word,(M_Reax))
+
+/* Allocate a piece of memory that does not need to be initialised.
+   We can't actually risk leaving word objects uninitialised so for the
+   moment we always initialise. */
+INLINE_ROUTINE(alloc_uninit)
+    movq    $ZERO,%r8
+
+# Drop through into alloc_store
+    RegMask(alloc_uninit,Mask_all) # All, because we may call RTS
+
+/* alloc(size, flags, initial).  Allocates a segment of a given size and
+   initialises it.
+ 
+  This is primarily used for arrays and for strings.  Refs are
+  allocated using inline code. */
+INLINE_ROUTINE(alloc_store)
+allsts:
+ # First check that the length is acceptable
+    testq   $TAG,%rax
+    jz      alloc_in_rts            # Get the RTS to raise an exception
+    movq    %rax,%rdi
+    shrq    $TAGSHIFT,%rdi     # Remove tag
+    movq    $Max_Length,%rdx   # Length field must fit in 56 bits
+    cmpq    %rdx,%rdi
+    ja      alloc_in_rts            # Get the RTS to raise an exception
+    addq    $1,%rdi            # Add 1 word
+    shlq    $3,%rdi            # Get length in bytes
+    movq    %r15,%rdx
+    subq    %rdi,%rdx               # Allocate the space
+    movq    %rax,%rdi               # Clobber bad value in %rdi
+    cmpq    Fr_LocalMbottom(%rbp),%rdx            # Check for free space
+    jb      alloc_in_rts
+/* Normally the above test is sufficient but if LocalMpointer is near the bottom of
+   memory and the store requested is very large the value in %rdx can be negative
+   which is greater, unsigned, than LocalMbottom.  We have to check it is less
+   than, unsigned, the allocation pointer. */
+    cmpq    %r15,%rdx
+    jnb     alloc_in_rts
+    movq    %rdx,%r15                 # Put back in the heap ptr
+    shrq    $TAGSHIFT,%rax
+    movq    %rax,(-8)(%rdx)         # Put in length
+    shrq    $TAGSHIFT,%rbx     # remove tag from flag
+    orq     $B_mutable,%rbx    # set mutable bit
+    movb    %bl,(-1)(%rdx)         # and put it in.
+ # Initialise the store.
+    movq    %rax,%rcx               # Get back the no. of words.
+    movq    %r8,%rax                 # Get initial value.
+    cmpq    $B_mutablebytes,%rbx
+    jne     allst2
+
+ # If this is a byte seg
+    shrq    $TAGSHIFT,%rax # untag the initialiser
+    shlq    $3,%rcx        # Convert to bytes
+    movq    %rdx,%rdi
+    rep; stosb
+    jmp     allst3
+
+ # If this is a word segment
+allst2:
+    movq    %rdx,%rdi
+    rep; stosq
+
+allst3:
+    movq    %rdx,%rax
+
+    movq    %rax,%rcx       # Clobber these
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    movq    %rax,%rdi
+    ret
+    RegMask(alloc_store,Mask_all) # All, because we may use RTS call
+
+# This is used if we have reached the store limit and need to garbage-collect.
+alloc_in_rts:
+    movq    %rax,%rdx       # Clobber these first
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_alloc_store)
+
+INLINE_ROUTINE(touch_final)
+# This is really a pseudo-op
+    movq    $UNIT,%rax
+    ret
+    RegMask(touch_final,(M_Reax))
+
+INLINE_ROUTINE(add_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      add_really_long
+    leaq    (-TAG)(%rax),%rdi
+    addq    %rbx,%rdi
+    jo      add_really_long
+    movq    %rdi,%rax
+    ret
+add_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_aplus)
+    RegMask(aplus,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(sub_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      sub_really_long
+    movq    %rax,%rdi
+    subq    %rbx,%rdi
+    jo      sub_really_long
+    leaq    TAG(%rdi),%rax      # Put back the tag
+    movq    %rax,%rdi
+    ret
+sub_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_aminus)
+    RegMask(aminus,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(mult_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      mul_really_long
+    movq    %rbx,%rdi
+    sarq    $TAGSHIFT,%rdi # Shift multiplicand
+    movq    %rax,%rsi
+    subq    $TAG,%rsi          # Just subtract off the tag off multiplier
+    imulq   %rdi,%rsi
+    jo      mul_really_long
+    addq    $TAG,%rsi
+    movq    %rsi,%rax
+    movq    %rax,%rdi
+    ret
+mul_really_long:
+    movq    %rax,%rsi       # Clobber this
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_amul)
+    RegMask(amul,(M_Reax | M_Redi | M_Resi | Mask_all))
+
+INLINE_ROUTINE(div_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi          # %rdi now contains $0 or $1 (both legal!)
+    jz      div_really_long
+    cmpq    $TAGGED(0),%rbx    # Check that it's non-zero
+    jz      div_really_long         # We don't want a trap.
+ # The only case of overflow is dividing the smallest negative number by -1
+    cmpq    $TAGGED((-1)),%rbx
+    jz      div_really_long
+    sarq    $TAGSHIFT,%rax
+    movq    %rbx,%rdi
+    sarq    $TAGSHIFT,%rdi
+    cqo
+    idiv    %rdi
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rdi
+    ret
+div_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_adiv)
+    RegMask(adiv,(M_Reax | M_Redi | M_Redx | Mask_all))
+
+INLINE_ROUTINE(rem_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi      # %rdi now contains $0 or $1 (both legal!
+    jz      rem_really_long
+    cmpq    $TAGGED(0),%rbx    # Check that it's non-zero
+    jz      rem_really_long         # We don't want a trap.
+ # The only case of overflow is dividing the smallest negative number by -1
+    cmpq    $TAGGED((-1)),%rbx
+    jz      rem_really_long
+    sarq    $TAGSHIFT,%rax
+    movq    %rbx,%rdi
+    sarq    $TAGSHIFT,%rdi
+    cqo
+    idiv    %rdi
+    MAKETAGGED(%rdx,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rdi
+    ret
+rem_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_amod)
+    RegMask(amod,(M_Reax | M_Redi | M_Redx | Mask_all))
+
+/* Combined quotient and remainder.  We have to use the long form
+   if the arguments are long or there's an overflow.  The first two
+   arguments are the values to be divided.  The third argument is the
+   address where the results should be placed. */
+INLINE_ROUTINE(quotrem_long)
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      quotrem_really_long
+    cmpq    $TAGGED(0),%rbx
+    jz      quotrem_really_long
+ # The only case of overflow is dividing the smallest negative number by -1
+    cmpq    $TAGGED((-1)),%rbx
+    jz      quotrem_really_long
+
+ # Get the address for the result.
+    movq    %r8,%rcx
+# Do the division
+    sarq    $TAGSHIFT,%rax
+    movq    %rbx,%rdi
+    sarq    $TAGSHIFT,%rdi
+    cqo
+    idiv    %rdi
+    MAKETAGGED(%rax,%rax)
+    MAKETAGGED(%rdx,%rdx)
+    movq    %rax,%rdi
+    movq    %rax,(%rcx)
+    movq    %rdx,POLYWORDSIZE(%rcx)
+    movq    %rcx,%rax
+    ret
+
+mem_for_remquot1:  # Not enough store: clobber bad value in ecx.
+    movq   $1,%rcx
+
+quotrem_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_quotrem)
+    RegMask(quotrem,(M_Reax | M_Redi | M_Redx | Mask_all))
+
+# TODO: Isn't this byte equality?
+INLINE_ROUTINE(equal_long)
+    cmpq    %rax,%rbx
+    je      RetTrue
+    movq    %rax,%rcx   # If either is short
+    orq     %rbx,%rax   # the result is false
+    andq    $TAG,%rax
+    jnz     RetFalse
+    movq    %rcx,%rax
+    CALL_IO(POLY_SYS_equala)
+    RegMask(equala,(M_Reax | M_Recx | Mask_all))
+
+
+INLINE_ROUTINE(or_long)
+#ifdef NOTATTHEMOMENT
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      or_really_long
+    orq     %rbx,%rax
+    movq    %rax,%rdi
+    ret
+or_really_long:
+#endif
+    CALL_IO(POLY_SYS_ora)
+    RegMask(ora,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(xor_long)
+#ifdef NOTATTHEMOMENT
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      xor_really_long
+    xorq    %rbx,%rax
+    orq     $TAG,%rax  # restore the tag
+    movq    %rax,%rdi
+    ret
+xor_really_long:
+#endif
+    CALL_IO(POLY_SYS_xora)
+    RegMask(xora,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(and_long)
+#ifdef NOTATTHEMOMENT
+    movq    %rax,%rdi
+    andq    %rbx,%rdi
+    andq    $TAG,%rdi
+    jz      and_really_long
+    andq    %rbx,%rax
+    movq    %rax,%rdi
+    ret
+and_really_long:
+#endif
+    CALL_IO(POLY_SYS_anda)
+    RegMask(anda,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(neg_long)
+    testq   $TAG,%rax
+    jz      neg_really_long
+    movq    $(TAGGED(0)+TAG),%rdi
+    subq    %rax,%rdi
+    jo      neg_really_long
+    movq    %rdi,%rax
+    ret
+neg_really_long:
+    movq    %rax,%rdi
+    CALL_IO(POLY_SYS_aneg)
+    RegMask(aneg,(M_Reax | M_Redi | Mask_all))
+
+INLINE_ROUTINE(int_geq)
+    testq   $TAG,%rax # Is first arg short?
+    jz      igeq2
+    testq   $TAG,%rbx # Is second arg short?
+    jz      igeq1
+    cmpq    %rbx,%rax
+    jge     RetTrue
+    jmp     RetFalse
+igeq1:
+ # First arg is short, second isn't
+    testb   $16,(-1)(%rbx)     # 16 is the "negative" bit
+    jnz     RetTrue     # Negative - always less
+    jmp     RetFalse
+
+igeq2:
+ # First arg is long
+    testq   $TAG,%rbx # Is second arg short?
+    jz      igeq3
+ # First arg is long, second is short
+    testb   $16,(-1)(%rax)     # 16 is the "negative" bit
+    jz      RetTrue    # Positive - always greater
+    jmp     RetFalse
+
+igeq3:
+ # Both long
+    CALL_IO(POLY_SYS_int_geq)
+    RegMask(int_geq,(M_Reax | Mask_all))
+
+
+INLINE_ROUTINE(int_leq)
+    testq   $TAG,%rax # Is first arg short?
+    jz      ileq2
+    testq   $TAG,%rbx # Is second arg short?
+    jz      ileq1
+    cmpq    %rbx,%rax
+    jle     RetTrue
+    jmp     RetFalse
+ileq1:
+ # First arg is short, second isn't
+    testb   $16,(-1)(%rbx)     # 16 is the "negative" bit
+    jz      RetTrue     # Negative - always less
+    jmp     RetFalse
+
+ileq2:
+ # First arg is long
+    testq   $TAG,%rbx # Is second arg short?
+    jz      ileq3
+ # First arg is long, second is short
+    testb   $16,(-1)(%rax)     # 16 is the "negative" bit
+    jnz     RetTrue    # Positive - always greater
+    jmp     RetFalse
+
+ileq3:
+    CALL_IO(POLY_SYS_int_leq)
+     RegMask(int_leq,(M_Reax | M_Recx | Mask_all))
+
+
+INLINE_ROUTINE(int_gtr)
+    testq   $TAG,%rax # Is first arg short?
+    jz      igtr2
+    testq   $TAG,%rbx # Is second arg short?
+    jz      igtr1
+    cmpq    %rbx,%rax
+    jg      RetTrue
+    jmp     RetFalse
+igtr1:
+ # First arg is short, second isn't
+    testb   $16,(-1)(%rbx)     # 16 is the "negative" bit
+    jnz     RetTrue     # Negative - always less
+    jmp     RetFalse
+
+igtr2:
+ # First arg is long
+    testq   $TAG,%rbx # Is second arg short?
+    jz      igtr3
+ # First arg is long, second is short
+    testb   $16,(-1)(%rax)     # 16 is the "negative" bit
+    jz      RetTrue    # Positive - always greater
+    jmp     RetFalse
+
+igtr3:
+    CALL_IO(POLY_SYS_int_gtr)
+    RegMask(int_gtr,(M_Reax | M_Recx | Mask_all))
+
+
+INLINE_ROUTINE(int_lss)
+    testq   $TAG,%rax # Is first arg short?
+    jz      ilss2
+    testq   $TAG,%rbx # Is second arg short?
+    jz      ilss1
+    cmpq    %rbx,%rax
+    jl      RetTrue
+    jmp     RetFalse
+ilss1:
+ # First arg is short, second isn't
+    testb   $16,(-1)(%rbx)     # 16 is the "negative" bit
+    jz      RetTrue     # Negative - always less
+    jmp     RetFalse
+
+ilss2:
+ # First arg is long
+    testq   $TAG,%rbx # Is second arg short?
+    jz      ilss3
+ # First arg is long, second is short
+    testb   $16,(-1)(%rax)     # 16 is the "negative" bit
+    jnz     RetTrue    # Positive - always greater
+    jmp     RetFalse
+
+ilss3:
+     CALL_IO(POLY_SYS_int_lss)
+     RegMask(int_lss,(M_Reax | M_Recx | Mask_all))
+
+INLINE_ROUTINE(offset_address)
+ # This is needed in the code generator, but is a very risky thing to do.
+    shrq    $TAGSHIFT,%rbx     # Untag
+    addq    %rbx,%rax       # and add in
+    movq    %rax,%rbx
+    ret
+    RegMask(offset_address,(M_Reax | M_Rebx))
+
+# General test routine.  Returns with the condition codes set
+# appropriately.
+
+teststr:
+    testq   $TAG,%rax     # Is arg1 short
+    jz      tststr1
+    testq   $TAG,%rbx     # Yes: is arg2 also short?
+    jz      tststr0a
+    # Both are short - just compare the characters
+    cmpq    %rbx,%rax
+    ret
+
+tststr0a:
+    movq    $1,%rdi        # Is arg2 the null string ?
+    cmpq    (%rbx),%rdi
+    jg      tststr4            # Return with "gtr" set if it is
+    shrq    $TAGSHIFT,%rax
+    cmpb    POLYWORDSIZE(%rbx),%al
+    jne     tststr4            # If they're not equal that's the result
+    cmpq    $256,%rax     # But if they're equal set "less" because A is less than B
+    jmp     tststr4
+
+tststr1: # arg2 is not short.  Is arg1 ?
+    testq   $TAG,%rbx
+    jz      tststr2
+    movq    (%rax),%rdi        # Is arg1 the null string
+    cmpq    $1,%rdi
+    jl      tststr4            # Return with "less" set if it is
+    shrq    $TAGSHIFT,%rbx
+    movb    POLYWORDSIZE(%rax),%cl
+    cmpb    %bl,%cl
+    jne     tststr4            # If they're not equal that's the result
+    cmpq    $0,%rdi      # But if they're equal set "greater" because A is greater than B
+    jmp     tststr4
+
+tststr2:
+    movq    (%rax),%rdi     # Get length.
+    movq    (%rbx),%rcx     # 
+    cmpq    %rcx,%rdi       # Find shorter length
+    jge     tststr3
+    movq    %rdi,%rcx
+tststr3:
+    leaq    POLYWORDSIZE(%rax),%rsi    # Load ptrs for cmpsb
+    leaq    POLYWORDSIZE(%rbx),%rdi
+    cld                 # Make sure we increment
+    cmpq    %rax,%rax       # Set the Zero bit
+    repe; cmpsb           # Compare while equal and %rcx > 0
+    jnz     tststr4
+ # Strings are equal as far as the shorter of the two.  Have to compare
+ # the lengths.
+    movq    (%rax),%rdi
+    cmpq    (%rbx),%rdi
+tststr4:
+    movq    $1,%rax      # Clobber these
+    movq    %rax,%rbx       
+    movq    %rax,%rcx       
+    movq    %rax,%rsi
+    movq    %rax,%rdi
+    ret
+
+ # These functions compare strings for lexical ordering.  This version, at
+ # any rate, assumes that they are UNSIGNED bytes.
+
+INLINE_ROUTINE(str_compare)
+    call    teststr
+    ja      RetTrue         # Return TAGGED(1) if it's greater
+    je      RetFalse        # Return TAGGED(0) if it's equal
+    movq    $MINUS1,%rax   # Return TAGGED(-1) if it's less.
+    ret
+    RegMask(str_compare,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+
+INLINE_ROUTINE(teststrgeq)
+    call    teststr
+    jnb     RetTrue
+    jmp     RetFalse
+    RegMask(teststrgeq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+INLINE_ROUTINE(teststrleq)
+    call    teststr
+    jna     RetTrue
+    jmp     RetFalse
+    RegMask(teststrleq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+INLINE_ROUTINE(teststrlss)
+    call    teststr
+    jb      RetTrue
+    jmp     RetFalse
+    RegMask(teststrlss,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+INLINE_ROUTINE(teststrgtr)
+    call    teststr
+    ja      RetTrue
+    jmp     RetFalse
+    RegMask(teststrgtr,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+
+INLINE_ROUTINE(bytevec_eq)
+/* Compare arrays of bytes.  The arguments are the same as move_bytes.
+   (source, sourc_offset, destination, dest_offset, length) */
+
+/* Assume that the offsets and length are all short integers. */
+    movq    %r8,%rdi                     # Destination address
+    movq    %r9,%rcx                     # Destination offset, untagged
+    shrq    $TAGSHIFT,%rcx
+    addq    %rcx,%rdi
+    movq    %rax,%rsi                   # Source address
+    shrq    $TAGSHIFT,%rbx
+    addq    %rbx,%rsi
+    movq    %r10,%rcx                    # Get the length to move
+    shrq    $TAGSHIFT,%rcx
+    cld                     # Make sure we increment
+    cmpq    %rax,%rax       # Set the Zero bit
+    repe; cmpsb
+    movq    %rax,%rsi       # Make these valid
+    movq    %rax,%rcx
+    movq    %rax,%rdi
+    jz      bvTrue
+    movq    $FALSE,%rax
+    jmp     bvRet
+bvTrue:
+    movq    $TRUE,%rax
+bvRet:
+    ret
+
+    RegMask(bytevec_eq,(M_Reax | M_Recx | M_Redi | M_Resi))
+
+
+INLINE_ROUTINE(is_big_endian)
+    jmp     RetFalse    # I386/486 is little-endian
+     RegMask(is_big_endian,(M_Reax))
+
+INLINE_ROUTINE(bytes_per_word)
+    movq    $TAGGED(POLYWORDSIZE),%rax  # 4/8 bytes per word
+    ret
+    RegMask(bytes_per_word,(M_Reax))
+
+ # Word functions.  These are all unsigned and do not raise Overflow
+ 
+INLINE_ROUTINE(mul_word)
+    shrq    $TAGSHIFT,%rbx # Untag the multiplier
+    subq    $TAG,%rax      # Remove the tag from the multiplicand
+    mulq    %rbx                # unsigned multiplication
+    addq    $TAG,%rax      # Add back the tag, but don`t shift
+    movq    %rax,%rdx           # clobber this which has the high-end result
+    movq    %rax,%rbx           # and the other bad result.
+    ret
+    RegMask(mul_word,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(plus_word)
+    leaq    (-TAG)(%rax,%rbx),%rax  # Add the values and subtract a tag
+    ret
+    RegMask(plus_word,(M_Reax))
+
+INLINE_ROUTINE(minus_word)
+    subq    %rbx,%rax
+    addq    $TAG,%rax          # Put back the tag
+    ret
+    RegMask(minus_word,(M_Reax))
+
+INLINE_ROUTINE(div_word)
+    shrq    $TAGSHIFT,%rbx     # Check for division by zero is done in ML
+    shrq    $TAGSHIFT,%rax
+    movq    $0,%rdx
+    div     %rbx
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(div_word,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(mod_word)
+    shrq    $TAGSHIFT,%rbx # Check for division by zero is done in ML
+    shrq    $TAGSHIFT,%rax
+    movq    $0,%rdx
+    div     %rbx
+    MAKETAGGED(%rdx,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(mod_word,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(word_eq)
+    cmpq    %rbx,%rax
+    jz      RetTrue         # True if they are equal.
+    jmp     RetFalse
+    RegMask(word_eq,(M_Reax))
+
+INLINE_ROUTINE(word_geq)
+    cmpq    %rbx,%rax
+    jnb     RetTrue
+    jmp     RetFalse
+    RegMask(word_geq,(M_Reax))
+
+INLINE_ROUTINE(word_leq)
+    cmpq    %rbx,%rax
+    jna     RetTrue
+    jmp     RetFalse
+    RegMask(word_leq,(M_Reax))
+
+INLINE_ROUTINE(word_gtr)
+    cmpq    %rbx,%rax
+    ja      RetTrue
+    jmp     RetFalse
+    RegMask(word_gtr,(M_Reax))
+
+ INLINE_ROUTINE(word_lss)
+    cmpq    %rbx,%rax
+    jb      RetTrue
+    jmp     RetFalse
+    RegMask(word_lss,(M_Reax))
+
+INLINE_ROUTINE(fixed_geq)
+    cmpq    %rbx,%rax
+    jge     RetTrue
+    jmp     RetFalse
+    RegMask(fixed_geq,(M_Reax))
+
+INLINE_ROUTINE(fixed_leq)
+    cmpq    %rbx,%rax
+    jle     RetTrue
+    jmp     RetFalse
+    RegMask(fixed_leq,(M_Reax))
+
+INLINE_ROUTINE(fixed_gtr)
+    cmpq    %rbx,%rax
+    jg      RetTrue
+    jmp     RetFalse
+    RegMask(fixed_gtr,(M_Reax))
+
+INLINE_ROUTINE(fixed_lss)
+    cmpq    %rbx,%rax
+    jl      RetTrue
+    jmp     RetFalse
+    RegMask(fixed_lss,(M_Reax))
+
+INLINE_ROUTINE(fixed_add)
+    leaq   (-TAG)(%rax),%rax
+    addq    %rbx,%rax
+    jo      raiseOverflowEx
+    ret
+    RegMask(fixed_add,(M_Reax))
+
+INLINE_ROUTINE(fixed_sub)
+    subq   %rbx,%rax
+    jo      raiseOverflowEx
+    addq    $TAG,%rax      # Put back the tag
+    ret
+   RegMask(fixed_sub,(M_Reax))
+
+INLINE_ROUTINE(fixed_mul)
+    sarq    $TAGSHIFT,%rbx # Untag the multiplier
+    subq    $TAG,%rax      # Remove the tag from the multiplicand
+    imulq   %rbx,%rax           # signed multiplication
+    jo      raiseOverflowEx
+    addq    $TAG,%rax      # Add back the tag, but don`t shift
+    movq    %rax,%rdx           # clobber this which has the high-end result
+    movq    %rax,%rbx           # and the other bad result.
+    ret
+    RegMask(fixed_mul,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(fixed_quot)
+# Checking for overflow and zero is done in ML
+    sarq    $TAGSHIFT,%rbx
+    sarq    $TAGSHIFT,%rax
+    cqo
+    idiv    %rbx
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(fixed_quot,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(fixed_rem)
+    sarq    $TAGSHIFT,%rbx
+    sarq    $TAGSHIFT,%rax
+    cqo
+    idiv     %rbx
+    MAKETAGGED(%rdx,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(fixed_rem,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(fixed_div)
+# Checking for overflow and zero is done in ML
+    sarq    $TAGSHIFT,%rbx
+    sarq    $TAGSHIFT,%rax
+    cqo
+    idiv    %rbx
+    cmpq    $0,%rdx
+    jz      fixed_div1          # If the remainder if non-zero ...
+    xorq    %rdx,%rbx        # and has a different sign from the divisor ...
+    jns     fixed_div1
+    subq    $1,%rax       # subtract one to round to -infinity rather than zero.
+fixed_div1:
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(fixed_div,(M_Reax | M_Rebx | M_Redx))
+
+INLINE_ROUTINE(fixed_mod)
+    sarq    $TAGSHIFT,%rbx
+    sarq    $TAGSHIFT,%rax
+    cqo
+    idiv     %rbx
+# Result is in %rdx.  We have to change the result so that it has the sign as the divisor.
+    cmpq    $0,%rdx
+    jz      fixed_mod1  # Result is zero - no change
+    xorq    %rdx,%rbx
+    jns     fixed_mod1  # Skip if they had the same signs
+    xorq    %rdx,%rbx   # Restore the original divisor
+    addq    %rbx,%rdx   # And add it in
+fixed_mod1:
+    MAKETAGGED(%rdx,%rax)
+    movq    %rax,%rdx
+    movq    %rax,%rbx
+    ret
+    RegMask(fixed_mod,(M_Reax | M_Rebx | M_Redx))
+
+raiseOverflowEx:
+# Build the exception packet.
+# Allocate four word item.
+# Set first word to TAGGED(5)
+# Set second word to the string "Overflow" - That's going to need allocation.
+# Set third and fourth words to TAGGED(0)
+# Raise the exception.
+    jmp     *Fr_RaiseOverflow(%rbp)
+
+# Atomically increment the value at the address of the arg and return the
+# updated value.  Since the xadd instruction returns the original value
+# we have to increment it.
+INLINE_ROUTINE(atomic_increment)
+atomic_incr:                    # Internal name in case "atomic_increment" is munged.
+    movq    $2,%rbx
+    lock xaddq %rbx,(%rax)
+    addq    $2,%rbx
+    movq    %rbx,%rax
+    ret
+
+    RegMask(atomic_incr,(M_Reax | M_Rebx))
+
+# Atomically decrement the value at the address of the arg and return the
+# updated value.  Since the xadd instruction returns the original value
+# we have to decrement it.
+INLINE_ROUTINE(atomic_decrement)
+atomic_decr:
+    movq    $-2,%rbx
+    lock xaddq %rbx,(%rax)
+    movq    %rbx,%rax
+    subq    $2,%rax
+    ret
+
+    RegMask(atomic_decr,(M_Reax | M_Rebx))
+
+/* Reset a mutex to (tagged) one.  Because the increment and decrements
+   are atomic this doesn't have to do anything special. */
+INLINE_ROUTINE(atomic_reset)
+    movq    $3,(%rax)
+    movq    $UNIT,%rax  # The function returns unit
+    ret
+
+    RegMask(atomic_reset,M_Reax)
+
+# Return the thread id object for the current thread
+INLINE_ROUTINE(thread_self)
+    movq    Fr_Argument(%rbp),%rax
+    movq    Arg_ThreadId(%rax),%rax
+    ret
+    RegMask(thread_self,(M_Reax))
+
+
+
+/* Memory for LargeWord.word values.  This is the same as mem_for_real on
+  64-bits but only a single word on 32-bits.
+  ********************************
+  Some of this code is temporary.  The final version should compute the result and
+  simply jump here to box it.  That requires the heap-overflow code to save the
+  registers across the trap but not to examine them for pointers.  Temporarily we
+  don't do that but instead clear all the registers across a trap. */
+mem_for_largeword:
+/* 64-bits: just drop through */
+
+# FLOATING POINT
+
+mem_for_real:
+# Allocate memory for the result.
+    movq    %r15,%rcx
+    subq    $16,%rcx        # Length word (8 bytes) + 8 bytes
+    cmpq    Fr_LocalMbottom(%rbp),%rcx
+    jnb     mem_for_real1
+/* ********************************
+Temporarily: push these registers to the stack
+and pop them afterwards.  This isn't the final version of this code
+but is useful as a test. */
+    pushq   %rax
+    pushq   %rbx
+    call    X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    popq    %rbx
+    popq    %rax
+mem_for_real1:
+    movq    %rcx,%r15                        # Updated allocation pointer
+    movq    $1,(-8)(%rcx)      # One word
+    movb    $B_bytes,(-1)(%rcx)    # Set the byte flag.
+    ret
+
+
+INLINE_ROUTINE(real_add)
+    call    mem_for_real
+/* Do the operation and put the result in the allocated space. */
+    FLDL    (%rax)
+    FADDL   (%rbx)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+# The mask includes FP7 rather than FP0 because this pushes a value which
+# overwrites the bottom of the stack.
+    RegMask(real_add,(M_Reax | M_Recx | M_Redx | M_FP7))
+
+
+
+INLINE_ROUTINE(real_sub)
+        call    mem_for_real
+# Do the operation and put the result in the allocated
+# space.
+    FLDL    (%rax)
+    FSUBL   (%rbx)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(real_sub,(M_Reax | M_Recx | M_Redx | M_FP7))
+
+
+INLINE_ROUTINE(real_mul)
+        call    mem_for_real
+# Do the operation and put the result in the allocated
+# space.
+    FLDL    (%rax)
+    FMULL   (%rbx)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(real_mul,(M_Reax | M_Recx | M_Redx | M_FP7))
+
+
+INLINE_ROUTINE(real_div)
+        call    mem_for_real
+# Do the operation and put the result in the allocated
+# space.
+    FLDL    (%rax)
+    FDIVL   (%rbx)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(real_div,(M_Reax | M_Recx | M_Redx | M_FP7))
+
+
+# For all values except NaN it's possible to do this by a test such as
+# "if x < 0.0 then ~ x else x" but the test always fails for NaNs
+
+INLINE_ROUTINE(real_abs)
+    movq    %rax,%rbx                # Put a valid value in %rbx
+    call    mem_for_real
+# Do the operation and put the result in the allocated
+# space.
+# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
+    FLDL    (%rax)
+    FABS
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(real_abs,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)          # Temporarily include %rbx)
+
+
+INLINE_ROUTINE(real_neg)
+    movq    %rax,%rbx                # Put a valid value in %rbx
+    call    mem_for_real
+# Do the operation and put the result in the allocated
+# space.
+# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
+    FLDL    (%rax)
+    FCHS
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(real_neg,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)         # Temporarily include %rbx)
+
+
+
+INLINE_ROUTINE(real_eq)
+    FLDL    (%rax)
+    FCOMPL  (%rbx)
+    FNSTSW  %ax
+# Not all 64-bit processors support SAHF.
+# The result is true if the zero flag is set and parity flag clear.  
+    andq    $17408,%rax        # 0x4400
+    cmpq    $16384,%rax        # 0x4000
+    je      RetTrue
+    jmp     RetFalse
+    RegMask(real_eq,(M_Reax | M_FP7))
+
+
+INLINE_ROUTINE(real_neq)
+    FLDL    (%rax)
+    FCOMPL  (%rbx)
+    FNSTSW  %ax
+    andq    $17408,%rax        # 0x4400
+    cmpq    $16384,%rax        # 0x4000
+    jne     RetTrue
+    jmp     RetFalse
+
+    RegMask(real_neq,(M_Reax | M_FP7))
+
+
+INLINE_ROUTINE(real_lss)
+# Compare %rbx > %rax
+    FLDL    (%rbx)
+    FCOMPL  (%rax)
+    FNSTSW  %ax
+
+# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
+    andq    $17664,%rax # 0x4500
+    je      RetTrue
+    jmp     RetFalse
+
+    RegMask(real_lss,(M_Reax | M_FP7))
+
+
+INLINE_ROUTINE(real_gtr)
+    FLDL    (%rax)
+    FCOMPL  (%rbx)
+    FNSTSW  %ax
+
+# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
+    andq    $17664,%rax    # 0x4500
+    je      RetTrue
+    jmp     RetFalse
+
+    RegMask(real_gtr,(M_Reax | M_FP7))
+
+
+INLINE_ROUTINE(real_leq)
+# Compare %rbx > %rax
+    FLDL    (%rbx)
+    FCOMPL  (%rax)
+    FNSTSW  %ax
+# True if the carry flag (C0) and parity (C2) are both clear
+    andq    $1280,%rax # 0x500
+    je      RetTrue
+    jmp     RetFalse
+
+    RegMask(real_leq,(M_Reax | M_FP7))
+
+
+INLINE_ROUTINE(real_geq)
+    FLDL    (%rax)
+    FCOMPL  (%rbx)
+    FNSTSW  %ax
+# True if the carry flag (C0) and parity (C2) are both clear
+    andq    $1280,%rax # 0x500
+    je      RetTrue
+    jmp     RetFalse
+
+    RegMask(real_geq,(M_Reax | M_FP7))
+
+INLINE_ROUTINE(real_from_int)
+    testq   $TAG,%rax   # Is it long ?
+    jnz      fixed_to_real_internal
+
+real_float_1:
+    CALL_IO(POLY_SYS_int_to_real)
+
+    RegMask(real_from_int,(M_Reax | M_Recx | M_Redx | M_FP7 | Mask_all))
+
+INLINE_ROUTINE(fixed_to_real)
+fixed_to_real_internal:
+    movq    %rax,%rbx                # Put a valid value in %rbx
+    call    mem_for_real
+    sarq    $TAGSHIFT,%rax # Untag the value
+    pushq   %rax                     # Push it to the stack.  We can only load it from memory
+    fildl   (%rsp)
+    popq    %rax
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(fixed_to_real,(M_Reax | M_Rebx | M_Recx | M_Redx | M_FP7)    # Temporarily include %rbx)
+
+INLINE_ROUTINE(set_exception_trace)
+/* The argument is the closure to call.  The return address is already on the stack.
+   We need to push the addresses of some code.  To make it position-independent we use
+   CALLs in a non-standard way. */
+    movq    %rax,%rdx                   # Target closure
+    pushq   Fr_HandlerRegister(%rbp)       # Previous handler
+    CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
+    /* This is the code that is called if we get an exception.
+       The exception packet is the first argument. */
+    CALL_IO(POLY_SYS_give_ex_trace_fn)
+    #
+setexct1:
+    movq    %rsp,Fr_HandlerRegister(%rbp)  # Set up the handler
+    CALL    setexct2                    # Jump to setexct2 pushing the next addr to the stack
+    # This is the code that is called if we return without raising an exception
+    addq    $POLYWORDSIZE,%rsp     # Remove handler
+    popq    Fr_HandlerRegister(%rbp)
+    RET
+setexct2:
+    movq    $UNIT,%rax             # The function takes a unit arg.
+    jmp     *(%rdx)
+
+# Additional assembly code routines
+
+# RTS call to kill the current thread. 
+INLINE_ROUTINE(X86AsmKillSelf)
+    CALL_IO(POLY_SYS_kill_self)
+
+INLINE_ROUTINE(X86AsmCallbackReturn)
+    CALL_EXTRA(RETURN_CALLBACK_RETURN)
+
+INLINE_ROUTINE(X86AsmCallbackException)
+    CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
+
+# This implements atomic addition in the same way as atomic_increment
+INLINE_ROUTINE(X86AsmAtomicIncrement)
+#ifdef _WIN32
+    movq    %rcx,%rax       # On Windows the argument is passed in %rcx
+#else
+    movq    %rdi,%rax   # On X86_64 the argument is passed in %rdi
+#endif
+# Use %rcx and %rax because they are volatile (unlike %rbx on X86/64/Unix)
+    movq    $2,%rcx
+    lock xaddq %rcx,(%rax)
+    addq    $2,%rcx
+    movq    %rcx,%rax
+    ret
+
+# LargeWord.word operations.  These are 32 or 64-bit values in a single-word byte
+# memory cell.
+INLINE_ROUTINE(eq_longword)
+    movq    (%rax),%rax
+    cmpq    (%rbx),%rax
+    jz      RetTrue         # True if they are equal.
+    jmp     RetFalse
+    RegMask(eq_longword,(M_Reax))
+
+INLINE_ROUTINE(geq_longword)
+
+    movq    (%rax),%rax
+    cmpq    (%rbx),%rax
+    jnb     RetTrue
+    jmp     RetFalse
+    RegMask(geq_longword,(M_Reax))
+
+INLINE_ROUTINE(leq_longword)
+    movq    (%rax),%rax
+    cmpq    (%rbx),%rax
+    jna     RetTrue
+    jmp     RetFalse
+    RegMask(leq_longword,(M_Reax))
+
+INLINE_ROUTINE(gt_longword)
+    movq    (%rax),%rax
+    cmpq    (%rbx),%rax
+    ja      RetTrue
+    jmp     RetFalse
+    RegMask(gt_longword,(M_Reax))
+
+INLINE_ROUTINE(lt_longword)
+    movq    (%rax),%rax
+    cmpq    (%rbx),%rax
+    jb      RetTrue
+    jmp     RetFalse
+    RegMask(lt_longword,(M_Reax))
+
+INLINE_ROUTINE(longword_to_tagged)
+# Load the value and tag it, discarding the top bit
+    movq    (%rax),%rax
+    MAKETAGGED(%rax,%rax)
+    ret
+    RegMask(longword_to_tagged,(M_Reax))
+
+INLINE_ROUTINE(signed_to_longword)
+# Shift the value to remove the tag and store it.
+    movq    %rax,%rbx                   # mem_for_largeword may push rebx
+    call    mem_for_largeword
+    sarq    $TAGSHIFT,%rax         # Arithmetic shift, preserve sign
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+    RegMask(signed_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %rbx)
+
+INLINE_ROUTINE(unsigned_to_longword)
+# Shift the value to remove the tag and store it.
+    movq    %rax,%rbx                   # mem_for_largeword may push rebx
+    call    mem_for_largeword
+    shrq    $TAGSHIFT,%rax         # Logical shift, zero top bit
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+    RegMask(unsigned_to_longword,(M_Reax | M_Rebx | M_Recx)   # Temporarily include %rbx)
+
+INLINE_ROUTINE(plus_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    addq    (%rbx),%rax
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+    RegMask(plus_longword,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(minus_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    subq    (%rbx),%rax
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+    RegMask(minus_longword,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(mul_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    mulq    (%rbx)
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    movq    %rax,%rdx           # clobber this which has the high-end result
+    ret
+    RegMask(mul_longword,(M_Reax | M_Recx | M_Redx))
+
+INLINE_ROUTINE(div_longword)
+# Check for division by zero is done in ML
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    movq    $0,%rdx
+    divq    (%rbx)
+    movq    %rax,(%rcx)         # Store the quotient
+    movq    %rcx,%rax
+    movq    %rax,%rdx           # clobber this which has the remainder
+    ret
+
+    RegMask(div_longword,(M_Reax | M_Recx | M_Redx))
+
+INLINE_ROUTINE(mod_longword)
+# Check for division by zero is done in ML
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    movq    $0,%rdx
+    divq    (%rbx)
+    movq    %rdx,(%rcx)         # Store the remainder
+    movq    %rcx,%rax
+    movq    %rax,%rdx           # clobber this which has the remainder
+    ret
+
+    RegMask(mod_longword,(M_Reax | M_Recx | M_Redx))
+
+INLINE_ROUTINE(andb_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    andq    (%rbx),%rax
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(andb_longword,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(orb_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    orq     (%rbx),%rax
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(orb_longword,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(xorb_longword)
+    call    mem_for_largeword
+    movq    (%rax),%rax
+    xorq    (%rbx),%rax
+    movq    %rax,(%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(xorb_longword,(M_Reax | M_Recx))
+
+INLINE_ROUTINE(shift_left_longword)
+    call    mem_for_largeword
+    movq    %rcx,%rdx           # We need %rcx for the shift
+ # The shift value is always a Word.word value i.e. tagged
+ # LargeWord.<<(a,b) is defined to return 0 if b > LargeWord.wordSize
+    cmpq    $TAGGED(64),%rbx
+    jb      sllw1
+    movq    $0,%rax
+    jmp     sllw2
+sllw1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    movq    (%rax),%rax
+    shlq    %cl,%rax
+sllw2:
+    movq    %rax,(%rdx)
+    movq    %rdx,%rax
+    movq    %rax,%rcx           # Clobber %rcx
+    ret
+    RegMask(shift_left_longword,(M_Reax | M_Recx | M_Redx))
+
+INLINE_ROUTINE(shift_right_longword)
+    call    mem_for_largeword
+    movq    %rcx,%rdx           # We need %rcx for the shift
+/* The shift value is always a Word.word value i.e. tagged
+   LargeWord.>>(a,b) is defined to return 0 if b > LargeWord.wordSize */
+    cmpq    $TAGGED(64),%rbx
+    jb      srlw1
+    movq    $0,%rax
+    jmp     srlw2
+srlw1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    movq    (%rax),%rax
+    shrq    %cl,%rax
+srlw2:
+    movq    %rax,(%rdx)
+    movq    %rdx,%rax
+    movq    %rax,%rcx           # Clobber %rcx
+    ret
+    RegMask(shift_right_longword,(M_Reax | M_Recx | M_Redx))
+
+INLINE_ROUTINE(shift_right_arith_longword)
+    call    mem_for_largeword
+    movq    %rcx,%rdx           # We need %rcx for the shift
+/* The shift value is always a Word.word value i.e. tagged
+   LargeWord.~>>(a,b) is defined to return 0 or ~1 if b > LargeWord.wordSize */
+    cmpq    $TAGGED(64),%rbx
+    jb      sralw1
+    # Setting the shift to 31/63 propagates the sign bit
+    movq    $TAGGED(63),%rbx
+sralw1:
+    movq    %rbx,%rcx
+    shrq    $TAGSHIFT,%rcx # remove tag
+    movq    (%rax),%rax
+    sarq    %cl,%rax
+    movq    %rax,(%rdx)
+    movq    %rdx,%rax
+    movq    %rax,%rcx           # Clobber %rcx
+    ret
+    RegMask(shift_right_arith_longword,(M_Reax | M_Rebx | M_Recx | M_Redx))
+
+# C-memory operations.
+INLINE_ROUTINE(cmem_load_asm_8)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    sarq    $TAGSHIFT,%rbx     # That's also tagged
+    movzbq  (%rax,%rbx,1),%rax
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rbx       # Clobber bad value in %rbx
+    ret
+    RegMask(cmem_load_8,(M_Reax | M_Rebx))
+
+INLINE_ROUTINE(cmem_load_asm_16)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    # The index is tagged but since we want to multiply by two we don't need anything here.
+    movzwq  -1(%rax,%rbx,1),%rax
+    MAKETAGGED(%rax,%rax)
+    ret
+    RegMask(cmem_load_16,(M_Reax | M_Rebx))
+
+INLINE_ROUTINE(cmem_load_asm_32)
+# 64-bit mode - the result is tagged
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movl    -2(%rax,%r8,2),%eax
+    MAKETAGGED(%rax,%rax)
+    movq    %rax,%rbx       # Clobber bad value in %rbx
+    ret
+
+    RegMask(cmem_load_32,(M_Reax | M_Rebx))
+
+INLINE_ROUTINE(cmem_load_asm_64)
+    pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
+    call    mem_for_largeword
+    popq    %r8
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    (-4)(%rax,%r8,4),%rax
+    movq    %rax,(%rcx)             # Save in the new memory
+    movq    %rcx,%rax               # Copy the result address
+    movq    %rax,%rbx               # Clobber bad value
+    ret
+
+    RegMask(cmem_load_64,(M_Reax | M_Rebx | M_Recx))
+
+INLINE_ROUTINE(cmem_load_asm_float)
+    pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
+    call    mem_for_real
+    popq    %r8                     # Save %r8 which isn't saved in mem_for_largeword
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    FLDS    -2(%rax,%rbx,2)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(cmem_load_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
+INLINE_ROUTINE(cmem_load_asm_double)
+    pushq   %r8                     # Save %r8 which isn't saved in mem_for_largeword
+    call    mem_for_real
+    popq    %r8                     # Save %r8 which isn't saved in mem_for_largeword
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    FLDL    -4(%rax,%rbx,4)
+    FSTPL   (%rcx)
+    movq    %rcx,%rax
+    ret
+
+    RegMask(cmem_load_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+   
+INLINE_ROUTINE(cmem_store_asm_8)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    movq    %r9,%rcx
+    sarq    $TAGSHIFT,%rbx     # That's also tagged
+    sarq    $TAGSHIFT,%rcx
+    movb    %cl,(%rax,%rbx)
+    movq    $UNIT,%rax             # The function returns unit
+    movq    %rax,%rbx                   # Clobber bad value in %rbx
+    movq    %rax,%rcx                   # and %rcx
+    ret
+    RegMask(cmem_store_8,(M_Reax | M_Rebx | M_Recx))
+
+INLINE_ROUTINE(cmem_store_asm_16)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    movq    %r9,%rcx
+    sarq    $TAGSHIFT,%rcx     # Untag the value to store
+    movw    %cx,-1(%rax,%rbx,1)
+    movq    $UNIT,%rax             # The function returns unit
+    movq    %rax,%rcx                   # Bad value in %rcx
+    ret
+    RegMask(cmem_store_16,(M_Reax | M_Rebx | M_Recx))
+
+INLINE_ROUTINE(cmem_store_asm_32)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    movq    %r9,%rcx
+    sarq    $TAGSHIFT,%rcx     # Untag the value to store
+    movl    %ecx,-2(%rax,%rbx,2)
+    movq    $UNIT,%rax             # The function returns unit
+    movq    %rax,%rcx                   # Bad value in %rcx
+    ret
+    RegMask(cmem_store_32,(M_Reax | M_Rebx | M_Recx))
+
+INLINE_ROUTINE(cmem_store_asm_64)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    (%r9),%rbx               # Value to store
+    movq    %rbx,(-4)(%rax,%r8,4)    # Store it
+    movq    $UNIT,%rax         # The function returns unit
+    movq    %rax,%rbx               # Bad value in %rbx
+    ret
+
+    RegMask(cmem_store_64,(M_Reax | M_Rebx | M_Recx))
+
+INLINE_ROUTINE(cmem_store_asm_float)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    movq    %r9,%rcx
+    FLDL    (%rcx)
+    FSTPS    -2(%rax,%rbx,2)
+    movq    $UNIT,%rax         # The function returns unit
+    movq    %rax,%rbx               # Bad value in %rbx
+    ret
+    RegMask(cmem_store_float,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
+INLINE_ROUTINE(cmem_store_asm_double)
+    movq    (%rax),%rax             # The address is boxed.
+    sarq    $TAGSHIFT,%rbx     # The offset is a signed tagged value
+    addq    %rbx,%rax               # Add it in
+    movq    %r8,%rbx                 # Get the index.
+    movq    %r9,%rcx
+    FLDL    (%rcx)
+    FSTPL    -4(%rax,%rbx,4)
+    movq    $UNIT,%rax         # The function returns unit
+    movq    %rax,%rbx               # Bad value in %rbx
+    ret
+    RegMask(cmem_store_double,(M_Reax | M_Rebx | M_Recx | M_FP7))
+
+#define CREATE_IO_CALL(index) \
+    INLINE_ROUTINE(Call##index##) \
+    CALL_IO(index)
+
+#define CREATE_EXTRA_CALL(index) \
+    INLINE_ROUTINE(X86AsmCallExtra##index##) \
+    CALL_EXTRA(index)
+
+    CREATE_IO_CALL(POLY_SYS_exit)
+#   CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_get_flags)
+    CREATE_IO_CALL(POLY_SYS_profiler)
+    CREATE_IO_CALL(POLY_SYS_Real_str)
+    CREATE_IO_CALL(POLY_SYS_Real_Dispatch)
+    CREATE_IO_CALL(POLY_SYS_conv_real)
+    CREATE_IO_CALL(POLY_SYS_real_to_int)
+    CREATE_IO_CALL(POLY_SYS_sqrt_real)
+    CREATE_IO_CALL(POLY_SYS_sin_real)
+    CREATE_IO_CALL(POLY_SYS_signal_handler)
+    CREATE_IO_CALL(POLY_SYS_os_specific)
+    CREATE_IO_CALL(POLY_SYS_network)
+    CREATE_IO_CALL(POLY_SYS_io_dispatch)
+    CREATE_IO_CALL(POLY_SYS_poly_specific)
+    CREATE_IO_CALL(POLY_SYS_set_code_constant)
+    CREATE_IO_CALL(POLY_SYS_code_flags)
+    CREATE_IO_CALL(POLY_SYS_shrink_stack)
+    CREATE_IO_CALL(POLY_SYS_process_env)
+    CREATE_IO_CALL(POLY_SYS_foreign_dispatch)
+    CREATE_IO_CALL(POLY_SYS_ffi)
+    CREATE_IO_CALL(POLY_SYS_stack_trace)
+    CREATE_IO_CALL(POLY_SYS_full_gc)
+    CREATE_IO_CALL(POLY_SYS_XWindows)
+    CREATE_IO_CALL(POLY_SYS_timing_dispatch)
+    CREATE_IO_CALL(POLY_SYS_kill_self)
+    CREATE_IO_CALL(POLY_SYS_thread_dispatch)
+    CREATE_IO_CALL(POLY_SYS_io_operation)
+    CREATE_IO_CALL(POLY_SYS_ln_real)
+    CREATE_IO_CALL(POLY_SYS_exp_real)
+    CREATE_IO_CALL(POLY_SYS_arctan_real)
+    CREATE_IO_CALL(POLY_SYS_cos_real)
+
+    CREATE_EXTRA_CALL(RETURN_HEAP_OVERFLOW)
+    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
+    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
+    CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
+
+# Direct calls to the RTS
+
+/* chdir.  May raise an exception which means it may allocate space for the exception packet. */
+/* The caller is supposed to preserve RBP */
+/* N.B.  We don't actually need to remove any arguments from the C stack because
+   we always set the C stack pointer to the value when we were first called. */
+INLINE_ROUTINE(CallPOLY_SYS_chdir)
+    movq    Fr_Argument(%rbp),%rcx
+    movq    $UNIT,Arg_ExceptionPacket(%rcx)     # Clear the exception
+    movq    %r15,Arg_LocalMpointer(%rcx)        # Save the heap pointer
+    movq    %rsp,Fr_SavedMLSP(%rbp)             # ML stack ptr
+    movq    %rbp,%rsp                           # Switch to C stack
+    subq    $Fr_Size,%rsp
+#ifdef _WIN32
+    movq    Arg_ThreadId(%rcx),%rcx             # First argument - thread Id
+    movq    %rax,%rdx                           # Second argument.
+    subq    $32,%rsp                            # Create save area
+#else
+    movq    Arg_ThreadId(%rcx),%rdi
+    movq    %rax,%rsi
+#endif
+    call    X86ChDir
+    movq    Fr_SavedMLSP(%rbp),%rsp             # Restore ML stack ptr
+    movq    Fr_Argument(%rbp),%rcx
+    movq    Arg_LocalMpointer(%rcx),%r15        # Restore the heap pointer register
+    movq    Arg_LocalMbottom(%rcx),%rdx
+    movq    %rdx,Fr_LocalMbottom(%rbp)          # and heap base because we may have GCd
+    cmpq    $UNIT,Arg_ExceptionPacket(%rcx)
+    jne     cpsdraisex
+    ret
+
+cpsdraisex:
+    movq    Arg_ExceptionPacket(%rcx),%rax
+    jmp     raisex
+
+
+/* Register mask vector. - extern int registerMaskVector();
+   Each entry in this vector is a set of the registers modified
+   by the function.  It is an untagged bitmap with the registers
+   encoded in the same way as the */
+        GLOBAL EXTNAME(registerMaskVector)
+EXTNAME(registerMaskVector):
+    .long  Mask_all                # 0 is unused
+    .long  Mask_all                 # 1
+    .long  Mask_all                 # 2
+    .long  Mask_all                 # 3 is unused
+    .long  Mask_all                 # 4 is unused
+    .long  Mask_all                 # 5 is unused
+    .long  Mask_all                 # 6
+    .long  Mask_all                 # 7 is unused
+    .long  Mask_all                 # 8 is unused
+    .long  Mask_all                 # 9
+    .long  Mask_all                 # 10 is unused
+    .long  Mask_alloc_store         # 11
+    .long  Mask_alloc_uninit        # 12
+    .long  Mask_all                 # return = 13
+    .long  Mask_all                 # raisex = 14
+    .long  Mask_get_length          # 15
+    .long  Mask_all                 # 16 is unused
+    .long  Mask_all                 # 17
+    .long  Mask_all                 # 18 is no longer used
+    .long  Mask_all                 # 19 is no longer used
+    .long  Mask_all                 # 20 is no longer used
+    .long  Mask_all                 # 21 is unused
+    .long  Mask_all                 # 22 is unused
+    .long  Mask_str_compare         # 23
+    .long  Mask_all                 # 24 is unused
+    .long  Mask_all                 # 25 is unused
+    .long  Mask_teststrgtr          # 26
+    .long  Mask_teststrlss          # 27
+    .long  Mask_teststrgeq          # 28
+    .long  Mask_teststrleq          # 29
+    .long  Mask_all                 # 30
+    .long  Mask_all                 # 31 is no longer used
+    .long  Mask_all                 # exception_trace_fn 32 - Calls unknown function
+    .long  Mask_all                 # 33 is no longer used
+    .long  Mask_all                 # 34 is no longer used
+    .long  Mask_all                 # 35 is no longer used
+    .long  Mask_all                 # 36 is no longer used
+    .long  Mask_all                 # 37 is unused
+    .long  Mask_all                 # 38 is unused
+    .long  Mask_all                 # 39 is unused
+    .long  Mask_all                 # 40
+    .long  Mask_all                 # 41 is unused
+    .long  Mask_all                 # 42
+    .long  Mask_all                 # 43
+    .long  Mask_all                 # 44 is no longer used
+    .long  Mask_all                 # 45 is no longer used
+    .long  Mask_all                 # 46
+    .long  Mask_lockseg             # 47
+    .long  Mask_all                 # nullorzero = 48
+    .long  Mask_all                 # 49 is no longer used
+    .long  Mask_all                 # 50 is no longer used
+    .long  Mask_all                 # 51
+    .long  Mask_all                 # 52
+    .long  Mask_eq_longword         # 53
+    .long  Mask_all              # 54 is no longer used
+    .long  Mask_geq_longword        # 55
+    .long  Mask_leq_longword        # 56
+    .long  Mask_gt_longword         # 57
+    .long  Mask_lt_longword         # 58
+    .long  Mask_all                 # 59 is unused
+    .long  Mask_all                 # 60 is unused
+    .long  Mask_all                 # 61
+    .long  Mask_all                 # 62
+    .long  Mask_all                 # 63 is unused
+    .long  Mask_all                 # 64 is unused
+    .long  Mask_all                 # 65 is unused
+    .long  Mask_all                 # 66 is unused
+    .long  Mask_all                 # 67 is unused
+    .long  Mask_all                 # 68 is unused
+    .long  Mask_atomic_reset        # 69
+    .long  Mask_atomic_incr         # 70
+    .long  Mask_atomic_decr         # 71
+    .long  Mask_thread_self         # 72
+    .long  Mask_all                 # 73
+    .long  Mask_plus_longword       # 74
+    .long  Mask_minus_longword      # 75
+    .long  Mask_mul_longword        # 76
+    .long  Mask_div_longword        # 77
+    .long  Mask_mod_longword        # 78
+    .long  Mask_andb_longword       # 79
+    .long  Mask_orb_longword        # 80
+    .long  Mask_xorb_longword       # 81
+    .long  Mask_all                 # 82 is unused
+    .long  Mask_all                 # 83 is now unused
+    .long  Mask_all                 # 84
+    .long  Mask_shift_left_longword # 85
+    .long  Mask_shift_right_longword # 86
+    .long  Mask_shift_right_arith_longword # 87
+    .long  Mask_all                 # 88
+    .long  Mask_longword_to_tagged  # 89
+    .long  Mask_signed_to_longword  # 90
+    .long  Mask_unsigned_to_longword # 91
+    .long  Mask_all                 # 92
+    .long  Mask_all                 # 93
+    .long  Mask_all                 # 94
+    .long  Mask_all                 # 95 is unused
+    .long  Mask_all                 # 96 is unused
+    .long  Mask_all                 # 97 is unused
+    .long  Mask_all                 # 98
+    .long  Mask_all                 # 99
+    .long  Mask_all                 # 100
+    .long  Mask_all                 # 101 is unused
+    .long  Mask_all                 # 102 is unused
+    .long  Mask_all                 # 103
+    .long  Mask_quotrem             # 104
+    .long  Mask_is_short            # 105
+    .long  Mask_aplus               # 106
+    .long  Mask_aminus              # 107
+    .long  Mask_amul                # 108
+    .long  Mask_adiv                # 109
+    .long  Mask_amod                # 110
+    .long  Mask_aneg                # 111
+    .long  Mask_xora                # 112
+    .long  Mask_equala              # 113
+    .long  Mask_ora                 # 114
+    .long  Mask_anda                # 115
+    .long  Mask_all                 # 116 is unused
+    .long  Mask_all                 # 117
+    .long  Mask_real_geq            # 118
+    .long  Mask_real_leq            # 119
+    .long  Mask_real_gtr            # 120
+    .long  Mask_real_lss            # 121
+    .long  Mask_real_eq             # 122
+    .long  Mask_real_neq            # 123
+    .long  Mask_all                 # 124
+    .long  Mask_real_add            # 125
+    .long  Mask_real_sub            # 126
+    .long  Mask_real_mul            # 127
+    .long  Mask_real_div            # 128
+    .long  Mask_real_abs            # 129
+    .long  Mask_real_neg            # 130
+    .long  Mask_all                 # 131 is unused
+    .long  Mask_all                 # 132
+    .long  Mask_all                 # 133
+    .long  Mask_all                 # 134
+    .long  Mask_real_from_int       # 135
+    .long  Mask_all                 # 136
+    .long  Mask_all                 # 137
+    .long  Mask_all                 # 138
+    .long  Mask_all                 # 139
+    .long  Mask_all                 # 140
+    .long  Mask_all                 # 141
+    .long  Mask_fixed_to_real       # 142
+    .long  Mask_all                 # 143 is unused
+    .long  Mask_all                 # 144 is unused
+    .long  Mask_all                 # 145 is unused
+    .long  Mask_all                 # 146 is unused
+    .long  Mask_all                 # 147 is unused
+    .long  Mask_all                 # stdin = 148
+    .long  Mask_all                 # stdout= 149
+    .long  Mask_all                 # 150
+    .long  Mask_set_string_length   # 151
+    .long  Mask_get_first_long_word # 152
+    .long  Mask_all                 # poly_specific = 153
+    .long  Mask_bytevec_eq          # 154
+    .long  Mask_all                 # 155 is unused
+    .long  Mask_all                 # 156 is unused
+    .long  Mask_all                 # 157 is unused
+    .long  Mask_all                 # 158 is unused
+    .long  Mask_all                 # 159 is unused
+    .long  Mask_cmem_load_8         # 160
+    .long  Mask_cmem_load_16        # 161
+    .long  Mask_cmem_load_32        # 162
+    .long  Mask_cmem_load_64        # 163
+    .long  Mask_cmem_load_float     # 164
+    .long  Mask_cmem_load_double    # 165
+    .long  Mask_cmem_store_8        # 166
+    .long  Mask_cmem_store_16       # 167
+    .long  Mask_cmem_store_32       # 168
+    .long  Mask_all                 # 169
+    .long  Mask_cmem_store_float    # 170
+    .long  Mask_cmem_store_double   # 171
+    .long  Mask_all                 # 172 is unused
+    .long  Mask_all                 # 173 is unused
+    .long  Mask_all                 # 174 is unused
+    .long  Mask_all                 # 175 is unused
+    .long  Mask_all                 # 176 is unused
+    .long  Mask_all                 # 177 is unused
+    .long  Mask_all                 # 178 is unused
+    .long  Mask_all                 # 179 is unused
+    .long  Mask_fixed_add           # 180
+    .long  Mask_fixed_sub           # 181
+    .long  Mask_fixed_mul           # 182
+    .long  Mask_fixed_quot          # 183
+    .long  Mask_fixed_rem           # 184
+    .long  Mask_fixed_div           # 185
+    .long  Mask_fixed_mod           # 186
+    .long  Mask_all                 # 187 is unused
+    .long  Mask_all                 # 188 is unused
+    .long  Mask_all                 # 189
+    .long  Mask_all                 # 190
+    .long  Mask_all                 # 191 is no longer used
+    .long  Mask_all                 # 192 is unused
+    .long  Mask_move_words          # 193
+    .long  Mask_all                 # 194
+    .long  Mask_move_words          # 195
+    .long  Mask_shift_right_arith_word  # 196
+    .long  Mask_int_to_word         # 197
+    .long  Mask_move_bytes          # 198
+    .long  Mask_move_bytes          # 199
+    .long  Mask_all                 # 200
+    .long  Mask_all                 # 201
+    .long  Mask_all                 # stderr = 202
+    .long  Mask_all                 # 203 now unused
+    .long  Mask_callcodeTupled      # 204 - callcode
+    .long  Mask_all                 # 205
+    .long  Mask_all                 # 206
+    .long  Mask_all                 # 207 is unused
+    .long  Mask_all                 # 208 now unused
+    .long  Mask_all                 # 209
+    .long  Mask_all                 # 210 is unused
+    .long  Mask_all                 # 211 is unused
+    .long  Mask_all                 # 212 is unused
+    .long  Mask_is_big_endian       # 213
+    .long  Mask_bytes_per_word      # 214
+    .long  Mask_offset_address      # 215
+    .long  Mask_shift_right_word    # 216
+    .long  Mask_all              # 217 - no longer used
+    .long  Mask_not_bool            # 218
+    .long  Mask_fixed_geq           # 219
+    .long  Mask_fixed_leq           # 220
+    .long  Mask_fixed_gtr           # 221
+    .long  Mask_fixed_lss           # 222
+    .long  Mask_string_length       # 223
+    .long  Mask_all                 # 224 is unused
+    .long  Mask_all                 # 225 is unused
+    .long  Mask_all                 # 226 is unused
+    .long  Mask_all                 # 227 is unused
+    .long  Mask_touch_final         # 228
+    .long  Mask_all                 # 229 - no longer used
+    .long  Mask_all                 # 230 - no longer used
+    .long  Mask_int_geq             # 231
+    .long  Mask_int_leq             # 232
+    .long  Mask_int_gtr             # 233
+    .long  Mask_int_lss             # 234
+    .long  Mask_load_byte           # load_byte_immut = 235
+    .long  Mask_load_word           # load_word_immut = 236
+    .long  Mask_all                 # 237 is unused
+    .long  Mask_mul_word            # 238
+    .long  Mask_plus_word           # 239
+    .long  Mask_minus_word          # 240
+    .long  Mask_div_word            # 241
+    .long  Mask_or_word             # 242
+    .long  Mask_and_word            # 243
+    .long  Mask_xor_word            # 244
+    .long  Mask_shift_left_word     # 245
+    .long  Mask_mod_word            # 246
+    .long  Mask_word_geq            # 247
+    .long  Mask_word_leq            # 248
+    .long  Mask_word_gtr            # 249
+    .long  Mask_word_lss            # 250
+    .long  Mask_word_eq             # 251
+    .long  Mask_load_byte           # 252
+    .long  Mask_load_word           # 253
+    .long  Mask_assign_byte         # 254
+    .long  Mask_assign_word         # 255
+

@@ -113,7 +113,7 @@ class IntTaskData: public TaskData {
 public:
     IntTaskData(): interrupt_requested(false) {}
 
-    virtual void GCStack(ScanAddress *process);
+    virtual void GarbageCollect(ScanAddress *process);
     PolyWord ScanStackAddress(ScanAddress *process, PolyWord val, StackSpace *stack, bool isCode);
     virtual Handle EnterPolyCode(); // Start running ML
 
@@ -136,7 +136,6 @@ public:
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(Handle mutexp);
-    virtual Handle AtomicDecrement(Handle mutexp);
     // Set a mutex to one.
     virtual void AtomicReset(Handle mutexp);
 
@@ -1360,8 +1359,10 @@ int IntTaskData::SwitchToPoly()
      return 0;
 } /* MD_switch_to_poly */
 
-void IntTaskData::GCStack(ScanAddress *process)
+void IntTaskData::GarbageCollect(ScanAddress *process)
 {
+    TaskData::GarbageCollect(process);
+
     if (stack != 0)
     {
         StackSpace *stackSpace = stack;
@@ -1531,6 +1532,15 @@ static Handle fixedMult(TaskData *taskData, Handle y, Handle x)
     Handle result = mult_longc(taskData, y, x);
     if (! result->Word().IsTagged()) raise_exception0(taskData, EXC_overflow);
     return result;
+}
+
+static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
+static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
+static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
+
+static Handle ThreadSelf(TaskData *taskData)
+{
+    return taskData->saveVec.push(taskData->threadObject);
 }
 
 Handle IntTaskData::EnterPolyCode()
@@ -1785,16 +1795,6 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_int_lss:
                 CallIO2(this, &ls_longc);
-                break;
-
-            // ObjSize and ShowSize are now in the poly_specific functions and
-            // probably should be removed from here.
-            case POLY_SYS_objsize:
-                CallIO1(this, &ObjSize);
-                break;
-
-            case POLY_SYS_showsize:
-                CallIO1(this, &ShowSize);
                 break;
 
             case POLY_SYS_timing_dispatch:
@@ -2076,8 +2076,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_full_gc, TAGGED(POLY_SYS_full_gc));
     add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
-    add_word_to_io_area(POLY_SYS_objsize, TAGGED(POLY_SYS_objsize));
-    add_word_to_io_area(POLY_SYS_showsize, TAGGED(POLY_SYS_showsize));
     add_word_to_io_area(POLY_SYS_equal_short_arb, TAGGED(POLY_SYS_equal_short_arb));
     add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
     add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
@@ -2201,33 +2199,44 @@ void Interpreter::InitInterfaceVector(void)
 // On most platforms this code will be done with a piece of assembly code.
 static PLock mutexLock;
 
-Handle IntTaskData::AtomicIncrement(Handle mutexp)
+Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
     // A thread can only call this once so the values will be short
     PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
     p->Set(0, newValue);
-    return this->saveVec.push(newValue);
+    return taskData->saveVec.push(newValue);
 }
 
 // Decrement the value contained in the first word of the mutex.
-Handle IntTaskData::AtomicDecrement(Handle mutexp)
+Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
     PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
     p->Set(0, newValue);
-    return this->saveVec.push(newValue);
+    return taskData->saveVec.push(newValue);
 }
 
 // Release a mutex.  We need to lock the mutex to ensure we don't
 // reset it in the time between one of atomic operations reading
 // and writing the mutex.
-void IntTaskData::AtomicReset(Handle mutexp)
+Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
+    return taskData->saveVec.push(TAGGED(0)); // Push the unit result
+}
+
+Handle IntTaskData::AtomicIncrement(Handle mutexp)
+{
+    return ProcessAtomicIncrement(this, mutexp);
+}
+
+void IntTaskData::AtomicReset(Handle mutexp)
+{
+    (void)ProcessAtomicReset(this, mutexp);
 }
 
 static Interpreter interpreterObject;

@@ -140,14 +140,14 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	reals.cpp rts_module.cpp run_time.cpp save_vec.cpp \
 	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
 	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
-	x86asmtemp.S interpret.cpp machoexport.cpp elfexport.cpp \
-	pecoffexport.cpp unix_specific.cpp Console.cpp \
-	windows_specific.cpp
+	x86assembly_gas64.S interpret.cpp x86assembly_gas32.S \
+	machoexport.cpp elfexport.cpp pecoffexport.cpp \
+	unix_specific.cpp Console.cpp windows_specific.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86asmtemp.lo
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@am__objects_1 = interpret.lo
-@ARCHI386_TRUE@am__objects_1 = x86_dep.lo x86asmtemp.lo
+@ARCHI386_TRUE@am__objects_1 = x86_dep.lo x86assembly_gas32.lo
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@am__objects_2 =  \
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@	machoexport.lo
 @EXPELF_TRUE@@EXPPECOFF_FALSE@am__objects_2 = elfexport.lo
@@ -411,12 +411,12 @@ AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 7:0:0 $(am__append_1)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86asmtemp.S
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@ARCHSOURCE = interpret.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@ARCHSOURCE = interpret.cpp
 
 # Select the architecture-specific modules
-@ARCHI386_TRUE@ARCHSOURCE = x86_dep.cpp x86asmtemp.S
+@ARCHI386_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas32.S
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@EXPORTSOURCE = machoexport.cpp
 @EXPELF_TRUE@@EXPPECOFF_FALSE@EXPORTSOURCE = elfexport.cpp
 
@@ -653,7 +653,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/unix_specific.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/windows_specific.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86_dep.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86asmtemp.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas32.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/x86assembly_gas64.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xwindows.Plo@am__quote@
 
 .S.o:
@@ -936,10 +937,6 @@ uninstall-am: uninstall-libLTLIBRARIES uninstall-pkgconfigDATA
 # Convert the portable format to a native binary
 polyexport.o: polyimport exportPoly.sml
 	(cd ..; driver/polyimport driver/$(POLYIMPORT) < driver/exportPoly.sml > /dev/null)
-
-# Special rule for x86 assembly code.
-x86asmtemp.S: x86asm.asm
-	sed -f $(srcdir)/masm2gas <  $(srcdir)/x86asm.asm > $@ || { rm -f $@; false; }
 
 clean-local:
 	rm -f x86asmtemp.S ppcasmtemp.s

@@ -105,8 +105,7 @@ public:
     virtual ~TaskData();
 
     void FillUnusedSpace(void);
-    void GarbageCollect(ScanAddress *process);
-    virtual void GCStack(ScanAddress *process) = 0;
+    virtual void GarbageCollect(ScanAddress *process);
 
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
@@ -122,10 +121,10 @@ public:
 
     virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
 
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
+    // The scheduler needs versions of atomic increment and atomic reset that
+    // work in exactly the same way as the code-generated versions (if any).
+    // Atomic decrement isn't needed since it only ever releases a mutex.
     virtual Handle AtomicIncrement(Handle mutexp) = 0;
-    virtual Handle AtomicDecrement(Handle mutexp) = 0;
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
     virtual void AtomicReset(Handle mutexp) = 0;
@@ -152,6 +151,9 @@ public:
     bool        pendingInterrupt; // The thread should trap into the RTS soon.
     PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
+
+    // Get a TaskData pointer given the ML taskId.
+    static TaskData *FindTaskForId(PolyObject *taskId);
 
 private:
     // If a thread has to block it will block on this.
@@ -188,10 +190,6 @@ private:
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
-Handle ThreadSelf(TaskData *taskData);
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
 class ScanAddress;

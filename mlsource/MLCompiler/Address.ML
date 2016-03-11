@@ -260,8 +260,6 @@ struct
             (POLY_SYS_full_gc,"POLY_SYS_full_gc"),
             (POLY_SYS_stack_trace,"POLY_SYS_stack_trace"),
             (POLY_SYS_timing_dispatch,"POLY_SYS_timing_dispatch"),
-            (POLY_SYS_objsize,"POLY_SYS_objsize"),
-            (POLY_SYS_showsize,"POLY_SYS_showsize"),
             (POLY_SYS_equal_short_arb,"POLY_SYS_equal_short_arb"),
             (POLY_SYS_quotrem,"POLY_SYS_quotrem"),
             (POLY_SYS_is_short,"POLY_SYS_is_short"),
