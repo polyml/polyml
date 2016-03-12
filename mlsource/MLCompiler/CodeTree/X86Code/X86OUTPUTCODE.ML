@@ -3851,7 +3851,7 @@ Calling conventions:
                into a proper code segment before it's safe to put in any ML values. *)
             val () = csegConvertToCode seg
             val () = csegPutWord (seg, endOfCode, toMachineWord procName)
-            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord 0 (* No longer used. *))
+            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord 1 (* No longer used. *))
             (* Next the profile object. *)
             val () = csegPutWord (seg, endOfCode + 0w2, profileObject)
         end
