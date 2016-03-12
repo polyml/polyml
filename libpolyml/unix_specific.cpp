@@ -288,7 +288,7 @@ static unsigned unixConstVec[] =
     ICANON,
     IEXTEN,
     ISIG,
-    NOFLSH,
+    (unsigned)NOFLSH,
     TOSTOP, /* 115 */
 
     /* TTY: Speeds. */
