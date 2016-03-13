@@ -780,11 +780,9 @@ ENDIF
 
 ENDIF
 
-;# Mark the stack as non-executable when compiling for Linux
-IFDEF __linux__
-IFDEF __ELF__
+;# Mark the stack as non-executable when supported
+IFDEF HAVE_GNU_STACK
 .section .note.GNU-stack, "", @progbits
-ENDIF
 ENDIF
 
 ;#

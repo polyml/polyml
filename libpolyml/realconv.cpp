@@ -220,7 +220,8 @@
 
 #if !defined(IEEE_8087) && ! defined(IEEE_MC68k)
 #if defined(_WIN32) || defined(HOSTARCHITECTURE_X86) || defined (__i386__) || defined (_M_IX86) || \
-        defined (vax) || defined (__alpha) || defined(HOSTARCHITECTURE_X86_64)
+        defined (vax) || defined (__alpha) || defined(HOSTARCHITECTURE_X86_64) || \
+        defined(HOSTARCHITECTURE_X32)
 #define IEEE_8087
 #else
 #define IEEE_MC68k

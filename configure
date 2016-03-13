@@ -21751,6 +21751,31 @@ fi
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
+# Check for .note.GNU-stack support, used for marking the stack as non-executable.
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether as supports .note.GNU-stack" >&5
+$as_echo_n "checking whether as supports .note.GNU-stack... " >&6; }
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+__asm__(".section .note.GNU-stack,\"\",@progbits");
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+$as_echo "#define HAVE_GNU_STACK 1" >>confdefs.h
+
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
@@ -21774,10 +21799,17 @@ $as_echo "#define HOSTARCHITECTURE_X86 1" >>confdefs.h
             polyarch=i386
             ;;
       x86_64* | amd64*)
+            if test X"$ac_cv_sizeof_voidp" = X8; then
 
 $as_echo "#define HOSTARCHITECTURE_X86_64 1" >>confdefs.h
 
-            polyarch=x86_64
+                polyarch=x86_64
+            else
+
+$as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
+
+                polyarch=interpret
+            fi
             ;;
       sparc*)
 

@@ -97,7 +97,7 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen)
     return chars;
 } /* Poly_string_to_C */
 
-char *Poly_string_to_C_alloc(PolyWord ps)
+char *Poly_string_to_C_alloc(PolyWord ps, size_t buffExtra)
 /* Similar to Poly_string_to_C except that the string is allocated using
    malloc and must be freed by the caller. */
 {
@@ -105,7 +105,7 @@ char *Poly_string_to_C_alloc(PolyWord ps)
 
     if (IS_INT(ps))
     {
-        res = (char*)malloc(2);
+        res = (char*)malloc(2 + buffExtra);
         if (res == 0) return 0;
         res[0] = (char)(UNTAGGED(ps));
         res[1] = '\0';
@@ -114,7 +114,7 @@ char *Poly_string_to_C_alloc(PolyWord ps)
     {
         PolyStringObject * str = (PolyStringObject *)ps.AsObjPtr();
         POLYUNSIGNED chars = str->length;
-        res = (char*)malloc(chars+1);
+        res = (char*)malloc(chars + buffExtra + 1);
         if (res == 0) return 0;
         if (chars != 0) strncpy(res, str->chars, chars);
         res[chars] = '\0';

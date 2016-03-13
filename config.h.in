@@ -129,6 +129,9 @@
 /* Define to 1 if you have the `gmtime_r' function. */
 #undef HAVE_GMTIME_R
 
+/* Define to 1 if you have .note.GNU-stack support in the assembler. */
+#undef HAVE_GNU_STACK
+
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
 
@@ -589,6 +592,9 @@
 
 /* Define if the host is a Sparc (32-bit) */
 #undef HOSTARCHITECTURE_SPARC
+
+/* Define if the host is an X86 (32-bit ABI, 64-bit processor) */
+#undef HOSTARCHITECTURE_X32
 
 /* Define if the host is an X86 (32-bit) */
 #undef HOSTARCHITECTURE_X86

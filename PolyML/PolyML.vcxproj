@@ -177,6 +177,9 @@ $(OutDir)PolyImport.exe -H 32 "%(FullPath)" -o PolyML\$(IntDir)polyexport.obj &l
   <ItemGroup>
     <ResourceCompile Include="..\PolyML.rc" />
   </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="..\PolyML.exe.manifest" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{DF3B373E-67DF-4AB4-8B1E-F54C5810E2CF}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
