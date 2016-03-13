@@ -80,10 +80,6 @@ Fr_SavedMLSP        EQU     -52
 
 Fr_Size             EQU     56
 
-;LocalMpointer       EQU     -28
-;HandlerRegister     EQU     -24
-;LocalMbottom        EQU     -20
-
 ; This is the argument vector passed in to X86AsmSwitchToPoly
 ; It is used to initialise the frame.  A few values are updated
 ; when ML returns.

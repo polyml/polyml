@@ -304,13 +304,6 @@ inline PolyWord& PSP_R10(TaskData *taskData) { return x86Stack(taskData)->p_r10;
 //inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
 #endif
 
-#define EFLAGS_CF               0x0001
-#define EFLAGS_PF               0x0004
-#define EFLAGS_AF               0x0010
-#define EFLAGS_ZF               0x0040
-#define EFLAGS_SF               0x0080
-#define EFLAGS_OF               0x0800
-
 inline POLYCODEPTR& PSP_IC(TaskData *taskData) { return x86Stack(taskData)->p_pc; }
 inline void PSP_INCR_PC(TaskData *taskData, int /* May be -ve */n) { x86Stack(taskData)->p_pc += n; }
 inline PolyWord*& PSP_SP(TaskData *taskData) { return x86Stack(taskData)->p_sp; }
@@ -334,7 +327,6 @@ extern "C" {
 
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(void *);
-    void X86AsmSaveStateAndReturn(void);
 
     extern int X86AsmKillSelf(void);
     extern int X86AsmCallbackReturn(void);
@@ -1123,7 +1115,10 @@ Handle X86TaskData::EnterPolyCode()
 }
 
 extern "C" {
-    POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg);
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+        POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg);
 }
 
 // Called from ML via the assembly code.
