@@ -429,16 +429,16 @@ AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 BOOTSTRAP_OPTIONS = 
 @INTINFISINT_FALSE@POLYIMPORT_OPTIONS = 
 @INTINFISINT_TRUE@POLYIMPORT_OPTIONS = --intIsIntInf
-DIST_SUBDIRS = libpolyml libpolymain libffi
-@INTERNAL_LIBFFI_FALSE@SUBDIRS = libpolyml libpolymain
-@INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi libpolyml libpolymain
+DIST_SUBDIRS = libpolyml libpolymain libffi modules
+@INTERNAL_LIBFFI_FALSE@SUBDIRS = libpolyml libpolymain . modules
+@INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi libpolyml libpolymain . modules
 dist_bin_SCRIPTS = polyc
 man_MANS = poly.1 polyimport.1 polyc.1
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@POLYIMPORT = $(srcdir)/imports/polymlint.txt
 
-# Select the architecture-specific modules
+# Select the architecture-specific pre-built compiler
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 noinst_HEADERS = polyexports.h
 poly_LDFLAGS = $(am__append_8) $(am__append_10)

@@ -16,7 +16,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Int = struct type int = int end;
+
 (* LargeInt is defined in INITIALISE. *)
 
 signature INTEGER =

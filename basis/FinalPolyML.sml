@@ -865,7 +865,7 @@ local
                 case sourceDateEpochEnv of
                      NONE => NONE
                    | SOME s =>
-                       (case Int.fromString s of
+                       (case LargeInt.fromString s of
                              NONE => NONE
                            | SOME t => SOME(Time.fromSeconds t) handle Time.Time => NONE)
         end;
