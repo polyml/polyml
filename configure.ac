@@ -401,6 +401,13 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
+# Check for .note.GNU-stack support, used for marking the stack as non-executable.
+AC_MSG_CHECKING([whether as supports .note.GNU-stack])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[__asm__(".section .note.GNU-stack,\"\",@progbits");]])],
+    [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_GNU_STACK], [1],
+        [Define to 1 if you have .note.GNU-stack support in the assembler.])],
+    [AC_MSG_RESULT([no])])
+
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
