@@ -413,7 +413,7 @@ public:
 static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Exporter *exports)
 {
     size_t extLen = _tcslen(extension);
-    TempString fileNameBuff(Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0), extLen * sizeof(TCHAR)));
+    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0), extLen));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", ENOMEM);
     size_t length = _tcslen(fileNameBuff);

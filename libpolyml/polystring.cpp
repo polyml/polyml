@@ -97,7 +97,7 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen)
     return chars;
 } /* Poly_string_to_C */
 
-char *Poly_string_to_C_alloc(PolyWord ps, size_t buffExtra)
+char *Poly_string_to_C_alloc(PolyWord ps, size_t extraChars)
 /* Similar to Poly_string_to_C except that the string is allocated using
    malloc and must be freed by the caller. */
 {
@@ -105,7 +105,7 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t buffExtra)
 
     if (IS_INT(ps))
     {
-        res = (char*)malloc(2 + buffExtra);
+        res = (char*)malloc(2 + extraChars);
         if (res == 0) return 0;
         res[0] = (char)(UNTAGGED(ps));
         res[1] = '\0';
@@ -114,7 +114,7 @@ char *Poly_string_to_C_alloc(PolyWord ps, size_t buffExtra)
     {
         PolyStringObject * str = (PolyStringObject *)ps.AsObjPtr();
         POLYUNSIGNED chars = str->length;
-        res = (char*)malloc(chars + buffExtra + 1);
+        res = (char*)malloc(chars + extraChars + 1);
         if (res == 0) return 0;
         if (chars != 0) strncpy(res, str->chars, chars);
         res[chars] = '\0';
@@ -220,7 +220,7 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen)
     return space;
 }
 
-WCHAR *Poly_string_to_U_alloc(PolyWord ps)
+WCHAR *Poly_string_to_U_alloc(PolyWord ps, size_t extraChars)
 {
     char iBuff[1];
     int iLength = 0;
@@ -236,19 +236,18 @@ WCHAR *Poly_string_to_U_alloc(PolyWord ps)
     {
         PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
         iLength = (int)str->length;
-        if (iLength == 0) return _wcsdup(L"");
+        if (iLength == 0 && extraChars == 0) return _wcsdup(L"");
         iPtr = str->chars;
     }
 
     // Find the space required.
     int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
     if (chars <= 0) return _wcsdup(L"");
-    WCHAR *res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
+    WCHAR *res = (WCHAR*)malloc((chars+1+extraChars) * sizeof(WCHAR));
     if (res == 0) return 0;
     chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, res, chars);
     res[chars] = 0;
     return res;
-
 }
 
 // convert_string_list return a list of strings.
