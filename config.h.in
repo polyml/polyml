@@ -593,6 +593,9 @@
 /* Define if the host is a Sparc (32-bit) */
 #undef HOSTARCHITECTURE_SPARC
 
+/* Define if the host is an X86 (32-bit ABI, 64-bit processor) */
+#undef HOSTARCHITECTURE_X32
+
 /* Define if the host is an X86 (32-bit) */
 #undef HOSTARCHITECTURE_X86
 

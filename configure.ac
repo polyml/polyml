@@ -427,8 +427,13 @@ case "${host_cpu}" in
             polyarch=i386
             ;;
       x86_64* | amd64*)
-            AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
-            polyarch=x86_64
+            if test X"$ac_cv_sizeof_voidp" = X8; then
+                AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
+                polyarch=x86_64
+            else
+                AC_DEFINE([HOSTARCHITECTURE_X32], [1], [Define if the host is an X86 (32-bit ABI, 64-bit processor)])
+                polyarch=interpret
+            fi
             ;;
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32-bit)])

@@ -137,7 +137,7 @@ static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
     POLYUNSIGNED result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
-#elif(defined(HOSTARCHITECTURE_X86) && defined(__GNUC__))
+#elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32)) && defined(__GNUC__))
     POLYUNSIGNED result;
     __asm__ __volatile__ (
         "lock; cmpxchgl %1,%2"
