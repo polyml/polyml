@@ -648,7 +648,7 @@ void SaveRequest::Perform()
 
 Handle SaveState(TaskData *taskData, Handle args)
 {
-    TempString fileNameBuff(Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0)));
+    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
     // The value of depth is zero for top-level save so we need to add one for hierarchy.
     unsigned newHierarchy = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)) + 1;
 
@@ -701,7 +701,7 @@ void StateLoader::Perform(void)
             return;
         }
         ML_Cons_Cell *p = DEREFLISTHANDLE(fileNameList);
-        fileName = Poly_string_to_C_alloc(p->h);
+        fileName = Poly_string_to_T_alloc(p->h);
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
@@ -712,7 +712,7 @@ void StateLoader::Perform(void)
     }
     else
     {
-        fileName = Poly_string_to_C_alloc(DEREFHANDLE(fileNameList));
+        fileName = Poly_string_to_T_alloc(DEREFHANDLE(fileNameList));
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
@@ -857,7 +857,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 return false;
             }
             ML_Cons_Cell *p = (ML_Cons_Cell *)tail.AsObjPtr();
-            fileName = Poly_string_to_C_alloc(p->h);
+            fileName = Poly_string_to_T_alloc(p->h);
             if (fileName == NULL)
             {
                 errorResult = "Insufficient memory";
@@ -1140,11 +1140,11 @@ Handle RenameParent(TaskData *taskData, Handle args)
 // Change the name of the immediate parent stored in a child
 {
     // The name of the file to modify.
-    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0)));
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // The new parent name to insert.
-    AutoFree<TCHAR*> parentNameBuff(Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(1)));
+    AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(1)));
     if (parentNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
@@ -1200,7 +1200,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_C_alloc(DEREFHANDLE(hFileName)));
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(hFileName)));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
