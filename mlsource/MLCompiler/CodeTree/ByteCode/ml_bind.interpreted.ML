@@ -20,7 +20,6 @@
 local
     structure CodeCons =
         INTCODECONS (
-            structure CODESEG = CodeSeg
             structure DEBUG   = Debug
             structure MISC    = Boot.Misc
             structure PRETTY  = Pretty

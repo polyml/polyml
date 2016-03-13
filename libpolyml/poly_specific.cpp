@@ -336,16 +336,6 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 }
 #endif
 
-// Used when copying code into its new location.  Adjusts any relative addresses and
-// also moves any pointers to the code itself.
-class PSCopyCode: public ScanAddress {
-public:
-    PSCopyCode (PolyObject *olda, PolyObject *newa): oldAddr(olda), newAddr(newa) {}
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return (base == oldAddr) ? newAddr: base; }
-private:
-    PolyObject *oldAddr, *newAddr;
-};
-
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
@@ -597,19 +587,27 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             else raise_syscall(taskData, "Not a code pointer", 0);
         }
 
-    case 106: // Copy a compiled code segment into the code area
+    case 106: // Lock a mutable code segment and return the executable address.
         {
+            PolyObject *codeObj = args->WordP();
+            if (! codeObj->IsCodeObject() || ! codeObj->IsMutable())
+                raise_fail(taskData, "Not mutable code area");
+            POLYUNSIGNED segLength = codeObj->Length();
+            codeObj->SetLengthWord(segLength, F_CODE_OBJ);
+            machineDependent->FlushInstructionCache(codeObj, segLength * sizeof(PolyWord));
+            // In the future it may be necessary to return a different address here.
+            // N.B.  The code area should only have execute permission in the native
+            // code version, not the interpreted version.
+            return args; // Return the original address.
+
+    case 107: // Copy a byte segment into the code area and make it mutable code
+        {
+            if (! args->WordP()->IsByteObject())
+                raise_fail(taskData, "Not byte data area");
             POLYUNSIGNED segLength = args->WordP()->Length();
             // Initially just allocate some local memory and copy the code.
-            Handle newMem = alloc_and_save(taskData, segLength, F_CODE_OBJ);
+            Handle newMem = alloc_and_save(taskData, segLength, F_CODE_OBJ|F_MUTABLE_BIT);
             memcpy(newMem->WordP(), args->WordP(), segLength * sizeof(PolyWord));
-            PSCopyCode psCopy(args->WordP(), newMem->WordP());
-            machineDependent->FlushInstructionCache(newMem->WordP(), segLength * sizeof(PolyWord));
-            // We have to update any relative addresses in the code.
-            machineDependent->ScanConstantsWithinCode(newMem->WordP(), args->WordP(), segLength, &psCopy);
-            // Temporarily clobber the old data
-            args->WordP()->SetLengthWord(segLength, F_BYTE_OBJ);
-            memset(args->WordP(), 0, segLength * sizeof(PolyWord));
             return newMem;
         }
 

@@ -58,7 +58,7 @@ sig
     val csegPutWord:       cseg * word * machineWord -> unit
     val csegCopySeg:       cseg * cseg * word * word -> unit
     val csegAddr:          cseg -> address
-    val csegCopyToCode:    cseg -> address
+    val csegLockAndGetExecutable: cseg -> address
     val csegPutConstant:   cseg * word * machineWord * word -> unit
 end = 
 struct
@@ -76,7 +76,6 @@ struct
     val expansionFactor = 0w3 (* Factor by which to increase size of segment *)
 
     val F_mutable_bytes = Word8.orb (F_mutable, F_bytes)
-    val F_mutable_code  = Word8.orb (F_mutable, F_code)
     val wordSize = Word.fromInt Address.wordSize
 
     fun csegMake (size : word) : cseg =
@@ -86,19 +85,22 @@ struct
         ref (Bytes, vec)
     end
 
-    fun csegConvertToCode (r as ref (Bytes, addr)) : unit = 
+    fun csegConvertToCode (r as ref (Bytes, addr)) : unit =
         let
-            val () = setFlags (addr, F_mutable_code)
+            (* Convert the byte data into code. *)
+            val newAddr = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (107, addr)
         in
-            r := (UnlockedCode, addr)
+            r := (UnlockedCode, newAddr)
         end
     | csegConvertToCode _ = 
        raise InternalError "csegConvertToCode: not a byte segment"
 
-    fun csegCopyToCode (ref (UnlockedCode, addr)): address =
+    fun csegLockAndGetExecutable (ref (UnlockedCode, addr)): address =
+        (* Lock the code and return the executable address.  This currently just returns
+           the original address. *)
         RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (106, addr)
 
-    |   csegCopyToCode _ = raise InternalError "csegCopyToCode: not an unlocked code segment"
+    |   csegLockAndGetExecutable _ = raise InternalError "csegLockAndGetExecutable: not an unlocked code segment"
  
     fun csegAddr (ref (status, addr)) : address =
     if status = Bytes

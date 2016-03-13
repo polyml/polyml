@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
     
-    Further development Copyright (c) 2015 David C.J. Matthews
+    Further development Copyright (c) 2015, 2016 David C.J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -151,20 +151,21 @@ let
 (*****************************************************************************)
 structure CODESEG :
 sig
-  type machineWord;
-  type short;
-  type address;
-  type cseg;
-  
-  val csegMake:          int  -> cseg;
-  val csegConvertToCode: cseg -> unit;
-  val csegLock:          cseg -> unit;
-  val csegGet:           cseg * int -> Word8.word;
-  val csegSet:           cseg * int * Word8.word -> unit;
-  val csegPutWord:       cseg * int * machineWord -> unit;
-  val csegCopySeg:       cseg * cseg * int * int -> unit;
-  val csegAddr:          cseg -> address;
-end = CodeSeg;
+    type machineWord
+    type address
+    type cseg
+
+    val csegMake:          word  -> cseg
+    val csegConvertToCode: cseg -> unit
+    val csegGet:           cseg * word -> Word8.word
+    val csegSet:           cseg * word * Word8.word -> unit
+    val csegGetWord:       cseg * word -> machineWord
+    val csegPutWord:       cseg * word * machineWord -> unit
+    val csegCopySeg:       cseg * cseg * word * word -> unit
+    val csegAddr:          cseg -> address
+    val csegLockAndGetExecutable: cseg -> address
+    val csegPutConstant:   cseg * word * machineWord * word -> unit
+end = CODE_ARRAY
 
 (*****************************************************************************)
 (*                  ADDRESS                                                  *)
@@ -713,7 +714,7 @@ struct
   in
     Code
       { 
-         codeVec          = csegMake words, (* a byte array *)
+         codeVec          = csegMake(Word.fromInt words), (* a byte array *)
          ic               = ref addrZero,
          constVec         = ref [],
          numOfConsts      = ref 0,
@@ -737,7 +738,7 @@ struct
     else
         (
         csegSet(seg,
-            if littleEndian() then a+i else a+wordLength()-i-1,
+            Word.fromInt(if littleEndian() then a+i else a+wordLength()-i-1),
             Word8.fromInt(value mod 256));
         putBytes(value div 256, a, seg, i+1)
         )
@@ -746,7 +747,7 @@ struct
   end;
 
   fun putByte (ival: int, Addr a, cvec: code) : unit =
-    csegSet(codeVec cvec, a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
+    csegSet(codeVec cvec, Word.fromInt a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
 
   fun genByte (ival: int, cvec: code) : unit = 
   let
@@ -777,13 +778,13 @@ struct
   end;
 
   fun getByte (Addr a, cvec : code) : int =
-    Word8.toInt (csegGet (codeVec cvec, a));
+    Word8.toInt (csegGet(codeVec cvec, Word.fromInt a));
 
   (* Gets "length" bytes from locations "addr", "addr"+1...
      Returns an unsigned number. *)
   fun getB (length : int, addr : int, seg: cseg) : int =
   let
-    val byte = Word8.toInt (csegGet (seg, addr));
+    val byte = Word8.toInt (csegGet (seg, Word.fromInt addr));
   in
     if length = 1 (* Top byte *)
     then byte
@@ -1578,7 +1579,7 @@ struct
               
           else let (* It's an instruction. *)
             val ()  = printStream "\t";
-            val opc : opcode = opcode_up (Word8.toInt (csegGet (seg, !ptr))); (* opcode *)
+            val opc : opcode = opcode_up (Word8.toInt (csegGet (seg, Word.fromInt (!ptr)))); (* opcode *)
             val ()  = ptr := !ptr + 1;
             val ()  = printStream (repr opc);
     
@@ -1818,7 +1819,7 @@ struct
        and the profile count. *)
     val constAddr = (getAddr (!(ic cvec))) div wordLength() + num + 2;
   in
-    csegPutWord (seg, constAddr, value)
+    csegPutWord (seg, Word.fromInt constAddr, value)
   end;
 
    (* Adds the constants onto the code, and copies the code into a new segment *)
@@ -1848,11 +1849,11 @@ struct
     val () = fixupConstantLoads (cvec, endIC, !(constLoads cvec));
 
     (* Now make the byte segment that we'll turn into the code segment *)
-    val seg : cseg = csegMake segSize;
+    val seg : cseg = csegMake(Word.fromInt segSize)
     val ()   = resultSeg cvec := Set seg;
     
     (* Copy the code into the new segment. *)
-    val () = csegCopySeg (codeVec cvec, seg, getAddr (!(ic cvec)), 0);
+    val () = csegCopySeg (codeVec cvec, seg, Word.fromInt(getAddr (!(ic cvec))), 0w0);
 
     (* Byte offset of start of code. *)
     local
@@ -1890,7 +1891,7 @@ struct
       val name     : string = procName cvec;
       val nameWord : machineWord = if name = "" then toMachineWord 0 else toMachineWord name;
     in
-      val () = csegPutWord (seg, endOfCode + 2, nameWord)
+      val () = csegPutWord (seg, Word.fromInt endOfCode + 0w2, nameWord)
     end;
 
 
@@ -1900,9 +1901,6 @@ struct
         (constLabels (cvec, num, w); putLocalConsts cs (num + 1))
     
     val () = putLocalConsts (! (constVec cvec)) 1;
-  
-    (* Switch off "mutable" bit now  *)
-    val () =  csegLock seg
 
     val () = 
       if printAssemblyCode
@@ -1920,7 +1918,7 @@ struct
       end
       else ();
   in
-    csegAddr seg
+    csegLockAndGetExecutable seg
   end (* copyCode *)
 
   (* ic function exported to GCODE *)

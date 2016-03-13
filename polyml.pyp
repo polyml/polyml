@@ -102,6 +102,7 @@
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTree.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTreeSig.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_FUNCTIONS.sml" />
@@ -115,7 +116,6 @@
 	<source name="mlsource\MLCompiler\CodeTree\GCode.interpreted.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\GCode.x86_64.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
-	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODE_ARRAY.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CodeCons.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODECONSSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODEGEN_TABLESIG.sml" />
