@@ -221,7 +221,8 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             }
         }
         break;
-#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
+#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64) || \
+        defined(HOSTARCHITECTURE_X32))
 #ifdef HOSTARCHITECTURE_X86
 #define R_PC_RELATIVE R_386_PC32
 #else
@@ -401,6 +402,10 @@ void ELFExport::exportStore(void)
        Linux will support either so we now use Rela on X86-64. */
     fhdr.e_machine = EM_X86_64;
     directReloc = R_X86_64_64;
+    useRela = true;
+#elif defined(HOSTARCHITECTURE_X32)
+    fhdr.e_machine = EM_X86_64;
+    directReloc = R_X86_64_32;
     useRela = true;
 #elif defined(HOSTARCHITECTURE_ARM)
 #ifndef EF_ARM_EABI_VER4 

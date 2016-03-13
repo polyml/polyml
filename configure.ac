@@ -401,6 +401,13 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # Additional checks. AC_CANONICAL_HOST has already been called.
 #AC_CANONICAL_HOST
 
+# Check for .note.GNU-stack support, used for marking the stack as non-executable.
+AC_MSG_CHECKING([whether as supports .note.GNU-stack])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[__asm__(".section .note.GNU-stack,\"\",@progbits");]])],
+    [AC_MSG_RESULT([yes])] [AC_DEFINE([HAVE_GNU_STACK], [1],
+        [Define to 1 if you have .note.GNU-stack support in the assembler.])],
+    [AC_MSG_RESULT([no])])
+
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
@@ -420,8 +427,13 @@ case "${host_cpu}" in
             polyarch=i386
             ;;
       x86_64* | amd64*)
-            AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
-            polyarch=x86_64
+            if test X"$ac_cv_sizeof_voidp" = X8; then
+                AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
+                polyarch=x86_64
+            else
+                AC_DEFINE([HOSTARCHITECTURE_X32], [1], [Define if the host is an X86 (32-bit ABI, 64-bit processor)])
+                polyarch=interpret
+            fi
             ;;
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32-bit)])

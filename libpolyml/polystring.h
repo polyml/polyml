@@ -46,7 +46,7 @@ extern PolyWord EmptyString(void);
 /* PolyStringObject functions */
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen = -1);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen);
-extern char *Poly_string_to_C_alloc(PolyWord ps);
+extern char *Poly_string_to_C_alloc(PolyWord ps, size_t buffExtra = 0);
 
 extern Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
 
