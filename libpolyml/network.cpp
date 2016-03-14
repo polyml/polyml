@@ -29,6 +29,10 @@
 #include <stdio.h>
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -122,10 +126,6 @@ typedef int socklen_t;
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "errors.h"
-
-#ifndef MAXHOSTNAMELEN
-#define MAXHOSTNAMELEN 256
-#endif
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 #define SAVE(x) taskData->saveVec.push(x)
@@ -412,19 +412,29 @@ TryAgain: // Used for various retries.
     {
     case 0:
         { /* Get the current host name. */
-            char hostName[MAXHOSTNAMELEN];
-            if (gethostname(hostName, MAXHOSTNAMELEN) != 0)
+            size_t size = 4096;
+            TempCString hostName((char *)malloc(size));
+            if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            int err;
+            while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
+            {
+                if (size > SIZE_MAX / 2) raise_fail(taskData, "gethostname needs too large a buffer");
+                size *= 2;
+                char *new_buf = (char *)realloc(hostName, size);
+                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                hostName = new_buf;
+            }
+
+            if (err != 0)
                 raise_syscall(taskData, "gethostname failed", GETERROR);
+
             return (SAVE(C_string_to_Poly(taskData, hostName)));
         }
 
     case 1:
         {
             /* Look up a host name. */
-            char hostName[MAXHOSTNAMELEN];
-            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), hostName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Host name too long", ENAMETOOLONG);
+            TempCString hostName(Poly_string_to_C_alloc(DEREFWORD(args)));
             struct hostent *host = gethostbyname(hostName);
             if (host == NULL)
                 raise_syscall(taskData, "gethostbyname failed", GETERROR);
@@ -447,10 +457,7 @@ TryAgain: // Used for various retries.
     case 3:
         {
             /* Look up protocol entry. */
-            char protoName[MAXHOSTNAMELEN];
-            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), protoName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
+            TempCString protoName(Poly_string_to_C_alloc(DEREFWORD(args)));
             struct protoent *proto = getprotobyname(protoName);
             if (proto == NULL)
                 raise_syscall(taskData, "getprotobyname failed", GETERROR);
@@ -471,10 +478,7 @@ TryAgain: // Used for various retries.
     case 5:
         {
             /* Get service given service name only. */
-            char servName[MAXHOSTNAMELEN];
-            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), servName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
+            TempCString servName(Poly_string_to_C_alloc(DEREFWORD(args)));
             struct servent *serv = getservbyname (servName, NULL);
             if (serv == NULL)
                 raise_syscall(taskData, "getservbyname failed", GETERROR);
@@ -484,13 +488,8 @@ TryAgain: // Used for various retries.
     case 6:
         {
             /* Get service given service name and protocol name. */
-            char servName[MAXHOSTNAMELEN], protoName[MAXHOSTNAMELEN];
-            POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(0), servName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
-            length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
+            TempCString servName(Poly_string_to_C_alloc(args->WordP()->Get(0)));
+            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
             struct servent *serv = getservbyname (servName, protoName);
             if (serv == NULL)
                 raise_syscall(taskData, "getservbyname failed", GETERROR);
@@ -511,12 +510,9 @@ TryAgain: // Used for various retries.
     case 8:
         {
             /* Get service given port number and protocol name. */
-            char protoName[MAXHOSTNAMELEN];
             struct servent *serv;
             long port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
-            POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
+            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
             serv = getservbyport (port, protoName);
             if (serv == NULL)
                 raise_syscall(taskData, "getservbyport failed", GETERROR);
