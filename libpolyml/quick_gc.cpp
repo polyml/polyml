@@ -538,6 +538,16 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         if (space->isMutable && ! space->byteOnly)
             rootScan.ScanAddressesInRegion(space->bottom, space->top);
     }
+    // Scan code spaces.  
+    for (unsigned j=0; j < gMem.ncSpaces; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
+        // For the moment keep them always mutable.  We could instead remove
+        // the mutable property from areas that are full after they have been
+        // scanned.
+        if (space->isMutable)
+            rootScan.ScanAddressesInRegion(space->bottom, space->top);
+    }
 
     // Scan RTS addresses.  This will include the thread stacks.
     GCModules(&rootScan);

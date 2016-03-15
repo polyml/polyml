@@ -52,6 +52,7 @@
 #include "savestate.h"
 #include "statistics.h"
 #include "../polystatistics.h"
+#include "gc.h"
 
 #define SAVE(x) taskData->saveVec.push(x)
 
@@ -599,16 +600,26 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             // N.B.  The code area should only have execute permission in the native
             // code version, not the interpreted version.
             return args; // Return the original address.
+        }
 
     case 107: // Copy a byte segment into the code area and make it mutable code
         {
             if (! args->WordP()->IsByteObject())
                 raise_fail(taskData, "Not byte data area");
             POLYUNSIGNED segLength = args->WordP()->Length();
-            // Initially just allocate some local memory and copy the code.
-            Handle newMem = alloc_and_save(taskData, segLength, F_CODE_OBJ|F_MUTABLE_BIT);
-            memcpy(newMem->WordP(), args->WordP(), segLength * sizeof(PolyWord));
-            return newMem;
+            while (true)
+            {
+                PolyWord *newCode = gMem.AllocCodeSpace(segLength+1);
+                if (newCode != 0)
+                {
+                    PolyObject *result = (PolyObject*)(newCode+1);
+                    result->SetLengthWord(segLength,  F_CODE_OBJ|F_MUTABLE_BIT);
+                    memcpy(result, args->WordP(), segLength * sizeof(PolyWord));
+                    return taskData->saveVec.push(result);
+                }
+                // Could not allocate - must GC.
+                QuickGC(taskData, segLength);
+            }
         }
 
     default:

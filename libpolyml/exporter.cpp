@@ -250,7 +250,8 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     }
 
     // No, we need to copy it.
-    ASSERT(space->spaceType == ST_LOCAL || space->spaceType == ST_PERMANENT);
+    ASSERT(space->spaceType == ST_LOCAL || space->spaceType == ST_PERMANENT ||
+           space->spaceType == ST_CODE);
     POLYUNSIGNED lengthWord = obj->LengthWord();
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
@@ -460,20 +461,26 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Fix the forwarding pointers.
-    unsigned j;
-    for (j = 0; j < gMem.nlSpaces; j++)
+    for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
         // Local areas only have objects from the allocation pointer to the top.
         FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
         FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
     }
-    for (j = 0; j < gMem.npSpaces; j++)
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         MemSpace *space = gMem.pSpaces[j];
         // Permanent areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
+    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    {
+        MemSpace *space = gMem.cSpaces[j];
+        // Code areas are filled with objects from the bottom.
+        FixForwarding(space->bottom, space->top - space->bottom);
+    }
+
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)

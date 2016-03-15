@@ -171,11 +171,9 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     pObj->SetLengthWord(data_words, flags);
     
     // Must initialise object here, because GC doesn't clean store.
+    // Is this necessary any more?  This used to be necessary when we used
+    // structural equality and wanted to make sure that unused bytes were cleared.
     // N.B.  This sets the store to zero NOT TAGGED(0).
-    // This is particularly important for byte segments (e.g. strings) since the
-    // ML code may leave bytes at the end uninitialised.  Structure equality
-    // checks all the bytes so for it to work properly we need to be sure that
-    // they always have the same value.
     for (POLYUNSIGNED i = 0; i < data_words; i++) pObj->Set(i, PolyWord::FromUnsigned(0));
     return pObj;
 }

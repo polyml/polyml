@@ -247,32 +247,36 @@ static void updateGCProcAddresses(GCTaskId*, void *arg1, void *)
 
 void GCUpdatePhase()
 {
-    unsigned j;
-
     /* Update phase */
     mainThreadPhase = MTP_GCPHASEUPDATE;
     
     /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
-    for(j = 0; j < gMem.nlSpaces; j++)
+    for(unsigned j = 0; j < gMem.nlSpaces; j++)
         gMem.lSpaces[j]->updated = 0;
 
     // We can do the updates in parallel since they don't interfere at all.
     MTGCProcessUpdate processUpdate;
 
     // Process local areas.
-    for (j = 0; j < gMem.nlSpaces; j++)
+    for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
         // As well as updating the addresses this also clears the bitmaps.
         gpTaskFarm->AddWorkOrRunNow(&updateLocalArea, &processUpdate, space);
     }
-    // Scan the permanent mutable areas.
-    for (j = 0; j < gMem.npSpaces; j++)
+    // Scan the permanent mutable areas and the code areas.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
             gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
     }
+    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
+        gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
+    }
+
     // Update addresses in RTS modules.
     gpTaskFarm->AddWorkOrRunNow(&updateGCProcAddresses, &processUpdate, 0);
     // Wait for these to complete before proceeding.
