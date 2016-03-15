@@ -142,11 +142,9 @@ EXTNAME(id):
 #define    EDI_OFF    40
 #define    FPREGS_OFF 44
 
-# Mark the stack as non-executable when compiling for Linux
-#ifdef __linux__
-#ifdef __ELF__
+# Mark the stack as non-executable when supported
+#ifdef HAVE_GNU_STACK
 .section .note.GNU-stack, "", @progbits
-#endif
 #endif
 
 #

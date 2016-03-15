@@ -111,10 +111,6 @@ typedef char TCHAR;
 #define _tcsdup strdup
 #endif
 
-#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
-#define MAXPATHLEN MAX_PATH
-#endif
-
 #ifndef O_BINARY
 #define O_BINARY    0 /* Not relevant. */
 #endif
@@ -1651,13 +1647,21 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
             return SAVE(C_string_to_Poly(taskData, buff));
 #else
-            // This is a bit messy in Unix.  getcwd will return an error result if there's
-            // not enough space be we have to iterate to find the size.
-            // Use the fixed size for the moment.
-            TCHAR string_buffer[MAXPATHLEN+1];
-            if (getcwd(string_buffer, MAXPATHLEN+1) == NULL)
+            size_t size = 4096;
+            TempString string_buffer((TCHAR *)malloc(size * sizeof(TCHAR)));
+            if (string_buffer == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            TCHAR *cwd;
+            while ((cwd = getcwd(string_buffer, size)) == NULL && errno == ERANGE) {
+                if (size > SIZE_MAX / 2) raise_fail(taskData, "getcwd needs too large a buffer");
+                size *= 2;
+                TCHAR *new_buf = (TCHAR *)realloc(string_buffer, size * sizeof(TCHAR));
+                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                string_buffer = new_buf;
+            }
+
+            if (cwd == NULL)
                raise_syscall(taskData, "getcwd failed", errno);
-            return SAVE(C_string_to_Poly(taskData, string_buffer));
+            return SAVE(C_string_to_Poly(taskData, cwd));
 #endif
         }
 
@@ -1727,8 +1731,19 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             int nLen;
             TempString linkName(args->Word());
             if (linkName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            char resBuf[MAXPATHLEN];
-            nLen = readlink(linkName, resBuf, sizeof(resBuf));
+
+            size_t size = 4096;
+            TempString resBuf((TCHAR *)malloc(size * sizeof(TCHAR)));
+            if (resBuf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            // nLen is signed, so cast size to ssize_t to perform signed
+            // comparison, avoiding an infinite loop when nLen is -1.
+            while ((nLen = readlink(linkName, resBuf, size)) >= (ssize_t) size) {
+                size *= 2;
+                if (size > SSIZE_MAX) raise_fail(taskData, "readlink needs too large a buffer");
+                TCHAR *newBuf = (TCHAR *)realloc(resBuf, size * sizeof(TCHAR));
+                if (newBuf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                resBuf = newBuf;
+            }
             if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
             return(SAVE(C_string_to_Poly(taskData, resBuf, nLen)));
 #endif
@@ -1779,13 +1794,18 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
                 raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
             lstrcat(buff, _T("MLTEMPXXXXXX"));
 #else
-            TCHAR buff[MAXPATHLEN];
+            const char *template_subdir =  "/MLTEMPXXXXXX";
 #ifdef P_tmpdir
+            TempString buff((TCHAR *)malloc(strlen(P_tmpdir) + strlen(template_subdir) + 1));
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             strcpy(buff, P_tmpdir);
 #else
-            strcpy(buff, "/tmp");
+            const char *tmpdir = "/tmp";
+            TempString buff((TCHAR *)malloc(strlen(tmpdir) + strlen(template_subdir) + 1));
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            strcpy(buff, tmpdir);
 #endif
-            strcat(buff, "/MLTEMPXXXXXX");
+            strcat(buff, template_subdir);
 #endif
 
 #if (defined(HAVE_MKSTEMP) && ! defined(UNICODE))

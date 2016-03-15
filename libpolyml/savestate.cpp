@@ -102,10 +102,6 @@ typedef char TCHAR;
 #include "gc.h" // For FullGC.
 #include "timing.h"
 
-#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
-#define MAXPATHLEN MAX_PATH
-#endif
-
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
 #pragma warning(disable:4996)
@@ -652,11 +648,7 @@ void SaveRequest::Perform()
 
 Handle SaveState(TaskData *taskData, Handle args)
 {
-    TCHAR fileNameBuff[MAXPATHLEN];
-    POLYUNSIGNED length =
-        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
-    if (length > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
     // The value of depth is zero for top-level save so we need to add one for hierarchy.
     unsigned newHierarchy = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)) + 1;
 
@@ -693,7 +685,7 @@ public:
     // The fileName here is the last file loaded.  As well as using it
     // to load the name can also be printed out at the end to identify the
     // particular file in the hierarchy that failed.
-    TCHAR fileName[MAXPATHLEN];
+    AutoFree<TCHAR*> fileName;
     int errNumber;
 };
 
@@ -709,23 +701,22 @@ void StateLoader::Perform(void)
             return;
         }
         ML_Cons_Cell *p = DEREFLISTHANDLE(fileNameList);
-        POLYUNSIGNED length = Poly_string_to_C(p->h, fileName, MAXPATHLEN);
-        if (length > MAXPATHLEN)
+        fileName = Poly_string_to_T_alloc(p->h);
+        if (fileName == NULL)
         {
-            errorResult = "File name too long";
-            errNumber = ENAMETOOLONG;
+            errorResult = "Insufficient memory";
+            errNumber = ENOMEM;
             return;
         }
         (void)LoadFile(true, 0, p->t);
     }
     else
     {
-        POLYUNSIGNED length =
-            Poly_string_to_C(DEREFHANDLE(fileNameList), fileName, MAXPATHLEN);
-        if (length > MAXPATHLEN)
+        fileName = Poly_string_to_T_alloc(DEREFHANDLE(fileNameList));
+        if (fileName == NULL)
         {
-            errorResult = "File name too long";
-            errNumber = ENAMETOOLONG;
+            errorResult = "Insufficient memory";
+            errNumber = ENOMEM;
             return;
         }
         (void)LoadFile(true, 0, TAGGED(0));
@@ -866,11 +857,11 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 return false;
             }
             ML_Cons_Cell *p = (ML_Cons_Cell *)tail.AsObjPtr();
-            POLYUNSIGNED length = Poly_string_to_C(p->h, fileName, MAXPATHLEN);
-            if (length > MAXPATHLEN)
+            fileName = Poly_string_to_T_alloc(p->h);
+            if (fileName == NULL)
             {
-                errorResult = "File name too long";
-                errNumber = ENAMETOOLONG;
+                errorResult = "Insufficient memory";
+                errNumber = ENOMEM;
                 return false;
             }
             if (! LoadFile(false, header.parentTimeStamp, p->t))
@@ -879,7 +870,17 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         else
         {
             size_t toRead = header.stringTableSize-header.parentNameEntry;
-            if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
+            size_t elems = ((toRead + sizeof(TCHAR) - 1) / sizeof(TCHAR));
+            // Always allow space for null terminator
+            size_t roundedBytes = (elems + 1) * sizeof(TCHAR);
+            TCHAR *newFileName = (TCHAR *)realloc(fileName, roundedBytes);
+            if (newFileName == NULL)
+            {
+                errorResult = "Insufficient memory";
+                errNumber = ENOMEM;
+                return false;
+            }
+            fileName = newFileName;
 
             if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
                 fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
@@ -888,7 +889,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 errorResult = "Unable to read parent file name";
                 return false;
             }
-            fileName[toRead] = 0; // Should already be null-terminated, but just in case.
+            fileName[elems] = 0; // Should already be null-terminated, but just in case.
 
             if (! LoadFile(false, header.parentTimeStamp, TAGGED(0)))
                 return false;
@@ -1096,11 +1097,11 @@ Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
             raise_fail(taskData, loader.errorResult);
         else
         {
-            char buff[MAXPATHLEN+100];
+            AutoFree<char*> buff((char *)malloc(strlen(loader.errorResult) + 2 + _tcslen(loader.fileName) * sizeof(TCHAR) + 1));
 #if (defined(_WIN32) && defined(UNICODE))
-            sprintf(buff, "%s: %S", loader.errorResult, loader.fileName);
+            sprintf(buff, "%s: %S", loader.errorResult, (TCHAR *)loader.fileName);
 #else
-            sprintf(buff, "%s: %s", loader.errorResult, loader.fileName);
+            sprintf(buff, "%s: %s", loader.errorResult, (TCHAR *)loader.fileName);
 #endif
             raise_syscall(taskData, buff, loader.errNumber);
         }
@@ -1138,26 +1139,23 @@ Handle ShowHierarchy(TaskData *taskData)
 Handle RenameParent(TaskData *taskData, Handle args)
 // Change the name of the immediate parent stored in a child
 {
-    TCHAR fileNameBuff[MAXPATHLEN], parentNameBuff[MAXPATHLEN];
     // The name of the file to modify.
-    POLYUNSIGNED fileLength =
-        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
-    if (fileLength > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
+    if (fileNameBuff == NULL)
+        raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // The new parent name to insert.
-    POLYUNSIGNED parentLength =
-        Poly_string_to_C(DEREFHANDLE(args)->Get(1), parentNameBuff, MAXPATHLEN);
-    if (parentLength > MAXPATHLEN)
-        raise_syscall(taskData, "Parent name too long", ENAMETOOLONG);
+    AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(1)));
+    if (parentNameBuff == NULL)
+        raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("r+b"))); // Open for reading and writing
     if ((FILE*)loadFile == NULL)
     {
-        char buff[MAXPATHLEN+1+23];
+        AutoFree<char*> buff((char *)malloc(23 + _tcslen(fileNameBuff) * sizeof(TCHAR) + 1));
 #if (defined(_WIN32) && defined(UNICODE))
-        sprintf(buff, "Cannot open load file: %S", fileNameBuff);
+        sprintf(buff, "Cannot open load file: %S", (TCHAR *)fileNameBuff);
 #else
-        sprintf(buff, "Cannot open load file: %s", fileNameBuff);
+        sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
         raise_syscall(taskData, buff, errno);
     }
@@ -1202,20 +1200,18 @@ Handle RenameParent(TaskData *taskData, Handle args)
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    TCHAR fileNameBuff[MAXPATHLEN+1];
-    POLYUNSIGNED length =
-        Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
-    if (length > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(hFileName)));
+    if (fileNameBuff == NULL)
+        raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("rb")));
     if ((FILE*)loadFile == NULL)
     {
-        char buff[MAXPATHLEN+1+23];
+        AutoFree<char*> buff((char *)malloc(23 + _tcslen(fileNameBuff) * sizeof(TCHAR) + 1));
 #if (defined(_WIN32) && defined(UNICODE))
-        sprintf(buff, "Cannot open load file: %S", fileNameBuff);
+        sprintf(buff, "Cannot open load file: %S", (TCHAR *)fileNameBuff);
 #else
-        sprintf(buff, "Cannot open load file: %s", fileNameBuff);
+        sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
         raise_syscall(taskData, buff, errno);
     }
@@ -1238,9 +1234,13 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
     // Does this have a parent?
     if (header.parentNameEntry != 0)
     {
-        TCHAR parentFileName[MAXPATHLEN+1];
         size_t toRead = header.stringTableSize-header.parentNameEntry;
-        if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
+        size_t elems = ((toRead + sizeof(TCHAR) - 1) / sizeof(TCHAR));
+        // Always allow space for null terminator
+        size_t roundedBytes = (elems + 1) * sizeof(TCHAR);
+        AutoFree<TCHAR*> parentFileName((TCHAR *)malloc(roundedBytes));
+        if (parentFileName == NULL)
+            raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
             fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
@@ -1248,7 +1248,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         {
             raise_fail(taskData, "Unable to read parent file name");
         }
-        parentFileName[toRead] = 0; // Should already be null-terminated, but just in case.
+        parentFileName[elems] = 0; // Should already be null-terminated, but just in case.
         // Convert the name into a Poly string and then build a "Some" value.
         // It's possible, although silly, to have the empty string as a parent name.
         Handle resVal = SAVE(C_string_to_Poly(taskData, parentFileName));
@@ -1602,7 +1602,7 @@ Handle LoadModule(TaskData *taskData, Handle args)
             raise_fail(taskData, loader.errorResult);
         else
         {
-            char buff[MAXPATHLEN+100];
+            AutoFree<char*> buff((char *)malloc(strlen(loader.errorResult) + 2 + _tcslen(loader.fileName) * sizeof(TCHAR) + 1));
 #if (defined(_WIN32) && defined(UNICODE))
             sprintf(buff, "%s: %S", loader.errorResult, loader.fileName);
 #else

@@ -156,11 +156,9 @@ EXTNAME(id):
 .set    R14_OFF,    136
 .set    FPREGS_OFF, 144
 
-# Mark the stack as non-executable when compiling for Linux
-#ifdef __linux__
-#ifdef __ELF__
+# Mark the stack as non-executable when supported
+#ifdef HAVE_GNU_STACK
 .section .note.GNU-stack, "", @progbits
-#endif
 #endif
 
 #

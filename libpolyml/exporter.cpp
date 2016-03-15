@@ -82,10 +82,6 @@
 #include "machoexport.h"
 #endif
 
-#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
-#define MAXPATHLEN MAX_PATH
-#endif
-
 /*
 To export the function and everything reachable from it we need to copy
 all the objects into a new area.  We leave tombstones in the original
@@ -416,14 +412,14 @@ public:
 
 static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Exporter *exports)
 {
-    TCHAR fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
-    POLYUNSIGNED length =
-        Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
-    if (length > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+    size_t extLen = _tcslen(extension);
+    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0), extLen));
+    if (fileNameBuff == NULL)
+        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    size_t length = _tcslen(fileNameBuff);
 
     // Does it already have the extension?  If not add it on.
-    if (length < _tcslen(extension) || _tcscmp(fileNameBuff + length - _tcslen(extension), extension) != 0)
+    if (length < extLen || _tcscmp(fileNameBuff + length - extLen, extension) != 0)
         _tcscat(fileNameBuff, extension);
 #if (defined(_WIN32) && defined(UNICODE))
     exports->exportFile = _wfopen(fileNameBuff, L"wb");
