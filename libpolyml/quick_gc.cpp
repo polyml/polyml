@@ -107,6 +107,18 @@ private:
     unsigned nOwnedSpaces;
 };
 
+// This is used when scanning code areas.  If there are no mutable cells left we can clear
+// the mutable bit and we don't have to scan it again.
+class CodeCheck: public ScanAddress
+{
+public:
+    CodeCheck(): foundMutable(false) {}
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+        { if (OBJ_IS_MUTABLE_OBJECT(lengthWord)) foundMutable = true;  }
+    bool foundMutable;
+};
+
 // This uses the conditional exchange instruction to check and update
 // the forwarding pointer.  It uses a lock prefix so that if another
 // thread has updated it in the meantime it will not set it.
@@ -537,6 +549,22 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
             rootScan.ScanAddressesInRegion(space->bottom, space->top);
+    }
+    // Scan code spaces.  
+    for (unsigned j=0; j < gMem.ncSpaces; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
+        // Spaces are mutable if any object has been added to the area since the last GC.
+        if (space->isMutable)
+        {
+            rootScan.ScanAddressesInRegion(space->bottom, space->top);
+            // Check to see if any of the objects are still mutable.  If they are
+            // we are still building the code and must rescan it on the next GC.
+            // If there aren't we don't need to unless another code object is added.
+            CodeCheck codeCheck;
+            codeCheck.ScanAddressesInRegion(space->bottom, space->top);
+            space->isMutable = codeCheck.foundMutable;
+        }
     }
 
     // Scan RTS addresses.  This will include the thread stacks.

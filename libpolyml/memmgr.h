@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,7 +40,8 @@ typedef enum {
                     // Also loaded saved state.
     ST_LOCAL,       // Local heaps contain volatile data
     ST_EXPORT,      // Temporary export area
-    ST_STACK        // ML Stack for a thread
+    ST_STACK,       // ML Stack for a thread
+    ST_CODE         // Code created in the current run
 } SpaceType;
 
 
@@ -75,6 +76,7 @@ public:
     SpaceType       spaceType;
     bool            isMutable;
     bool            isOwnSpace; // True if this has been allocated.
+    bool            isCode;
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
@@ -176,6 +178,15 @@ public:
     StackObject *stack()const { return (StackObject *)bottom; }
 };
 
+// Code Space.  These contain local code created by the compiler.
+class CodeSpace: public MemSpace
+{
+    public:
+        CodeSpace() { isOwnSpace = true; }
+
+    PolyWord *topPointer; // Allocation point
+};
+
 class MemMgr
 {
 public:
@@ -202,6 +213,9 @@ public:
     PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, bool doAllocation = true);
     PolyWord *AllocHeapSpace(POLYUNSIGNED words)
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
+
+    // Allocate space for code.  This is initially mutable to allow the code to be built.
+    PolyWord *AllocCodeSpace(POLYUNSIGNED words);
 
     // Check that a subsequent allocation will succeed.  Called from the GC to ensure
     bool CheckForAllocation(POLYUNSIGNED words);
@@ -301,6 +315,10 @@ public:
     unsigned nsSpaces;
     PLock stackSpaceLock;
 
+    // Table for code spaces
+    CodeSpace **cSpaces;
+    unsigned ncSpaces;
+    PLock codeSpaceLock;
 
     // Storage manager lock.
     PLock allocLock;

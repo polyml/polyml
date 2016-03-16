@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,7 @@ MemSpace::MemSpace(): SpaceTree(true)
     bottom = 0;
     top = 0;
     isOwnSpace = false;
+    isCode = false;
 }
 
 MemSpace::~MemSpace()
@@ -105,11 +106,12 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc")
 {
-    npSpaces = nlSpaces = nsSpaces = 0;
+    npSpaces = nlSpaces = nsSpaces = ncSpaces = 0;
     pSpaces = 0;
     lSpaces = 0;
     eSpaces = 0;
     sSpaces = 0;
+    cSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
     nextAllocator = 0;
@@ -138,6 +140,9 @@ MemMgr::~MemMgr()
     for (i = 0; i < nsSpaces; i++)
         delete(sSpaces[i]);
     free(sSpaces);
+    for (i = 0; i < ncSpaces; i++)
+        delete(cSpaces[i]);
+    free(cSpaces);
     delete ioSpace;
 }
 
@@ -613,6 +618,82 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
         return result;
     }
     return 0; // There isn't space even for the minimum.
+}
+
+// Allocate memory for a piece of code.  This needs to be both mutable and executable,
+// at least for native code.  The interpreted version need not (should not?) make the
+// area executable.  It will not be executed until the mutable bit has been cleared.
+// Once code is allocated it is not GCed or moved.
+// N.B.  The argument size must include the length word; the result is a pointer
+// to the base of the area or zero if it can't be allocated.
+PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
+{
+    PLocker locker(&codeSpaceLock);
+    CodeSpace *allocSpace = 0;
+    for (unsigned j = 0; j < gMem.ncSpaces && allocSpace == 0; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
+        if ((POLYUNSIGNED)(space->top - space->topPointer) >= words)
+            allocSpace = space;
+    }
+    if (allocSpace == 0)
+    {
+        // Allocate a new mutable, code space.
+        size_t actualSize = words * sizeof(PolyWord);
+        PolyWord *mem  =
+            (PolyWord*)osMemoryManager->Allocate(actualSize,
+                            PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+        if (mem != 0)
+        {
+            try {
+                allocSpace = new CodeSpace;
+                allocSpace->bottom = allocSpace->topPointer = mem;
+                allocSpace->top = allocSpace->bottom + actualSize / sizeof(PolyWord);
+                allocSpace->spaceType = ST_CODE;
+                allocSpace->isMutable = true;
+                allocSpace->isCode = true;
+                allocSpace->isOwnSpace = true;
+                CodeSpace **table =
+                    (CodeSpace **)realloc(cSpaces, (ncSpaces+1) * sizeof(CodeSpace *));
+                if (table == 0)
+                {
+                    delete allocSpace;
+                    allocSpace = 0;
+                }
+                else
+                {
+                    cSpaces = table;
+                    cSpaces[ncSpaces++] = allocSpace;
+                    if (debugOptions & DEBUG_MEMMGR)
+                        Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
+                    try {
+                        AddTree(allocSpace);
+                    }
+                    catch (std::bad_alloc&) {
+                        RemoveTree(allocSpace);
+                        delete allocSpace;
+                        allocSpace = 0;
+                    }
+                }
+            } catch (std::bad_alloc&)
+            {
+            }
+            if (allocSpace == 0)
+            {
+                osMemoryManager->Free(mem, actualSize);
+                mem = 0;
+            }
+        }
+        if (allocSpace == 0)
+            return 0; // Try a GC.
+    }
+    // Set the mutable flag.  This is cleared by the GC when it has been scanned.
+    allocSpace->isMutable = true;
+    PolyWord *result = allocSpace->topPointer; // Return the address.
+    allocSpace->topPointer += words;
+    if (allocSpace->topPointer != allocSpace->top)
+        FillUnusedSpace(allocSpace->topPointer, allocSpace->top - allocSpace->topPointer);
+    return result;
 }
 
 // Check that we have sufficient space for an allocation to succeed.

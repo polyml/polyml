@@ -618,12 +618,17 @@ void GCSharingPhase(void)
         lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
     }
 
-    // Process the permanent mutable areas.
+    // Process the permanent mutable areas and the code areas
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
             sharer.ScanAddressesInRegion(space->bottom, space->top);
+    }
+    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
+        sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
 
     // Process the RTS roots.

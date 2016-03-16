@@ -49,7 +49,7 @@ use "mlsource/MLCompiler/CodeTree/CODETREE_SIMPLIFIER.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_OPTIMISER.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE.ML";
 use "mlsource/MLCompiler/Pretty.sml";
-use "mlsource/MLCompiler/CodeTree/X86Code/CODE_ARRAY.ML";
+use "mlsource/MLCompiler/CodeTree/CODE_ARRAY.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86CODESIG.sml";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86CodetreeToX86Code.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OUTPUTCODE.ML";

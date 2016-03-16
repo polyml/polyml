@@ -25,8 +25,11 @@ in
     let
         val r = rmod (a * ! random_seed) m
     in
+        (* This can overflow 31-bit fixed precision.
+           TODO: Find a random number generator that doesn't *)
         random_seed := r;
         Real.toInt IEEEReal.TO_NEGINF r
+            handle Overflow => random()
     end
 end;
 

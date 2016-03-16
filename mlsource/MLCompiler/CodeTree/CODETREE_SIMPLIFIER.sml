@@ -646,10 +646,14 @@ struct
     let
         val copiedArgs = map (fn arg => simpSpecial(arg, context)) argList
         open RuntimeCalls
+        (* When checking for a constant we need to check that there are no bindings.
+           They could have side-effects. *)
+        fun isAConstant(Constnt _, [], _) = true
+        |   isAConstant _ = false
     in
         (* If the function is an RTS call that is safe to evaluate immediately and all the
            arguments are constants evaluate it now. *)
-        if earlyRtsCall rtsCallNo andalso List.all (isConstnt o #1) copiedArgs
+        if earlyRtsCall rtsCallNo andalso List.all isAConstant copiedArgs
         then
         let
             val () = reprocess := true

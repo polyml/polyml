@@ -3908,7 +3908,7 @@ Calling conventions:
                 )
             else ()
         in
-            csegCopyToCode seg 
+            csegLockAndGetExecutable seg 
         end (* the result *)
     end (* copyCode *)
  
