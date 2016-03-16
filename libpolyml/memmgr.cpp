@@ -687,6 +687,8 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
         if (allocSpace == 0)
             return 0; // Try a GC.
     }
+    // Set the mutable flag.  This is cleared by the GC when it has been scanned.
+    allocSpace->isMutable = true;
     PolyWord *result = allocSpace->topPointer; // Return the address.
     allocSpace->topPointer += words;
     if (allocSpace->topPointer != allocSpace->top)
