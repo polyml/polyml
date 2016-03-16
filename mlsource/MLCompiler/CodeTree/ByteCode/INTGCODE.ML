@@ -481,20 +481,20 @@ struct
   
        | BICCase (cas as {cases, caseType, ...}) =>
          let
-           val numberOfCases = List.length cases;
-            val (_, min:int, max:int) =
+            val numberOfCases = LargeInt.fromInt(List.length cases)
+            val range =
                 case caseType of
-                    CaseTag max => (true, 0, Word.toInt max)
+                    CaseTag max => Word.toLargeInt max
                 |   _ =>
                     let
                         val (_, aLabel) = hd cases
                         fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
                         val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
                     in
-                        (false, Word.toInt min, Word.toInt max)
+                        Word.toLargeInt (max-min)
                     end
          in
-           if 3 * numberOfCases < max - min + 5
+           if 3 * numberOfCases < range + 5
            then genSparseCase(cas, whereto, tailKind, loopAddr)
            else genDenseCase (cas, whereto, tailKind, loopAddr)
          end
@@ -929,19 +929,19 @@ struct
      (* The exit jumps are chained together. *)
      val lastEndJump : labels ref = ref noJump;
 
-    val (_, min:int, max:int) =
+    val (_, min: LargeInt.int, max:LargeInt.int) =
         case #caseType pt of
-            CaseTag max => (true, 0, Word.toInt max)
+            CaseTag max => (true, 0, Word.toLargeInt max)
         |   _ =>
             let
                 val (_, aLabel) = hd cases
                 fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
                 val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
             in
-                (false, Word.toInt min, Word.toInt max)
+                (false, Word.toLargeInt min, Word.toLargeInt max)
             end
 
-     val limit : int = max - min
+     val limit : int = Int.fromLarge(max - min)
 
      val () =
        if min = 0 then ()
@@ -992,7 +992,7 @@ struct
         entry should be ignored. It is NOT an error (just
         redundant). *)
      local
-       val entryAddr : addrs = addrPlus(startVec, (Word.toInt matches - min) * 2)
+       val entryAddr : addrs = addrPlus(startVec, Int.fromLarge(Word.toLargeInt matches - min) * 2)
      in
         val () =
        if getBytes(2, entryAddr, cvec) = defaultAddr
