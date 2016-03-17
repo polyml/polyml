@@ -275,7 +275,8 @@ void GCUpdatePhase()
     {
         CodeSpace *space = gMem.cSpaces[j];
         gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
-        space->isMutable = false; // We don't need to scan it in a minor GC.
+        // We could remove the mutable bit if there are no longer any mutable code objects
+        // but it's easier to leave that to the minor GC.
     }
 
     // Update addresses in RTS modules.
