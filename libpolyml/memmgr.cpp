@@ -82,7 +82,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     // Allocate the heap itself.
     size_t iSpace = size*sizeof(PolyWord);
     bottom  =
-        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
 
     if (bottom == 0)
         return false;
