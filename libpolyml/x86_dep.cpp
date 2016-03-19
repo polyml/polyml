@@ -288,9 +288,9 @@ inline StackObject* x86Stack(TaskData *taskData) { return taskData->stack->stack
 
 inline PolyWord& PSP_EAX(TaskData *taskData) { return x86Stack(taskData)->p_eax; }
 inline PolyWord& PSP_EBX(TaskData *taskData) { return x86Stack(taskData)->p_ebx; }
-//inline PolyWord& PSP_ECX(TaskData *taskData) { return x86Stack(taskData)->p_ecx; }
+inline PolyWord& PSP_ECX(TaskData *taskData) { return x86Stack(taskData)->p_ecx; }
 inline PolyWord& PSP_EDX(TaskData *taskData) { return x86Stack(taskData)->p_edx; }
-//inline PolyWord& PSP_ESI(TaskData *taskData) { return x86Stack(taskData)->p_esi; }
+inline PolyWord& PSP_ESI(TaskData *taskData) { return x86Stack(taskData)->p_esi; }
 inline PolyWord& PSP_EDI(TaskData *taskData) { return x86Stack(taskData)->p_edi; }
 
 #ifdef HOSTARCHITECTURE_X86_64
@@ -298,10 +298,10 @@ inline PolyWord& PSP_EDI(TaskData *taskData) { return x86Stack(taskData)->p_edi;
 inline PolyWord& PSP_R8(TaskData *taskData) { return x86Stack(taskData)->p_r8; }
 inline PolyWord& PSP_R9(TaskData *taskData) { return x86Stack(taskData)->p_r9; }
 inline PolyWord& PSP_R10(TaskData *taskData) { return x86Stack(taskData)->p_r10; }
-//inline PolyWord& PSP_R11(TaskData *taskData) { return x86Stack(taskData)->p_r11; }
-//inline PolyWord& PSP_R12(TaskData *taskData) { return x86Stack(taskData)->p_r12; }
-//inline PolyWord& PSP_R13(TaskData *taskData) { return x86Stack(taskData)->p_r13; }
-//inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
+inline PolyWord& PSP_R11(TaskData *taskData) { return x86Stack(taskData)->p_r11; }
+inline PolyWord& PSP_R12(TaskData *taskData) { return x86Stack(taskData)->p_r12; }
+inline PolyWord& PSP_R13(TaskData *taskData) { return x86Stack(taskData)->p_r13; }
+inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
 #endif
 
 inline POLYCODEPTR& PSP_IC(TaskData *taskData) { return x86Stack(taskData)->p_pc; }
@@ -331,6 +331,7 @@ extern "C" {
     extern int X86AsmKillSelf(void);
     extern int X86AsmCallbackReturn(void);
     extern int X86AsmCallbackException(void);
+    extern int X86AsmPopArgAndClosure(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
@@ -1244,28 +1245,11 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     POLYUNSIGNED stack_size     = space->spaceSize();
-    POLYUNSIGNED topStack = stack_size-3;
+    POLYUNSIGNED topStack = stack_size-5;
     newStack->p_sp    = (PolyWord*)newStack+topStack; 
-    this->assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+1;
+    this->assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+3;
 
-    /* If this function takes an argument store it in the argument register. */
-    if (arg == 0) newStack->p_eax = TAGGED(0);
-    else newStack->p_eax = DEREFWORD(arg);
-    newStack->p_ebx = TAGGED(0);
-    newStack->p_ecx = TAGGED(0);
-    newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
-    newStack->p_pc  = newStack->p_edx.AsObjPtr()->Get(0).AsCodePtr();
-    newStack->p_esi = TAGGED(0);
-    newStack->p_edi = TAGGED(0);
-#ifdef HOSTARCHITECTURE_X86_64
-    newStack->p_r8 = TAGGED(0);
-    newStack->p_r9 = TAGGED(0);
-    newStack->p_r10 = TAGGED(0);
-    newStack->p_r11 = TAGGED(0);
-    newStack->p_r12 = TAGGED(0);
-    newStack->p_r13 = TAGGED(0);
-    newStack->p_r14 = TAGGED(0);
-#endif
+    newStack->p_pc = (byte*)&X86AsmPopArgAndClosure;
 
     // Floating point save area.
     ASSERT(sizeof(struct fpSaveArea) == 108);
@@ -1274,21 +1258,22 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     newStack->p_fp.cw = 0x027f ; // Control word
     newStack->p_fp.tw = 0xffff; // Tag registers - all unused
 
+    ((PolyWord*)newStack)[topStack] = DEREFWORDHANDLE(proc); // Closure
+    ((PolyWord*)newStack)[topStack+1] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
     /* We initialise the end of the stack with a sequence that will jump to
        kill_self whether the process ends with a normal return or by raising an
        exception.  A bit of this was added to fix a bug when stacks were objects
        on the heap and could be scanned by the GC. */
-    ((PolyWord*)newStack)[topStack+2] = TAGGED(0); // Probably no longer needed
+    ((PolyWord*)newStack)[topStack+4] = TAGGED(0); // Probably no longer needed
     // Set the default handler and return address to point to this code.
-
     PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
     // Exception handler.
-    ((PolyWord*)newStack)[topStack+1] = killJump;
+    ((PolyWord*)newStack)[topStack+3] = killJump;
     // Normal return address.  We need a separate entry on the stack from
     // the exception handler because it is possible that the code we are entering
     // may replace this entry with an argument.  The code-generator optimises tail-recursive
     // calls to functions with more args than the called function.
-    ((PolyWord*)newStack)[topStack] = killJump;
+    ((PolyWord*)newStack)[topStack+2] = killJump;
 }
 
 // In Solaris-x86 the registers are named EIP and ESP.
@@ -1393,6 +1378,25 @@ void X86TaskData::InterruptCode()
 // This is called from SwitchToPoly before we enter the ML code.
 void X86TaskData::SetMemRegisters()
 {
+    // Clear the registers first, apart from eax/rax which is used for the result.
+    // If this is a heap allocation we may put the result into one of these.
+    // TODO: What happens if we're extending the stack?
+    this->assemblyInterface.fullRestore = true;
+    PSP_EBX(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_ECX(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_EDX(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_ESI(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_EDI(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+#ifdef HOSTARCHITECTURE_X86_64
+    PSP_R8(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R9(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R10(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R11(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R12(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R13(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+    PSP_R14(this) = PolyWord::FromUnsigned(0xaaaaaaaa);
+#endif
+
     // Copy the current store limits into variables before we go into the assembly code.
 
     // If we haven't yet set the allocation area or we don't have enough we need

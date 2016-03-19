@@ -244,6 +244,14 @@ IFDEF NOTNOW
     ret
 ENDIF
 
+; Used when entering new code.  The argument and closure are on the stack
+; in case there is a GC before we enter the code.
+PUBLIC X86AsmPopArgAndClosure
+X86AsmPopArgAndClosure:
+    pop     edx
+    pop     eax
+    jmp     dword ptr [edx]
+
 ; CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
 ; to constant arguments.  Oddly, compared with other RTS functions, it takes a single
 ; argument that is a pair containing the function closure and an argument vector.

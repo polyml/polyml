@@ -332,6 +332,13 @@ SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative 
     ret
 #endif
 
+/* Used when entering new code.  The argument and closure are on the stack
+   in case there is a GC before we enter the code. */
+INLINE_ROUTINE(X86AsmPopArgAndClosure)
+    popq    %rdx
+    popq    %rax
+    jmp     *(%rdx)
+
 /* CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
    to constant arguments.  Oddly, compared with other RTS functions, it takes a single
    argument that is a pair containing the function closure and an argument vector. */
