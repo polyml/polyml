@@ -25,18 +25,21 @@ sig
 
     val sameCode: code * code -> bool
 
+    datatype genReg = GeneralReg of Word8.word * bool
+    and fpReg = FloatingPtReg of Word8.word
+    
     datatype reg =
-        GenReg of Word8.word * bool
-    |   FPReg of Word8.word
+        GenReg of genReg
+    |   FPReg of fpReg
 
     val isX64: bool
 
-    val eax: reg and ebx: reg and ecx: reg and edx: reg
-    and edi: reg and esi: reg and esp: reg and ebp: reg
-    and fp0: reg and fp1: reg and fp2: reg and fp3: reg
-    and fp4: reg and fp5: reg and fp6: reg and fp7: reg
-    and r8:  reg and r9:  reg and r10: reg and r11: reg
-    and r12: reg and r13: reg and r14: reg and r15: reg
+    val eax: genReg and ebx: genReg and ecx: genReg and edx: genReg
+    and edi: genReg and esi: genReg and esp: genReg and ebp: genReg
+    and r8:  genReg and r9:  genReg and r10: genReg and r11: genReg
+    and r12: genReg and r13: genReg and r14: genReg and r15: genReg
+    and fp0: fpReg and fp1: fpReg and fp2: fpReg and fp3: fpReg
+    and fp4: fpReg and fp5: fpReg and fp6: fpReg and fp7: fpReg
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
     val regN:   int -> reg
@@ -95,46 +98,47 @@ sig
     val mkLabel: unit -> label
 
     datatype indexType =
-        NoIndex | Index1 of reg | Index2 of reg | Index4 of reg | Index8 of reg
+        NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
     datatype memoryAddress =
-        BaseOffset of { base: reg, offset: int, index: indexType }
+        BaseOffset of { base: genReg, offset: int, index: indexType }
     |   ConstantAddress of machineWord
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
     datatype operation =
-        MoveRR of { source: reg, output: reg }
-    |   MoveConstR of { source: LargeInt.int, output: reg }
-    |   MoveLongConstR of { source: machineWord, output: reg }
-    |   LoadMemR of { source: memoryAddress, output: reg }
-    |   LoadByteR of { source: memoryAddress, output: reg }
-    |   PushR of reg
+        MoveRR of { source: genReg, output: genReg }
+    |   MoveConstR of { source: LargeInt.int, output: genReg }
+    |   MoveConstFPR of { source: LargeInt.int, output: fpReg }
+    |   MoveLongConstR of { source: machineWord, output: genReg }
+    |   LoadMemR of { source: memoryAddress, output: genReg }
+    |   LoadByteR of { source: memoryAddress, output: genReg }
+    |   PushR of genReg
     |   PushConst of LargeInt.int
     |   PushLongConst of machineWord
-    |   PushMem of { base: reg, offset: int }
-    |   PopR of reg
-    |   ArithRR of { opc: arithOp, output: reg, source: reg }
-    |   ArithRConst of { opc: arithOp, output: reg, source: LargeInt.int }
-    |   ArithRLongConst of { opc: arithOp, output: reg, source: machineWord }
-    |   ArithRMem of { opc: arithOp, output: reg, offset: int, base: reg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: LargeInt.int }
-    |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
-    |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
-    |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
+    |   PushMem of { base: genReg, offset: int }
+    |   PopR of genReg
+    |   ArithRR of { opc: arithOp, output: genReg, source: genReg }
+    |   ArithRConst of { opc: arithOp, output: genReg, source: LargeInt.int }
+    |   ArithRLongConst of { opc: arithOp, output: genReg, source: machineWord }
+    |   ArithRMem of { opc: arithOp, output: genReg, offset: int, base: genReg }
+    |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
+    |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
+    |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
+    |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
-    |   LockMutableSegment of reg
-    |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
-    |   TestTagR of reg
-    |   TestByteMem of { base: reg, offset: int, bits: word }
+    |   LockMutableSegment of genReg
+    |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
+    |   TestTagR of genReg
+    |   TestByteMem of { base: genReg, offset: int, bits: word }
     |   CallRTS of int
-    |   StoreRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreByteRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
-    |   AllocStore of { size: int, output: reg, saveRegs: RegSet.regSet }
-    |   AllocStoreVariable of { output: reg, saveRegs: RegSet.regSet }
+    |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
+    |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -144,31 +148,31 @@ sig
     |   ResetStack of int
     |   InterruptCheck
     |   JumpLabel of label
-    |   TagValue of { source: reg, output: reg }
+    |   TagValue of { source: genReg, output: genReg }
         (* Some of these operations are higher-level and should be reduced. *)
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
+    |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
     |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of { testReg: reg, workReg: reg, min: word, cases: label list }
+    |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
     |   FreeRegisters of RegSet.regSet
-    |   MakeSafe of reg
+    |   MakeSafe of genReg
     |   RepeatOperation of repOps
-    |   Group3Ops of reg * group3Ops
-    |   AtomicXAdd of {base: reg, output: reg}
-    |   FPLoadFromGenReg of reg
-    |   FPLoadFromFPReg of { source: reg, lastRef: bool }
+    |   Group3Ops of genReg * group3Ops
+    |   AtomicXAdd of {base: genReg, output: genReg}
+    |   FPLoadFromGenReg of genReg
+    |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
-    |   FPStoreToFPReg of { output: reg, andPop: bool }
-    |   FPStoreToMemory of { base: reg, offset: int, andPop: bool }
-    |   FPArithR of { opc: fpOps, source: reg }
+    |   FPStoreToFPReg of { output: fpReg, andPop: bool }
+    |   FPStoreToMemory of { base: genReg, offset: int, andPop: bool }
+    |   FPArithR of { opc: fpOps, source: fpReg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
-    |   FPArithMemory of { opc: fpOps, base: reg, offset: int }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadIntAndPop
-    |   FPFree of reg
-    |   PreAddDetag of reg
+    |   FPFree of fpReg
+    |   PreAddDetag of genReg
     |   TestOverflow
-    |   SignedMultiply of { source: reg, output: reg }
+    |   SignedMultiply of { source: genReg, output: genReg }
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
@@ -194,6 +198,8 @@ sig
     sig
         type code           = code
         and  reg            = reg
+        and  genReg         = genReg
+        and  fpReg          = fpReg
         and  addrs          = addrs
         and  operation      = operation
         and  regSet         = RegSet.regSet

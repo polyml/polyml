@@ -250,10 +250,10 @@ struct
                propagate that information.  Otherwise push the RegisterStatusChange back up
                the list. *)
         |   reverse((r as FreeRegisters regs) :: (f as FPLoadFromFPReg{source, ...}) :: tl, list, _) =
-            if inSet(source, regs)
+            if inSet(FPReg source, regs)
             then
             let
-                val left = regSetMinus(regs, singleton source)
+                val left = regSetMinus(regs, singleton(FPReg source))
             in
                 if left = noRegisters
                 then reverse(FPLoadFromFPReg{source=source, lastRef=true} :: tl, list, true)
@@ -263,18 +263,22 @@ struct
             else reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters regs) :: (f as FPStoreToFPReg{output, ...}) :: tl, list, rep) =
-            if inSet(output, regs)
-            then (* We're discarding this register without using it.  Why?
-                    Split the sets but otherwise do nothing for the moment. *)
             let
-                val left = regSetMinus(regs, singleton output)
+                val fpo = FPReg output
             in
-                if left = noRegisters
-                then reverse(f :: tl, FreeRegisters(singleton output) :: list, rep)
-                else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton output) :: list, rep)
+                if inSet(fpo, regs)
+                then (* We're discarding this register without using it.  Why?
+                        Split the sets but otherwise do nothing for the moment. *)
+                let
+                    val left = regSetMinus(regs, singleton fpo)
+                in
+                    if left = noRegisters
+                    then reverse(f :: tl, FreeRegisters(singleton fpo) :: list, rep)
+                    else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton fpo) :: list, rep)
+                end
+                else (* We're saving into a different register.  Push back the Free. *)
+                    reverse(f :: r :: tl, list, true) (* Push it back *)
             end
-            else (* We're saving into a different register.  Push back the Free. *)
-                reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters _) :: (f as FPArithConst _) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
@@ -306,17 +310,21 @@ struct
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
         |   reverse((r as FreeRegisters regs) :: (f as FPArithR{source, ...}) :: tl, list, rep) =
-            if inSet(source, regs)
-            then (* We're freeing the register after the arithmetic.  Split the sets but
-                    otherwise do nothing. *)
             let
-                val left = regSetMinus(regs, singleton source)
+                val fpr = FPReg source
             in
-                if left = noRegisters
-                then reverse(f :: tl, FreeRegisters(singleton source) :: list, rep)
-                else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton source) :: list, rep)
+                if inSet(fpr, regs)
+                then (* We're freeing the register after the arithmetic.  Split the sets but
+                        otherwise do nothing. *)
+                let
+                    val left = regSetMinus(regs, singleton fpr)
+                in
+                    if left = noRegisters
+                    then reverse(f :: tl, FreeRegisters(singleton fpr) :: list, rep)
+                    else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton fpr) :: list, rep)
+                end
+                else reverse(f :: r :: tl, list, true) (* Push it back *)
             end
-            else reverse(f :: r :: tl, list, true) (* Push it back *)
 
             (* Merge multiple sets. *)
         |   reverse(FreeRegisters a :: FreeRegisters b :: tl, list, _) =

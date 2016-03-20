@@ -435,45 +435,47 @@ struct
 
 
     (* Registers and pseudo-registers. *)
+    datatype genReg = GeneralReg of Word8.word * bool
+    and fpReg = FloatingPtReg of Word8.word
+    
     datatype reg =
-        GenReg of Word8.word * bool
-    |   FPReg of Word8.word
+        GenReg of genReg
+    |   FPReg of fpReg
 
     (* These are the real registers we have.  The AMD extension encodes the
        additional registers through the REX prefix. *)
-    val eax = GenReg (0w0, false)
-    val ecx = GenReg (0w1, false)
-    val edx = GenReg (0w2, false)
-    val ebx = GenReg (0w3, false)
-    val esp = GenReg (0w4, false)
-    val ebp = GenReg (0w5, false)
-    val esi = GenReg (0w6, false)
-    val edi = GenReg (0w7, false)
-    val r8  = GenReg (0w0, true)
-    val r9  = GenReg (0w1, true)
-    val r10 = GenReg (0w2, true)
-    val r11 = GenReg (0w3, true)
-    val r12 = GenReg (0w4, true)
-    val r13 = GenReg (0w5, true)
-    val r14 = GenReg (0w6, true)
-    val r15 = GenReg (0w7, true)
+    val eax = GeneralReg (0w0, false)
+    val ecx = GeneralReg (0w1, false)
+    val edx = GeneralReg (0w2, false)
+    val ebx = GeneralReg (0w3, false)
+    val esp = GeneralReg (0w4, false)
+    val ebp = GeneralReg (0w5, false)
+    val esi = GeneralReg (0w6, false)
+    val edi = GeneralReg (0w7, false)
+    val r8  = GeneralReg (0w0, true)
+    val r9  = GeneralReg (0w1, true)
+    val r10 = GeneralReg (0w2, true)
+    val r11 = GeneralReg (0w3, true)
+    val r12 = GeneralReg (0w4, true)
+    val r13 = GeneralReg (0w5, true)
+    val r14 = GeneralReg (0w6, true)
+    val r15 = GeneralReg (0w7, true)
 
     (* Floating point "registers".  Actually entries on the floating point stack.
        The X86 has a floating point stack with eight entries. *)
-    val fp0 = FPReg 0w0
-    and fp1 = FPReg 0w1
-    and fp2 = FPReg 0w2
-    and fp3 = FPReg 0w3
-    and fp4 = FPReg 0w4
-    and fp5 = FPReg 0w5
-    and fp6 = FPReg 0w6
-    and fp7 = FPReg 0w7
+    val fp0 = FloatingPtReg 0w0
+    and fp1 = FloatingPtReg 0w1
+    and fp2 = FloatingPtReg 0w2
+    and fp3 = FloatingPtReg 0w3
+    and fp4 = FloatingPtReg 0w4
+    and fp5 = FloatingPtReg 0w5
+    and fp6 = FloatingPtReg 0w6
+    and fp7 = FloatingPtReg 0w7
 
     val regClosure  = edx (* Addr. of closure for fn. call goes here. *)
 
-    fun getReg (GenReg r) = r
-    |   getReg _ = raise InternalError "getReg: not a general register"
-    fun mkReg   n      = GenReg n  (* reg.up   *)
+    fun getReg (GeneralReg r) = r
+    fun mkReg  n      = GeneralReg n  (* reg.up   *)
   
     (* The maximum size of the register vectors and masks.  Although the
        X86/32 has a floating point stack with eight entries it's much simpler
@@ -488,21 +490,21 @@ struct
     local
         fun regN i =
             if i < 8
-            then GenReg(Word8.fromInt i, false)
+            then GenReg(GeneralReg(Word8.fromInt i, false))
             else if i < 16
-            then GenReg(Word8.fromInt(i-8), true)
-            else FPReg(Word8.fromInt(i-16))
+            then GenReg(GeneralReg(Word8.fromInt(i-8), true))
+            else FPReg(FloatingPtReg(Word8.fromInt(i-16)))
         val regVec = Vector.tabulate(regs, regN)
     in
         fun regN i = Vector.sub(regVec, i) handle Subscript => raise InternalError "Bad register number"
     end
  
     (* The number of the register. *)
-    fun nReg(GenReg(r, false)) = Word8.toInt r
-    |   nReg(GenReg(r, true)) = Word8.toInt r + 8
-    |   nReg(FPReg r) = Word8.toInt r + 16
+    fun nReg(GenReg(GeneralReg(r, false))) = Word8.toInt r
+    |   nReg(GenReg(GeneralReg(r, true))) = Word8.toInt r + 8
+    |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
 
-    fun regRepr(r as GenReg _) =
+    fun genRegRepr r =
           if r = eax then (if isX64 then "%rax" else "%eax") else
           if r = ebx then (if isX64 then "%rbx" else "%ebx") else
           if r = ecx then (if isX64 then "%rcx" else "%ecx") else
@@ -511,8 +513,12 @@ struct
           if r = ebp then (if isX64 then "%rbp" else "%ebp") else
           if r = esi then (if isX64 then "%rsi" else "%esi") else
           if r = edi then (if isX64 then "%rdi" else "%edi") else
-          (* X86/64 registers *) "%r" ^ Int.toString (nReg r)
-    |   regRepr(FPReg n) = "fp" ^ Word8.toString n
+          (* X86/64 registers *) "%r" ^ Int.toString (nReg(GenReg r))
+   
+    and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
+
+    fun regRepr(GenReg r) = genRegRepr r
+    |   regRepr(FPReg r) = fpRegRepr r
 
     (* Install a pretty printer.  This is simply for when this code is being
        run under the debugger.  N.B. We need PolyML.PrettyString here. *)
@@ -545,11 +551,11 @@ struct
 
         val generalRegisters = (* Registers checked by the GC. *)
             if isX64
-            then listToSet [eax, ecx, edx, ebx, esi, edi, r8, r9, r10, r11, r12, r13, r14]
-            else listToSet [eax, ecx, edx, ebx, esi, edi]
+            then listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi, r8, r9, r10, r11, r12, r13, r14])
+            else listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi])
         
         val floatingPtRegisters =
-            listToSet [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)]
+            listToSet(map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)])
 
         fun isAllRegs rs = rs = allRegisters
 
@@ -886,10 +892,10 @@ SS-relative addressing modes:
 
     (* The X86 has the option to include an index register and to scale it. *)
     datatype indexType =
-        NoIndex | Index1 of reg | Index2 of reg | Index4 of reg | Index8 of reg
+        NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
     (* Put together the three fields which make up the s-i-b byte. *)
-    fun sib (s : indexType, b : reg option) : Word8.word =
+    fun sib (s : indexType, b : genReg option) : Word8.word =
     let
         val sizeField =
             case s of
@@ -904,7 +910,7 @@ SS-relative addressing modes:
        sizeField orb8 baseField
     end
 
-    fun gensib (s : indexType, b : reg option, cvec : code) = gen8u (sib (s, b), cvec);
+    fun gensib (s : indexType, b : genReg option, cvec : code) = gen8u (sib (s, b), cvec);
 
     fun scSet (Set x) = x | scSet _ = raise InternalError "scSet";
 
@@ -1305,7 +1311,7 @@ SS-relative addressing modes:
     end
 
     (* Generate a opcode plus a modrm byte.  *)
-    fun genOpEA(opb:opCode, offset: LargeInt.int, rb: reg, r: reg, cvec): unit =
+    fun genOpEA(opb:opCode, offset: LargeInt.int, rb: genReg, r: genReg, cvec): unit =
     let
         val (rbC, rbX) = getReg rb
         val (rrC, rrX) = getReg r
@@ -1324,7 +1330,7 @@ SS-relative addressing modes:
 
     (* Generate a opcode plus a second modrm byte but where the "register" field in
        the modrm byte is actually a code.  *)
-    fun genOpPlus2(opb:opCode, offset: LargeInt.int, rb: reg, op2: Word8.word, cvec): unit =
+    fun genOpPlus2(opb:opCode, offset: LargeInt.int, rb: genReg, op2: Word8.word, cvec): unit =
     let
         val (rbC, rbX) = getReg rb
         val need64bit =
@@ -1348,7 +1354,7 @@ SS-relative addressing modes:
     end
 
     (* Register/register operation. *)
-    fun genOpReg(opb:opCode, rd: reg, rs: reg, cvec) =
+    fun genOpReg(opb:opCode, rd: genReg, rs: genReg, cvec) =
     let
         val (rbC, rbX) = getReg rs
         val (rrC, rrX) = getReg rd
@@ -1361,7 +1367,7 @@ SS-relative addressing modes:
         genmodrm(Register, rrC, rbC, cvec)
     end
 
-    fun genOpRegPlus2(opb:opCode, rd: reg, op2: Word8.word, cvec) =
+    fun genOpRegPlus2(opb:opCode, rd: genReg, op2: Word8.word, cvec) =
     let
         val (rrC, rrX) = getReg rd
     in
@@ -1375,7 +1381,7 @@ SS-relative addressing modes:
     (* Similar to genEA, but used when there is an index register.
      rb may be NONE if no base register is required (used
      with leal to tag values). *)
-    fun genOpIndexed (opb:opCode, offset: LargeInt.int, rb: reg option, ri: indexType, rd: reg, cvec) =
+    fun genOpIndexed (opb:opCode, offset: LargeInt.int, rb: genReg option, ri: indexType, rd: genReg, cvec) =
     let
         val (rbC, rbX) = case rb of NONE => (0w0, false) | SOME rb => getReg rb
 
@@ -1432,7 +1438,7 @@ SS-relative addressing modes:
     (* Tag the value in register r *)
     fun genTag (r, cvec) = genOpIndexed(LEAL, 1, SOME r, Index1 r, r, cvec)      
 
-    fun genImmed (opn: arithOp, rd: reg, imm: LargeInt.int, cvec) : unit =
+    fun genImmed (opn: arithOp, rd: genReg, imm: LargeInt.int, cvec) : unit =
     if is8BitL imm
     then (* Can use one byte immediate *) 
     (
@@ -1469,7 +1475,7 @@ SS-relative addressing modes:
         addConstToVec(WVal(toMachineWord mem), NonAddrArea, cvec)
     end
 
-    fun genReg (opn: arithOp, rd: reg, rs: reg, cvec) =
+    fun genReg (opn: arithOp, rd: genReg, rs: genReg, cvec) =
         genOpReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs, cvec)
       
     (* generate padding no-ops to align to n modulo 4 *)
@@ -1483,7 +1489,7 @@ SS-relative addressing modes:
         do genop (NOP, NONE, cvec);
 
     (* movl offset(rb),rd. *)
-    fun genLoad (offset: LargeInt.int, rb: reg, rd: reg, cvec) = genOpEA(MOVL_A_R, offset, rb, rd, cvec)
+    fun genLoad (offset: LargeInt.int, rb: genReg, rd: genReg, cvec) = genOpEA(MOVL_A_R, offset, rb, rd, cvec)
 
     (* Called when we have a memory operand and a constant that is an address.
        This is either a move or a comparison. *)
@@ -1773,25 +1779,17 @@ Calling conventions:
 
     (* Load a floating point register to the stack.  Because the positions are dependent on
        the number of items already pushed we may need to add an offset. *)
-    fun loadFpRegToStack(fpReg, offset, code) =
-    let
-        val fp = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
-    in
+    fun loadFpRegToStack(FloatingPtReg fp, offset, code) =
         genFloatingPt({escape=0w1, md=0w3, nnn=0w0, rm= fp + offset}, code) (* FLD ST(r1) *)
-    end
 
     (* Pops the top of the stack into a register.  This assumes that there is
        exactly one item on the stack which is why we add one here. *)
-    fun storeFpRegFromStack(fpReg, code) =
-    let
-        val dest = case fpReg of FPReg fp => fp | _ => raise InternalError "fpreg"
-    in
+    fun storeFpRegFromStack(FloatingPtReg dest, code) =
         genFloatingPt({escape=0w5, md=0w3, nnn=0w3, rm = dest+0w1(* One item *)}, code) (* FSTP ST(n+1) *)
-    end
 
     (* Allocate store and put the resulting pointer in the result register. *)
     local
-        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet) =
+        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet: genReg list) =
         let
             (* Common code.  resultReg contains the possible new address. *)
             val () = genOpEA(Arith (CMP, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMbottom, ebp, resultReg, cvec);
@@ -1850,7 +1848,7 @@ Calling conventions:
                     genPushPop(POP_R, reg, cvec)
                 )
         in
-            pushCallAndPop (setToList regSaveSet);
+            pushCallAndPop regSaveSet;
             fixup (lab, cvec);
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
@@ -1924,43 +1922,44 @@ Calling conventions:
     type cases = word * label
 
     datatype memoryAddress =
-        BaseOffset of { base: reg, offset: int, index: indexType }
+        BaseOffset of { base: genReg, offset: int, index: indexType }
     |   ConstantAddress of machineWord
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
     datatype operation =
-        MoveRR of { source: reg, output: reg }
-    |   MoveConstR of { source: LargeInt.int, output: reg }
-    |   MoveLongConstR of { source: machineWord, output: reg }
-    |   LoadMemR of { source: memoryAddress, output: reg }
-    |   LoadByteR of { source: memoryAddress, output: reg }
-    |   PushR of reg
+        MoveRR of { source: genReg, output: genReg }
+    |   MoveConstR of { source: LargeInt.int, output: genReg }
+    |   MoveConstFPR of { source: LargeInt.int, output: fpReg }
+    |   MoveLongConstR of { source: machineWord, output: genReg }
+    |   LoadMemR of { source: memoryAddress, output: genReg }
+    |   LoadByteR of { source: memoryAddress, output: genReg }
+    |   PushR of genReg
     |   PushConst of LargeInt.int
     |   PushLongConst of machineWord
-    |   PushMem of { base: reg, offset: int }
-    |   PopR of reg
-    |   ArithRR of { opc: arithOp, output: reg, source: reg }
-    |   ArithRConst of { opc: arithOp, output: reg, source: LargeInt.int }
-    |   ArithRLongConst of { opc: arithOp, output: reg, source: machineWord }
-    |   ArithRMem of { opc: arithOp, output: reg, offset: int, base: reg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: reg, source: LargeInt.int }
-    |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
-    |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
-    |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
+    |   PushMem of { base: genReg, offset: int }
+    |   PopR of genReg
+    |   ArithRR of { opc: arithOp, output: genReg, source: genReg }
+    |   ArithRConst of { opc: arithOp, output: genReg, source: LargeInt.int }
+    |   ArithRLongConst of { opc: arithOp, output: genReg, source: machineWord }
+    |   ArithRMem of { opc: arithOp, output: genReg, offset: int, base: genReg }
+    |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
+    |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
+    |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
+    |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
-    |   LockMutableSegment of reg
-    |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
-    |   TestTagR of reg
-    |   TestByteMem of { base: reg, offset: int, bits: word }
+    |   LockMutableSegment of genReg
+    |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
+    |   TestTagR of genReg
+    |   TestByteMem of { base: genReg, offset: int, bits: word }
     |   CallRTS of int
-    |   StoreRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreByteRegToMemory of { toStore: reg, address: memoryAddress }
+    |   StoreByteRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
-    |   AllocStore of { size: int, output: reg, saveRegs: regSet }
-    |   AllocStoreVariable of { output: reg, saveRegs: regSet }
+    |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
+    |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
@@ -1970,46 +1969,47 @@ Calling conventions:
     |   ResetStack of int
     |   InterruptCheck
     |   JumpLabel of label
-    |   TagValue of { source: reg, output: reg }
+    |   TagValue of { source: genReg, output: genReg }
         (* Some of these operations are higher-level and should be reduced. *)
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
+    |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
     |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of { testReg: reg, workReg: reg, min: word, cases: label list }
+    |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
     |   FreeRegisters of regSet
-    |   MakeSafe of reg
+    |   MakeSafe of genReg
     |   RepeatOperation of repOps
-    |   Group3Ops of reg * group3Ops
-    |   AtomicXAdd of {base: reg, output: reg}
-    |   FPLoadFromGenReg of reg
-    |   FPLoadFromFPReg of { source: reg, lastRef: bool }
+    |   Group3Ops of genReg * group3Ops
+    |   AtomicXAdd of {base: genReg, output: genReg}
+    |   FPLoadFromGenReg of genReg
+    |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
-    |   FPStoreToFPReg of { output: reg, andPop: bool }
-    |   FPStoreToMemory of { base: reg, offset: int, andPop: bool }
-    |   FPArithR of { opc: fpOps, source: reg }
+    |   FPStoreToFPReg of { output: fpReg, andPop: bool }
+    |   FPStoreToMemory of { base: genReg, offset: int, andPop: bool }
+    |   FPArithR of { opc: fpOps, source: fpReg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
-    |   FPArithMemory of { opc: fpOps, base: reg, offset: int }
+    |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
     |   FPLoadIntAndPop
-    |   FPFree of reg
-    |   PreAddDetag of reg
+    |   FPFree of fpReg
+    |   PreAddDetag of genReg
     |   TestOverflow
-    |   SignedMultiply of { source: reg, output: reg }
+    |   SignedMultiply of { source: genReg, output: genReg }
 
     type operations = operation list
 
     fun printOperation(operation, stream) =
     let
-        fun printReg r = stream(regRepr r)
+        val printGReg = stream o genRegRepr
+        and printFPReg = stream o fpRegRepr
         fun printBaseOffset(b, x, i) =
         (
-            stream(Int.toString i); stream "("; printReg b; stream ")";
+            stream(Int.toString i); stream "("; printGReg b; stream ")";
             case x of
                 NoIndex => ()
-            |   Index1 x => (stream "["; printReg x; stream "]")
-            |   Index2 x => (stream "["; printReg x; stream "*2]")
-            |   Index4 x => (stream "["; printReg x; stream "*4]")
-            |   Index8 x => (stream "["; printReg x; stream "*8]")
+            |   Index1 x => (stream "["; printGReg x; stream "]")
+            |   Index2 x => (stream "["; printGReg x; stream "*2]")
+            |   Index4 x => (stream "["; printGReg x; stream "*4]")
+            |   Index8 x => (stream "["; printGReg x; stream "*8]")
         )
         fun printMemAddress(BaseOffset{ base, offset, index }) = printBaseOffset(base, index, offset)
         |   printMemAddress(ConstantAddress addr) = stream(stringOfWord addr)
@@ -2021,31 +2021,34 @@ Calling conventions:
      in
         case operation of
             MoveRR { source, output } =>
-                (stream "MoveRR "; printReg output; stream " <= "; printReg source)
+                (stream "MoveRR "; printGReg output; stream " <= "; printGReg source)
 
         |   MoveConstR { source, output } =>
-                (stream "MoveCR "; printReg output; stream " <="; stream(LargeInt.toString source))
+                (stream "MoveCR "; printGReg output; stream " <="; stream(LargeInt.toString source))
+
+        |   MoveConstFPR { source, output } =>
+                (stream "MoveCFPR "; printFPReg output; stream " <="; stream(LargeInt.toString source))
 
         |   MoveLongConstR { output, source } =>
-                (stream "MoveCR "; printReg output; stream " <= "; stream(Address.stringOfWord source))
+                (stream "MoveCR "; printGReg output; stream " <= "; stream(Address.stringOfWord source))
 
         |   LoadMemR { source, output } =>
-                (stream "MoveMR "; printReg output; stream " <= "; printMemAddress source )
+                (stream "MoveMR "; printGReg output; stream " <= "; printMemAddress source )
 
         |   LoadByteR { source, output } =>
-                (stream "MoveByteR "; printReg output; stream " <= "; printMemAddress source )
+                (stream "MoveByteR "; printGReg output; stream " <= "; printMemAddress source )
 
         |   ArithRR { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RR "); printReg output; stream " <= "; printReg source )
+                (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printGReg source )
 
         |   ArithRConst { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= "; stream(LargeInt.toString source) )
+                (stream (arithOpRepr opc ^ "RC "); printGReg output; stream " <= "; stream(LargeInt.toString source) )
 
         |   ArithRLongConst { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= "; stream(Address.stringOfWord source) )
+                (stream (arithOpRepr opc ^ "RC "); printGReg output; stream " <= "; stream(Address.stringOfWord source) )
 
         |   ArithRMem { opc, output, offset, base } =>
-                (stream (arithOpRepr opc ^ "RM "); printReg output; stream " <= "; printBaseOffset(base, NoIndex, offset) )
+                (stream (arithOpRepr opc ^ "RM "); printGReg output; stream " <= "; printBaseOffset(base, NoIndex, offset) )
 
         |   ArithMemConst { opc, offset, base, source } =>
             (
@@ -2062,13 +2065,13 @@ Calling conventions:
 
         |   ShiftConstant { shiftType, output, shift } =>
             (
-                stream(shiftTypeRepr shiftType); stream " "; printReg output;
+                stream(shiftTypeRepr shiftType); stream " "; printGReg output;
                 stream " by "; stream(Word8.toString shift)
             )
 
         |   ShiftVariable { shiftType, output } => (* Shift amount is in ecx *)
             (
-                stream(shiftTypeRepr shiftType); stream " "; printReg output; stream " by ECX"
+                stream(shiftTypeRepr shiftType); stream " "; printGReg output; stream " by ECX"
             )
 
         |   ConditionalBranch { test, label=Labels{labId=ref lab, ...}, predict } =>
@@ -2080,9 +2083,9 @@ Calling conventions:
                 |   PredictNotTaken => stream " PredictNotTaken"
             )
 
-        |   LockMutableSegment reg => (stream "LockMutableSegment "; printReg reg)
+        |   LockMutableSegment reg => (stream "LockMutableSegment "; printGReg reg)
 
-        |   PushR source => (stream "PushR "; printReg source)
+        |   PushR source => (stream "PushR "; printGReg source)
 
         |   PushConst source => (stream "PushC "; stream(LargeInt.toString source))
 
@@ -2090,12 +2093,12 @@ Calling conventions:
 
         |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, NoIndex, offset))
 
-        |   PopR dest => (stream "PopR "; printReg dest)
+        |   PopR dest => (stream "PopR "; printGReg dest)
 
         |   StoreRegToMemory { toStore, address } =>
             (
                 stream "StoreRegToMemory "; printMemAddress address;
-                stream " <= "; stream(regRepr toStore)
+                stream " <= "; stream(genRegRepr toStore)
             )
 
         |   StoreConstToMemory { toStore, address } =>
@@ -2112,7 +2115,7 @@ Calling conventions:
         |   StoreByteRegToMemory { toStore, address } =>
             (
                 stream "StoreByteRegToMemory "; printMemAddress address;
-                stream " <= "; stream(regRepr toStore)
+                stream " <= "; stream(genRegRepr toStore)
             )
 
         |   StoreByteConstToMemory { toStore, address } =>
@@ -2124,18 +2127,18 @@ Calling conventions:
         |   LoadAddress{ output, offset, base, index } =>
             (
                 stream "LoadAddress ";
-                case base of NONE => () | SOME r => (printReg r; stream " + ");
+                case base of NONE => () | SOME r => (printGReg r; stream " + ");
                 stream(Int.toString offset);
                 case index of
                     NoIndex => ()
-                |   Index1 x => (stream " + "; printReg x)
-                |   Index2 x => (stream " + "; printReg x; stream "*2 ")
-                |   Index4 x => (stream " + "; printReg x; stream "*4 ")
-                |   Index8 x => (stream " + "; printReg x; stream "*8 ");
-                stream " => "; printReg output
+                |   Index1 x => (stream " + "; printGReg x)
+                |   Index2 x => (stream " + "; printGReg x; stream "*2 ")
+                |   Index4 x => (stream " + "; printGReg x; stream "*4 ")
+                |   Index8 x => (stream " + "; printGReg x; stream "*8 ");
+                stream " => "; printGReg output
             )
 
-        |   TestTagR reg => ( stream "TestTagR "; printReg reg )
+        |   TestTagR reg => ( stream "TestTagR "; printGReg reg )
         |   TestByteMem { base, offset, bits } =>
                 ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
         |   CallRTS entry =>
@@ -2149,14 +2152,14 @@ Calling conventions:
             )
 
         |   AllocStore { size, output, ... } =>
-                (stream "AllocStore "; stream(Int.toString size); stream " => "; printReg output )
+                (stream "AllocStore "; stream(Int.toString size); stream " => "; printGReg output )
 
-        |   AllocStoreVariable { output, ...} => (stream "AllocStoreVariable "; printReg output )
+        |   AllocStoreVariable { output, ...} => (stream "AllocStoreVariable "; printGReg output )
         
         |   StoreInitialised => stream "StoreInitialised"
 
         |   TagValue { source, output } =>
-                (stream "TagValue "; printReg output; stream " <= "; printReg source)
+                (stream "TagValue "; printGReg output; stream " <= "; printGReg source)
 
         |   CallFunction callKind => (stream "CallFunction "; printCallKind callKind)
 
@@ -2180,7 +2183,7 @@ Calling conventions:
                 stream "StartHandler"
         |   IndexedCase { testReg, workReg, min, cases } =>
             (
-                stream "IndexedCase "; printReg testReg; stream " with "; printReg workReg;
+                stream "IndexedCase "; printGReg testReg; stream " with "; printGReg workReg;
                 stream "\n";
                 List.foldl(fn(Labels{labId=ref lab, ...}, v) =>
                     (stream(Word.toString v); stream " => L"; stream(Int.toString lab); stream "\n"; v+0w1))
@@ -2188,31 +2191,31 @@ Calling conventions:
                 ()
             )
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
-        |   MakeSafe reg => ( stream "MakeSafe "; printReg reg)
+        |   MakeSafe reg => ( stream "MakeSafe "; printGReg reg)
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
-        |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printReg reg)
-        |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printReg base; stream ") <=> "; printReg output)
-        |   FPLoadFromGenReg reg => (stream "FPLoad "; printReg reg)
+        |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printGReg reg)
+        |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
+        |   FPLoadFromGenReg reg => (stream "FPLoad "; printGReg reg)
         |   FPLoadFromFPReg {source, lastRef} =>
-                (stream "FPLoad "; printReg source; if lastRef then stream " (LAST)" else())
+                (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
         |   FPStoreToFPReg{ output, andPop } =>
-                (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printReg output)
-        |   FPStoreToMemory{ base: reg, offset: int, andPop: bool } =>
+                (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printFPReg output)
+        |   FPStoreToMemory{ base: genReg, offset: int, andPop: bool } =>
             (
                 if andPop then stream "FPStoreAndPop => " else stream "FPStore => ";
                 printBaseOffset(base, NoIndex, offset)
             )
-        |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printReg source)
+        |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printFPReg source)
         |   FPArithConst{ opc, source } => (stream(fpOpRepr opc); stream(Address.stringOfWord source))
         |   FPArithMemory{ opc, base, offset } => (stream(fpOpRepr opc); stream " "; printBaseOffset(base, NoIndex, offset))
         |   FPUnary opc => stream(fpUnaryRepr opc)
-        |   FPStatusToEAX => (stream "FPStatus "; printReg eax)
+        |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
-        |   FPFree reg => (stream "FPFree "; printReg reg)
-        |   PreAddDetag reg => (stream "Detag "; printReg reg)
+        |   FPFree reg => (stream "FPFree "; printFPReg reg)
+        |   PreAddDetag reg => (stream "Detag "; printGReg reg)
         |   TestOverflow => stream "TestOverflow"
-        |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printReg source; stream " *=>"; printReg output)
+        |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printGReg source; stream " *=>"; printGReg output)
         ;
  
         stream "\n"
@@ -2264,7 +2267,7 @@ Calling conventions:
        the indexed jump at the expense of doubling the size of the table
        itself.  *)
  
-    fun indexedCase (r1:reg, r2:reg, min:word, cases, cvec as Code{exited, ic, ...}) =
+    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, cvec as Code{exited, ic, ...}) =
     let
         val startJumpTable = ref addrZero
         val nCases = List.length cases
@@ -2373,7 +2376,7 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(MoveConstR{ source, output as GenReg _ } :: remainder) =
+        |   cgOp(MoveConstR{ source, output} :: remainder) =
             (
                 addDests[output];
                 (* The RTS scans for possible addresses in MOV instructions so we
@@ -2403,7 +2406,7 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(MoveConstR{ source, output as FPReg _ } :: remainder) =
+        |   cgOp(MoveConstFPR{ source, output} :: remainder) =
             let
                 val _ = addDests[output]
                     (* We seem to get a short zero here as a result of putting in a
@@ -2427,7 +2430,7 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp(LoadMemR{ source=BaseOffset{base, offset, index=NoIndex}, output as GenReg _} :: ResetStack count :: remainder) =
+        |   cgOp(LoadMemR{ source=BaseOffset{base, offset, index=NoIndex}, output} :: ResetStack count :: remainder) =
             if base = esp andalso offset < count * wordSize
             then (* Can use a pop instruction. *)
             let
@@ -2452,13 +2455,6 @@ Calling conventions:
                 checkSources[base]; addDests[output];
                 genLoad(LargeInt.fromInt offset, base, output, code);
                 cgOp(ResetStack count :: remainder)
-            )
-
-        |   cgOp(LoadMemR{source=BaseOffset{base, offset, index=NoIndex}, output} :: remainder) =
-            (
-                checkSources[base]; addDests[output];
-                genLoad(LargeInt.fromInt offset, base, output, code);
-                cgOp remainder
             )
 
         |   cgOp(LoadMemR{source=BaseOffset{base, offset, index}, output } :: remainder) =
@@ -2850,16 +2846,16 @@ Calling conventions:
 
         |   cgOp(AllocStore{ size, output, saveRegs } :: remainder) =
             (
-                if inSet(output, saveRegs) then raise InternalError "AllocStore: in set" else ();
-                checkSources(setToList saveRegs); addDests[output];
+                if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ();
+                checkSources(saveRegs); addDests[output];
                 allocStoreCode(size, output, saveRegs, code);
                 cgOp remainder
             )
 
         |   cgOp(AllocStoreVariable{output, saveRegs} :: remainder) =
             (
-                if inSet(output, saveRegs) then raise InternalError "AllocStoreVariable: in set" else ();
-                checkSources(output :: setToList saveRegs); addDests[output];
+                if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStoreVariable: in set" else ();
+                checkSources(output :: saveRegs); addDests[output];
                 allocStoreVarCode(output, saveRegs, code);
                 cgOp remainder
             )
@@ -3068,10 +3064,9 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp (FPStoreToFPReg{ output, andPop } :: remainder) =
+        |   cgOp (FPStoreToFPReg{ output as FloatingPtReg dest, andPop } :: remainder) =
             let
                 val _ = addDests[output]
-                val dest = case output of FPReg fp => fp | _ => raise InternalError "fpreg"
             in
                 (* Assume there's one item on the stack. *)
                 genFloatingPt({escape=0w5, md=0w3, nnn=if andPop then 0wx3 else 0wx2,
@@ -3086,14 +3081,12 @@ Calling conventions:
                 cgOp remainder 
             )
 
-        |   cgOp (FPArithR{ opc, source } :: remainder) =
-            let
-                val fp = case source of FPReg fp => fp | _ => raise InternalError "cgOp: FPArithR"
-            in
+        |   cgOp (FPArithR{ opc, source = FloatingPtReg src} :: remainder) =
+            (
                 genFloatingPt({escape=0w0, md=0w3, nnn=fpOpToWord opc,
-                        rm=fp + 0w1 (* One item already there *)}, code);
+                        rm=src + 0w1 (* One item already there *)}, code);
                 cgOp remainder 
-            end
+            )
 
         |   cgOp (FPArithConst{ opc, source } :: remainder) =
             (
@@ -3128,13 +3121,11 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp (FPFree reg :: remainder) =
-            let
-                val dest = case reg of FPReg fp => fp | _ => raise InternalError "fpreg"
-            in
-                genFloatingPt({escape=0w5, md=0w3, nnn=0w0, rm=dest}, code); (* FFREE FP(n) *)
+        |   cgOp (FPFree(FloatingPtReg reg) :: remainder) =
+            (
+                genFloatingPt({escape=0w5, md=0w3, nnn=0w0, rm=reg}, code); (* FFREE FP(n) *)
                 cgOp remainder
-            end
+            )
 
         |   cgOp (FPLoadIntAndPop :: remainder) =
             (
@@ -3245,7 +3236,7 @@ Calling conventions:
             val rexB = (rex andb8 0wx1) <> 0w0
         in
             if md = 3
-            then print (regRepr (mkReg(Word8.fromInt rm, rexB)))
+            then print (genRegRepr (mkReg(Word8.fromInt rm, rexB)))
       
             else if rm = 4
             then
@@ -3264,12 +3255,12 @@ Calling conventions:
                 print "(";
         
                 if md <> 0 orelse base <> 5
-                then print (regRepr (mkReg (Word8.fromInt base, rexB)))
+                then print (genRegRepr (mkReg (Word8.fromInt base, rexB)))
                 else ();
         
                 if index <> 4 (* No index. *)
                 then 
-                    print ("," ^ regRepr (mkReg(Word8.fromInt index, rexX)) ^ 
+                    print ("," ^ genRegRepr (mkReg(Word8.fromInt index, rexX)) ^ 
                         (if ss = 0 then ",1"
                         else if ss = 1 then ",2"
                         else if ss = 2 then ",4" (* N.B. *not* 3 - bugfix 29/3/95 *)
@@ -3288,7 +3279,7 @@ Calling conventions:
                 else if md = 2 then print32 ()
                 else ();
          
-                print ("(" ^ regRepr (mkReg(Word8.fromInt rm, rexB)) ^ ")")
+                print ("(" ^ genRegRepr (mkReg(Word8.fromInt rm, rexB)) ^ ")")
             )
         end;
  
@@ -3425,7 +3416,7 @@ Calling conventions:
                 print "movl\t";
                 printEA rex;
                 print ",";
-                print (regRepr (mkReg(Word8.fromInt reg, rexR)))
+                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
             end
          
             else if opByte mod 0w8 = 0w3 andalso opByte < 0wx3f
@@ -3439,7 +3430,7 @@ Calling conventions:
                 print "\t";
                 printEA rex;
                 print ",";
-                print (regRepr (mkReg(Word8.fromInt reg, rexR)))
+                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
             end
 
             else if opByte = opToInt MOVL_R_A
@@ -3450,7 +3441,7 @@ Calling conventions:
                 val reg = (nb div 8) mod 8;
             in
                 print "movl\t";
-                print (regRepr (mkReg(Word8.fromInt reg, rexR)));
+                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)));
                 print ",";
                 printEA rex
             end
@@ -3463,7 +3454,7 @@ Calling conventions:
                 val reg = (nb div 8) mod 8;
             in
                 print "xchngl\t";
-                print (regRepr (mkReg(Word8.fromInt reg, rexR)));
+                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)));
                 print ",";
                 printEA rex
             end
@@ -3496,11 +3487,11 @@ Calling conventions:
 
             else if opByte >= opToInt (PUSH_R 0w0) andalso
                     opByte <= opToInt (PUSH_R 0w7)
-            then print ("pushl\t" ^  regRepr (mkReg (opByte mod 0w8, rexB)))
+            then print ("pushl\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
       
             else if opByte >= opToInt (POP_R 0w0) andalso
                     opByte <= opToInt (POP_R 0w7)
-            then print ("pop\t" ^ regRepr (mkReg (opByte mod 0w8, rexB)))
+            then print ("pop\t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
       
             else if opByte = opToInt NOP
             then print "nop"
@@ -3515,7 +3506,7 @@ Calling conventions:
                 print "leal\t";
                 printEA rex;
                 print ",";
-                print (regRepr (mkReg(Word8.fromInt reg, rexR)))
+                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
             end
 
             else if opByte >= opToInt (MOVL_32_64_R(#1(getReg eax))) andalso
@@ -3524,7 +3515,7 @@ Calling conventions:
             (
                 print "movl\t";
                 if rexW then print64 () else print32 ();
-                print("," ^ regRepr (mkReg (opByte mod 0w8, rexB)))
+                print("," ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
             )
 
             else if opByte = opToInt MOVL_32_A
@@ -3649,7 +3640,7 @@ Calling conventions:
                     print (if opByte2 = 0xB6 then "movzl\t" else if opByte2 = 0xC1 then "xaddl\t" else "imull\t");
                     printEA rex;
                     print ",";
-                    print (regRepr (mkReg(Word8.fromInt reg, rexR)))
+                    print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
                 end
        
                 else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
@@ -3916,6 +3907,8 @@ Calling conventions:
     struct
         type code           = code
         and  reg            = reg
+        and  genReg         = genReg
+        and  fpReg          = fpReg
         and  addrs          = addrs
         and  operation      = operation
         and  regSet         = RegSet.regSet
