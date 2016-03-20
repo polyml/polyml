@@ -211,9 +211,9 @@ struct
             (* If we need to add the profile object *)
             if addAllocatingFunction
             then
-                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=RegSet.noRegisters} @
+                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=[]} @
                     [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
-            else allocStore {size=size, flags=flag, output=toReg, preserve=RegSet.noRegisters}
+            else allocStore {size=size, flags=flag, output=toReg, preserve=[]}
         end
 
         (* This is a naive code-generator that simply evaluates everything to eax. *)
@@ -246,7 +246,7 @@ struct
                         fun buildClosure({lambda={closure, ...}, addr, ...}, l) =
                         let
                             val sizeClosure = List.length closure + 1
-                            val mem = allocStore{size=sizeClosure, flags=Address.F_mutable, output=eax, preserve=RegSet.noRegisters}
+                            val mem = allocStore{size=sizeClosure, flags=Address.F_mutable, output=eax, preserve=[]}
                             val pushR = push eax
                             val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
                             fun clearAll n =
