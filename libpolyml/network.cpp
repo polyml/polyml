@@ -112,6 +112,11 @@ typedef int socklen_t;
 #include <windows.h>
 #endif
 
+#include <limits>
+#ifdef max
+#undef max
+#endif
+
 #include "globals.h"
 #include "gc.h"
 #include "arb.h"
@@ -418,7 +423,7 @@ TryAgain: // Used for various retries.
             int err;
             while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
             {
-                if (size > SIZE_MAX / 2) raise_fail(taskData, "gethostname needs too large a buffer");
+                if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
                 size *= 2;
                 char *new_buf = (char *)realloc(hostName, size);
                 if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
