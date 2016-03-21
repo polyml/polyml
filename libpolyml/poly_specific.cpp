@@ -530,7 +530,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     return taskData->saveVec.push(result);
                 }
                 // Could not allocate - must GC.
-                QuickGC(taskData, segLength);
+                if (! QuickGC(taskData, segLength))
+                    raise_fail(taskData, "Insufficient memory");
             }
         }
 
