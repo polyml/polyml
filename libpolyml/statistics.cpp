@@ -111,6 +111,11 @@
 #define _T(x) x
 #endif
 
+#include <limits>
+#ifdef max
+#undef max
+#endif
+
 #include "run_time.h"
 #include "sys.h"
 #include "save_vec.h"
@@ -679,7 +684,7 @@ Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");
 
     while ((snprintf(remMapFileName, remMapSize, "%s/.polyml/" POLY_STATS_NAME "%" POLYUFMT, homeDir, pid), strlen(remMapFileName) >= remMapSize - 1)) {
-        if (remMapSize > SIZE_MAX / 2)
+        if (remMapSize > std::numeric_limits<size_t>::max() / 2)
             raise_exception_string(taskData, EXC_Fail, "No statistics available");
         remMapSize *= 2;
         char *newFileName = (char *)realloc(remMapFileName, remMapSize);

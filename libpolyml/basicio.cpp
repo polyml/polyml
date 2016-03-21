@@ -98,6 +98,7 @@ DCJM May 2000.
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
 #endif
+#include <limits>
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
@@ -1652,7 +1653,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (string_buffer == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
             TCHAR *cwd;
             while ((cwd = getcwd(string_buffer, size)) == NULL && errno == ERANGE) {
-                if (size > SIZE_MAX / 2) raise_fail(taskData, "getcwd needs too large a buffer");
+                if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "getcwd needs too large a buffer");
                 size *= 2;
                 TCHAR *new_buf = (TCHAR *)realloc(string_buffer, size * sizeof(TCHAR));
                 if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
@@ -1739,7 +1740,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             // comparison, avoiding an infinite loop when nLen is -1.
             while ((nLen = readlink(linkName, resBuf, size)) >= (ssize_t) size) {
                 size *= 2;
-                if (size > SSIZE_MAX) raise_fail(taskData, "readlink needs too large a buffer");
+                if (size > std::numeric_limits<ssize_t>::max()) raise_fail(taskData, "readlink needs too large a buffer");
                 TCHAR *newBuf = (TCHAR *)realloc(resBuf, size * sizeof(TCHAR));
                 if (newBuf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
                 resBuf = newBuf;

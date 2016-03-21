@@ -100,6 +100,13 @@
 #endif
 
 #include <limits>
+// Windows headers define min/max macros, which messes up trying to use std::numeric_limits<T>::min/max()
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 
 #include "locking.h"
 #include "globals.h"
@@ -520,14 +527,6 @@ void Timing::Init(void)
     gettimeofday(&startTime, NULL);
 #endif
 }
-
-// Windows headers define min/max macros, which messes up trying to use std::numeric_limits<T>::min/max()
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
 
 time_t getBuildTime(void)
 {
