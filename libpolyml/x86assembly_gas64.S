@@ -77,18 +77,20 @@ EXTNAME(id):
 #define TAGGED(i) ((i << TAGSHIFT) | TAG)
 #define MAKETAGGED(from,to)     leaq    TAG(,from,2),to
 
-.set    POLYWORDSIZE,8
+#define POLYWORDSIZE    8
 
-.set    NIL,        TAGGED(0)
-.set    UNIT,       TAGGED(0)
-.set    ZERO,       TAGGED(0)
-.set    FALSE,      TAGGED(0)
-.set    TRUE,       TAGGED(1)
-.set    MINUS1,     TAGGED(0-1)
-.set    B_bytes,    0x01
-.set    B_mutable,  0x40
-.set    B_mutablebytes, 0x41
-.set    Max_Length,0x00ffffffffffffff
+#define NIL         TAGGED(0)
+#define UNIT        TAGGED(0)
+#define ZERO        TAGGED(0)
+#define FALSE       TAGGED(0)
+#define TRUE        TAGGED(1)
+#define MINUS1      TAGGED(0-1)
+
+#define B_bytes     0x01
+#define B_typeBits  0x03
+#define B_mutable   0x40
+
+#define Max_Length  0x00ffffffffffffff
 
 /* The "stack frame" pointed to by rbp acts as the "memory registers". */
 #define Fr_RaiseOverflow        -120
@@ -685,7 +687,8 @@ allsts:
  # Initialise the store.
     movq    %rax,%rcx               # Get back the no. of words.
     movq    %r8,%rax                 # Get initial value.
-    cmpq    $B_mutablebytes,%rbx
+    andb    $B_typeBits,%bl          # Mask off mutable, weak etc.
+    cmpb    $B_bytes,%bl
     jne     allst2
 
  # If this is a byte seg
@@ -2073,7 +2076,8 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CALL_EXTRA(index)
 
     CREATE_IO_CALL(POLY_SYS_exit)
-#   CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_get_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
     CREATE_IO_CALL(POLY_SYS_Real_str)
@@ -2112,6 +2116,7 @@ INLINE_ROUTINE(cmem_store_asm_double)
 
 # Direct calls to the RTS
 
+#if (0)
 /* chdir.  May raise an exception which means it may allocate space for the exception packet. */
 /* The caller is supposed to preserve RBP */
 /* N.B.  We don't actually need to remove any arguments from the C stack because
@@ -2131,7 +2136,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
     movq    Arg_ThreadId(%rcx),%rdi
     movq    %rax,%rsi
 #endif
-    call    X86ChDir
+    call    PolyChDir
     movq    Fr_SavedMLSP(%rbp),%rsp             # Restore ML stack ptr
     movq    Fr_Argument(%rbp),%rcx
     movq    Arg_LocalMpointer(%rcx),%r15        # Restore the heap pointer register
@@ -2144,3 +2149,4 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
 cpsdraisex:
     movq    Arg_ExceptionPacket(%rcx),%rax
     jmp     raisex
+#endif

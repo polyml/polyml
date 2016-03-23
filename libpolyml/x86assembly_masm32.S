@@ -60,7 +60,7 @@
 #define MINUS1  TAGGED(0-1)
 
 #define B_bytes         01h
-#define B_mutablebytes  41h
+#define B_typeBits      03h
 #define B_mutable       40h
 #define Max_Length      0ffffffh
 
@@ -614,8 +614,9 @@ allsts:
     mov     (-1)[edx],bl                ; and put it in.
 ; Initialise the store.
     mov     ecx,eax                     ; Get back the no. of words.
-    mov     eax,4[esp]                 ; Get initial value.
-    cmp     ebx,B_mutablebytes
+    mov     eax,4[esp]                  ; Get initial value.
+    and     bl,B_typeBits              ; Mask off mutable, weak etc.
+    cmp     bl,B_bytes
     jne     allst2
 
 ; If this is a byte seg
@@ -2122,45 +2123,47 @@ X86AsmCallExtra&index&:
 
 
 CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
-;  CREATE_IO_CALL CallPOLY_SYS_chdir,POLY_SYS_chdir
- CREATE_IO_CALL CallPOLY_SYS_get_flags,POLY_SYS_get_flags
- CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
- CREATE_IO_CALL CallPOLY_SYS_Real_str,POLY_SYS_Real_str
- CREATE_IO_CALL CallPOLY_SYS_Real_Dispatch,POLY_SYS_Real_Dispatch
- CREATE_IO_CALL CallPOLY_SYS_conv_real,POLY_SYS_conv_real
- CREATE_IO_CALL CallPOLY_SYS_real_to_int,POLY_SYS_real_to_int
- CREATE_IO_CALL CallPOLY_SYS_sqrt_real,POLY_SYS_sqrt_real
- CREATE_IO_CALL CallPOLY_SYS_sin_real,POLY_SYS_sin_real
- CREATE_IO_CALL CallPOLY_SYS_signal_handler,POLY_SYS_signal_handler
- CREATE_IO_CALL CallPOLY_SYS_os_specific,POLY_SYS_os_specific
- CREATE_IO_CALL CallPOLY_SYS_network,POLY_SYS_network
- CREATE_IO_CALL CallPOLY_SYS_io_dispatch,POLY_SYS_io_dispatch
- CREATE_IO_CALL CallPOLY_SYS_poly_specific,POLY_SYS_poly_specific
- CREATE_IO_CALL CallPOLY_SYS_set_code_constant,POLY_SYS_set_code_constant
- CREATE_IO_CALL CallPOLY_SYS_code_flags,POLY_SYS_code_flags
- CREATE_IO_CALL CallPOLY_SYS_shrink_stack,POLY_SYS_shrink_stack
- CREATE_IO_CALL CallPOLY_SYS_process_env,POLY_SYS_process_env
- CREATE_IO_CALL CallPOLY_SYS_foreign_dispatch,POLY_SYS_foreign_dispatch
- CREATE_IO_CALL CallPOLY_SYS_ffi,POLY_SYS_ffi
- CREATE_IO_CALL CallPOLY_SYS_stack_trace,POLY_SYS_stack_trace
- CREATE_IO_CALL CallPOLY_SYS_full_gc,POLY_SYS_full_gc
- CREATE_IO_CALL CallPOLY_SYS_XWindows,POLY_SYS_XWindows
- CREATE_IO_CALL CallPOLY_SYS_timing_dispatch,POLY_SYS_timing_dispatch
- CREATE_IO_CALL CallPOLY_SYS_kill_self,POLY_SYS_kill_self
- CREATE_IO_CALL CallPOLY_SYS_thread_dispatch,POLY_SYS_thread_dispatch
- CREATE_IO_CALL CallPOLY_SYS_io_operation,POLY_SYS_io_operation
- CREATE_IO_CALL CallPOLY_SYS_ln_real,POLY_SYS_ln_real
- CREATE_IO_CALL CallPOLY_SYS_exp_real,POLY_SYS_exp_real
- CREATE_IO_CALL CallPOLY_SYS_arctan_real,POLY_SYS_arctan_real
- CREATE_IO_CALL CallPOLY_SYS_cos_real,POLY_SYS_cos_real
+CREATE_IO_CALL CallPOLY_SYS_chdir,POLY_SYS_chdir
+CREATE_IO_CALL CallPOLY_SYS_get_entry_point,POLY_SYS_get_entry_point
+CREATE_IO_CALL CallPOLY_SYS_get_flags,POLY_SYS_get_flags
+CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
+CREATE_IO_CALL CallPOLY_SYS_Real_str,POLY_SYS_Real_str
+CREATE_IO_CALL CallPOLY_SYS_Real_Dispatch,POLY_SYS_Real_Dispatch
+CREATE_IO_CALL CallPOLY_SYS_conv_real,POLY_SYS_conv_real
+CREATE_IO_CALL CallPOLY_SYS_real_to_int,POLY_SYS_real_to_int
+CREATE_IO_CALL CallPOLY_SYS_sqrt_real,POLY_SYS_sqrt_real
+CREATE_IO_CALL CallPOLY_SYS_sin_real,POLY_SYS_sin_real
+CREATE_IO_CALL CallPOLY_SYS_signal_handler,POLY_SYS_signal_handler
+CREATE_IO_CALL CallPOLY_SYS_os_specific,POLY_SYS_os_specific
+CREATE_IO_CALL CallPOLY_SYS_network,POLY_SYS_network
+CREATE_IO_CALL CallPOLY_SYS_io_dispatch,POLY_SYS_io_dispatch
+CREATE_IO_CALL CallPOLY_SYS_poly_specific,POLY_SYS_poly_specific
+CREATE_IO_CALL CallPOLY_SYS_set_code_constant,POLY_SYS_set_code_constant
+CREATE_IO_CALL CallPOLY_SYS_code_flags,POLY_SYS_code_flags
+CREATE_IO_CALL CallPOLY_SYS_shrink_stack,POLY_SYS_shrink_stack
+CREATE_IO_CALL CallPOLY_SYS_process_env,POLY_SYS_process_env
+CREATE_IO_CALL CallPOLY_SYS_foreign_dispatch,POLY_SYS_foreign_dispatch
+CREATE_IO_CALL CallPOLY_SYS_ffi,POLY_SYS_ffi
+CREATE_IO_CALL CallPOLY_SYS_stack_trace,POLY_SYS_stack_trace
+CREATE_IO_CALL CallPOLY_SYS_full_gc,POLY_SYS_full_gc
+CREATE_IO_CALL CallPOLY_SYS_XWindows,POLY_SYS_XWindows
+CREATE_IO_CALL CallPOLY_SYS_timing_dispatch,POLY_SYS_timing_dispatch
+CREATE_IO_CALL CallPOLY_SYS_kill_self,POLY_SYS_kill_self
+CREATE_IO_CALL CallPOLY_SYS_thread_dispatch,POLY_SYS_thread_dispatch
+CREATE_IO_CALL CallPOLY_SYS_io_operation,POLY_SYS_io_operation
+CREATE_IO_CALL CallPOLY_SYS_ln_real,POLY_SYS_ln_real
+CREATE_IO_CALL CallPOLY_SYS_exp_real,POLY_SYS_exp_real
+CREATE_IO_CALL CallPOLY_SYS_arctan_real,POLY_SYS_arctan_real
+CREATE_IO_CALL CallPOLY_SYS_cos_real,POLY_SYS_cos_real
 
- CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
- CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
- CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
- CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
+CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
+CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
+CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 ; Direct calls to the RTS
 
+#if (0)
 ; chdir.  May raise an exception which means it may allocate space for the exception packet.
 CallPOLY_SYS_chdir PROC
 ; N.B.  We don't actually need to remove any arguments from the C stack because
@@ -2190,5 +2193,7 @@ cpsdraisex:
     mov     eax,[Arg_ExceptionPacket+ecx]
     jmp     raisex
 CallPOLY_SYS_chdir ENDP
+
+#endif
 
 END

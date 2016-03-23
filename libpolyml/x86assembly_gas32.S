@@ -65,25 +65,27 @@
 GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
-.set    TAG,        1
-.set    TAGSHIFT,   1
-.set    TAGMULT,    (1 << TAGSHIFT)
+#define TAG         1
+#define TAGSHIFT    1
+#define TAGMULT     (1 << TAGSHIFT)
 
 #define TAGGED(i) ((i << TAGSHIFT) | TAG)
 #define MAKETAGGED(from,to)     leal    TAG(,from,2),to
 
-.set    POLYWORDSIZE,4
+#define POLYWORDSIZE    4
 
-.set    NIL,        TAGGED(0)
-.set    UNIT,       TAGGED(0)
-.set    ZERO,       TAGGED(0)
-.set    FALSE,      TAGGED(0)
-.set    TRUE,       TAGGED(1)
-.set    MINUS1,     TAGGED(0-1)
-.set    B_bytes,    0x01
-.set    B_mutable,  0x40
-.set    B_mutablebytes, 0x41
-.set    Max_Length,0x00ffffff
+#define NIL         TAGGED(0)
+#define UNIT        TAGGED(0)
+#define ZERO        TAGGED(0)
+#define FALSE       TAGGED(0)
+#define TRUE        TAGGED(1)
+#define MINUS1      TAGGED(0-1)
+
+#define B_bytes     0x01
+#define B_typeBits  0x03
+#define B_mutable   0x40
+
+#define Max_Length  0x00ffffff
 
 
 /* The "stack frame" pointed to by ebp acts as the "memory registers". */
@@ -617,7 +619,8 @@ allsts:
  # Initialise the store.
     movl    %eax,%ecx               # Get back the no. of words.
     movl    4(%esp),%eax            # Get initial value.
-    cmpl    $B_mutablebytes,%ebx
+    andb    $B_typeBits,%bl         # Mask off mutable, weak etc.
+    cmpb    $B_bytes,%bl
     jne     allst2
 
  # If this is a byte seg
@@ -2028,7 +2031,8 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CALL_EXTRA(index)
 
     CREATE_IO_CALL(POLY_SYS_exit)
-#   CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_chdir)
+    CREATE_IO_CALL(POLY_SYS_get_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
     CREATE_IO_CALL(POLY_SYS_Real_str)
@@ -2069,6 +2073,7 @@ callheapOverflowLocal:
 
 # Direct calls to the RTS
 
+#if (0)
 /* chdir.  May raise an exception which means it may allocate space for the exception packet. */
 INLINE_ROUTINE(CallPOLY_SYS_chdir)
         movl    Fr_Argument(%ebp),%ecx
@@ -2081,7 +2086,7 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
         subl	$8,%esp                             # Try to maintain 16 byte alignment after args.
         pushl   %eax                                # Argument
         pushl   Arg_ThreadId(%ecx)
-        call    EXTNAME(X86ChDir)
+        call    EXTNAME(PolyChDir)
         movl    Fr_SavedMLSP(%ebp),%esp             # Restore the ML stack ptr
         movl    Fr_Argument(%ebp),%ecx
         movl    Arg_LocalMpointer(%ecx),%edx        # Update heap pointer
@@ -2095,3 +2100,4 @@ INLINE_ROUTINE(CallPOLY_SYS_chdir)
 cpsdraisex:
         movl    Arg_ExceptionPacket(%ecx),%eax
         jmp     raisexlocal
+#endif
