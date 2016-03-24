@@ -1590,93 +1590,91 @@ SS-relative addressing modes:
     |   ConstantClosure of machineWord (* A pre-compiled or io function. *)
     |   ConstantCode of machineWord (* A function that doesn't need a closure *)
     |   FullCall            (* Full closure call *)
-    |   DirectEcx         (* Currently used to call the RTS *)
+    |   DirectReg of genReg  (* Currently used to call the RTS *)
   
   
     (* Call a function. *)
-    fun callFunction (callKind, cvec as Code {ic, ... }) : unit =
-    (
-        case callKind of 
-            Recursive =>
-            (
-                (* Call back to the start of the current function. *)
-                doPending (cvec, maxInstrSize + 3); 
-                align (0w1, cvec);
- 
-                genop (CALL_32, NONE, cvec);  (* 1 byte  *)
-                gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
-            )
+    fun callFunction (Recursive, cvec as Code {ic, ... }) =
+        (
+            (* Call back to the start of the current function. *)
+            doPending (cvec, maxInstrSize + 3); 
+            align (0w1, cvec);
+
+            genop (CALL_32, NONE, cvec);  (* 1 byte  *)
+            gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
+        )
      
-        |   FullCall => (* Indirect call through closure reg. *)
-            (
-                (* Make sure anything pending is done first. *)
-                doPending (cvec, maxInstrSize+3); 
-                (* Ensure the return address is aligned on
-                   a word + 2 byte boundary.  *)
-                align (0w0, cvec);
+    |   callFunction (FullCall, cvec) =
+        (
+            (* Make sure anything pending is done first. *)
+            doPending (cvec, maxInstrSize+3); 
+            (* Ensure the return address is aligned on
+               a word + 2 byte boundary.  *)
+            align (0w0, cvec);
 
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
-            )
+            genop (Group5, NONE, cvec);
+            genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
+        )
 
-        |   ConstantCode w =>
-            (
-                (* Make sure anything pending is done first. *)
-                doPending (cvec, maxInstrSize+3); 
-                if isX64
-                then
-                (
-                    align (0w0, cvec);
-                    genop (Group5, NONE, cvec);
-                    genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
-                    addConstToVec (WVal w, ConstArea 0, cvec)
-                )
-                else
-    	 	    (
-    		        (* Ensure the return address is aligned on
-    		           a word + 2 byte boundary.  *)
-    		        align (0w1, cvec);
-
-    		        genop (CALL_32, NONE, cvec);
-    			    addConstToVec (WVal w, InlineRelative, cvec)
-    		    )
-            )
-
-        |   ConstantClosure w =>
+    |   callFunction (ConstantCode w, cvec) =
+        (
+            (* Make sure anything pending is done first. *)
+            doPending (cvec, maxInstrSize+3); 
             if isX64
             then
-            let
-                val (rc, rx) = getReg regClosure
-            in
-                genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
-                addConstToVec (WVal w, InlineAbsolute, cvec);
-                doPending (cvec, maxInstrSize+3); 
-		        (* Ensure the return address is aligned on
-		            a word + 2 byte boundary.  *)
-		        align (0w0, cvec);
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w2 (* call *), rc, cvec)
-            end
-            else
             (
-		        (* Make sure anything pending is done first. *)
-		        doPending (cvec, maxInstrSize+3); 
-
+                align (0w0, cvec);
+                genop (Group5, NONE, cvec);
+                genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
+                addConstToVec (WVal w, ConstArea 0, cvec)
+            )
+            else
+	 	    (
 		        (* Ensure the return address is aligned on
 		           a word + 2 byte boundary.  *)
-		        align (0w0, cvec);
+		        align (0w1, cvec);
 
-			    genop (Group5, NONE, cvec);
-			    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
-			    addConstToVec (WVal w, InlineAbsolute, cvec)
+		        genop (CALL_32, NONE, cvec);
+			    addConstToVec (WVal w, InlineRelative, cvec)
 		    )
+        )
+
+    |   callFunction (ConstantClosure w, cvec) =
+        if isX64
+        then
+        let
+            val (rc, rx) = getReg regClosure
+        in
+            genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
+            addConstToVec (WVal w, InlineAbsolute, cvec);
+            doPending (cvec, maxInstrSize+3); 
+	        (* Ensure the return address is aligned on
+	            a word + 2 byte boundary.  *)
+	        align (0w0, cvec);
+            genop (Group5, NONE, cvec);
+            genmodrm(Based0, 0w2 (* call *), rc, cvec)
+        end
+        else
+        (
+	        (* Make sure anything pending is done first. *)
+	        doPending (cvec, maxInstrSize+3); 
+
+	        (* Ensure the return address is aligned on
+	           a word + 2 byte boundary.  *)
+	        align (0w0, cvec);
+
+		    genop (Group5, NONE, cvec);
+		    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
+		    addConstToVec (WVal w, InlineAbsolute, cvec)
+	    )
             
-        |   DirectEcx =>
-            (
-                genop (Group5, NONE, cvec);
-                genmodrm(Register, 0w2 (* call *), #1 (getReg ecx), cvec)
-            )
-    );
+    |   callFunction (DirectReg reg, cvec) =
+        let
+            val (rc, rx) = getReg reg
+        in
+            genop (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE, cvec);
+            genmodrm(Register, 0w2 (* call *), rc, cvec)
+        end
      
 
   (* Tail recursive jump to a function.
@@ -1739,7 +1737,7 @@ SS-relative addressing modes:
 			    addConstToVec (WVal w, InlineAbsolute, cvec)
 		    )
             
-        |   DirectEcx => raise InternalError "jumpToFunction-DirectEcx"; (* Can't be tail-recursive *)
+        |   DirectReg _ => raise InternalError "jumpToFunction-DirectReg"; (* Can't be tail-recursive *)
 
         exited := true (* We're not coming back. *)
     );
@@ -2009,7 +2007,7 @@ SS-relative addressing modes:
         |   printCallKind (ConstantClosure w) = (stream "closure="; stream(stringOfWord w))
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
         |   printCallKind FullCall = stream "via ClosureReg"
-        |   printCallKind DirectEcx = stream "ecx"
+        |   printCallKind (DirectReg reg) = printGReg reg
      in
         case operation of
             MoveRR { source, output } =>

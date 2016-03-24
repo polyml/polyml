@@ -536,6 +536,18 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             }
         }
 
+    case 108:
+        // Return the ABI.  For 64-bit we need to know if this is Windows.
+#if (SIZEOF_VOIDP == 8)
+#ifdef _WIN32
+        return taskData->saveVec.push(TAGGED(2));
+#else
+        return taskData->saveVec.push(TAGGED(1));
+#endif
+#else
+        return taskData->saveVec.push(TAGGED(0));
+#endif
+
     default:
         {
             char msg[100];

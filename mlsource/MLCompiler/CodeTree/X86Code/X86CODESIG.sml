@@ -84,7 +84,7 @@ sig
     |   ConstantClosure of machineWord
     |   ConstantCode of machineWord
     |   FullCall
-    |   DirectEcx
+    |   DirectReg of genReg
 
     datatype label =
         Labels of
