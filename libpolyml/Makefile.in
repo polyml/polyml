@@ -137,12 +137,13 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	network.cpp objsize.cpp osmem.cpp pexport.cpp \
 	poly_specific.cpp polyffi.cpp polystring.cpp process_env.cpp \
 	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
-	reals.cpp rts_module.cpp run_time.cpp save_vec.cpp \
-	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
-	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
-	x86assembly_gas64.S interpret.cpp x86assembly_gas32.S \
-	machoexport.cpp elfexport.cpp pecoffexport.cpp \
-	unix_specific.cpp Console.cpp windows_specific.cpp
+	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
+	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
+	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
+	x86_dep.cpp x86assembly_gas64.S interpret.cpp \
+	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
+	pecoffexport.cpp unix_specific.cpp Console.cpp \
+	windows_specific.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
@@ -161,8 +162,8 @@ am_libpolyml_la_OBJECTS = arb.lo basicio.lo bitmap.lo check_objects.lo \
 	heapsizing.lo locking.lo memmgr.lo mpoly.lo network.lo \
 	objsize.lo osmem.lo pexport.lo poly_specific.lo polyffi.lo \
 	polystring.lo process_env.lo processes.lo profiling.lo \
-	quick_gc.lo realconv.lo reals.lo rts_module.lo run_time.lo \
-	save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
+	quick_gc.lo realconv.lo reals.lo rts_module.lo rtsentry.lo \
+	run_time.lo save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
 	sighandler.lo statistics.lo timing.lo xwindows.lo \
 	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
@@ -463,6 +464,7 @@ noinst_HEADERS = \
 	realconv.h \
 	reals.h \
 	rts_module.h \
+	rtsentry.h \
 	run_time.h \
 	savestate.h \
 	save_vec.h \
@@ -510,6 +512,7 @@ libpolyml_la_SOURCES = \
     realconv.cpp \
     reals.cpp \
     rts_module.cpp \
+    rtsentry.cpp \
     run_time.cpp \
     save_vec.cpp \
     savestate.cpp \
@@ -642,6 +645,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/realconv.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/reals.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rts_module.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rtsentry.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/run_time.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/save_vec.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/savestate.Plo@am__quote@

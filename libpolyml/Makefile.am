@@ -95,6 +95,7 @@ noinst_HEADERS = \
 	realconv.h \
 	reals.h \
 	rts_module.h \
+	rtsentry.h \
 	run_time.h \
 	savestate.h \
 	save_vec.h \
@@ -142,6 +143,7 @@ libpolyml_la_SOURCES = \
     realconv.cpp \
     reals.cpp \
     rts_module.cpp \
+    rtsentry.cpp \
     run_time.cpp \
     save_vec.cpp \
     savestate.cpp \
