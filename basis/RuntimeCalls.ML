@@ -20,12 +20,13 @@
 
 
 (* This file should reflect the RTS entries in libpolyml/sys.h.
-   When adding entries don't forget to update the table in Boot/Address.ML. *)
+   When adding entries don't forget to update the table in Address.ML. *)
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
   val POLY_SYS_exit                = 1
   val POLY_SYS_chdir               = 9
+  val POLY_SYS_get_entry_point     = 10
   val POLY_SYS_alloc_store         = 11
   val POLY_SYS_alloc_uninit        = 12
   val POLY_SYS_raisex              = 14

@@ -82,6 +82,7 @@
 #include "poly_specific.h"
 #include "timing.h"
 #include "polyffi.h"
+#include "rtsentry.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -371,7 +372,7 @@ extern "C" {
         div_word, or_word, and_word, xor_word, shift_left_word, mod_word, word_geq, word_leq,
         word_gtr, word_lss, word_eq, load_byte, load_word, assign_byte, assign_word,
         fixed_geq, fixed_leq, fixed_gtr, fixed_lss, fixed_add, fixed_sub, fixed_mul,
-        fixed_quot, fixed_rem, fixed_to_real, fixed_div, fixed_mod;
+        fixed_quot, fixed_rem, fixed_to_real, fixed_div, fixed_mod, CallPOLY_SYS_get_entry_point;
 #ifdef HOSTARCHITECTURE_X86_64
         extern byte cmem_load_asm_64, cmem_store_asm_64;
 #endif
@@ -392,7 +393,7 @@ static byte *entryPointVector[256] =
     0, // 7 is unused
     0, // 8 is unused
     &CallPOLY_SYS_chdir, // 9
-    0, // 10 is unused
+    &CallPOLY_SYS_get_entry_point, // 10
     &alloc_store, // 11
     &alloc_uninit, // 12
     0, // 13 is unused
@@ -913,6 +914,10 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &change_dirc);
                 break;
 
+            case POLY_SYS_get_entry_point:
+                CallIO1(this, &getEntryPoint);
+                break;
+
             case POLY_SYS_get_flags:
                 CallIO1(this, &get_flags_c);
                 break;
@@ -1119,11 +1124,11 @@ extern "C" {
 #ifdef _MSC_VER
     __declspec(dllexport)
 #endif
-        POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg);
+        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
 }
 
 // Called from ML via the assembly code.
-POLYUNSIGNED X86ChDir(PolyObject *threadId, PolyWord arg)
+POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
 {
     X86TaskData *taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);

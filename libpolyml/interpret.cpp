@@ -69,6 +69,7 @@
 #include "poly_specific.h"
 #include "scanaddrs.h"
 #include "polyffi.h"
+#include "rtsentry.h"
 
 #define arg1    (pc[0] + pc[1]*256)
 #define arg2    (pc[2] + pc[3]*256)
@@ -1594,6 +1595,10 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &change_dirc);
                 break;
 
+            case POLY_SYS_get_entry_point:
+                CallIO1(this, &getEntryPoint);
+                break;
+
             case POLY_SYS_get_flags:
                 CallIO1(this, &get_flags_c);
                 break;
@@ -2029,6 +2034,7 @@ void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
     add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
+    add_word_to_io_area(POLY_SYS_get_entry_point, TAGGED(POLY_SYS_get_entry_point));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
     add_word_to_io_area(POLY_SYS_alloc_uninit, TAGGED(POLY_SYS_alloc_uninit));
     add_word_to_io_area(POLY_SYS_raisex, TAGGED(POLY_SYS_raisex));
@@ -2184,6 +2190,28 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_load_word, TAGGED(POLY_SYS_load_word));
     add_word_to_io_area(POLY_SYS_assign_byte, TAGGED(POLY_SYS_assign_byte));
     add_word_to_io_area(POLY_SYS_assign_word, TAGGED(POLY_SYS_assign_word));
+}
+
+extern "C" {
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+}
+
+POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
+{
+    IntTaskData *taskData = (IntTaskData*)TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        (void)change_dirc(taskData, pushedArg);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    return TAGGED(0).AsUnsigned(); // Result is unit
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so

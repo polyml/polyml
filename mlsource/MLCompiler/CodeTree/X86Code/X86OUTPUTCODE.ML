@@ -193,6 +193,13 @@ struct
     and memRegStackOverflowCallEx = if isX64 then ~88 else ~32
     and memRegThreadSelf          = if isX64 then ~112 else ~44
     and memRegRaiseOverflow       = if isX64 then ~120 else ~48
+    and memRegArgumentPtr         = if isX64 then 16 else 8 (* Pointer to original argument vector. *)
+    and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
+
+    (* Offsets in the original argument vector. *)
+    val argLocalMpointer          = 0
+    and argLocalMbottom           = 2 * wordSize
+    and argExceptionPacket        = 4 * wordSize
 
   (* Several operations are not generated immediately but recorded and
      generated later.  Labels (i.e. the destination of a branch) are recorded
@@ -1583,29 +1590,9 @@ SS-relative addressing modes:
     |   ConstantClosure of machineWord (* A pre-compiled or io function. *)
     |   ConstantCode of machineWord (* A function that doesn't need a closure *)
     |   FullCall            (* Full closure call *)
+    |   DirectEcx         (* Currently used to call the RTS *)
   
-(*****************************************************************************
-Calling conventions:
-   FullCall:
-     the caller loads the function's closure into regClosure and then
-     (the code here) does an indirect jump through it.
-
-   Recursive:
-     the caller loads its own function's closure/static-link into regClosure
-     and the code here does a jump to the start of the code.
-     
-   ConstantFun:
-     a direct or indirect call through the given address.  If possible the
-     caller will have done the indirection for us and passed false as the
-     indirection value.  The exception is calls to IO functions where the
-     address of the code itself is invalid.  If the closure/static-link
-     value is needed that will already have been loaded.
-
-   CodeFun:
-     the same as ConstantFun except that this is used only for static-link
-     calls so is never indirect. 
-
-*****************************************************************************)    
+  
     (* Call a function. *)
     fun callFunction (callKind, cvec as Code {ic, ... }) : unit =
     (
@@ -1682,11 +1669,13 @@ Calling conventions:
 			    genop (Group5, NONE, cvec);
 			    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
 			    addConstToVec (WVal w, InlineAbsolute, cvec)
-		    );
-
-        if (!ic) mod 0w4 <> 0w2
-        then raise InternalError "callFunction: call not aligned"
-        else ()
+		    )
+            
+        |   DirectEcx =>
+            (
+                genop (Group5, NONE, cvec);
+                genmodrm(Register, 0w2 (* call *), #1 (getReg ecx), cvec)
+            )
     );
      
 
@@ -1748,7 +1737,9 @@ Calling conventions:
 			    genop (Group5, NONE, cvec);
 			    genmodrm(Based0, 0w4 (* jmp *), 0w5 (* Immediate address. *), cvec);
 			    addConstToVec (WVal w, InlineAbsolute, cvec)
-		    );
+		    )
+            
+        |   DirectEcx => raise InternalError "jumpToFunction-DirectEcx"; (* Can't be tail-recursive *)
 
         exited := true (* We're not coming back. *)
     );
@@ -1829,7 +1820,7 @@ Calling conventions:
                 val () =
                     if isX64
                     then genReg (CMP, resultReg, r15, cvec)
-                    else genOpEA(Arith (CMP, 0w3), memRegLocalMPointer, ebp, resultReg, cvec) 
+                    else genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec) 
                 val lab2 = [putConditional(JB, cvec)]
             in
                 fixup(lab1, cvec);
@@ -1854,7 +1845,7 @@ Calling conventions:
                used by the RTS in the event of a trap to work out how much
                store was being allocated. *)
             if isX64 then genMove(r15, resultReg, cvec)
-            else genOpEA (MOVL_R_A, memRegLocalMPointer, ebp, resultReg, cvec)
+            else genOpEA (MOVL_R_A, LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec)
         end
     in
         fun allocStoreCode (size: int, resultReg, saveRegs, cvec as Code { inAllocation as ref false, ...}) =
@@ -1868,7 +1859,7 @@ Calling conventions:
             (
                 (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
             	   call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
-                genLoad (memRegLocalMPointer, ebp, resultReg, cvec);
+                genLoad (LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec);
                 genLeal (resultReg, resultReg, ~ bytes, cvec)
             );
             allocStoreCommonCode(resultReg, cvec, false, saveRegs)
@@ -1886,7 +1877,7 @@ Calling conventions:
             (* Add this negative value to the current heap pointer. *)
             if isX64
             then genReg(ADD, resultReg, r15, code)
-            else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code);
+            else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, code);
             allocStoreCommonCode(resultReg, code, true, saveRegs)
         )
         | allocStoreVarCode _ =
@@ -2018,6 +2009,7 @@ Calling conventions:
         |   printCallKind (ConstantClosure w) = (stream "closure="; stream(stringOfWord w))
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
         |   printCallKind FullCall = stream "via ClosureReg"
+        |   printCallKind DirectEcx = stream "ecx"
      in
         case operation of
             MoveRR { source, output } =>

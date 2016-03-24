@@ -84,6 +84,7 @@ sig
     |   ConstantClosure of machineWord
     |   ConstantCode of machineWord
     |   FullCall
+    |   DirectEcx
 
     datatype label =
         Labels of
@@ -183,12 +184,20 @@ sig
 
     val procName:   code -> string      (* Name of the procedure. *)
 
-    val memRegHandlerRegister: int
+    val memRegLocalMPointer: int
+    and memRegHandlerRegister: int
+    and memRegLocalMbottom: int
     and memRegRaiseOverflow: int
     and memRegThreadSelf: int
     and memRegStackLimit: int
     and memRegStackOverflowCall: int
     and memRegStackOverflowCallEx: int
+    and memRegArgumentPtr: int
+    and memRegSize: int
+
+    val argLocalMpointer: int
+    and argLocalMbottom: int
+    and argExceptionPacket: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015-16
+    Copyright (c) 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,30 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure X86OutputCode =
-    X86OUTPUTCODE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
-    );
-
-structure X86Optimise =
-    X86OPTIMISE(
-        structure X86CODE = X86OutputCode
-    );
-
-
-structure X86Code = 
-  X86CodetreeToX86Code (
-    structure BACKENDTREE   = BackendIntermediateCode
-    structure DEBUG         = Debug
-    structure X86CODE       = X86OutputCode
-    structure X86OPTIMISE   = X86Optimise
-  );
-
-structure ForeignCall =
-    FOREIGNCALL (
-        structure DEBUG         = Debug
-        structure X86CODE       = X86OutputCode
-        structure X86OPTIMISE   = X86Optimise
-    );
-    
+signature FOREIGNCALLSIG =
+sig
+    val rtsCall2: string * Universal.universal list -> Address.address
+end;

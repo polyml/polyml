@@ -55,7 +55,6 @@ sig
         argLifetimes  : int list
     }
     val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
-    val call1X8632: SysWord.word * string * Universal.universal list -> Address.address
 
     structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
 end =
@@ -720,57 +719,4 @@ struct
         lock closure
     end
     
-    fun call1X8632(addr: SysWord.word, functionName, debugSwitches) =
-    let
-        val frArgument      = 8
-        and frLocalMbottom  = ~20
-        and frSavedMLSP     = ~52
-        and frLocalMpointer = ~28
-        and frSize          = 56
-
-        val argLocalMpointer    = 0
-        and argLocalMbottom     = 8
-        and argExceptionPacket  = 16
-        and argThreadId         = 28
-        
-        local
-            open Address
-        in
-            (* This is very unsafe *)
-            val codeAddress = loadWord(toAddress(toMachineWord addr), 0w0)
-        end
-        
-        val noException = 1
-
-        val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
-        val code =
-            loadMemory(ecx, ebp, frArgument) @ (* Get argument data ptr - could use e.g. ebx to save reloading *)
-            [StoreConstToMemory{toStore=noException, address=BaseOffset{base=ecx, offset=argExceptionPacket, index=NoIndex}}] @ (* Clear exception *)
-            loadMemory(edx, ebp, frLocalMpointer) @ storeMemory(edx, ecx, argLocalMpointer) @ (* Copy heap pointer *)
-            storeMemory(esp, ebp, frSavedMLSP) @ (* Save ML stack pointer *)
-            [MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= frSize} ] @ (* Switch to C stack *)
-            [PushR eax, PushMem{base=ecx, offset=argThreadId}] @ (* Push arguments. *)
-            [CallFunction(ConstantCode codeAddress)] @ (* Call the C function. *)
-            loadMemory(esp, ebp, frSavedMLSP) @ (* Restore the ML stack pointer *)
-            loadMemory(ecx, ebp, frArgument) @ (* Argument pointer *)
-            loadMemory(edx, ecx, argLocalMpointer) @ storeMemory(edx, ebp, frLocalMpointer) @ (* Copy heap ptr back. *)
-            loadMemory(edx, ecx, argLocalMbottom) @ storeMemory(edx, ebp, frLocalMbottom) @ (* and base ptr. *)
-            [ArithMemConst{opc=CMP, offset=argExceptionPacket, base=ecx, source=noException}] @
-            checkExc @ [ReturnFromFunction 0] @ (* Check for exception and return if not. *)
-            forwardJumpLabel exLabel @ (* else raise the exception *)
-            loadMemory(eax, ecx, argExceptionPacket) @
-            [RaiseException]
-
-        val profileObject = createProfileObject functionName
-        val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
-        (* Have to create a closure for this *)
-        open Address
-        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
-    in
-        assignWord(closure, 0w0, toMachineWord createdCode);
-        lock closure;
-        closure
-    end
-
 end;

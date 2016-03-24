@@ -343,6 +343,7 @@
     <ClCompile Include="quick_gc.cpp" />
     <ClCompile Include="realconv.cpp" />
     <ClCompile Include="reals.cpp" />
+    <ClCompile Include="rtsentry.cpp" />
     <ClCompile Include="rts_module.cpp" />
     <ClCompile Include="run_time.cpp" />
     <ClCompile Include="savestate.cpp" />
@@ -400,6 +401,7 @@
     <ClInclude Include="profiling.h" />
     <ClInclude Include="realconv.h" />
     <ClInclude Include="reals.h" />
+    <ClInclude Include="rtsentry.h" />
     <ClInclude Include="rts_module.h" />
     <ClInclude Include="run_time.h" />
     <ClInclude Include="savestate.h" />
