@@ -18,21 +18,22 @@
 *)
 
 structure Initialise =
- INITIALISE_ (
-  structure LEX = Lex
-  structure TYPETREE   = TypeTree
-  structure STRUCTVALS = StructVals
-  structure VALUEOPS   = ValueOps
-  structure CODETREE   = CodeTree
-  structure ADDRESS    = Address
-  structure DEBUG      = Debug
-  structure MAKE       = Make
-  structure MISC       = Misc
-  structure DEBUGGER   = Debugger
-  structure VERSION    = CompilerVersion
-  structure PRETTY     = Pretty
-    structure EXPORTTREE = ExportTreeStruct
-    structure DATATYPEREP = DatatypeRep
-    structure TYPEIDCODE = TypeIDCodeStruct
-  structure PRINTTABLE = PrintTable
+    INITIALISE_ (
+        structure LEX = Lex
+        structure TYPETREE   = TypeTree
+        structure STRUCTVALS = StructVals
+        structure VALUEOPS   = ValueOps
+        structure CODETREE   = CodeTree
+        structure ADDRESS    = Address
+        structure DEBUG      = Debug
+        structure MAKE       = Make
+        structure MISC       = Misc
+        structure DEBUGGER   = Debugger
+        structure VERSION    = CompilerVersion
+        structure PRETTY     = Pretty
+        structure EXPORTTREE = ExportTreeStruct
+        structure DATATYPEREP = DatatypeRep
+        structure TYPEIDCODE = TypeIDCodeStruct
+        structure PRINTTABLE = PrintTable
+        structure FOREIGNCALL = ForeignCall
 );

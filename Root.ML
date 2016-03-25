@@ -55,7 +55,7 @@ use "mlsource/MLCompiler/CodeTree/X86Code/X86CodetreeToX86Code.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OUTPUTCODE.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86OPTIMISE.ML";
 use "mlsource/MLCompiler/Debug.ML";
-use "mlsource/MLCompiler/CodeTree/X86Code/FOREIGNCALLSIG.sml";
+use "mlsource/MLCompiler/FOREIGNCALLSIG.sml";
 use "mlsource/MLCompiler/CodeTree/X86Code/FOREIGNCALL.sml";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";

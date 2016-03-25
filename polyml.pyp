@@ -121,7 +121,6 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODECONSSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODEGEN_TABLESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\FOREIGNCALL.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\X86Code\FOREIGNCALLSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\GENERATE_CODE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml" />
@@ -148,6 +147,7 @@
 	<source name="mlsource\MLCompiler\ExportTree.sml" />
 	<source name="mlsource\MLCompiler\EXPORTTREESIG.sml" />
 	<source name="mlsource\MLCompiler\ExportTreeStruct.sml" />
+	<source name="mlsource\MLCompiler\FOREIGNCALLSIG.sml" />
 	<source name="mlsource\MLCompiler\HashTable.ML" />
 	<source name="mlsource\MLCompiler\Initialise.ML" />
 	<source name="mlsource\MLCompiler\INITIALISE_.ML" />

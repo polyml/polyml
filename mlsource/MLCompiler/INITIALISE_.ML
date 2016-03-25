@@ -26,36 +26,37 @@
 
 functor INITIALISE_ (
 
-structure LEX: LEXSIG
-structure TYPETREE : TYPETREESIG
-structure STRUCTVALS : STRUCTVALSIG
-structure VALUEOPS : VALUEOPSSIG
-structure CODETREE : CODETREESIG
-structure EXPORTTREE: EXPORTTREESIG
-structure DATATYPEREP: DATATYPEREPSIG
-structure TYPEIDCODE: TYPEIDCODESIG
-structure MAKE: MAKESIG
-structure ADDRESS : AddressSig
-structure DEBUG: DEBUGSIG
-structure DEBUGGER : DEBUGGERSIG
-structure PRETTY : PRETTYSIG
-structure PRINTTABLE: PRINTTABLESIG
+    structure LEX: LEXSIG
+    structure TYPETREE : TYPETREESIG
+    structure STRUCTVALS : STRUCTVALSIG
+    structure VALUEOPS : VALUEOPSSIG
+    structure CODETREE : CODETREESIG
+    structure EXPORTTREE: EXPORTTREESIG
+    structure DATATYPEREP: DATATYPEREPSIG
+    structure TYPEIDCODE: TYPEIDCODESIG
+    structure MAKE: MAKESIG
+    structure ADDRESS : AddressSig
+    structure DEBUG: DEBUGSIG
+    structure DEBUGGER : DEBUGGERSIG
+    structure PRETTY : PRETTYSIG
+    structure PRINTTABLE: PRINTTABLESIG
+    structure FOREIGNCALL: FOREIGNCALLSIG
 
-structure MISC :
-sig
-  val unescapeString : string -> string
-  exception Conversion of string;     (* string to int conversion failure *)
-end
+    structure MISC :
+    sig
+      val unescapeString : string -> string
+      exception Conversion of string;     (* string to int conversion failure *)
+    end
 
-structure VERSION:
-sig
-   val compilerVersion: string
-   val versionNumber: int
-end
+    structure VERSION:
+    sig
+       val compilerVersion: string
+       val versionNumber: int
+    end
 
-sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
-        = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
-        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
+    sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
+            = PRETTY.Sharing = CODETREE.Sharing = MAKE.Sharing = ADDRESS = DATATYPEREP.Sharing
+            = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing = PRINTTABLE.Sharing
 
 ) : 
 
@@ -283,21 +284,9 @@ struct
             val runCall5Type = Int ->> TYPETREE.mkProductType [a,b,c,d,e] ->> f;
             val runCall2C2Type = Int ->> TYPETREE.mkProductType [a,b] ->> TYPETREE.mkProductType [c,d]
 
-            (* 
-               We used to have the following definition:
-            
-                 val runCall1Entry = mkEntry POLY_SYS_io_operation;
-                
-               but it didn't work as well, because CODETREE.ML wouldn't optimise
-               expressions like:
-               
-                 RunCall.run_call1 POLY_SYS_io_operation
-                 
-               because there was nothing to tell it that this should be evaluated
-               "early". Now we use an inline procedure wrapped round the constant,
-               and set the "early" flag in the inline proc. SPF 2/5/95.
-            *)
-
+            (* RTS calls take their arguments in registers or on the stack.  ML functions
+               take only a single argument.  We need to add a wrapper layer except in the
+               special case of an RTS call with a single argument. *)
             val runCall1Entry : codetree =
             let 
                 val name = "run_call1(1)";
@@ -305,44 +294,26 @@ struct
                 val body  = mkBuiltIn (POLY_SYS_io_operation, [n]);
             in
                 makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
-            end;
+            end
 
             fun makeRunCallTupled (width:int) : codetree =
-            let 
-              (* These declarations should really be read in the reverse order.
-                 We are trying to build the codetree for something like the
-                 following:
-                 
-                    val run_call3 = 
-                      fn (n:int) => 
-                      let
-                         val f = ioOp n
-                      in
-                         fn (x,y,z) => f <x,y,z>
-                      end;
-                      
-                 where "f <x,y,z>" designates Poly-style (values in registers)
-                 uncurried parameter passing.
-                 *)
-
+            let
                 val name = "run_call" ^ Int.toString width;
-                
-                val innerBody : codetree =
-                let
+
+                local
                     val f     = mkLoadClosure 0        (* first item from enclosing scope *)
                     val tuple = mkLoadArgument 0       (* the inner parameter *)
                     val args  = List.tabulate(width, fn n => mkInd (n, tuple))
                 in
-                    mkEval (f, args)
+                    val innerBody = mkEval (f, args)
                 end
 
-                val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
-                val outerBody : codetree  =
-                let
-                    val n = mkLoadArgument 0                 (* the outer parameter *)
-                    val f = mkBuiltIn (POLY_SYS_io_operation, [n]);
+                local
+                    (* The closure contains the address of the RTS call. *)
+                    val f = mkBuiltIn (POLY_SYS_io_operation, [mkLoadArgument 0])
+                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
                 in
-                    mkEnv([mkDec (0, f)], innerLambda)
+                    val outerBody = mkEnv([mkDec (0, f)], innerLambda)
                 end
 
                 val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
@@ -382,21 +353,66 @@ struct
                 outerLambda
             end
             
-            val runCall0Entry = makePolymorphic([a], makeRunCallTupled 0);
-            val runCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2);
-            val runCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled 3);
-            val runCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled 4);
-            val runCall5Entry = makePolymorphic([a, b, c, d, e, f], makeRunCallTupled 5);
+            val runCall0Entry = makePolymorphic([a], makeRunCallTupled 0)
+            val runCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2)
+            val runCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled 3)
+            val runCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled 4)
+            val runCall5Entry = makePolymorphic([a, b, c, d, e, f], makeRunCallTupled 5)
             val runCall2C2Entry =
-                makePolymorphic([a, b, c, d], makeRunCallTupledWithContainer(2, 2));
+                makePolymorphic([a, b, c, d], makeRunCallTupledWithContainer(2, 2))
         in
-            val () = enterRunCall ("run_call0", runCall0Entry, runCall0Type);
-            val () = enterRunCall ("run_call1", runCall1Entry, runCall1Type);
-            val () = enterRunCall ("run_call2", runCall2Entry, runCall2Type);
-            val () = enterRunCall ("run_call3", runCall3Entry, runCall3Type);
-            val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type);
-            val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type);
-            val () = enterRunCall ("run_call2C2", runCall2C2Entry, runCall2C2Type);
+            val () = enterRunCall ("run_call0", runCall0Entry, runCall0Type)
+            val () = enterRunCall ("run_call1", runCall1Entry, runCall1Type)
+            val () = enterRunCall ("run_call2", runCall2Entry, runCall2Type)
+            val () = enterRunCall ("run_call3", runCall3Entry, runCall3Type)
+            val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type)
+            val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type)
+            val () = enterRunCall ("run_call2C2", runCall2C2Entry, runCall2C2Type)
+        end
+
+        local
+            val debugOpts = [] (* Place to add debugging if necessary. *)
+            (* [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
+               tagInject assemblyCodeTag true] *)
+ 
+            fun makeCall2 entryName = FOREIGNCALL.rtsCall2(entryName, debugOpts)
+            (* We need to wrap this so that the arguments are passed in registers. *)
+
+            fun makeRunCallTupled (width:int) : codetree =
+            let
+                val name = "rtsCall" ^ Int.toString width;
+
+                local
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
+                    val args  = List.tabulate(width, fn n => mkInd (n, tuple))
+                in
+                    val innerBody = mkEval (f, args)
+                end
+
+                local
+                    (* The closure contains the address of the RTS call. *)
+                    val f = mkEval(mkConst(toMachineWord makeCall2), [mkLoadArgument 0])
+                    val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
+                in
+                    val outerBody = mkEnv([mkDec (0, f)], innerLambda)
+                end
+
+                val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
+            in
+                outerLambda
+            end
+            
+            local
+                val a = makeTV ()
+                val b = makeTV ()
+                val c = makeTV ()
+            in
+                val rtsCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2)
+                val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
+            end
+        in
+            val () = enterRunCall ("rtsCall2", rtsCall2Entry, rtsCall2Type)
         end
 
         local
@@ -464,10 +480,10 @@ struct
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
         let
-            val value = mkGvar (name, typ, entry, declInBasis);
+            val value = mkGvar (name, typ, entry, declInBasis)
         in
             #enterVal bootstrapEnv (name, value)
-        end;
+        end
 
         local
             fun addVal (name : string, value : 'a, typ : types) : unit =
@@ -590,8 +606,8 @@ struct
         in
             val vectorType =
                 makeTypeConstructor("vector",
-                    makeFreeId(1, idCode, true, basisDescription "vector"), declInBasis);
-            val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []));
+                    makeFreeId(1, idCode, true, basisDescription "vector"), declInBasis)
+            val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []))
         end
 
         (* We also need a type with byte-wise equality. *)
@@ -639,8 +655,8 @@ struct
         in
             val byteVectorType =
                 makeTypeConstructor("byteVector",
-                    makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis);
-            val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []));
+                    makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis)
+            val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []))
         end
 
         (* Similarly we need LargeWord.word *)
@@ -663,18 +679,18 @@ struct
         in
             val largeWordType =
                 makeTypeConstructor("word",
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis);
+                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
             (* This is put in Bootstrap so it can be picked out in the basis library.
                The default "word" type (Word.word) is in the global namespace. *)
-            val () = #enterType bootstrapEnv ("word", TypeConstrSet(largeWordType, []));
+            val () = #enterType bootstrapEnv ("word", TypeConstrSet(largeWordType, []))
         end
 
     (* We also need array and Array2.array to be passed through here so that
        they have the special property of being eqtypes even if their argument
        is not.   "array" is defined to be in the global environment. *)
-        val () = enterGlobalType  ("array", TypeConstrSet(arrayConstr, []));
+        val () = enterGlobalType  ("array", TypeConstrSet(arrayConstr, []))
         val () = #enterType bootstrapEnv ("array", TypeConstrSet(array2Constr, []))
-        val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []));
+        val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []))
 
 
 (* "=', '<>', PolyML.print etc are type-specific function which appear
@@ -688,18 +704,18 @@ struct
    treats type-specific functions specially and retains the type-specificity.
    That's important to allow the prelude code to expand the PolyML structure. *)
         local
-            val eqType = let val a = makeEqTV () in a ** a ->> Bool end;
-            val eqVal  = mkSpecialFun("=", eqType, Equal);
+            val eqType = let val a = makeEqTV () in a ** a ->> Bool end
+            val eqVal  = mkSpecialFun("=", eqType, Equal)
         in
-            val () = enterGlobalValue ("=", eqVal);
-        end;        
+            val () = enterGlobalValue ("=", eqVal)
+        end        
 
         local
-            val neqType = let val a = makeEqTV () in a ** a ->> Bool end;
-            val neqVal  = mkSpecialFun("<>", neqType, NotEqual);
+            val neqType = let val a = makeEqTV () in a ** a ->> Bool end
+            val neqVal  = mkSpecialFun("<>", neqType, NotEqual)
         in
-            val () = enterGlobalValue ("<>", neqVal);
-        end;        
+            val () = enterGlobalValue ("<>", neqVal)
+        end        
 
         val polyMLEnv = makeStructure(globalEnv, "PolyML")
         val enterPolyMLVal  = #enterVal polyMLEnv
@@ -744,7 +760,7 @@ struct
                passing "env" values through the bootstrap. *)
             val valTypes = 
                [("Val", valueVal), ("Type", typeVal), ("Fix", fixityVal),
-                ("Struct", structureVal), ("Sig", signatureVal), ("Funct", functorVal)];
+                ("Struct", structureVal), ("Sig", signatureVal), ("Funct", functorVal)]
     
             val fields = List.foldl (fn (p,l) => createFields p @ l) [] valTypes
     
