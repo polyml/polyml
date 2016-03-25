@@ -84,8 +84,14 @@ struct
         (* Find the address of the function to get the entry point. *)
         val getEntryPoint = ioOp RuntimeCalls.POLY_SYS_get_entry_point
         
-        (* Get the ABI.  This is only relevant for X64. *)
-        val abi: int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0)
+        datatype abi = X86_32 | X64Win | X64Unix
+
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val abi =
+            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+                1 => X64Unix
+            |   2 => X64Win
+            |   _ => X86_32
 
         val noException = 1
         
@@ -94,115 +100,84 @@ struct
 
         (* Branch to check for exception. *)
         val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
-
-        val code =
-            case abi of
-                1 => (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
-                        The rest are on the stack.
-                        rbx, rbp, r12-r15 are saved by the called function. *)
-                [
-                    MoveLongConstR{source=entryPointAddr, output=r11}, (* Load the entry point ref. *)
-                    loadMemory(r11, r11, 0),(* Load its value. *)
-                    ArithRConst{opc=CMP, output=r11, source=0},(* Has it been set? *)
-                    checkAddr,
-                    PushR eax, PushR ebx, (* Save original arguments.  Also r8/r9/r10 if necessary. *)
-                    MoveLongConstR{source=toMachineWord functionName, output=eax},
-                    CallFunction(ConstantClosure getEntryPoint),
-                    MoveLongConstR{source=entryPointAddr, output=r11}, (* Reload the ref. *)
-                    loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
-                    StoreRegToMemory { toStore=eax, address=BaseOffset{base=r11, offset=0, index=NoIndex} }, (* Save into ref. *)
-                    MoveRR{source=eax, output=r11}, (* Move to the call address register. *)
-                    PopR ebx, PopR eax,
-                    JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
-                    loadMemory(r12, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
-                    StoreConstToMemory{toStore=noException, address=BaseOffset{base=r12, offset=argExceptionPacket, index=NoIndex}}, (* Clear exception *)
-                    storeMemory(r15, r12, argLocalMpointer), (* Save r15, the heap pointer *)
-                    MoveRR{source=esp, output=r13},  (* Save ML stack pointer *)
-                    MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt memRegSize}, (* Switch to C stack *)
-                    MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi}, (* Set the argument registers. *)
-                    CallFunction(DirectReg r11), (* Call the C function using the address in r11 *)
-                    MoveRR{source=r13, output=esp}, (* Restore the ML stack pointer *)
-                    loadMemory(r15, r12, argLocalMpointer), (* Copy heap ptr back. *)
-                    loadMemory(edx, r12, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr. *)
-                    ArithMemConst{opc=CMP, offset=argExceptionPacket, base=r12, source=noException},
-                    checkExc, ReturnFromFunction 0, (* Check for exception and return if not. *)
-                    JumpLabel exLabel, (* else raise the exception *)
-                    loadMemory(eax, r12, argExceptionPacket),
-                    RaiseException
-                ]
-
-            |   2 =>
-                    (* Windows X64. The first four arguments are in rcx, rdx, r8 and r9.  The rest are
+        
+        (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
+           The rest are on the stack.
+           Windows X64. The first four arguments are in rcx, rdx, r8 and r9.  The rest are
                        on the stack.  The caller must ensure the stack is aligned on 16-byte boundary
                        and must allocate 32-byte save area for the register args.
-                       rbx, rbp, rdi, rsi, rsp, r12-r15 are saved by the called function. *)
-                [
-                    MoveLongConstR{source=entryPointAddr, output=r11}, (* Load the entry point ref. *)
-                    loadMemory(r11, r11, 0),(* Load its value. *)
-                    ArithRConst{opc=CMP, output=r11, source=0},(* Has it been set? *)
-                    checkAddr,
-                    PushR eax, PushR ebx, (* Save original arguments.  Also r8/r9/r10 if necessary. *)
-                    MoveLongConstR{source=toMachineWord functionName, output=eax},
-                    CallFunction(ConstantClosure getEntryPoint),
-                    MoveLongConstR{source=entryPointAddr, output=r11}, (* Reload the ref. *)
-                    loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
-                    StoreRegToMemory { toStore=eax, address=BaseOffset{base=r11, offset=0, index=NoIndex} }, (* Save into ref. *)
-                    MoveRR{source=eax, output=r11}, (* Move to the call address register. *)
-                    PopR ebx, PopR eax,
-                    JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
-                    loadMemory(esi, ebp, memRegArgumentPtr), (* Get argument data ptr  - use rsi to save reloading after the call *)
-                    StoreConstToMemory{toStore=noException, address=BaseOffset{base=esi, offset=argExceptionPacket, index=NoIndex}}, (* Clear exception *)
-                    storeMemory(r15, esi, argLocalMpointer), (* Save r15, the heap pointer *)
-                    MoveRR{source=esp, output=edi},  (* Save ML stack pointer *)
-                    MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt memRegSize}, (* Switch to C stack *)
-                    MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx}, (* Set the argument registers. *)
-                    ArithRConst{ opc=SUB, output=esp, source=32}, (* Allocate 32 byte save area *)
-                    CallFunction(DirectReg r11), (* Call the C function using the address in r11 *)
-                    MoveRR{source=edi, output=esp}, (* Restore the ML stack pointer *)
-                    loadMemory(r15, esi, argLocalMpointer), (* Copy heap ptr back. *)
-                    loadMemory(edx, esi, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr. *)
-                    ArithMemConst{opc=CMP, offset=argExceptionPacket, base=esi, source=noException},
-                    checkExc, ReturnFromFunction 0, (* Check for exception and return if not. *)
-                    JumpLabel exLabel, (* else raise the exception *)
-                    loadMemory(eax, esi, argExceptionPacket),
-                    RaiseException
-                ]
-
-            |   _ =>
-                (* X86/32.  Arguments are pushed to the stack.
+                       rbx, rbp, rdi, rsi, rsp, r12-r15 are saved by the called function.
+           X86/32.  Arguments are pushed to the stack.
                    ebx, edi, esi, ebp and esp are saved by the called function.
-                   We use esi to hold the argument data pointer and edi to save the ML stack pointer *)
-                [
-                    MoveLongConstR{source=entryPointAddr, output=ecx}, (* Load the entry point ref. *)
-                    loadMemory(ecx, ecx, 0),(* Load its value. *)
-                    ArithRConst{opc=CMP, output=ecx, source=0},(* Has it been set? *)
-                    checkAddr,
-                    PushR eax, PushR ebx, (* Save original arguments. *)
-                    MoveLongConstR{source=toMachineWord functionName, output=eax},
-                    CallFunction(ConstantClosure getEntryPoint),
-                    MoveLongConstR{source=entryPointAddr, output=ecx}, (* Reload the ref. *)
-                    loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
-                    StoreRegToMemory { toStore=eax, address=BaseOffset{base=ecx, offset=0, index=NoIndex} }, (* Save into ref. *)
-                    MoveRR{source=eax, output=ecx}, (* Move to the call address register. *)
-                    PopR ebx, PopR eax,
-                    JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
-                    loadMemory(esi, ebp, memRegArgumentPtr), (* Get argument data ptr - use esi to save reloading after the call *)
-                    StoreConstToMemory{toStore=noException, address=BaseOffset{base=esi, offset=argExceptionPacket, index=NoIndex}}, (* Clear exception *)
-                    loadMemory(edx, ebp, memRegLocalMPointer), storeMemory(edx, esi, argLocalMpointer), (* Copy heap pointer *)
-                    MoveRR{source=esp, output=edi},  (* Save ML stack pointer *)
-                    MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt memRegSize}, (* Switch to C stack *)
-                    PushR ebx, PushR eax, (* Push arguments. *)
-                    CallFunction(DirectReg ecx), (* Call the C function using the address in ecx *)
-                    MoveRR{source=edi, output=esp}, (* Restore the ML stack pointer *)
-                    loadMemory(edx, esi, argLocalMpointer), storeMemory(edx, ebp, memRegLocalMPointer), (* Copy heap ptr back. *)
-                    loadMemory(edx, esi, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr. *)
-                    ArithMemConst{opc=CMP, offset=argExceptionPacket, base=esi, source=noException},
-                    checkExc, ReturnFromFunction 0, (* Check for exception and return if not. *)
-                    JumpLabel exLabel, (* else raise the exception *)
-                    loadMemory(eax, esi, argExceptionPacket),
-                    RaiseException
-                 ]
+                   We use esi to hold the argument data pointer and edi to save the ML stack pointer
+        *)
+        
+        (* This is a pointer to data that the RTS provides on entry.  Fields
+           may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
+        val memRegArgumentPtr = case abi of X64Unix => ~32 | X64Win => 16 | X86_32 => 8
 
+        (* The argument pointer and the ML stack pointer need to be
+           loaded into registers that will be saved by the callee.
+           The entry point doesn't need to be but must be a register
+           that isn't used for an argument. *)
+        val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r12, r13) else (ecx, esi, edi)
+
+        val code =
+            [
+                MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
+                ArithRConst{opc=CMP, output=entryPtrReg, source=0},(* Has it been set? *)
+                checkAddr,
+                PushR eax, PushR ebx, (* Save original arguments.  Also r8/r9/r10 if necessary. *)
+                MoveLongConstR{source=toMachineWord functionName, output=eax},
+                CallFunction(ConstantClosure getEntryPoint),
+                MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Reload the ref. *)
+                loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
+                StoreRegToMemory { toStore=eax, address=BaseOffset{base=entryPtrReg, offset=0, index=NoIndex} }, (* Save into ref. *)
+                MoveRR{source=eax, output=entryPtrReg}, (* Move to the call address register. *)
+                PopR ebx, PopR eax,
+                JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
+                loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
+                StoreConstToMemory{toStore=noException, address=BaseOffset{base=argPtrReg, offset=argExceptionPacket, index=NoIndex}} (* Clear exception *)
+            ] @
+            (
+                (* Save heap ptr.  This is in r15 in X86/64 *)
+                if isX64 then [storeMemory(r15, argPtrReg, argLocalMpointer)] (* Save heap ptr *)
+                else [loadMemory(edx, ebp, memRegLocalMPointer), storeMemory(edx, argPtrReg, argLocalMpointer) ]
+            ) @
+            [
+                MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
+                MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt memRegSize}
+            ] @
+            (
+                case abi of  (* Set the argument registers. *)
+                    X64Unix => 
+                        [ MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi}]
+                |   X64Win => (* Windows requires a 32-byte save area *)
+                        [
+                            MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx}, (* Set the argument registers. *)
+                            ArithRConst{ opc=SUB, output=esp, source=32} (* Allocate 32 byte save area *)
+                        ]
+                |   X86_32 => [ PushR ebx, PushR eax ]
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                MoveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
+            ] @
+            (
+            if isX64 then [loadMemory(r15, argPtrReg, argLocalMpointer) ] (* Copy back the heap ptr *)
+            else [loadMemory(edx, esi, argLocalMpointer), storeMemory(edx, ebp, memRegLocalMPointer) ]
+            ) @
+            [
+                loadMemory(edx, argPtrReg, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr *)
+                ArithMemConst{opc=CMP, offset=argExceptionPacket, base=argPtrReg, source=noException},
+                checkExc, ReturnFromFunction 0, (* Check for exception and return if not. *)
+                JumpLabel exLabel, (* else raise the exception *)
+                loadMemory(eax, argPtrReg, argExceptionPacket),
+                RaiseException
+            ]
+ 
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
         val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)

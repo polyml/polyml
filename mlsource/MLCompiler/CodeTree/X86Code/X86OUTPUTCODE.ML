@@ -193,7 +193,6 @@ struct
     and memRegStackOverflowCallEx = if isX64 then ~88 else ~32
     and memRegThreadSelf          = if isX64 then ~112 else ~44
     and memRegRaiseOverflow       = if isX64 then ~120 else ~48
-    and memRegArgumentPtr         = if isX64 then 16 else 8 (* Pointer to original argument vector. *)
     and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
 
     (* Offsets in the original argument vector. *)

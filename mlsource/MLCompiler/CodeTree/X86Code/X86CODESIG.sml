@@ -192,7 +192,6 @@ sig
     and memRegStackLimit: int
     and memRegStackOverflowCall: int
     and memRegStackOverflowCallEx: int
-    and memRegArgumentPtr: int
     and memRegSize: int
 
     val argLocalMpointer: int
