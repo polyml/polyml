@@ -313,13 +313,6 @@ int IntTaskData::SwitchToPoly()
             pc += 1;
             break;
 
-        case INSTR_set_handler_old: /* Set up a handler */
-            // Legacy version.  The handler pushes an exception id.
-            *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
-            this->p_hr = sp-1; /*Point to identifier about to be pushed*/
-            pc += 1;
-            break;
-
         case INSTR_del_handler: /* Delete handler retaining the result. */
             {
                 PolyWord u = *sp++;
@@ -345,33 +338,12 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_jump_i: /* Indirect jump */
-            {
-                // This is only for backwards compatibility
-                pc += *pc + 1;
-                /* This may jump backwards. */
-                int u = arg1;
-                if (u > 32767) u -= 65536;
-                pc += u + 2;
-                break;
-            }
-
         case INSTR_set_handler_new_i: /* Set up a handler */
             {
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
                     PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
                 this->p_hr = sp;
-                pc += 1;
-                break;
-            }
-
-        case INSTR_set_handler_old_i: /* Set up a handler */
-            {
-                byte *u = pc + *pc + 1;
-                *(--sp) = /* Address of handler */
-                    PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
-                this->p_hr = sp-1;
                 pc += 1;
                 break;
             }
@@ -397,32 +369,6 @@ int IntTaskData::SwitchToPoly()
                 else {
                     pc += 2;
                     pc += /* Index */pc[u*2]+pc[u*2 + 1]*256; }
-                break;
-            }
-
-        case INSTR_call_sl: /* Static link call */
-            {
-                /* Get static link value. */
-                PolyWord *t = sp+arg2;
-                for(int i = 1; i <= arg3; i++) t = (t[-1]).AsStackAddr();
-                PolyWord *constAddr = (PolyWord*)(pc+arg1+2); /* Get entry point. */
-                *(--sp) = PolyWord::FromCodePtr(pc+6); /* Push return address to point after instruction. */
-                *(--sp) = PolyWord::FromStackAddr(t); /* Push static link */
-                pc = (*constAddr).AsCodePtr();
-                break;
-            }
-
-        case INSTR_call_sl_X:
-            {
-                /* Get static link value. */
-                PolyWord *t = sp+arg3;
-
-                for(int u = 1; u <= arg4; u++) t = (t[-1]).AsStackAddr();
-
-                PolyWord *constAddr = (PolyWord*)(pc+arg2+(arg1+4)*sizeof(PolyWord)+4); /* Get entry point. */
-                *(--sp) = PolyWord::FromCodePtr(pc+8); /* Push return address to point after instruction. */
-                *(--sp) = PolyWord::FromStackAddr(t); /* Push static link */
-                pc = (*constAddr).AsCodePtr();
                 break;
             }
 
@@ -1031,7 +977,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_tuple_4: storeWords = 4+1; instrBytes = 0; goto TUPLE;
         case INSTR_tuple_b: storeWords = *pc+1; instrBytes = 1; goto TUPLE;
 
-
         case INSTR_non_local:
             {
                 PolyWord *t = sp+arg1;
@@ -1096,13 +1041,6 @@ int IntTaskData::SwitchToPoly()
             break;
 
         case INSTR_const_int_w: *(--sp) = TAGGED(arg1); pc += 2; break;
-
-        case INSTR_io_vec_entry:
-            *(--sp) = (PolyObject*)IoEntry(*pc);
-            pc += 1;
-            break;
-
-        case INSTR_const_nil: *(--sp) = Zero; break;
 
         case INSTR_jump_back: pc -= *pc + 1; break;
 
@@ -1223,78 +1161,6 @@ int IntTaskData::SwitchToPoly()
                 pc += 1; break;
             }
 
-        case INSTR_call_sl_c: /* Static link call */
-            {
-                /* Get static link value. */
-                POLYSIGNED uu = pc[2];
-                PolyWord *t = sp + (uu >> 4) + 2;
-                for(uu = uu & 0xf; uu > 0; uu--) t = t[-1].AsStackAddr();
-                PolyWord u = PolyWord::FromCodePtr(pc+arg1+2); /* Get entry point. */
-                *(--sp) = PolyWord::FromCodePtr(pc+3); /* Push return address to point after instruction. */
-                *(--sp) = PolyWord::FromStackAddr(t); /* Push static link */
-                pc = u.AsObjPtr()->Get(0).AsCodePtr();
-                break;
-            }
-
-        case INSTR_call_sl_cX:
-            {
-                /* Get static link value. */
-                POLYUNSIGNED uu = pc[3];
-                PolyWord *t = sp + (uu >> 4) + 2;
-                for(uu = uu & 0xf; uu > 0; uu--) t = t[-1].AsStackAddr();
-                // This splits the offset into a number of words and a number of bytes
-                // That's needed to try to make the code portable between 32 and 64 bit machines.
-                PolyWord u = PolyWord::FromCodePtr(pc + (pc[0]+4)*sizeof(PolyWord) + pc[1] + pc[2]*256+3); /* Get entry point. */
-                *(--sp) = PolyWord::FromCodePtr(pc+4); /* Push return address to point after instruction. */
-                *(--sp) = PolyWord::FromStackAddr(t); /* Push static link */
-                pc = u.AsObjPtr()->Get(0).AsCodePtr();
-                break;
-                }
-
-
-        case INSTR_io_vec_233: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_gtr); break;
-        case INSTR_io_vec_236: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_or_word); break;
-        case INSTR_io_vec_251: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_word_eq); break;
-        case INSTR_io_vec_253: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_load_word); break;
-        case INSTR_io_vec_255: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_assign_word); break;
-
-        case INSTR_integer_equal:
-            { PolyWord u = *sp++; *sp = (u == *sp)?True:False; break; }
-
-        case INSTR_integer_leq:
-            {
-                POLYSIGNED uu = UNTAGGED(*sp++);
-                *sp = (UNTAGGED(*sp) <= uu)?True:False;
-                break;
-            }
-
-        case INSTR_integer_greater:
-            {
-                POLYSIGNED uu = UNTAGGED(*sp++);
-                *sp = (UNTAGGED(*sp) > uu)?True:False; break; 
-            }
-
-        case INSTR_boolean_or:
-            {
-                PolyWord u = *sp++; if (u == True) *sp = True; break; 
-            }
-
-        case INSTR_word_equal:
-            {
-                PolyWord u = *sp++;
-                if (u == *sp) *sp = True;
-                else *sp = u == *sp ? True : False;
-                break;
-            }
-
-        case INSTR_assign_word:
-            {
-                PolyWord u = *sp++;
-                POLYUNSIGNED uu = UNTAGGED(*sp++);
-                (*sp).AsObjPtr()->Set(uu, u);
-                *sp = Zero;
-                break;
-            }
 
         case INSTR_container: /* Create a container. */
             {

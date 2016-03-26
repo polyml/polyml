@@ -130,13 +130,6 @@ struct
       applyList (f, t)
     end;
   
-  fun applyCountList (_, _, [])   = ()
-    | applyCountList (f, n, h::t) = 
-    let
-      val () = f (n, h);
-    in
-      applyCountList (f, n + 1, t)
-    end;
 
 (*****************************************************************************)
 (*                  Abstype for instruction addresses                        *)
@@ -198,7 +191,6 @@ struct
     (*val opcode_set_containerW    = Opcode 8;*) (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
     val opcode_caseSwitch        = Opcode 10;
-    val opcode_callSl            = Opcode 11;
     val opcode_callClosure       = Opcode 12;
     val opcode_returnW           = Opcode 13;
     val opcode_pad               = Opcode 14;
@@ -209,16 +201,11 @@ struct
     val opcode_localW            = Opcode 19;
     val opcode_indirectW         = Opcode 20;
     val opcode_moveToVecW        = Opcode 21;
-
-    val opcode_callSlX           = Opcode 22; (* Added DCJM 25/9/00. *)
-
     val opcode_setStackValW      = Opcode 23;
     val opcode_resetW            = Opcode 24;
     val opcode_resetR_w          = Opcode 25;
     val opcode_constAddr         = Opcode 26;
     val opcode_constIntW         = Opcode 27;
-    val opcode_ioVecEntry        = Opcode 28;
-    val opcode_constNil          = Opcode 29;
     val opcode_jumpBack8         = Opcode 30;
     val opcode_returnB           = Opcode 31;
     val opcode_jumpBack16        = Opcode 32
@@ -237,7 +224,6 @@ struct
     val opcode_local_4           = Opcode 45;
     val opcode_local_5           = Opcode 46;
     val opcode_local_6           = Opcode 47;
-    
     val opcode_local_7           = Opcode 48;
     val opcode_local_8           = Opcode 49;
     val opcode_local_9           = Opcode 50;
@@ -254,7 +240,6 @@ struct
     val opcode_const_2           = Opcode 61;
     val opcode_const_3           = Opcode 62;
     val opcode_const_4           = Opcode 63;
-    
     val opcode_const_10          = Opcode 64;
     val opcode_return_0          = Opcode 65;
     val opcode_return_1          = Opcode 66;
@@ -268,33 +253,17 @@ struct
     val opcode_moveToVec_5       = Opcode 74;
     val opcode_moveToVec_6       = Opcode 75;
     val opcode_moveToVec_7       = Opcode 76;
-    
     val opcode_constAddrX_b      = Opcode 77; (* Added DCJM 25/9/00. *)
     val opcode_constAddrX_w      = Opcode 78; (* Added DCJM 25/9/00. *)
-    val opcode_callSlCX          = Opcode 79; (* Added DCJM 25/9/00. *)
-    
     val opcode_reset_1           = Opcode 80;
     val opcode_reset_2           = Opcode 81;
     val opcode_getStore_2        = Opcode 82;
     val opcode_getStore_3        = Opcode 83;
     val opcode_getStore_4        = Opcode 84;
     val opcode_tuple_containerW  = Opcode 85; (* Added DCJM 5/10/05. *)
-
     val opcode_nonLocalL_1       = Opcode 86;
     val opcode_nonLocalL_2       = Opcode 87;
     val opcode_nonLocalL_3       = Opcode 88;
-    val opcode_callSlC           = Opcode 89;
-    val opcode_ioVec_5           = Opcode 90;
-    val opcode_ioVec_6           = Opcode 91;
-(*  val opcode_integerAdd        = Opcode 92;
-    val opcode_integerMinus      = Opcode 93;
-    val opcode_integerEqual      = Opcode 94;
-    val opcode_integerLeq        = Opcode 95;
-    
-    val opcode_integerGreater    = Opcode 96;
-    val opcode_booleanOr         = Opcode 97;
-    val opcode_wordEqual         = Opcode 98;
-    val opcode_assignWord        = Opcode 99;*)
     val opcode_resetR_1          = Opcode 100;
     val opcode_resetR_2          = Opcode 101;
     val opcode_resetR_3          = Opcode 102;
@@ -305,20 +274,7 @@ struct
     val opcode_tuple_4           = Opcode 107;
     val opcode_lock              = Opcode 108;
     val opcode_ldexc             = Opcode 109;
-    val opcode_ioVec_225         = Opcode 110;
-    val opcode_ioVec_226         = Opcode 111;
-    
-    val opcode_ioVec_229         = Opcode 112;
-    val opcode_ioVec_233         = Opcode 113;
-    val opcode_ioVec_236         = Opcode 114;
-    val opcode_ioVec_251         = Opcode 115;
-    val opcode_ioVec_253         = Opcode 116;
-    val opcode_ioVec_255         = Opcode 117;
-    (*val opcode_setHandler        = Opcode 118; *)
-    (* Opcode 119 not used *)
     val opcode_pushHandler       = Opcode 120;
-    (* Opcode 121 not used *)
-    (*val opcode_setHandlerI       = Opcode 122;*)
     val opcode_tailbb            = Opcode 123;
     val opcode_tail              = Opcode 124;
     val opcode_tail3b            = Opcode 125;
@@ -354,8 +310,6 @@ struct
       val () = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
       val () = repUpdate(opcode_delHandlerI,  "delHandlerI");
       val () = repUpdate(opcode_caseSwitch,   "caseSwitch");
-      val () = repUpdate(opcode_callSl,       "callSl");
-      val () = repUpdate(opcode_callSlX,      "callSlX");
       val () = repUpdate(opcode_callClosure,  "callClosure");
       val () = repUpdate(opcode_returnW,      "returnW");
       val () = repUpdate(opcode_pad,          "pad");
@@ -372,8 +326,6 @@ struct
       val () = repUpdate(opcode_constAddrX_b,  "constAddrX_b");
       val () = repUpdate(opcode_constAddrX_w,  "constAddrX_w");
       val () = repUpdate(opcode_constIntW,     "constIntW");
-      val () = repUpdate(opcode_ioVecEntry,    "ioVecEntry");
-      val () = repUpdate(opcode_constNil,      "constNil");
       val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
       val () = repUpdate(opcode_returnB,       "returnB");
       val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
@@ -429,10 +381,6 @@ struct
       val () = repUpdate(opcode_nonLocalL_1,   "nonLocalL_1");
       val () = repUpdate(opcode_nonLocalL_2,   "nonLocalL_2");
       val () = repUpdate(opcode_nonLocalL_3,   "nonLocalL_3");
-      val () = repUpdate(opcode_callSlC,       "callSlC");
-      val () = repUpdate(opcode_callSlCX,      "callSlCX");
-      val () = repUpdate(opcode_ioVec_5,       "ioVec_5");
-      val () = repUpdate(opcode_ioVec_6,       "opcode_ioVec_6");
       val () = repUpdate(opcode_resetR_1,      "resetR_1");
       val () = repUpdate(opcode_resetR_2,      "resetR_2");
       val () = repUpdate(opcode_resetR_3,      "resetR_3");
@@ -443,14 +391,6 @@ struct
       val () = repUpdate(opcode_tuple_4,       "tuple_4");
       val () = repUpdate(opcode_lock,          "lock");
       val () = repUpdate(opcode_ldexc,         "ldexc");
-      val () = repUpdate(opcode_ioVec_225,     "ioVec_225");
-      val () = repUpdate(opcode_ioVec_226,     "ioVec_226");
-      val () = repUpdate(opcode_ioVec_229,     "ioVec_229");
-      val () = repUpdate(opcode_ioVec_233,     "ioVec_233");
-      val () = repUpdate(opcode_ioVec_236,     "ioVec_236");
-      val () = repUpdate(opcode_ioVec_251,     "ioVec_251");
-      val () = repUpdate(opcode_ioVec_253,     "ioVec_253");
-      val () = repUpdate(opcode_ioVec_255,     "ioVec_255");
       val () = repUpdate(opcode_setHandler,    "setHandler");
       val () = repUpdate(opcode_pushHandler,   "pushHandler");
       val () = repUpdate(opcode_setHandlerI,   "setHandlerI");
@@ -484,8 +424,6 @@ struct
       val () = sizeUpdate(opcode_jumpIFalse  , 2);
       val () = sizeUpdate(opcode_delHandlerI , 2);
       val () = sizeUpdate(opcode_caseSwitch  , 3);
-      val () = sizeUpdate(opcode_callSl      , 7);
-      val () = sizeUpdate(opcode_callSlX     , 9);
       val () = sizeUpdate(opcode_returnW     , 3);
       val () = sizeUpdate(opcode_getStoreW   , 3);
       val () = sizeUpdate(opcode_nonLocal    , 7);
@@ -499,7 +437,6 @@ struct
       val () = sizeUpdate(opcode_constAddrX_b , 4);
       val () = sizeUpdate(opcode_constAddrX_w , 5);
       val () = sizeUpdate(opcode_constIntW   , 3);
-      val () = sizeUpdate(opcode_ioVecEntry  , 2);
       val () = sizeUpdate(opcode_jumpBack8   , 2);
       val () = sizeUpdate(opcode_returnB     , 2);
       val () = sizeUpdate(opcode_jumpBack16  , 3);
@@ -514,8 +451,6 @@ struct
       val () = sizeUpdate(opcode_nonLocalL_1 , 2);
       val () = sizeUpdate(opcode_nonLocalL_2 , 2);
       val () = sizeUpdate(opcode_nonLocalL_3 , 2);
-      val () = sizeUpdate(opcode_callSlC     , 4);
-      val () = sizeUpdate(opcode_callSlCX    , 5);
       val () = sizeUpdate(opcode_tupleW      , 3);
       val () = sizeUpdate(opcode_tupleB      , 2);
       val () = sizeUpdate(opcode_setHandler  , 2);
@@ -576,7 +511,6 @@ struct
       longestBranch:  addrs ref,      (* Address of the earliest short branch.*)
 
       procName:       string,         (* Name of the procedure. *)
-      otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
       constLoads:     (addrs * int) list ref, (* where do we load constants? *)
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
@@ -596,19 +530,12 @@ struct
   fun labelList      (Code {labelList,...})        = labelList;
   fun longestBranch  (Code {longestBranch,...})    = longestBranch;
   fun procName       (Code {procName,...})         = procName;
-  fun otherCodes     (Code {otherCodes,...})       = otherCodes;
   fun resultSeg      (Code {resultSeg,...})        = resultSeg;
   fun constLoads     (Code {constLoads,...})       = constLoads;
 
   fun scSet (Set x) = x | scSet _ = raise Match;
-  fun isSet (Set _) = true | isSet _ = false
 
   val codesize = 32; (* bytes. Initial size of segment. *)
-
-  (* Test for identity of the code segments by testing whether
-     the numOfConsts ref is the same. N.B. NOT its contents. *)
-  infix is;
-  fun a is b = (numOfConsts a = numOfConsts b);
 
   fun sameConst (WVal w1, WVal w2) = wordEq (w1, w2)
 
@@ -629,7 +556,6 @@ struct
          labelList        = ref [],
          longestBranch    = ref addrLast, (* None so far *)
          procName         = name,
-         otherCodes       = ref [],
          resultSeg        = ref Unset,   (* Not yet done *)
          constLoads       = ref [],
          printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
@@ -1079,27 +1005,7 @@ struct
     gen1 (opcode_tupleW,
       opcode_tupleB,
       opcode_tuple_2,
-      2, 4, arg1, cvec);
-
-  (* Single byte argument. *)
-(*  fun genIoVecEntry (arg: int, cvec : code) : unit =
-    case arg of (* Some of these entries are very common. *)
-    5 => genOpc(opcode_ioVec_5,   1, cvec)
-    |   6 => genOpc(opcode_ioVec_6,   1, cvec)
-    | 225 => genOpc(opcode_ioVec_225, 1, cvec)
-    | 226 => genOpc(opcode_ioVec_226, 1, cvec)
-    | 229 => genOpc(opcode_ioVec_229, 1, cvec)
-    | 233 => genOpc(opcode_ioVec_233, 1, cvec)
-    | 236 => genOpc(opcode_ioVec_236, 1, cvec)
-    | 251 => genOpc(opcode_ioVec_251, 1, cvec)
-    | 253 => genOpc(opcode_ioVec_253, 1, cvec)
-    | 255 => genOpc(opcode_ioVec_255, 1, cvec)
-    | _ =>
-      let
-    val () = genOpc(opcode_ioVecEntry, 2, cvec);
-      in
-    genByte(arg, cvec)
-      end;*)
+      2, 4, arg1, cvec)
 
   fun genNonLocal (arg1 : int, arg2 : int, arg3 : int, cvec: code) : unit =
     if arg1 <= 0 orelse arg2 <= 0
@@ -1536,39 +1442,7 @@ struct
               in          
                 printOp(2, ",")
               end
-              
-            else if opc = opcode_callSl
-              then let
-                val () = printDisp (2, "\t", false);
-                val () = printOp (2, ",");
-              in          
-                printOp (2, ",")
-              end
-    
-            else if opc = opcode_callSlX
-              then
-                (
-                printOp (2, "\t");
-                printDisp (2, ",", false);
-                printOp (2, ",");
-                printOp (2, ",")
-                )
-
-             else if opc = opcode_callSlC
-              then
-              (
-                printDisp (2, "\t", false);
-                printOp (1, ",")
-              )
-    
-             else if opc = opcode_callSlCX
-              then
-              (
-                printOp (1, "\t");
-                printDisp (2, ",", false);
-                printOp (1, ",")
-              )
-
+ 
              else if opc = opcode_caseSwitch
               then let
                 (* Have to find out how many items there are. *)
