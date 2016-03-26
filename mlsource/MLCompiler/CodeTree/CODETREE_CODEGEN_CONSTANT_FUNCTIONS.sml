@@ -38,6 +38,7 @@ sig
     type codetree
     type machineWord = Address.machineWord
     val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
+    structure Foreign: FOREIGNCALLSIG
     structure Sharing: sig type codetree = codetree end
 end =
 struct
@@ -313,6 +314,8 @@ struct
     in
         (resultFunction, CodeTags.mergeTupleProps(newProps, props))
     end
+    
+    structure Foreign = BACKEND.Foreign
 
     structure Sharing = struct type codetree = codetree end
 end;

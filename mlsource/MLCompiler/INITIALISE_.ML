@@ -40,7 +40,6 @@ functor INITIALISE_ (
     structure DEBUGGER : DEBUGGERSIG
     structure PRETTY : PRETTYSIG
     structure PRINTTABLE: PRINTTABLESIG
-    structure FOREIGNCALL: FOREIGNCALLSIG
 
     structure MISC :
     sig
@@ -375,7 +374,7 @@ struct
             (* [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                tagInject assemblyCodeTag true] *)
  
-            fun makeCall2 entryName = FOREIGNCALL.rtsCall2(entryName, debugOpts)
+            fun makeCall2 entryName = CODETREE.Foreign.rtsCall2(entryName, debugOpts)
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (width:int) : codetree =

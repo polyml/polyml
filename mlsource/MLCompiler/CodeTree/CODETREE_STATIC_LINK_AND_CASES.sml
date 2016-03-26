@@ -18,27 +18,7 @@
 functor CODETREE_STATIC_LINK_AND_CASES(
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
-
-    structure GCODE :
-    sig
-        type backendIC and argumentType
-        type bicLambdaForm =
-        {
-            body          : backendIC,
-            name          : string,
-            closure       : backendIC list,
-            argTypes      : argumentType list,
-            resultType    : argumentType,
-            closureRefs   : int,
-            localCount    : int,
-            heapClosure   : bool,
-            argLifetimes  : int list
-        }
-        type machineWord = Address.machineWord
-        val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
-        structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
-    end
-
+    structure GCODE: GENCODESIG
     structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
     structure BACKENDTREE: BackendIntermediateCodeSig
@@ -1457,6 +1437,8 @@ struct
     in
         argProperties
     end
+    
+    structure Foreign = GCODE.Foreign
     
     (* Sharing can be copied from CODETREE. *)
 end;

@@ -483,6 +483,8 @@ struct
         BACKEND.codeGenerate(processed, debugArgs, closure)
     end
 
+    structure Foreign = BACKEND.Foreign
+
     structure Sharing = BASECODETREE.Sharing
 
 end;

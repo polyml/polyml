@@ -35,5 +35,4 @@ structure Initialise =
         structure DATATYPEREP = DatatypeRep
         structure TYPEIDCODE = TypeIDCodeStruct
         structure PRINTTABLE = PrintTable
-        structure FOREIGNCALL = ForeignCall
 );

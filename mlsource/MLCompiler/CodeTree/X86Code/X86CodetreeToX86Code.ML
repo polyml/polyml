@@ -37,27 +37,14 @@ functor X86CodetreeToX86Code(
     end
 
     structure DEBUG: DEBUGSIG
+    
+    structure X86FOREIGN:
+    sig
+        val rtsCall2: string * Universal.universal list -> Address.address
+    end
 
     sharing X86CODE.Sharing = X86OPTIMISE.Sharing
-):
-sig
-    type backendIC and argumentType and machineWord
-    type bicLambdaForm =
-    {
-        body          : backendIC,
-        name          : string,
-        closure       : backendIC list,
-        argTypes      : argumentType list,
-        resultType    : argumentType,
-        closureRefs   : int,
-        localCount    : int,
-        heapClosure   : bool,
-        argLifetimes  : int list
-    }
-    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
-
-    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
-end =
+): GENCODESIG =
 struct
     open X86CODE
     open BACKENDTREE
@@ -718,5 +705,7 @@ struct
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
+    
+    structure Foreign = X86FOREIGN
     
 end;

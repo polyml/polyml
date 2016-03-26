@@ -32,6 +32,7 @@ sig
     }
     type machineWord = Address.machineWord
     val codeGenerate: lambdaForm * Universal.universal list * Address.address -> Universal.universal list
+    structure Foreign: FOREIGNCALLSIG
     structure Sharing :
     sig
         type codetree = codetree

@@ -23,17 +23,6 @@
 
 #define INSTR_enter_int     0x00
 
-#if 0
-/* for the mips version, we have the following relocations: */
-
-INSTR_enter_int1 0x0d /* mips -> int at start of mips closure */
-INSTR_enter_int2 0x91 /* used after int call instruction */
-INSTR_return_w   0x92 /* int */
-
-0x90 same as INSTR_local_w /* why? */
-
-#endif
-
 /* For use by the interpreter (only) SPF 26/6/95) */
 #define INSTR_tail_0_0      0x01
 
@@ -166,3 +155,9 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_tail_3_3      0x80
 #define INSTR_set_handler_new 0x81
 #define INSTR_set_handler_new_i 0x82
+#define INSTR_callRTS0      0x83
+#define INSTR_callRTS1      0x84
+#define INSTR_callRTS2      0x85
+#define INSTR_callRTS3      0x86
+#define INSTR_callRTS4      0x87
+#define INSTR_callRTS5      0x88

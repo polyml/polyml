@@ -28,6 +28,7 @@ sig
     type machineWord = Address.machineWord
     val codeGenerate:
         codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
+    structure Foreign: FOREIGNCALLSIG
     structure Sharing : sig type codetree = codetree end
 end
 
@@ -515,6 +516,8 @@ struct
 
     val mkSetContainer =
         fn (container, tuple, size) => mkSetContainer(container, tuple, BoolVector.tabulate(size, fn _ => true))
+
+    structure Foreign = BACKEND.Foreign
 
     structure Sharing =
     struct

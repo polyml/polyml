@@ -49,100 +49,7 @@ structure MISC :
     exception InternalError of string
   end
 
-) :
-
-(*****************************************************************************)
-(*                  CODECONS export signature                                *)
-(*****************************************************************************)
-sig
-  type machineWord;
-  type address;
-  type code;
-  type opcode;
-  type addrs
-  type labels;
-  
-  val noJump: labels;
-  
-  val jumpFalse  : opcode;
-  val jump       : opcode;
-  val setHandler : opcode;
-  val delHandler : opcode;
-  
-  val addrPlus  : addrs * int -> addrs;
-  val addrMinus : addrs * addrs -> int;
-  
-  val codeCreate: string * Universal.universal list -> code;  (* makes the initial segment. *)
-      
-  (* ic - Address for the next instruction in the segment. *)
-  val ic: code -> addrs;
-      
-  (* putBytes : puts "length" bytes of "val" into locations "addr", "addr"+1 *)
-  val putBytes: int * int * addrs * code -> unit;
-
-   (* GEN- routines all put a value at the instruction counter and add
-      an appropriate amount to it. *)
-
-   (* genWord - Puts 2 bytes. *)
-   val genWord : int * code -> unit;
-      
-   (* gen... - put instructions and their operands. *)
-   val genCallClosure : code -> unit;
-   val genRaiseEx     : code -> unit;
-   val genLock        : code -> unit;
-   val genLdexc       : code -> unit;
-   val genPushHandler : code -> unit;
-      
-   val genReturn      : int * code -> unit;
-   val genGetStore    : int * code -> unit;
-   val genLocal       : int * code -> unit;
-   val genIndirect    : int * code -> unit;
-   val genMoveToVec   : int * code -> unit;
-   val genSetStackVal : int * code -> unit;
-   val genCase        : int * code -> unit;
-   val genTuple       : int * code -> unit;
-   
-   val genTailCall    : int * int * code -> unit;
-   val genNonLocal    : int * int * int * code -> unit;
-
-   (* genEnter instructions are only needed when machine-code routines
-      can call interpreted routines or vice-versa. The enterInt instruction
-      causes the interpreter to be entered and the argument indicates the
-      reason. *)
-      
-   val genEnterIntCatch : code -> unit;
-   val genEnterIntProc  : code * int -> unit;
-   val genEnterIntCall  : code * int -> unit;
-      
-   (* pushConst - Generates code to push a constant. *)
-   val pushConst        : machineWord * code -> unit;
-
-   (* Create a container on the stack *)
-   val genContainer : int * code -> unit;
-
-   (* Create a tuple from a container. *)
-   val genTupleFromContainer : int * code -> unit;
-      
-   (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code -> address
-   
-   (* getBytes - gets "length" bytes from locations "addr", "addr"+1...
-      Returns a negative number if the first bit was set. *)
-   val getBytes: int * addrs * code -> int;
-
-   (* putBranchInstruction puts in an instruction which involves
-      a forward reference. *)
-   val putBranchInstruction: opcode * code -> labels;
-   
-   (* Instruction to delete a handler and skip round it. *)
-   val fixup: labels * code -> unit; (* Fix up a forward reference. *)
-   
-   val linkLabels: labels * labels * code -> labels; (* Link label lists. *)
-   val jumpback: addrs * code -> unit (* Backwards jump. *)
-   val resetStack: int * bool * code -> unit; (* Set a pending reset *)
-   val alignOffWord: code * int -> unit; (* Add a pad byte if the value would
-                                            be word-aligned. *)
-end (* CODECONS export signature *) =
+) : INTCODECONSSIG =
 
 let
 
@@ -422,6 +329,14 @@ struct
        the old exception mechanism. *)
     val opcode_setHandler        = Opcode 129
     val opcode_setHandlerI       = Opcode 130
+
+    val opcode_callRTS0          = Opcode 131
+    and opcode_callRTS1          = Opcode 132
+    and opcode_callRTS2          = Opcode 133
+    and opcode_callRTS3          = Opcode 134
+    and opcode_callRTS4          = Opcode 135
+    and opcode_callRTS5          = Opcode 136
+
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -518,21 +433,6 @@ struct
       val () = repUpdate(opcode_callSlCX,      "callSlCX");
       val () = repUpdate(opcode_ioVec_5,       "ioVec_5");
       val () = repUpdate(opcode_ioVec_6,       "opcode_ioVec_6");
-
-(* ...
-      (* added missing instructions (not used yet!) SPF 28/6/95 *)
-      (* Removed them again, becuase I'd rather see UNKNOWN if they
-         ever get generated. SPF 9/1/96 *)
-      val () = repUpdate(opcode_integerAdd,    "integerAdd");
-      val () = repUpdate(opcode_integerMinus,  "integerMinus");
-      val () = repUpdate(opcode_integerEqual,  "integerEqual");
-      val () = repUpdate(opcode_integerLeq,    "integerLeq");
-      val () = repUpdate(opcode_integerGreater,"integerGreater");
-      val () = repUpdate(opcode_booleanOr,     "booleanOr");
-      val () = repUpdate(opcode_wordEqual,     "wordEqual");
-      val () = repUpdate(opcode_assignWord,    "assignWord");
-... *)
-
       val () = repUpdate(opcode_resetR_1,      "resetR_1");
       val () = repUpdate(opcode_resetR_2,      "resetR_2");
       val () = repUpdate(opcode_resetR_3,      "resetR_3");
@@ -560,6 +460,12 @@ struct
       val () = repUpdate(opcode_tail4b,        "tail4b");
       val () = repUpdate(opcode_tail3_2,       "tail3_2");
       val () = repUpdate(opcode_tail3_3,       "tail3_3");
+      val () = repUpdate(opcode_callRTS0,      "callRTS0")
+      val () = repUpdate(opcode_callRTS1,      "callRTS1")
+      val () = repUpdate(opcode_callRTS2,      "callRTS2")
+      val () = repUpdate(opcode_callRTS3,      "callRTS3")
+      val () = repUpdate(opcode_callRTS4,      "callRTS4")
+      val () = repUpdate(opcode_callRTS5,      "callRTS5")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;
@@ -1311,6 +1217,13 @@ struct
         checkBranchList(cvec, true, 0)
     end
 
+    fun genRTSCall(0, cvec) = genOpc (opcode_callRTS0, 1, cvec)
+    |   genRTSCall(1, cvec) = genOpc (opcode_callRTS1, 1, cvec)
+    |   genRTSCall(2, cvec) = genOpc (opcode_callRTS2, 1, cvec)
+    |   genRTSCall(3, cvec) = genOpc (opcode_callRTS3, 1, cvec)
+    |   genRTSCall(4, cvec) = genOpc (opcode_callRTS4, 1, cvec)
+    |   genRTSCall(5, cvec) = genOpc (opcode_callRTS5, 1, cvec)
+    |   genRTSCall(_, _) = raise InternalError "genRTSCall"
 
   local
     fun fixupConstantLoad (constStartAddrs : addrs, cvec : code) =

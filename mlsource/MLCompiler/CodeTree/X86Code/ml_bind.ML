@@ -26,6 +26,12 @@ structure X86Optimise =
         structure X86CODE = X86OutputCode
     );
 
+structure X86ForeignCall =
+    X86FOREIGNCALL (
+        structure DEBUG         = Debug
+        structure X86CODE       = X86OutputCode
+        structure X86OPTIMISE   = X86Optimise
+    );
 
 structure X86Code = 
   X86CodetreeToX86Code (
@@ -33,12 +39,5 @@ structure X86Code =
     structure DEBUG         = Debug
     structure X86CODE       = X86OutputCode
     structure X86OPTIMISE   = X86Optimise
+    structure X86FOREIGN    = X86ForeignCall
   );
-
-structure ForeignCall =
-    FOREIGNCALL (
-        structure DEBUG         = Debug
-        structure X86CODE       = X86OutputCode
-        structure X86OPTIMISE   = X86Optimise
-    );
-    

@@ -201,6 +201,10 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     *(--this->p_sp) = closure; /* Closure address */
 }
 
+extern "C" {
+    typedef POLYUNSIGNED(*callRts2)(POLYUNSIGNED, POLYUNSIGNED);
+}
+
 void IntTaskData::InterruptCode()
 /* Stop the Poly code at a suitable place. */
 /* We may get an asynchronous interrupt at any time. */
@@ -1351,6 +1355,24 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
+        case INSTR_callRTS2:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg1 = *sp++;
+                callRts2 doCall = (callRts2)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned());
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
         default: Crash("Unknown instruction %x\n", li);
 
         } /* switch */
@@ -2205,7 +2227,6 @@ POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
     ASSERT(taskData != 0);
     Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
-
     try {
         (void)change_dirc(taskData, pushedArg);
     } catch (...) { } // If an ML exception is raised

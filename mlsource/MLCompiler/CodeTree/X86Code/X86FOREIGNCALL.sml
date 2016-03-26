@@ -15,7 +15,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor FOREIGNCALL(
+functor X86FOREIGNCALL(
 
     structure X86CODE: X86CODESIG
 
@@ -37,7 +37,11 @@ functor FOREIGNCALL(
     structure DEBUG: DEBUGSIG
 
     sharing X86CODE.Sharing = X86OPTIMISE.Sharing
-): FOREIGNCALLSIG =
+):
+sig
+    val rtsCall2: string * Universal.universal list -> Address.address
+end
+=
 struct
     open X86CODE
     open Address

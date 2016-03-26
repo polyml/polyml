@@ -29,103 +29,8 @@
    declarations. *)
 functor INTGCODE (
 
-(*****************************************************************************)
-(*                  CODECONS                                                 *)
-(*****************************************************************************)
-structure CODECONS :
-sig
-  type machineWord = Address.machineWord;
-  type address = Address.address;
-  type code;
-  type opcode;
-  type addrs
-  type labels;
-  
-  val noJump: labels;
-  
-  val jumpFalse  : opcode;
-  val jump       : opcode;
-  val setHandler : opcode;
-  val delHandler : opcode;
-  
-  val addrPlus  : addrs * int -> addrs;
-  val addrMinus : addrs * addrs -> int;
-  
-  val codeCreate: string * Universal.universal list -> code;  (* makes the initial segment. *)
-      
-  (* ic - Address for the next instruction in the segment. *)
-  val ic: code -> addrs;
-      
-  (* putBytes : puts "length" bytes of "val" into locations "addr", "addr"+1 *)
-  val putBytes : int * int * addrs * code -> unit;    
-  
-  (* GEN- routines all put a value at the instruction counter and add
-     an appropriate amount to it. *)
+structure CODECONS : INTCODECONSSIG
 
-   (* genWord - Puts 2 bytes. *)
-   val genWord : int * code -> unit;
-      
-   (* gen... - put instructions and their operands. *)
-   val genCallClosure : code -> unit;
-   val genRaiseEx     : code -> unit;
-   val genLock        : code -> unit;
-   val genLdexc       : code -> unit;
-   val genPushHandler : code -> unit;
-      
-   val genReturn      : int * code -> unit;
-   val genGetStore    : int * code -> unit;
-   val genLocal       : int * code -> unit;
-   val genIndirect    : int * code -> unit;
-   val genMoveToVec   : int * code -> unit;
-   val genSetStackVal : int * code -> unit;
-   val genCase        : int * code -> unit;
-   val genTuple       : int * code -> unit;
-   
-   val genTailCall    : int * int * code -> unit;
-   val genNonLocal    : int * int * int * code -> unit;
-
-   (* genEnter instructions are only needed when machine-code routines
-      can call interpreted routines or vice-versa. The enterInt instruction
-      causes the interpreter to be entered and the argument indicates the
-      reason. *)
-      
-   val genEnterIntCatch : code -> unit;
-   val genEnterIntProc  : code * int -> unit;
-   val genEnterIntCall  : code * int -> unit;
-      
-   (* pushConst - Generates code to push a constant. *)
-   val pushConst        : machineWord * code -> unit
-
-   (* Create a container on the stack *)
-   val genContainer : int * code -> unit;
-
-   (* Create a tuple from a container. *)
-   val genTupleFromContainer : int * code -> unit;
-     
-   (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code -> address;
-   
-   (* getBytes - gets "length" bytes from locations "addr", "addr"+1...
-      Returns a negative number if the first bit was set. *)
-   val getBytes: int * addrs * code -> int;
-
-   (* putBranchInstruction puts in an instruction which involves
-      a forward reference. *)
-   val putBranchInstruction: opcode * code -> labels;
-   
-   (* Instruction to delete a handler and skip round it. *)
-   val fixup: labels * code -> unit; (* Fix up a forward reference. *)
-   
-   val linkLabels: labels * labels * code -> labels; (* Link label lists. *)
-   val jumpback: addrs * code -> unit; (* Backwards jump. *)
-   val resetStack: int * bool * code -> unit; (* Set a pending reset *)
-   val alignOffWord: code * int -> unit; (* Add a pad byte if the value would
-                                            be word-aligned. *)
-end (* CODECONS *);
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
 structure MISC :
 sig
   exception InternalError of string;
@@ -133,28 +38,7 @@ end;
 
 structure BACKENDTREE: BackendIntermediateCodeSig
 
-) :  
-
-(*****************************************************************************)
-(*                  GCODE export signature                                   *)
-(*****************************************************************************)
-sig
-    type backendIC and argumentType and machineWord
-    type bicLambdaForm =
-    {
-        body          : backendIC,
-        name          : string,
-        closure       : backendIC list,
-        argTypes      : argumentType list,
-        resultType    : argumentType,
-        closureRefs   : int,
-        localCount    : int,
-        heapClosure   : bool,
-        argLifetimes  : int list
-    }
-    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
-    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
-end =
+) : GENCODESIG =
 
 let
 
@@ -1119,6 +1003,54 @@ struct
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
+
+    fun createWeakEntryPoint () =
+    let
+        (* We hold the entry point in a weak mutable byte cell.  It is cleared to zero when the
+           code is loaded.  The first time it is referenced it is set by a call to
+           get_entry_point.  The result is then cached for the remainder of the session. *)
+        open Address
+        val entryPt = alloc(0w1, List.foldl Word8.orb 0w0 [F_mutable, F_bytes, F_weak], toMachineWord 0w0)
+    in
+        toMachineWord entryPt
+    end
+
+    structure Foreign = 
+    struct
+        fun rtsCall2 (entryName: string, debugArgs: Universal.universal list): address =
+        let
+            val numOfArgs = 2
+            open Address
+            val cvec = codeCreate (entryName, debugArgs)
+            val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+
+            val entryPointAddr = createWeakEntryPoint()
+            (*
+            val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+            (* Find the address of the function to get the entry point. *)
+            val getEntryPoint = ioOp RuntimeCalls.POLY_SYS_get_entry_point
+            *)
+            (* Temporarily initialise it here. *)
+            val getEntry = RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point entryName
+            val memMove: SysWord.word * word * machineWord * word* int -> unit =
+                RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes
+            val () = memMove(getEntry, 0w0, entryPointAddr, 0w0, wordSize)
+            
+            val () = genLocal(numOfArgs +1, cvec) (* First argument. (n-1) args + 2 (return addr and closure) *)
+            val () = genLocal(numOfArgs +1, cvec) (* Second argument. (n-2) args + 2 + 1 (just pushed) *)
+            val () = pushConst(entryPointAddr, cvec)
+            val () = genRTSCall(numOfArgs, cvec)
+            val () = genReturn (numOfArgs, cvec)
+            
+            val codeAddr = copyCode cvec
+        in
+            assignWord(closure, 0w0, toMachineWord codeAddr);
+            lock closure;
+            closure
+        end
+
+    end
+
 end (* GCODE functor body *)
 
 end; (* structure-level let *)

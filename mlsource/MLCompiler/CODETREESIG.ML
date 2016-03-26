@@ -98,7 +98,8 @@ sig
     val newLevel:           level -> level
     val getClosure:         level -> codetree list
     val multipleUses: codetree * (unit -> int) * level -> {load: level -> codetree, dec: codeBinding list}
-
+    
+    structure Foreign: FOREIGNCALLSIG
     structure Sharing:
     sig
         type machineWord = machineWord
