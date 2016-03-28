@@ -161,7 +161,6 @@
 #define POLY_SYS_int_to_word         197  /* DCJM 9/10/99 */ /* Obsolete: Now replaced by POLY_SYS_get_first_long_word. */
 #define POLY_SYS_move_bytes          198  /* DCJM 9/10/99 */
 #define POLY_SYS_move_bytes_overlap  199
-#define POLY_SYS_code_flags          200  /* Previously POLY_SYS_set_flags */
 #define POLY_SYS_shrink_stack        201  /* SPF  9/12/96 */
 #define POLY_SYS_stderr              202  /* SPF 29/11/96 */
 #define POLY_SYS_callcode_tupled     204  /* SPF 07/07/94 */

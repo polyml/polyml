@@ -49,8 +49,6 @@ sig
     val length: address -> short
     val flags:  address -> Word8.word
 
-    val setFlags: address * Word8.word -> unit
-    val getFlags: address -> Word8.word
     val wordSize: int
 
     val F_words        : Word8.word
@@ -156,23 +154,16 @@ struct
   
   val lock:   address -> unit =
     RunCall.run_call1 POLY_SYS_lockseg
-  
-  val getFlags: address -> Word8.word =
-    RunCall.run_call1 POLY_SYS_get_flags
-
-  val setFlags: address * Word8.word -> unit =
-    RunCall.run_call2 POLY_SYS_code_flags
 
   val wordSize: int =
     RunCall.run_call0 POLY_SYS_bytes_per_word ()
 
   val length: address -> Word.word =
      RunCall.run_call1 POLY_SYS_get_length
-  
+
   val flags:  address -> Word8.word  =
     RunCall.run_call1 POLY_SYS_get_flags
-  
-  
+
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
     val F_code         : Word8.word = 0wx02 (* code object (mixed bytes and words) *)
@@ -213,7 +204,6 @@ struct
             (POLY_SYS_alloc_uninit,"POLY_SYS_alloc_uninit"),
             (POLY_SYS_raisex,"POLY_SYS_raisex"),
             (POLY_SYS_get_length,"POLY_SYS_get_length"),
-            (POLY_SYS_get_flags,"POLY_SYS_get_flags"),
             (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
             (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
@@ -328,7 +318,6 @@ struct
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_code_flags,"POLY_SYS_code_flags"),
             (POLY_SYS_shrink_stack,"POLY_SYS_shrink_stack"),
             (POLY_SYS_stderr,"POLY_SYS_stderr"),
             (POLY_SYS_callcode_tupled,"POLY_SYS_callcode_tupled"),

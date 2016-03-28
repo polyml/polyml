@@ -1948,6 +1948,12 @@ cmem_store_asm_double:
     mov     rbx,rax                     ; Bad value in rbx
     ret
 
+PUBLIC get_flags
+get_flags:
+    movzx   rax,byte ptr [rax-1]
+    lea     rax,[rax*2+1]
+    ret
+
 ; IO call and extra-call macros.  POLY_SYS_xx entries are #defined in sys.h so we have to
 ; separate out the entry points from the call numbers.
 CREATE_IO_CALL MACRO entrypt,index
@@ -1965,7 +1971,6 @@ X86AsmCallExtra&index&:
 
 CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
 CREATE_IO_CALL CallPOLY_SYS_get_entry_point,POLY_SYS_get_entry_point
-CREATE_IO_CALL CallPOLY_SYS_get_flags,POLY_SYS_get_flags
 CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
 CREATE_IO_CALL CallPOLY_SYS_Real_str,POLY_SYS_Real_str
 CREATE_IO_CALL CallPOLY_SYS_Real_Dispatch,POLY_SYS_Real_Dispatch
@@ -1979,7 +1984,6 @@ CREATE_IO_CALL CallPOLY_SYS_network,POLY_SYS_network
 CREATE_IO_CALL CallPOLY_SYS_io_dispatch,POLY_SYS_io_dispatch
 CREATE_IO_CALL CallPOLY_SYS_poly_specific,POLY_SYS_poly_specific
 CREATE_IO_CALL CallPOLY_SYS_set_code_constant,POLY_SYS_set_code_constant
-CREATE_IO_CALL CallPOLY_SYS_code_flags,POLY_SYS_code_flags
 CREATE_IO_CALL CallPOLY_SYS_shrink_stack,POLY_SYS_shrink_stack
 CREATE_IO_CALL CallPOLY_SYS_process_env,POLY_SYS_process_env
 CREATE_IO_CALL CallPOLY_SYS_foreign_dispatch,POLY_SYS_foreign_dispatch

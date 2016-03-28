@@ -826,6 +826,14 @@ int IntTaskData::SwitchToPoly()
                             break;
                         }
 
+                    case POLY_SYS_get_flags:
+                        {
+                            PolyObject *p = (*sp).AsObjPtr();
+                            POLYUNSIGNED f = (p->LengthWord()) >> OBJ_PRIVATE_FLAGS_SHIFT;
+                            *sp = TAGGED(f);
+                            break;
+                        }
+
                     default:
                     FullRTSCall:
                         // For all the calls that aren't built in ...
@@ -1114,9 +1122,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_4: *(--sp) = TAGGED(4); break;
         case INSTR_const_10: *(--sp) = TAGGED(10); break;
 
-
-        /* move_to_vec only occurs to newly allocated store so there is
-           no problem with persistent store faults. */
         case INSTR_move_to_vec_0:  { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(0, u); break; }
         case INSTR_move_to_vec_1: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(1, u); break; }
         case INSTR_move_to_vec_2: { PolyWord u = *sp++; (*sp).AsObjPtr()->Set(2, u); break; }
@@ -1483,10 +1488,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &getEntryPoint);
                 break;
 
-            case POLY_SYS_get_flags:
-                CallIO1(this, &get_flags_c);
-                break;
-
             case POLY_SYS_str_compare:
                 CallIO2(this, compareStrings);
                 break;
@@ -1712,10 +1713,6 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_shrink_stack:
                 CallIO1(this, &shrink_stack_c);
-                break;
-
-            case POLY_SYS_code_flags:
-                CallIO2(this, &CodeSegmentFlags);
                 break;
 
             case POLY_SYS_get_first_long_word:
@@ -2033,7 +2030,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_int_to_word, TAGGED(POLY_SYS_int_to_word));
     add_word_to_io_area(POLY_SYS_move_bytes, TAGGED(POLY_SYS_move_bytes));
     add_word_to_io_area(POLY_SYS_move_bytes_overlap, TAGGED(POLY_SYS_move_bytes_overlap));
-    add_word_to_io_area(POLY_SYS_code_flags, TAGGED(POLY_SYS_code_flags));
     add_word_to_io_area(POLY_SYS_shrink_stack, TAGGED(POLY_SYS_shrink_stack));
     add_word_to_io_area(POLY_SYS_callcode_tupled, TAGGED(POLY_SYS_callcode_tupled));
     add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));

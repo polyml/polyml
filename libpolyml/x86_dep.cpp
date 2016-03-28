@@ -352,7 +352,7 @@ extern "C" {
 
     // The entry points to assembly code functions.
     extern byte CallPOLY_SYS_exit, alloc_store, alloc_uninit, raisex,
-        get_length_a, CallPOLY_SYS_get_flags, str_compare, teststrgtr, teststrlss,
+        get_length_a, get_flags, str_compare, teststrgtr, teststrlss,
         teststrgeq, teststrleq, set_exception_trace, locksega, CallPOLY_SYS_network,
         CallPOLY_SYS_os_specific, eq_longword, geq_longword, leq_longword, gt_longword,
         lt_longword,  CallPOLY_SYS_io_dispatch, CallPOLY_SYS_signal_handler, atomic_reset, atomic_increment,
@@ -371,7 +371,7 @@ extern "C" {
         cmem_load_asm_32, cmem_load_asm_float, cmem_load_asm_double, cmem_store_asm_8, cmem_store_asm_16,
         cmem_store_asm_32,  cmem_store_asm_float,  cmem_store_asm_double,  CallPOLY_SYS_io_operation,
         CallPOLY_SYS_ffi,  move_words, CallPOLY_SYS_set_code_constant, move_words, shift_right_arith_word,
-        int_to_word,  move_bytes, CallPOLY_SYS_code_flags, CallPOLY_SYS_shrink_stack,
+        int_to_word,  move_bytes, CallPOLY_SYS_shrink_stack,
         callcodeTupled, CallPOLY_SYS_foreign_dispatch, CallPOLY_SYS_XWindows, is_big_endian,
         bytes_per_word,  offset_address,  shift_right_word,  not_bool,  string_length,
         touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
@@ -406,7 +406,7 @@ static byte *entryPointVector[256] =
     &raisex, // raisex = 14
     &get_length_a, // 15
     0, // 16 is unused
-    &CallPOLY_SYS_get_flags, // 17
+    &get_flags, // 17
     0, // 18 is no longer used
     0, // 19 is no longer used
     0, // 20 is no longer used
@@ -597,7 +597,7 @@ static byte *entryPointVector[256] =
     &int_to_word, // 197
     &move_bytes, // 198
     &move_bytes, // move_bytes_overlap = 199
-    &CallPOLY_SYS_code_flags, // 200
+    0, // 200
     &CallPOLY_SYS_shrink_stack, // 201
     0, // stderr = 202
     0, // 203 now unused
@@ -920,10 +920,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &getEntryPoint);
                 break;
 
-            case POLY_SYS_get_flags:
-                CallIO1(this, &get_flags_c);
-                break;
-
             case POLY_SYS_profiler:
                 CallIO1(this, &profilerc);
                 break;
@@ -1071,10 +1067,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_shrink_stack:
                 CallIO1(this, &shrink_stack_c);
-                break;
-
-            case POLY_SYS_code_flags:
-                CallIO2(this, &CodeSegmentFlags);
                 break;
 
             case POLY_SYS_poly_specific:

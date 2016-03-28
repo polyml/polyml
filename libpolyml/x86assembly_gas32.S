@@ -1852,18 +1852,10 @@ INLINE_ROUTINE(shift_right_arith_longword)
     movl    %ecx,%edx           # We need %ecx for the shift
 /* The shift value is always a Word.word value i.e. tagged
    LargeWord.~>>(a,b) is defined to return 0 or ~1 if b > LargeWord.wordSize */
-#ifndef HOSTARCHITECTURE_X86_64
     cmpl    $TAGGED(32),%ebx
-#else
-    cmpl    $TAGGED(64),%ebx
-#endif
     jb      sralw1
     # Setting the shift to 31/63 propagates the sign bit
-#ifndef HOSTARCHITECTURE_X86_64
     movl    $TAGGED(31),%ebx
-#else
-    movl    $TAGGED(63),%ebx
-#endif
 sralw1:
     movl    %ebx,%ecx
     shrl    $TAGSHIFT,%ecx # remove tag
@@ -1880,17 +1872,9 @@ INLINE_ROUTINE(cmem_load_asm_8)
     movl    (%eax),%eax             # The address is boxed.
     sarl    $TAGSHIFT,%ebx     # The offset is a signed tagged value
     addl    %ebx,%eax               # Add it in
-#ifndef HOSTARCHITECTURE_X86_64
     movl    4(%esp),%ebx            # Get the index.
-#else
-    movl    R8,%ebx                 # Get the index.
-#endif
     sarl    $TAGSHIFT,%ebx     # That's also tagged
-#ifndef HOSTARCHITECTURE_X86_64
     movzbl  (%eax,%ebx,1),%eax
-#else
-    movzbq  (%eax,%ebx,1),%eax
-#endif
     MAKETAGGED(%eax,%eax)
     movl    %eax,%ebx       # Clobber bad value in %%ebx
     ret $4
@@ -1900,17 +1884,9 @@ INLINE_ROUTINE(cmem_load_asm_16)
     movl    (%eax),%eax             # The address is boxed.
     sarl    $TAGSHIFT,%ebx     # The offset is a signed tagged value
     addl    %ebx,%eax               # Add it in
-#ifndef HOSTARCHITECTURE_X86_64
     movl    4(%esp),%ebx            # Get the index.
-#else
-    movl    R8,%ebx                 # Get the index.
-#endif
     # The index is tagged but since we want to multiply by two we don't need anything here.
-#ifndef HOSTARCHITECTURE_X86_64
     movzwl  -1(%eax,%ebx,1),%eax
-#else
-    movzwq  -1(%eax,%ebx,1),%eax
-#endif
     MAKETAGGED(%eax,%eax)
     ret $4
 
@@ -2021,6 +1997,10 @@ INLINE_ROUTINE(cmem_store_asm_double)
     movl    %eax,%ebx               # Bad value in %%ebx
     ret $8
 
+INLINE_ROUTINE(get_flags)
+    movzbl  -1(%eax),%eax
+    MAKETAGGED(%eax,%eax)
+    ret
 
 #define CREATE_IO_CALL(index) \
     INLINE_ROUTINE(Call##index##) \
@@ -2032,7 +2012,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
 
     CREATE_IO_CALL(POLY_SYS_exit)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
-    CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
     CREATE_IO_CALL(POLY_SYS_Real_str)
     CREATE_IO_CALL(POLY_SYS_Real_Dispatch)
@@ -2046,7 +2025,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CREATE_IO_CALL(POLY_SYS_io_dispatch)
     CREATE_IO_CALL(POLY_SYS_poly_specific)
     CREATE_IO_CALL(POLY_SYS_set_code_constant)
-    CREATE_IO_CALL(POLY_SYS_code_flags)
     CREATE_IO_CALL(POLY_SYS_shrink_stack)
     CREATE_IO_CALL(POLY_SYS_process_env)
     CREATE_IO_CALL(POLY_SYS_foreign_dispatch)

@@ -2066,6 +2066,10 @@ INLINE_ROUTINE(cmem_store_asm_double)
     movq    %rax,%rbx               # Bad value in %rbx
     ret
 
+INLINE_ROUTINE(get_flags)
+    movzbq  -1(%rax),%rax
+    MAKETAGGED(%rax,%rax)
+    ret
 
 #define CREATE_IO_CALL(index) \
     INLINE_ROUTINE(Call##index##) \
@@ -2077,7 +2081,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
 
     CREATE_IO_CALL(POLY_SYS_exit)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
-    CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
     CREATE_IO_CALL(POLY_SYS_Real_str)
     CREATE_IO_CALL(POLY_SYS_Real_Dispatch)
@@ -2091,7 +2094,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CREATE_IO_CALL(POLY_SYS_io_dispatch)
     CREATE_IO_CALL(POLY_SYS_poly_specific)
     CREATE_IO_CALL(POLY_SYS_set_code_constant)
-    CREATE_IO_CALL(POLY_SYS_code_flags)
     CREATE_IO_CALL(POLY_SYS_shrink_stack)
     CREATE_IO_CALL(POLY_SYS_process_env)
     CREATE_IO_CALL(POLY_SYS_foreign_dispatch)

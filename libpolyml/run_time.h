@@ -82,8 +82,6 @@ Handle make_exn(TaskData *taskData, int id, Handle arg);
 
 extern void add_word_to_io_area(unsigned sysop, PolyWord val);
 
-extern Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle);
-
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
 extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);
 
@@ -150,7 +148,6 @@ extern Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x);
 extern Handle longWordToTagged(TaskData *taskData, Handle x);
 extern Handle signedToLongWord(TaskData *taskData, Handle x);
 extern Handle unsignedToLongWord(TaskData *taskData, Handle x);
-extern Handle get_flags_c(TaskData *taskData, Handle addr_handle);
 extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
 extern Handle stack_trace_c(TaskData *taskData);

@@ -147,7 +147,6 @@ struct
   val POLY_SYS_shift_right_arith_word   = 196  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes          = 198  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes_overlap  = 199
-  val POLY_SYS_code_flags          = 200  (* SPF 10/11/1998 *)
   val POLY_SYS_shrink_stack        = 201  (* SPF 10/11/1998 *)
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)
   val POLY_SYS_callcode_tupled     = 204  (* SPF 07/07/94 *)

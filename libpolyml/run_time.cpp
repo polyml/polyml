@@ -489,60 +489,6 @@ Handle io_operation_c(TaskData *taskData, Handle entry)
     return SAVE((PolyObject*)IoEntry(entryNo));
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      get_flags_c - called from machine_assembly.s                          */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO1(get_flags_,REF,NOIND) */
-Handle get_flags_c(TaskData *taskData, Handle addr_handle)
-{
-    PolyObject *pt = DEREFWORDHANDLE(addr_handle);
-    PolyWord *addr = (PolyWord*)pt;
-
-    /* This is for backwards compatibility only.  Previously this
-       was used to test for an IO address.  Instead an entry has
-       been added to process_env to test for an IO address. */
-    if (gMem.IsIOPointer(addr))
-    {
-        return SAVE(TAGGED(256));
-    }
-    else
-    {
-        const POLYUNSIGNED old_word  = pt->LengthWord();
-        const POLYUNSIGNED old_flags =
-            ((old_word & OBJ_PRIVATE_USER_FLAGS_MASK) >> OBJ_PRIVATE_FLAGS_SHIFT);
-        return SAVE(TAGGED(old_flags));
-    }
-}
-
-// This is called twice when constructing a piece of code.  The first
-// time is to convert a mutable byte segment into a mutable code segment and
-// the second call is to freeze the mutable code segment.  The reason for the
-// two calls is that we first have to make sure we have a validly formatted code
-// segment with the "number of constants" value set before we can make it a code
-// segment and actually store the constants in it.
-Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle)
-{
-    PolyObject *pt = DEREFWORDHANDLE(addr_handle);
-    unsigned short newFlags = get_C_ushort(taskData, DEREFWORD(flags_handle));
-
-    if (newFlags >= 256)
-        raise_exception_string(taskData, EXC_Fail, "FreezeCodeSegment flags must be less than 256");
-
-    if (! pt->IsMutable())
-        raise_exception_string(taskData, EXC_Fail, "FreezeCodeSegment must be applied to a mutable segment");
-
-    const POLYUNSIGNED objLength = pt->Length();
-    pt->SetLengthWord(objLength, (byte)newFlags);
-
-    // Flush the cache on architectures that need it.
-    if (pt->IsCodeObject() && ! pt->IsMutable())
-        machineDependent->FlushInstructionCache(pt, objLength * sizeof(PolyWord));
-    
-    return SAVE(TAGGED(0));
-}
-
 /* CALL_IO3(assign_byte_long_, REF, REF, REF, NOIND) */
 Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_no, Handle vector)
 {
