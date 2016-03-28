@@ -58,6 +58,13 @@
 #include <process.h>
 #endif
 
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x) assert(x)
+#else
+#define ASSERT(x) 0
+#endif
+
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
@@ -565,7 +572,20 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     }
 }
 
-/* Terminate normally with a result code. */
+// Terminate normally with a result code.
+void PolyFinish(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    int i = get_C_int(taskData, arg);
+    // Cause the other threads to exit.
+    processes->Exit(i);
+    // Exit this thread
+    processes->ThreadExit(taskData); // Doesn't return.
+}
+
+// Retain for the moment.  It's needed for bootstrapping.
 Handle finishc(TaskData *taskData, Handle h)
 {
     int i = get_C_int(taskData, DEREFWORDHANDLE(h));
@@ -576,7 +596,6 @@ Handle finishc(TaskData *taskData, Handle h)
     // Push a dummy result to keep lint happy
     return taskData->saveVec.push(TAGGED(0));
 }
-
 class ProcessEnvModule: public RtsModule
 {
 public:

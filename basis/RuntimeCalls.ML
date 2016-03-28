@@ -24,7 +24,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_exit                = 1
   val POLY_SYS_get_entry_point     = 10
   val POLY_SYS_alloc_store         = 11
   val POLY_SYS_alloc_uninit        = 12

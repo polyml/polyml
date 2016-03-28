@@ -1148,19 +1148,22 @@ struct
         end
 
         local
-            val doExit =
-                RunCall.run_call1 RuntimeCalls.POLY_SYS_exit
+            (* exit - supply result code and close down all threads. *)
+            val doExit: Thread.Thread.thread * int -> unit = RunCall.rtsCall2 "PolyFinish"
             val doCall: int*unit -> (unit->unit) =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in
             fun exit (n: int) =
             let
+                (* Get a function from the atExit list.  If that list
+                   is empty it will raise an exception and we've finished. *)
                 val exitFun =
-                    (* If we get an empty list here we've finished. *)
-                    doCall(19, ()) handle _ => doExit n
+                    doCall(19, ())
+                        handle _ =>
+                            (doExit(Thread.Thread.self(), n); fn () => ())
             in
                 (* Run the function and then repeat. *)
-                exitFun() handle _ => ();
+                exitFun() handle _ => (); (* Ignore exceptions in the function. *)
                 exit(n)
             end
         end

@@ -50,6 +50,7 @@
 
 extern "C" {
     POLYUNSIGNED PolyChDir();
+    POLYUNSIGNED PolyFinish();
 }
 
 static struct _entrypts {
@@ -57,7 +58,8 @@ static struct _entrypts {
     POLYUNSIGNED (*entry)();
 } entryPtTable[] =
 {
-    { "PolyChDir", &PolyChDir}
+    { "PolyChDir", &PolyChDir},
+    { "PolyFinish", &PolyFinish}
 };
 
 // Find an entry point in the table.  We could use the system to find these because

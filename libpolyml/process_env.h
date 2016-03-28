@@ -28,4 +28,11 @@ class TaskData;
 extern Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 extern Handle finishc(TaskData *mdTaskData, Handle h);
 
+extern "C" {
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+        void PolyFinish(PolyObject *threadId, PolyWord arg);
+}
+
 #endif
