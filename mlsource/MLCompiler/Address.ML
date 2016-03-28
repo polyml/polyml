@@ -209,7 +209,6 @@ struct
         val rtsTable =
             [
             (POLY_SYS_exit,"POLY_SYS_exit"),
-            (POLY_SYS_chdir,"POLY_SYS_chdir"),
             (POLY_SYS_get_entry_point, "POLY_SYS_get_entry_point"),
             (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
             (POLY_SYS_alloc_uninit,"POLY_SYS_alloc_uninit"),

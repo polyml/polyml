@@ -1964,7 +1964,6 @@ X86AsmCallExtra&index&:
 
 
 CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
-CREATE_IO_CALL CallPOLY_SYS_chdir,POLY_SYS_chdir
 CREATE_IO_CALL CallPOLY_SYS_get_entry_point,POLY_SYS_get_entry_point
 CREATE_IO_CALL CallPOLY_SYS_get_flags,POLY_SYS_get_flags
 CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
@@ -2001,50 +2000,5 @@ CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
-
-; Direct calls to the RTS
-
-#if (0)
-; chdir.  May raise an exception which means it may allocate space for the exception packet.
-; The caller is supposed to preserve RBP
-CallPOLY_SYS_chdir PROC FRAME
-    .PUSHREG rbp                    ; Fake the frame.  It has been set up in X86AsmSwitchToPoly
-    .SETFRAME rbp,0
-    .PUSHREG rbx
-    .PUSHREG r12
-    .PUSHREG r13
-    .PUSHREG r14
-    .PUSHREG r15
-    .PUSHREG rdi
-    .PUSHREG rsi
-    .endprolog
-    mov     rcx,[Fr_Argument+rbp]
-    mov     qword ptr [Arg_ExceptionPacket+rcx],1           ; Clear exception
-    mov     r15,[Arg_LocalMpointer+rcx]
-    mov     [Fr_SavedMLSP+rbp],rsp                          ; ML stack ptr
-    mov     rsp,rbp                                         ; Switch to C stack
-    sub     rsp,Fr_size
-    ; X86-64 Windows calling conventions.
-    mov     rcx,[Arg_ThreadId+rcx]                          ; First argument - thread Id
-    mov     rdx,rax                                         ; Second argument
-    sub     rsp,32                                          ; Create save area
-EXTRN   PolyChDir:PROC
-    call    PolyChDir
-    mov     rsp,[Fr_SavedMLSP+rbp]                          ; Restore the ML stack ptr
-    mov     ecx,[Fr_Argument+rbp]
-    mov     r15,[Arg_LocalMpointer+rcx]                     ; Update heap pointer
-    mov     rdx,[Arg_LocalMbottom+rcx]
-    mov     [Fr_LocalMbottom+rbp],rdx                       ; and heap base because we may have GCd
-    cmp     qword ptr [Arg_ExceptionPacket+rcx],1
-    jne     cpsdraisex
-    ret
-
-cpsdraisex:
-    mov     rax,[Arg_ExceptionPacket+rcx]
-    jmp     raisex
-CallPOLY_SYS_chdir ENDP
-
-#endif
-
 
 END

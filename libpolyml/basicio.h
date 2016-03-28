@@ -27,6 +27,12 @@ typedef SaveVecEntry *Handle;
 class TaskData;
 
 extern Handle IO_dispatch_c(TaskData *mdTaskData, Handle args, Handle strm, Handle code);
-extern Handle change_dirc(TaskData *mdTaskData, Handle name);
+
+extern "C" {
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+}
 
 #endif /* BASICIO_H */

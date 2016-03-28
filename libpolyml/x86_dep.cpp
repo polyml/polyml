@@ -246,6 +246,12 @@ public:
     // Return the minimum space occupied by the stack if we are considering shrinking it.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->stack->stack()->p_sp) + OVERFLOW_STACK_SIZE; }
 
+    // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
+    virtual void PreRTSCall(void) { SaveMemRegisters(); }
+    // PostRTSCall: Before returning we need to restore the heap pointer.
+    // If there has been a GC in the RTS call we need to create a new heap area.
+    virtual void PostRTSCall(void) { SetMemRegisters(); }
+
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
 
     virtual Handle EnterCallbackFunction(Handle func, Handle args);
@@ -345,7 +351,7 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_RAISE_OVERFLOW(void);
 
     // The entry points to assembly code functions.
-    extern byte CallPOLY_SYS_exit, CallPOLY_SYS_chdir, alloc_store, alloc_uninit, raisex,
+    extern byte CallPOLY_SYS_exit, alloc_store, alloc_uninit, raisex,
         get_length_a, CallPOLY_SYS_get_flags, str_compare, teststrgtr, teststrlss,
         teststrgeq, teststrleq, set_exception_trace, locksega, CallPOLY_SYS_network,
         CallPOLY_SYS_os_specific, eq_longword, geq_longword, leq_longword, gt_longword,
@@ -392,7 +398,7 @@ static byte *entryPointVector[256] =
     0, // 6 is unused
     0, // 7 is unused
     0, // 8 is unused
-    &CallPOLY_SYS_chdir, // 9
+    0, // 9
     &CallPOLY_SYS_get_entry_point, // 10
     &alloc_store, // 11
     &alloc_uninit, // 12
@@ -910,10 +916,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO3(this, &alloc_store_long_c);
                 break;
 
-            case POLY_SYS_chdir:
-                CallIO1(this, &change_dirc);
-                break;
-
             case POLY_SYS_get_entry_point:
                 CallIO1(this, &getEntryPoint);
                 break;
@@ -1118,31 +1120,6 @@ Handle X86TaskData::EnterPolyCode()
         catch (IOException &) {
         }
     }
-}
-
-extern "C" {
-#ifdef _MSC_VER
-    __declspec(dllexport)
-#endif
-        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
-}
-
-// Called from ML via the assembly code.
-POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
-{
-    X86TaskData *taskData = (X86TaskData*)TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
-    taskData->SaveMemRegisters();  // Need to save the current heap pointer
-
-    try {
-        (void)change_dirc(taskData, pushedArg);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset); // Ensure the save vec is reset
-    taskData->SetMemRegisters(); // Restore the heap pointer.  Create a new heap area if there's been a GC.
-    return TAGGED(0).AsUnsigned(); // Result is unit
 }
 
 // Run the current ML process.  X86AsmSwitchToPoly saves the C state so that

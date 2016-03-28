@@ -769,10 +769,9 @@ struct
         end
 
         local
-            val cd: string -> unit =
-                RunCall.run_call1 RuntimeCalls.POLY_SYS_chdir;
+            val callChdir: Thread.Thread.thread * string -> unit = RunCall.rtsCall2 "PolyChDir"
         in
-            fun chDir s = cd s
+            fun chDir s = callChdir (Thread.Thread.self(), s)
         end
 
         local

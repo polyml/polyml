@@ -2031,7 +2031,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CALL_EXTRA(index)
 
     CREATE_IO_CALL(POLY_SYS_exit)
-    CREATE_IO_CALL(POLY_SYS_chdir)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
@@ -2070,34 +2069,3 @@ callheapOverflowLocal:
     CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
     CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
     CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
-
-# Direct calls to the RTS
-
-#if (0)
-/* chdir.  May raise an exception which means it may allocate space for the exception packet. */
-INLINE_ROUTINE(CallPOLY_SYS_chdir)
-        movl    Fr_Argument(%ebp),%ecx
-        movl    $UNIT,Arg_ExceptionPacket(%ecx)     # Clear the exception
-        movl    Fr_LocalMpointer(%ebp),%edx         # Copy heap pointer
-        movl    %edx,Arg_LocalMpointer(%ecx)
-        movl    %esp,Fr_SavedMLSP(%ebp)             # ML stack pointer
-        movl    %ebp,%esp                           # Switch to C stack
-        subl    $Fr_Size,%esp
-        subl	$8,%esp                             # Try to maintain 16 byte alignment after args.
-        pushl   %eax                                # Argument
-        pushl   Arg_ThreadId(%ecx)
-        call    EXTNAME(PolyChDir)
-        movl    Fr_SavedMLSP(%ebp),%esp             # Restore the ML stack ptr
-        movl    Fr_Argument(%ebp),%ecx
-        movl    Arg_LocalMpointer(%ecx),%edx        # Update heap pointer
-        movl    %edx,Fr_LocalMpointer(%ebp)
-        movl    Arg_LocalMbottom(%ecx),%edx         # and heap base because we may have GCd
-        movl    %edx,Fr_LocalMbottom(%ebp)
-        cmpl    $UNIT,Arg_ExceptionPacket(%ecx)
-        jne     cpsdraisex
-        ret
-
-cpsdraisex:
-        movl    Arg_ExceptionPacket(%ecx),%eax
-        jmp     raisexlocal
-#endif

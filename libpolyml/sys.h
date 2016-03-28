@@ -37,7 +37,6 @@
  *********************************************************************/
 
 #define POLY_SYS_exit                1
-#define POLY_SYS_chdir               9
 #define POLY_SYS_get_entry_point                10
 #define POLY_SYS_alloc_store         11
 #define POLY_SYS_alloc_uninit        12

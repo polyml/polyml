@@ -90,7 +90,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
 {
     switch (i) {
     case POLY_SYS_exit: return 0;
-    case POLY_SYS_chdir: return 0;
     case POLY_SYS_get_entry_point: return PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_alloc_store:
     case POLY_SYS_alloc_uninit:

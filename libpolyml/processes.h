@@ -137,6 +137,10 @@ public:
     virtual void set_hr(PolyWord *hr) = 0;
     virtual POLYUNSIGNED currentStackSpace(void) const = 0;
 
+    // Functions called before and after an RTS call.
+    virtual void PreRTSCall(void) {}
+    virtual void PostRTSCall(void) {}
+
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
     PolyWord    *allocLimit;    // ... lower limit of allocation

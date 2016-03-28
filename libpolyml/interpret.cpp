@@ -2080,27 +2080,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_assign_word, TAGGED(POLY_SYS_assign_word));
 }
 
-extern "C" {
-#ifdef _MSC_VER
-    __declspec(dllexport)
-#endif
-        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
-}
-
-POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
-{
-    IntTaskData *taskData = (IntTaskData*)TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg = taskData->saveVec.push(arg);
-    try {
-        (void)change_dirc(taskData, pushedArg);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset); // Ensure the save vec is reset
-    return TAGGED(0).AsUnsigned(); // Result is unit
-}
-
 // As far as possible we want locking and unlocking an ML mutex to be fast so
 // we try to implement the code in the assembly code using appropriate
 // interlocked instructions.  That does mean that if we need to lock and

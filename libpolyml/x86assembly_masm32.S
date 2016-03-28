@@ -2123,7 +2123,6 @@ X86AsmCallExtra&index&:
 
 
 CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
-CREATE_IO_CALL CallPOLY_SYS_chdir,POLY_SYS_chdir
 CREATE_IO_CALL CallPOLY_SYS_get_entry_point,POLY_SYS_get_entry_point
 CREATE_IO_CALL CallPOLY_SYS_get_flags,POLY_SYS_get_flags
 CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
@@ -2160,40 +2159,5 @@ CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
-
-; Direct calls to the RTS
-
-#if (0)
-; chdir.  May raise an exception which means it may allocate space for the exception packet.
-CallPOLY_SYS_chdir PROC
-; N.B.  We don't actually need to remove any arguments from the C stack because
-; we always set the C stack pointer to the value when we were first called.
-    mov     ecx,[Fr_Argument+ebp]
-    mov     dword ptr [Arg_ExceptionPacket+ecx],1       ; Clear exception
-    mov     edx,[Fr_LocalMpointer+ebp]                  ; Copy heap pointer
-    mov     [Arg_LocalMpointer+ecx],edx
-    mov     [Fr_SavedMLSP+ebp],esp                      ; ML stack ptr
-    mov     esp,ebp                                     ; Switch to C stack
-    sub     esp,Fr_size
-    push    eax                                         ; Push argument
-    push    dword ptr [Arg_ThreadId+ecx]                ; Push thread id
-    EXTRN   X86ChDir:PROC
-    call    X86ChDir
-    mov     esp,[Fr_SavedMLSP+ebp]                      ; Restore the ML stack ptr
-    mov     ecx,[Fr_Argument+ebp]
-    mov     edx,[Arg_LocalMpointer+ecx]                 ; Update heap pointer
-    mov     [Fr_LocalMpointer+ebp],edx
-    mov     edx,[Arg_LocalMbottom+ecx]
-    mov     [Fr_LocalMbottom+ebp],edx                   ; and heap base because we may have GCd
-    cmp     dword ptr [Arg_ExceptionPacket+ecx],1       ; Do we want to raise an exception?
-    jne     cpsdraisex
-    ret
-
-cpsdraisex:
-    mov     eax,[Arg_ExceptionPacket+ecx]
-    jmp     raisex
-CallPOLY_SYS_chdir ENDP
-
-#endif
 
 END

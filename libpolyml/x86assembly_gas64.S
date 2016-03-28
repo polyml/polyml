@@ -2076,7 +2076,6 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CALL_EXTRA(index)
 
     CREATE_IO_CALL(POLY_SYS_exit)
-    CREATE_IO_CALL(POLY_SYS_chdir)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_flags)
     CREATE_IO_CALL(POLY_SYS_profiler)
@@ -2113,40 +2112,3 @@ INLINE_ROUTINE(cmem_store_asm_double)
     CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
     CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
     CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
-
-# Direct calls to the RTS
-
-#if (0)
-/* chdir.  May raise an exception which means it may allocate space for the exception packet. */
-/* The caller is supposed to preserve RBP */
-/* N.B.  We don't actually need to remove any arguments from the C stack because
-   we always set the C stack pointer to the value when we were first called. */
-INLINE_ROUTINE(CallPOLY_SYS_chdir)
-    movq    Fr_Argument(%rbp),%rcx
-    movq    $UNIT,Arg_ExceptionPacket(%rcx)     # Clear the exception
-    movq    %r15,Arg_LocalMpointer(%rcx)        # Save the heap pointer
-    movq    %rsp,Fr_SavedMLSP(%rbp)             # ML stack ptr
-    movq    %rbp,%rsp                           # Switch to C stack
-    subq    $Fr_Size,%rsp
-#ifdef _WIN32
-    movq    Arg_ThreadId(%rcx),%rcx             # First argument - thread Id
-    movq    %rax,%rdx                           # Second argument.
-    subq    $32,%rsp                            # Create save area
-#else
-    movq    Arg_ThreadId(%rcx),%rdi
-    movq    %rax,%rsi
-#endif
-    call    PolyChDir
-    movq    Fr_SavedMLSP(%rbp),%rsp             # Restore ML stack ptr
-    movq    Fr_Argument(%rbp),%rcx
-    movq    Arg_LocalMpointer(%rcx),%r15        # Restore the heap pointer register
-    movq    Arg_LocalMbottom(%rcx),%rdx
-    movq    %rdx,Fr_LocalMbottom(%rbp)          # and heap base because we may have GCd
-    cmpq    $UNIT,Arg_ExceptionPacket(%rcx)
-    jne     cpsdraisex
-    ret
-
-cpsdraisex:
-    movq    Arg_ExceptionPacket(%rcx),%rax
-    jmp     raisex
-#endif

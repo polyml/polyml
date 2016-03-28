@@ -1189,7 +1189,7 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 
 /* change_dirc - this is called directly and not via the dispatch
    function. */
-Handle change_dirc(TaskData *taskData, Handle name)
+static Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
     TempString cDirName(name->Word());
@@ -1203,6 +1203,25 @@ Handle change_dirc(TaskData *taskData, Handle name)
 #endif
     return SAVE(TAGGED(0));
 }
+
+// External call
+POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        (void)change_dirc(taskData, pushedArg);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
 
 /* Test for a directory. */
 Handle isDir(TaskData *taskData, Handle name)
