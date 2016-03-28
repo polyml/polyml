@@ -318,7 +318,6 @@ struct
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_shrink_stack,"POLY_SYS_shrink_stack"),
             (POLY_SYS_stderr,"POLY_SYS_stderr"),
             (POLY_SYS_callcode_tupled,"POLY_SYS_callcode_tupled"),
             (POLY_SYS_foreign_dispatch,"POLY_SYS_foreign_dispatch"),

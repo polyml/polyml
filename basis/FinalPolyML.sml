@@ -591,15 +591,6 @@ local
     
             fun readEvalPrint () : unit =
             let
-                (* If we have executed a deeply recursive function the stack will have
-                   extended to be very large.  It's better to reduce the stack if we
-                   can.  This is RISKY.  Each function checks on entry that the stack has
-                   sufficient space for everything it will allocate and assumes the stack
-                   will not shrink.  It's unlikely that any of the functions here will
-                   have asked for very much but as a precaution we allow for an extra 8k words. *)
-                fun shrink_stack (newsize : int) : unit = 
-                    RunCall.run_call1 RuntimeCalls.POLY_SYS_shrink_stack newsize
-                val () = if isDebug then () else shrink_stack 8000;
             in
                 realDataRead := false;
                 (* Compile and then run the code. *)

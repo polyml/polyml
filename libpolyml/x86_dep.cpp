@@ -371,7 +371,7 @@ extern "C" {
         cmem_load_asm_32, cmem_load_asm_float, cmem_load_asm_double, cmem_store_asm_8, cmem_store_asm_16,
         cmem_store_asm_32,  cmem_store_asm_float,  cmem_store_asm_double,  CallPOLY_SYS_io_operation,
         CallPOLY_SYS_ffi,  move_words, CallPOLY_SYS_set_code_constant, move_words, shift_right_arith_word,
-        int_to_word,  move_bytes, CallPOLY_SYS_shrink_stack,
+        int_to_word,  move_bytes,
         callcodeTupled, CallPOLY_SYS_foreign_dispatch, CallPOLY_SYS_XWindows, is_big_endian,
         bytes_per_word,  offset_address,  shift_right_word,  not_bool,  string_length,
         touch_final,  int_geq,  int_leq,  int_gtr,  int_lss,  mul_word, plus_word, minus_word, 
@@ -598,7 +598,7 @@ static byte *entryPointVector[256] =
     &move_bytes, // 198
     &move_bytes, // move_bytes_overlap = 199
     0, // 200
-    &CallPOLY_SYS_shrink_stack, // 201
+    0, // 201
     0, // stderr = 202
     0, // 203 now unused
     &callcodeTupled, // 204
@@ -1063,10 +1063,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_process_env:
                 CallIO2(this, &process_env_dispatch_c);
-                break;
-
-            case POLY_SYS_shrink_stack:
-                CallIO1(this, &shrink_stack_c);
                 break;
 
             case POLY_SYS_poly_specific:

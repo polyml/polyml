@@ -1939,10 +1939,6 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
-            case POLY_SYS_shrink_stack:
-                CallIO1(this, &shrink_stack_c);
-                break;
-
             case POLY_SYS_get_first_long_word:
             case POLY_SYS_int_to_word:
                 // POLY_SYS_int_to_word has generally been replaced by POLY_SYS_get_first_long_word.
@@ -2258,7 +2254,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_int_to_word, TAGGED(POLY_SYS_int_to_word));
     add_word_to_io_area(POLY_SYS_move_bytes, TAGGED(POLY_SYS_move_bytes));
     add_word_to_io_area(POLY_SYS_move_bytes_overlap, TAGGED(POLY_SYS_move_bytes_overlap));
-    add_word_to_io_area(POLY_SYS_shrink_stack, TAGGED(POLY_SYS_shrink_stack));
     add_word_to_io_area(POLY_SYS_callcode_tupled, TAGGED(POLY_SYS_callcode_tupled));
     add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));
     add_word_to_io_area(POLY_SYS_XWindows, TAGGED(POLY_SYS_XWindows));

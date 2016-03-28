@@ -554,27 +554,6 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     }
 }
 
-// This is used after executing each top-level command to minimise the
-// heap size.  It's fairly dubious and there ought to be a better way to do this.
-Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
-/* Shrinks the current stack. */
-{
-    unsigned reserved = get_C_unsigned(taskData, DEREFWORDHANDLE(reserved_space));
- 
-    /* The minimum size must include the reserved space for the registers. */
-    POLYUNSIGNED min_size = taskData->currentStackSpace() + reserved;
-
-    POLYUNSIGNED new_len; /* New size */
-    for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
-
-    if (taskData->stack->spaceSize() <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
-
-    // Try to change the stack size but ignore any error since the current size will do.
-    gMem.GrowOrShrinkStack(taskData, new_len);
-
-    return SAVE(TAGGED(0));
-}
-
 Handle Make_fixed_precision(TaskData *taskData, int val)
 {
     if (val > MAXTAGGED || val < -MAXTAGGED-1)

@@ -93,7 +93,6 @@ extern Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flag
 extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
 extern Handle stack_trace_c(TaskData *taskData);
-extern Handle shrink_stack_c(TaskData *taskData, Handle reserved_space);
 
 // Create fixed precision values.
 extern Handle Make_fixed_precision(TaskData *taskData, long);
