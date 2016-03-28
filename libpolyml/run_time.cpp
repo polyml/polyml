@@ -401,7 +401,8 @@ Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endO
     for (PolyWord *sp = endOfTrace; sp >= startOfTrace; sp--)
     {
         PolyWord pc = *sp;
-        if (pc.IsCodePtr() && sp != taskData->hr())
+        MemSpace *space = gMem.SpaceForAddress(pc.AsCodePtr());
+        if (pc.IsCodePtr() && space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT) && sp != taskData->hr())
         {
             // A code pointer can be a return address or an exception
             // handler but if we're producing an exception trace the
