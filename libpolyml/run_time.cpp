@@ -357,35 +357,6 @@ Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endO
     return list;
 }
 
-void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
-{
-    Handle listHandle = buildStackList(taskData, sp, finish);
-    PolyWord list = listHandle->Word();
-    extern FILE *polyStdout;
-
-    while (! (list.IsTagged()))
-    {
-        ML_Cons_Cell *p = (ML_Cons_Cell*)list.AsObjPtr();
-        print_string(p->h);
-        putc('\n', polyStdout);
-        list = p->t;
-    }
-    fflush(polyStdout);
-}
-
-
-/******************************************************************************/
-/*                                                                            */
-/*      stack_trace_c - called from assembly code                             */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO0(stack_trace_, NOIND) */
-Handle stack_trace_c(TaskData *taskData)
-{
-    give_stack_trace (taskData, taskData->sp(), taskData->stack->top);
-    return SAVE(TAGGED(0));
-}
-
 // Current exception trace.  This creates a special exception packet and
 // raises it so that the ML code can print the trace.
 Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)

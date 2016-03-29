@@ -86,7 +86,6 @@
 #define POLY_SYS_signed_to_longword             90
 #define POLY_SYS_unsigned_to_longword           91
 #define POLY_SYS_full_gc             92   /* MJC 18/03/91 */
-#define POLY_SYS_stack_trace         93   /* MJC 18/03/91 */
 #define POLY_SYS_timing_dispatch     94   /* DCJM 10/4/00 */
 #define POLY_SYS_equal_short_arb     101
 #define POLY_SYS_quotrem             104  /* DCJM 05/03/10 */

@@ -80,10 +80,7 @@ in
         and objProfile(x:'a): int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
     
         val fullGC: unit -> unit = 
-            RunCall.run_call0 POLY_SYS_full_gc;
-    
-        val stackTrace: unit -> unit = 
-            RunCall.run_call0 POLY_SYS_stack_trace;
+            RunCall.run_call0 POLY_SYS_full_gc
       
         local
             val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq

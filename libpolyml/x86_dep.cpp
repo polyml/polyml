@@ -360,7 +360,7 @@ extern "C" {
         mul_longword, div_longword, mod_longword, andb_longword, orb_longword, xorb_longword,
         CallPOLY_SYS_kill_self, shift_left_longword, shift_right_longword, shift_right_arith_longword,
         CallPOLY_SYS_profiler, longword_to_tagged, signed_to_longword, unsigned_to_longword,
-        CallPOLY_SYS_full_gc, CallPOLY_SYS_stack_trace, CallPOLY_SYS_timing_dispatch,
+        CallPOLY_SYS_full_gc, CallPOLY_SYS_timing_dispatch,
         quotrem_long, is_shorta, add_long, sub_long, mult_long, div_long, rem_long,
         neg_long, xor_long, equal_long, or_long, and_long, CallPOLY_SYS_Real_str, real_geq, real_leq,
         real_gtr, real_lss, real_eq, real_neq, CallPOLY_SYS_Real_Dispatch, real_add, real_sub, real_mul,
@@ -482,7 +482,7 @@ static byte *entryPointVector[256] =
     &signed_to_longword, // 90
     &unsigned_to_longword, // 91
     &CallPOLY_SYS_full_gc, // 92
-    &CallPOLY_SYS_stack_trace, // 93
+    0, // 93
     &CallPOLY_SYS_timing_dispatch, // 94
     0, // 95 is unused
     0, // 96 is unused
@@ -1046,11 +1046,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_full_gc:
                 CallIO0(this, &full_gc_c);
-                break;
-
-            case POLY_SYS_stack_trace:
-                // This uses hr() via buildStackList
-                CallIO0(this, & stack_trace_c);
                 break;
 
             case POLY_SYS_foreign_dispatch:

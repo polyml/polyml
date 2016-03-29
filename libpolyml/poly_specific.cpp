@@ -142,7 +142,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_signed_to_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_unsigned_to_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_full_gc: return PROPWORD_NORAISE; // Effectively has a side-effect
-    case POLY_SYS_stack_trace: return 0;
     case POLY_SYS_timing_dispatch: return 0;
     case POLY_SYS_equal_short_arb: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_quotrem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide

@@ -73,7 +73,6 @@ struct
   val POLY_SYS_unsigned_to_longword        = 91
   val POLY_SYS_profiler            = 88
   val POLY_SYS_full_gc             = 92   (* MJC 18/03/91 *)
-  val POLY_SYS_stack_trace         = 93   (* MJC 18/03/91 *)
   val POLY_SYS_timing_dispatch     = 94   (* DCJM 10/4/00 *)
   val POLY_SYS_equal_short_arb     = 101
   val POLY_SYS_quotrem             = 104 (* DCJM 05/03/10 *)
@@ -102,7 +101,6 @@ struct
   val POLY_SYS_Div_real            = 128
   val POLY_SYS_Abs_real            = 129 (* DCJM 26/12/11 *)
   val POLY_SYS_Neg_real            = 130
-  (*val POLY_SYS_Repr_real           = 132*)
   val POLY_SYS_conv_real           = 133
   val POLY_SYS_real_to_int         = 134
   val POLY_SYS_int_to_real         = 135

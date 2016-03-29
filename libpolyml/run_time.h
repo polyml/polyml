@@ -76,8 +76,6 @@ NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errms
 // This was the previous version.  The errmsg argument is ignored unless err is zero.
 NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
 
-extern void give_stack_trace(TaskData *taskData, PolyWord *stackPtr, PolyWord *finish);
-
 Handle make_exn(TaskData *taskData, int id, Handle arg);
 
 extern void add_word_to_io_area(unsigned sysop, PolyWord val);
