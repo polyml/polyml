@@ -479,6 +479,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_S390], [1], [Define if the host is an S/390 (32-bit)])
             polyarch=interpret
             ;;
+      sh*)
+            AC_DEFINE([HOSTARCHITECTURE_SH], [1], [Define if the host is a SuperH (32-bit)])
+            polyarch=interpret
+            ;;
       alpha*)
             AC_DEFINE([HOSTARCHITECTURE_ALPHA], [1], [Define if the host is an Alpha (64-bit)])
             polyarch=interpret

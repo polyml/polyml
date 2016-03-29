@@ -405,16 +405,18 @@ static void setrounding(TaskData *taskData, Handle args)
 // but they are frequently inlined 
 #elif defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static int getrounding(TaskData *)
+static int getrounding(TaskData *taskData)
 {
     switch (fegetround())
     {
     case FE_TONEAREST: return POLY_ROUND_TONEAREST;
+#ifndef HOSTARCHITECTURE_SH
     case FE_DOWNWARD: return POLY_ROUND_DOWNWARD;
     case FE_UPWARD: return POLY_ROUND_UPWARD;
+#endif
     case FE_TOWARDZERO: return POLY_ROUND_TOZERO;
     }
-    return 0; // Keep the compiler happy
+    raise_exception_string(taskData, EXC_Fail, "Set to an unknown rounding mode");
 }
 
 static void setrounding(TaskData *taskData, Handle args)
@@ -422,9 +424,12 @@ static void setrounding(TaskData *taskData, Handle args)
     switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
     case POLY_ROUND_TONEAREST: fesetround(FE_TONEAREST); break; // Choose nearest
+#ifndef HOSTARCHITECTURE_SH
     case POLY_ROUND_DOWNWARD: fesetround(FE_DOWNWARD); break; // Towards negative infinity
     case POLY_ROUND_UPWARD: fesetround(FE_UPWARD); break; // Towards positive infinity
+#endif
     case POLY_ROUND_TOZERO: fesetround(FE_TOWARDZERO); break; // Truncate towards zero
+    default: raise_exception_string(taskData, EXC_Fail, "Unsupported rounding mode");
     }
 }
 

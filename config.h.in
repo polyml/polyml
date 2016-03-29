@@ -590,6 +590,9 @@
 /* Define if the host is an S/390 (64-bit) */
 #undef HOSTARCHITECTURE_S390X
 
+/* Define if the host is a SuperH (32-bit) */
+#undef HOSTARCHITECTURE_SH
+
 /* Define if the host is a Sparc (32-bit) */
 #undef HOSTARCHITECTURE_SPARC
 
