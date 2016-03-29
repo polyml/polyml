@@ -30,38 +30,12 @@
 #error "No configuration file"
 #endif
 
-/************************************************************************
- *
- * Include system headers 
- *
- ************************************************************************/
-
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
 #endif
 
-#ifdef HAVE_SIGNAL_H
-#include <signal.h>
-#endif
-
-#ifdef HAVE_ERRNO_H
-#include <errno.h>
-#endif
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#ifdef HAVE_STDLIB_H
-#include <stdlib.h>
-#endif
-
 #ifdef HAVE_STRING_H
 #include <string.h>
-#endif
-
-#ifdef HAVE_LIMITS_H
-#include <limits.h>
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -71,62 +45,15 @@
 #define ASSERT(x) 0
 #endif
 
-#ifdef HAVE_WINDOWS_H
-#include <windows.h> 
-#endif
-
-#ifdef HAVE_PROCESS_H 
-#include <process.h> 
-#endif
-
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-
-#ifdef HAVE_IO_H
-#include <io.h>
-#endif
-
-#ifdef HAVE_EXCPT_H
-#include <excpt.h>
-#endif
-
-#ifdef HAVE_SYS_TIMES_H
-#include <sys/times.h>
-#endif
-
-#ifdef HAVE_SYS_SYSTEMINFO_H
-#include <sys/systeminfo.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-
-/************************************************************************
- *
- * Include runtime headers
- *
- ************************************************************************/
-
 #include "globals.h"
 #include "gc.h"
 #include "mpoly.h"
 #include "arb.h"
-#include "machine_dep.h"
 #include "diagnostics.h"
 #include "processes.h"
 #include "profiling.h"
 #include "run_time.h"
 #include "sys.h"
-#include "process_env.h"
-#include "sighandler.h"
-#include "scanaddrs.h"
-#include "check_objects.h"
 #include "polystring.h"
 #include "save_vec.h"
 #include "rts_module.h"
