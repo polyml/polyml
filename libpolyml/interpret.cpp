@@ -40,6 +40,10 @@
 #define ASSERT(x) 0
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #include "globals.h"
 #include "int_opcodes.h"
 #include "machine_dep.h"
