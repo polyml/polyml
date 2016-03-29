@@ -222,7 +222,6 @@ struct
                             (useEnv, getChar,
                               parameters @ (* These will be found first and override the defaults. *)
                               [
-                                 tagInject traceCompilerTag true,
                                  tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70)),
                                  tagInject lineNumberTag (fn () => !lineNo),
                                  tagInject fileNameTag fileName,
@@ -242,7 +241,7 @@ struct
                         (_, NONE) => raise Fail "Static Errors"
                      |  (_, SOME c) => c
                     (* execute the code and get the resulting declarations. *)
-                    val { fixes, values, structures, signatures, functors, types } = PolyML.exception_trace code
+                    val { fixes, values, structures, signatures, functors, types } = code()
                 in
                     (* Just enter the values in the environment without printing. *)
                     List.app (#enterFix useEnv) fixes;

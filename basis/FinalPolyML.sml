@@ -202,7 +202,7 @@ local
     |   CPDebug of bool
         (* Control whether calls to the debugger should be inserted into the compiled
            code.  This allows breakpoints to be set, values to be examined and printed
-           and functions to be traced at the cost of a very large run-time overhead.
+           and functions to be traced at the cost of extra run-time overhead.
            Default: value of PolyML.Compiler.debug *)
     |   CPPrintDepth of unit->int
         (* This controls the depth of printing if the default CPResultFun is used.  It
@@ -262,7 +262,7 @@ local
     val inlineFunctors = ref true
     val maxInlineSize = ref 80
     val printInAlphabeticalOrder = ref true
-    val traceCompiler = ref false
+    val traceCompiler = ref false (* No longer used. *)
     
     fun prettyPrintWithIDEMarkup(stream : string -> unit, lineWidth : int): PolyML.pretty -> unit =
     let
@@ -527,7 +527,6 @@ local
                     tagInject errorDepthTag (! errorDepth),
                     tagInject printDepthFunTag printDepth,
                     tagInject lineLengthTag (! lineLength),
-                    tagInject traceCompilerTag (! traceCompiler),
                     tagInject debugTag debugging,
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree,
@@ -2010,35 +2009,7 @@ in
         structure Exception =
         struct
             open Exception
-
-            local
-                fun printTrace(trace, exn) =
-                let
-                    fun pr s = TextIO.output(TextIO.stdOut, s)
-                in
-                    (* Exception *)
-                    pr "Exception trace for exception - ";
-                    pr (General.exnName exn);
-                    (* Location if available *)
-                    case exceptionLocation exn of
-                        SOME { file, startLine=line, ... } =>
-                            (
-                                if file = "" then () else (pr " raised in "; pr file);
-                                if line = 0 then () else (pr " line "; pr(FixedInt.toString line))
-                            )
-                    |   NONE => ();
-                    pr "\n\n";
-                    (* Function list *)
-                    List.app(fn s => (pr s; pr "\n")) trace;
-                    pr "End of trace\n\n";
-                
-                    TextIO.flushOut TextIO.stdOut;
-                    (* Reraise the exception. *)
-                    PolyML.Exception.reraise exn
-                end
-            in
-                fun exception_trace f = traceException(f, printTrace)
-            end
+            fun exception_trace f = f() (* Backwards compatibility *)
         end
         
         (* Include it in the PolyML structure for backwards compatibility. *)

@@ -38,9 +38,8 @@ struct
     in
         structure Exception =
         struct
-            fun traceException(f: unit->'a, h: string list * exn -> 'a): 'a =
-                RunCall.run_call1 POLY_SYS_exception_trace_fn f
-                    handle RunCall.ExTrace(s, e) => h(s, e)
+            (* Backwards compatibility. *)
+            fun traceException(f: unit->'a, _: string list * exn -> 'a): 'a = f()
 
             fun exceptionLocation(exn: exn): location option =
                 case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of

@@ -202,17 +202,11 @@ struct
              functors: (string * functors) list, types: (string * typeConstrSet) list }) option =
     let
         val debugSwitches = parameters 
-        val lex = LEX.initial(getChar, debugSwitches);
-        val traceCompiler = DEBUG.getParameter DEBUG.traceCompilerTag debugSwitches
-
+        val lex = LEX.initial(getChar, debugSwitches)
         val compilerOutput = getCompilerOutput parameters
         fun printReport s = compilerOutput(PrettyString s)
     in
-    (
-        if traceCompiler
-        then PolyML.exception_trace (fn () => baseCompiler(lex, nameSpace, debugSwitches))
-        else baseCompiler(lex, nameSpace, debugSwitches)
-    )
+        baseCompiler(lex, nameSpace, debugSwitches)
       handle
         SML90.Interrupt =>
         (

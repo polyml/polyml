@@ -455,8 +455,7 @@ struct
                     ("XWindows",    EXC_XWindows,       String),
                     ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
-                    ("SysErr",      EXC_syserr,         String ** Option Int),
-                    ("ExTrace",     EXC_extrace,        List String ** Exn)
+                    ("SysErr",      EXC_syserr,         String ** Option Int)
                 ]
         end
 
@@ -1169,7 +1168,6 @@ struct
                 ("pstackTraceTag",         toMachineWord (pstackTraceTag: bool tag),            Tag Bool),
                 ("lowlevelOptimiseTag",    toMachineWord (lowlevelOptimiseTag: bool tag),       Tag Bool),
                 ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
-                ("traceCompilerTag",       toMachineWord (traceCompilerTag: bool tag),          Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
                 ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
                 ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->int) tag), Tag (Unit->>Int)),

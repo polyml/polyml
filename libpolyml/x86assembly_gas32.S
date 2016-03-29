@@ -1599,26 +1599,7 @@ fixed_to_real_internal:
 
 
 INLINE_ROUTINE(set_exception_trace)
-/* The argument is the closure to call.  The return address is already on the stack.
-   We need to push the addresses of some code.  To make it position-independent we use
-   CALLs in a non-standard way. */
     movl    %eax,%edx                   # Target closure
-    pushl   Fr_HandlerRegister(%ebp)       # Previous handler
-    CALL    setexct1                    # Jump to setexct1 pushing the next addr to the stack
-    /* This is the code that is called if we get an exception.
-       The exception packet is the first argument. */
-    movl    Fr_Argument(%ebp),%ecx
-    movb    $POLY_SYS_give_ex_trace_fn,Arg_RequestCode(%ecx)
-    jmp     SaveStateAndReturnLocal
-    #
-setexct1:
-    movl    %esp,Fr_HandlerRegister(%ebp)  # Set up the handler
-    CALL    setexct2                    # Jump to setexct2 pushing the next addr to the stack
-    # This is the code that is called if we return without raising an exception
-    addl    $POLYWORDSIZE,%esp     # Remove handler
-    popl    Fr_HandlerRegister(%ebp)
-    RET
-setexct2:
     movl    $UNIT,%eax             # The function takes a unit arg.
     jmp     *(%edx)
 

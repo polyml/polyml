@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015 David C.J. Matthews
+    Copyright (c) 2013-2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,7 +41,6 @@ sig
     val pstackTraceTag : bool Universal.tag
     val reportExhaustiveHandlersTag : bool Universal.tag
     val reportUnreferencedIdsTag : bool Universal.tag
-    val traceCompilerTag : bool Universal.tag
     val reportDiscardedValuesTag: int Universal.tag
     val reportDiscardNone: int (* No reports *)
     and reportDiscardFunction: int (* Only report discarded functions *)

@@ -1671,24 +1671,8 @@ fixed_to_real:
 
 PUBLIC  set_exception_trace
 set_exception_trace:
-; The argument is the closure to call.  The return address is already on the stack.
-; We need to push the addresses of some code.  To make it position-independent we use
-; CALLs in a non-standard way.
+; This is only for backwards compatibility.
     mov     edx,eax
-    push    Fr_HandlerRegister[ebp]		; Previous handler
-    call    setexct1                    ; Jump to setexct1 pushing the next addr to the stack
-    ; This is the code that is called if we get an exception.
-    ; The exception packet is the first argument.
-    CALL_IO POLY_SYS_give_ex_trace_fn
-
-setexct1:
-    mov     Fr_HandlerRegister[ebp],esp
-    call    setexct2                    ; Jump to setexct2 pushing the next addr to the stack
-    ; This is the code that is called if we return without raising an exception
-    add     esp,POLYWORDSIZE
-    pop     Fr_HandlerRegister[ebp]
-    RET
-setexct2:
     mov     eax,UNIT
     jmp     dword ptr [edx]         ; Jump to the function
 

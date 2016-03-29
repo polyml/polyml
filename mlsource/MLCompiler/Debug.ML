@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013, 2015.
+    Modified David C.J. Matthews 2008, 2013, 2015-16.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -51,8 +51,6 @@ struct
         val profileAllocationTag: int tag            = tag()
 
         (* Compiler debugging. *)
-        (* Trace exceptions generated within the compiler? default false. *)
-        val traceCompilerTag: bool tag               = tag()
         (* Print parsetree after parsing? default false *)
         val parsetreeTag: bool tag                   = tag()
         (* Print codetree after compiling? default false *)
@@ -107,7 +105,6 @@ struct
             tagInject errorDepthTag 6,
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
-            tagInject traceCompilerTag false,
             tagInject debugTag false,
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
