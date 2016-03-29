@@ -234,17 +234,11 @@ public:
     virtual Handle AtomicIncrement(Handle mutexp);
     virtual void AtomicReset(Handle mutexp);
 
-    // These are retained for the moment.
-    // pc is used in "alloc" to profile allocations in the RTS.
-    virtual POLYCODEPTR pc(void) const { return stack->stack()->p_pc; }
-    // sp is also used in "alloc" and also stack tracing
-    virtual PolyWord *sp(void) const { return stack->stack()->p_sp; }
-    // hr is used only in buildStackList.
-    virtual PolyWord *hr(void) const { return assemblyInterface.handlerRegister; }
-    // set_hr is used only in exceptionToTraceException
-    virtual void set_hr(PolyWord *hr) { assemblyInterface.handlerRegister = hr; }
-    // Return the minimum space occupied by the stack if we are considering shrinking it.
+    // Return the minimum space occupied by the stack.  Used when setting a limit.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->stack->stack()->p_sp) + OVERFLOW_STACK_SIZE; }
+
+    virtual void addAllocationProfileCount(POLYUNSIGNED words)
+    { add_count(this, stack->stack()->p_pc, stack->stack()->p_sp, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { SaveMemRegisters(); }
@@ -421,7 +415,7 @@ static byte *entryPointVector[256] =
     &teststrleq, // 29
     0, // 30
     0, // 31 is no longer used
-    &set_exception_trace, // 32
+    &set_exception_trace, // 32 - backwards compatibility only
     0, // 33 - exception trace
     0, // 34 is no longer used
     0, // 35 is no longer used
@@ -1086,14 +1080,6 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_kill_self:
                 CallIO0(this, exitThread);
-                break;
-
-            // This is called from assembly code and doesn't actually have an entry in the
-            // io vector.
-            case POLY_SYS_give_ex_trace_fn:
-                // This calls hr() via buildStackList.
-                CallIO1(this, exceptionToTraceException);
-                // It updates the handler register via set_hr.
                 break;
 
             default:

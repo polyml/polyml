@@ -130,12 +130,10 @@ public:
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length,
                                 StackObject *new_stack, POLYUNSIGNED new_length) = 0;
 
-    // Put these in for the moment.  A few functions in run_time.cpp rely on them.
-    virtual POLYCODEPTR pc(void) const = 0;
-    virtual PolyWord *sp(void) const = 0;
-    virtual PolyWord *hr(void) const = 0;
-    virtual void set_hr(PolyWord *hr) = 0;
+
     virtual POLYUNSIGNED currentStackSpace(void) const = 0;
+    // Add a count to the local function if we are using store profiling.
+    virtual void addAllocationProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
     virtual void PreRTSCall(void) {}

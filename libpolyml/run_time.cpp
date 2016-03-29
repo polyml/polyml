@@ -83,9 +83,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     POLYUNSIGNED words = data_words + 1;
     
     if (profileMode == kProfileStoreAllocation)
-    {
-        add_count(taskData, taskData->pc(), taskData->sp(), words);
-    }
+        taskData->addAllocationProfileCount(words);
 
     PolyWord *foundSpace = processes->FindAllocationSpace(taskData, words, false);
     if (foundSpace == 0)
@@ -315,67 +313,6 @@ Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
         count--;
     }
     return list;
-}
-
-// Build a list of the function names on the stack.
-Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endOfTrace)
-{
-    Handle saved = taskData->saveVec.mark();
-    Handle list = SAVE(ListNull);
-    PolyWord *endStack = taskData->stack->top - 1;
-    if (endOfTrace > endStack) endOfTrace = endStack;
-
-    for (PolyWord *sp = endOfTrace; sp >= startOfTrace; sp--)
-    {
-        PolyWord pc = *sp;
-        MemSpace *space = gMem.SpaceForAddress(pc.AsCodePtr());
-        if (pc.IsCodePtr() && space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT) && sp != taskData->hr())
-        {
-            // A code pointer can be a return address or an exception
-            // handler but if we're producing an exception trace the
-            // only exception handler will be the one for exception
-            // trace itself.
-            PolyObject *ptr = ObjCodePtrToPtr(pc.AsCodePtr());
-            PolyWord *consts = ptr->ConstPtrForCode();
-
-            // The name may be zero if it is anonymous.
-            // We have to be careful that a GC might move the code or the name.
-            // Stack areas are no longer in the ML heap so we don't need to worry
-            // about the stack pointer.
-            Handle functionName =
-                consts[0] == TAGGED(0) ? SAVE(C_string_to_Poly(taskData, "<anon>")) : SAVE(consts[0]);
-            Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
-
-            DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(functionName); 
-            DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
-
-            taskData->saveVec.reset(saved);
-            list = SAVE(DEREFHANDLE(next));
-        }
-    }
-
-    return list;
-}
-
-// Current exception trace.  This creates a special exception packet and
-// raises it so that the ML code can print the trace.
-Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)
-{
-    // p_hr points at a pair of values.  The first word will be the
-    // entry point to the handler i.e. to this code, the second word is
-    // the stack address of the handler to restore.
-    PolyWord *handler = taskData->hr()+1;
-    Handle listHandle = buildStackList(taskData, taskData->sp(), handler);
-    // Construct a pair of the trace list and the exception packet
-    Handle pair = alloc_and_save(taskData, 2);
-    pair->WordP()->Set(0, listHandle->Word());
-    pair->WordP()->Set(1, exnHandle->Word());
-    // Set up the next handler so we don't come back here when we raise
-    // the exception again. */
-    taskData->set_hr((PolyWord*)(handler->AsStackAddr()));
-    // Raise this as an exception.  The handler will be able to
-    // print the trace and reraise the exception.
-    raise_exception(taskData, EXC_extrace, pair);
 }
 
 // Return the address of the iovec entry for a given index.

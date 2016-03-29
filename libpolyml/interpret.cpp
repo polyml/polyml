@@ -142,12 +142,11 @@ public:
     // Set a mutex to one.
     virtual void AtomicReset(Handle mutexp);
 
-    virtual POLYCODEPTR pc(void) const { return p_pc; }
-    virtual PolyWord *sp(void) const { return p_sp; }
-    virtual PolyWord *hr(void) const { return p_hr; }
-    virtual void set_hr(PolyWord *hr) { p_hr = hr; }
-    // Return the minimum space occupied by the stack if we are considering shrinking it.
+    // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->p_sp) + OVERFLOW_STACK_SIZE; }
+
+    virtual void addAllocationProfileCount(POLYUNSIGNED words)
+    { add_count(this, p_pc, p_sp, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
 
@@ -160,12 +159,8 @@ public:
     unsigned        p_lastInstr;
 };
 
-// Special values for return addresses or in the address of an exception handler.
-// In an exception handler SPECIAL_PC_TRACE_EX means trace this exception, as
-// a return address it means exception_trace has returned.
-#define SPECIAL_PC_TRACE_EX_RETURN      TAGGED(0)
+// Special value for return address.
 #define SPECIAL_PC_END_THREAD           TAGGED(1)
-#define SPECIAL_PC_TRACE_EX_FN          TAGGED(2)
 
 class Interpreter : public MachineDependent {
 public:
@@ -633,16 +628,10 @@ int IntTaskData::SwitchToPoly()
                         *sp = (PolyObject*)IoEntry((unsigned)UNTAGGED(*sp));
                         break;
 
-                    case POLY_SYS_exception_trace_fn:
+                    case POLY_SYS_exception_trace_fn: // Backwards compatibility
                         u = *sp; /* Function to call. */
-                        *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
-                        *(--sp) = PolyWord::FromStackAddr(this->p_hr); /* Push old handler */
-                        *(--sp) = SPECIAL_PC_TRACE_EX_FN; /* Marks exception trace. */
-                        *(--sp) = Zero; /* Catch everything. */
-                        this->p_hr = sp; /* Handler is here. */
-                        pc = (SPECIAL_PC_TRACE_EX_RETURN).AsCodePtr(); /* Special return address. */
                         *(--sp) = Zero; /* Unit argument to the function. */
-                        *(--sp) = u; /* Push the procedure. */
+                        *(--sp) = u; /* Push the function. */
                         goto CALL_CLOSURE;
 
                     case POLY_SYS_is_big_endian: {
@@ -868,16 +857,6 @@ int IntTaskData::SwitchToPoly()
                 sp += returnCount; /* Add on number of args. */
                 if (pc == (SPECIAL_PC_END_THREAD).AsCodePtr())
                     exitThread(this); // This thread is exiting.
-                else if (pc == (SPECIAL_PC_TRACE_EX_RETURN).AsCodePtr())
-                {
-                    /* Return from a call to exception_trace when an exception
-                       has not been raised. */
-                    sp += 1;
-                    this->p_hr = (sp[1]).AsStackAddr();
-                    *sp = result;
-                    returnCount = 1;
-                    goto RETURN;
-                }
                 *(--sp) = result; /* Result */
             }
             break;
@@ -900,25 +879,7 @@ int IntTaskData::SwitchToPoly()
                 PolyWord *endStack = this->stack->top;
                 // The legacy version pushes an identifier which is always zero.
                 if (*t == Zero) t++;
-                if (*t == SPECIAL_PC_TRACE_EX_FN)
-                {
-                    // New exception trace
-                    *sp = PolyWord::FromCodePtr(pc); /* So that this function will be included. */
-                    // exceptionToTraceException expects the new format of exception handling that is
-                    // used in the X86 code-generator.  That does not push an exception id.
-                    this->p_hr = t;
-                    Handle marker = this->saveVec.mark();
-                    try {
-                        exceptionToTraceException(this,
-                            this->saveVec.push(this->p_exception_arg));
-                    }
-                    catch (IOException &) {
-                    }
-                    this->saveVec.reset(marker);
-                    // This will have reraised the exception by calling SetException
-                    goto RESTART;
-                }
-                else if (*t == SPECIAL_PC_END_THREAD)
+                if (*t == SPECIAL_PC_END_THREAD)
                     exitThread(this);  // Default handler for thread.
                 this->p_pc = (*t).AsCodePtr();
                 /* Now remove this handler. */
@@ -1929,10 +1890,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO0(this, &full_gc_c);
                 break;
 
-            case POLY_SYS_stack_trace:
-                CallIO0(this, & stack_trace_c);
-                break;
-
             case POLY_SYS_foreign_dispatch:
                 CallIO2(this, &foreign_dispatch_c);
                 break;
@@ -2125,10 +2082,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &unsignedToLongWord);
                 break;
 
-            case POLY_SYS_give_ex_trace_fn:
-                CallIO1(this, exceptionToTraceException);
-                break;
-
             default:
                 Crash("Unknown io operation %d\n", ioFunction);
             }
@@ -2186,7 +2139,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_signed_to_longword, TAGGED(POLY_SYS_signed_to_longword));
     add_word_to_io_area(POLY_SYS_unsigned_to_longword, TAGGED(POLY_SYS_unsigned_to_longword));
     add_word_to_io_area(POLY_SYS_full_gc, TAGGED(POLY_SYS_full_gc));
-    add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));
     add_word_to_io_area(POLY_SYS_equal_short_arb, TAGGED(POLY_SYS_equal_short_arb));
     add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
