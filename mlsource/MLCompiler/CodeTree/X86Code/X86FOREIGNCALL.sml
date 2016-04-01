@@ -142,6 +142,22 @@ struct
             |   (_, 3) => [eax, ebx, r8]
             |   (_, 4) => [eax, ebx, r8, r9]
             |   _ => [eax, ebx, r8, r9, r10]
+            
+        val stackSpace =
+            case abi of
+                X64Unix => memRegSize
+            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
+            |   X86_32 =>
+                let
+                    (* GCC likes to keep the stack on a 16-byte alignment. *)
+                    val argSpace = nArgs*4
+                    val align = argSpace mod 16
+                in
+                    (* Add sufficient space so that esp will be 16-byte aligned *)
+                    if align = 0
+                    then memRegSize
+                    else memRegSize + 16 - align
+                end
 
         val code =
             [
@@ -172,7 +188,7 @@ struct
                 MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 MoveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt (memRegSize+ (case abi of X64Win => 32 | _ => 0))}
+                ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt stackSpace}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
