@@ -389,6 +389,10 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_S390;
     directReloc = R_390_64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_SH)
+    fhdr.e_machine = EM_SH;
+    directReloc = R_SH_DIR32;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_SPARC)
     fhdr.e_machine = EM_SPARC;
     directReloc = R_SPARC_32;
