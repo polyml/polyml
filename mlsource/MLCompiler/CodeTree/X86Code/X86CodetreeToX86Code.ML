@@ -38,10 +38,7 @@ functor X86CodetreeToX86Code(
 
     structure DEBUG: DEBUGSIG
     
-    structure X86FOREIGN:
-    sig
-        val rtsCall2: string * Universal.universal list -> Address.address
-    end
+    structure X86FOREIGN: FOREIGNCALLSIG
 
     sharing X86CODE.Sharing = X86OPTIMISE.Sharing
 ): GENCODESIG =

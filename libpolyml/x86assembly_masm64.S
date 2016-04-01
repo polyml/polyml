@@ -140,7 +140,73 @@ CALL_EXTRA  MACRO   index
     jmp     SaveFullState
 ENDM
 
+#if (0)
+PRERTSCALL MACRO entryName
+; The initial sequence - this is standard for all calls.
+entryName PROC FRAME
+    .PUSHREG rbp                    ; Fake the frame.  It has been set up in X86AsmSwitchToPoly
+    .SETFRAME rbp,0
+    .PUSHREG rbx
+    .PUSHREG r12
+    .PUSHREG r13
+    .PUSHREG r14
+    .PUSHREG r15
+    .PUSHREG rdi
+    .PUSHREG rsi
+    .endprolog
+    mov     r12,[Fr_Argument+rbp]                           ; Load arg into r12 - saved across call
+    mov     qword ptr [Arg_ExceptionPacket+r12],1           ; Clear exception
+    mov     [Arg_LocalMpointer+r12],r15                     ; Save heap pointer
+    mov     r13,rsp                                         ; Save ML stack ptr in r13 - also saved
+    mov     rsp,rbp                                         ; Switch to C stack
+    sub     rsp,Fr_size
+    ; X86-64 Windows calling conventions.
+    mov     rcx,[Arg_ThreadId+r12]                          ; First argument - thread Id
+ENDM
 
+POSTRTSCALL MACRO  entryName,rtsName
+; This is the second part after the arguments have been set up
+    sub     rsp,32                                          ; Create save area
+EXTRN   rtsName:PROC
+    call    rtsName
+    mov     rsp,r13                                         ; Restore the ML stack ptr
+    mov     r15,[Arg_LocalMpointer+r12]                     ; Update heap pointer
+    mov     rdx,[Arg_LocalMbottom+r12]
+    mov     [Fr_LocalMbottom+rbp],rdx                       ; and heap base because we may have GCd
+    cmp     qword ptr [Arg_ExceptionPacket+r12],1
+    jne     rtsraisex
+    ret
+rtsraisex:
+    mov     rax,[Arg_ExceptionPacket+r12]
+    jmp     raisex
+entryName ENDP
+ENDM
+
+CALL_RTS1 MACRO entryName,rtsName
+; Macro to call a function with a single argument.  The RTS function is called with two
+; arguments, the first being the thread ID.  That can be used to find the taskData pointer.
+    PRERTSCALL entryName
+    mov     rdx,rax                                         ; Second argument
+    POSTRTSCALL entryName,rtsName
+ENDM
+
+CALL_RTS2 MACRO entryName,rtsName
+; Macro to call a function with two arguments.
+    PRERTSCALL entryName
+    mov     rdx,rax                                         ; Second argument
+    mov     r8,rbx
+    POSTRTSCALL entryName,rtsName
+ENDM
+
+CALL_RTS3 MACRO entryName,rtsName
+; Macro to call a function with three arguments.
+    PRERTSCALL entryName
+    mov     rdx,rax                                         ; Second argument
+    mov     r9,r8                                           ; Fourth argument
+    mov     r8,rbx                                          ; Third argument
+    POSTRTSCALL entryName,rtsName
+ENDM
+#endif
 
 ; Load the registers from the ML stack and jump to the code.
 ; This is used to start ML code.
@@ -382,30 +448,30 @@ move_bytes:
  ; (source, sourc_offset, destination, dest_offset, length)
 
  ; Assume that the offsets and length are all short integers.
-            mov     rdi,r8
-            mov     rcx,r9
-            shr     rcx,TAGSHIFT
-            add     rdi,rcx
-            mov     rsi,rax
-            shr     rbx,TAGSHIFT
-            add     rsi,rbx
-            mov     rcx,r10
-            shr     rcx,TAGSHIFT
+    mov     rdi,r8
+    mov     rcx,r9
+    shr     rcx,TAGSHIFT
+    add     rdi,rcx
+    mov     rsi,rax
+    shr     rbx,TAGSHIFT
+    add     rsi,rbx
+    mov     rcx,r10
+    shr     rcx,TAGSHIFT
     cld                             ; Default to increment rdi,rsi
-            cmp     rsi,rdi
+    cmp     rsi,rdi
  ; If dest > src then use decrementing moves else
  ; use incrementing moves.
     ja      mvb1
     std                             ; Decrement rdi,rsi
-            lea     rsi,(-1)[rsi+rcx]
-            lea     rdi,(-1)[rdi+rcx]
+    lea     rsi,(-1)[rsi+rcx]
+    lea     rdi,(-1)[rdi+rcx]
 mvb1:
     rep movsb                       ; Copy the bytes
-            mov     rax,1
-            mov     rbx,rax
-            mov     rcx,rax
-            mov     rdi,rax
-            mov     rsi,rax
+    mov     rax,1
+    mov     rbx,rax
+    mov     rcx,rax
+    mov     rdi,rax
+    mov     rsi,rax
  ; Visual Studio 5 C++ seems to assume that the direction flag
  ; is cleared.  I think that`s a bug but we have to go along with it.
     cld
@@ -430,15 +496,15 @@ move_words:
     ja      mvw1
     std                             ; Decrement rdi,rsi
 
-            lea     rsi,(-POLYWORDSIZE)[rsi+rcx*POLYWORDSIZE]
-            lea     rdi,(-POLYWORDSIZE)[rdi+rcx*POLYWORDSIZE]
+    lea     rsi,(-POLYWORDSIZE)[rsi+rcx*POLYWORDSIZE]
+    lea     rdi,(-POLYWORDSIZE)[rdi+rcx*POLYWORDSIZE]
 
 mvw1:
     rep movsq                       ; Copy the words
-            mov     rax,1
-            mov     rcx,rax
-            mov     rdi,rax
-            mov     rsi,rax
+    mov     rax,1
+    mov     rcx,rax
+    mov     rdi,rax
+    mov     rsi,rax
  ; Visual Studio 5 C++ seems to assume that the direction flag
  ; is cleared.  I think that`s a bug but we have to go along with it.
     cld
@@ -828,7 +894,7 @@ quotrem_really_long:
     mov     rdi,rax
     CALL_IO    POLY_SYS_quotrem
 
-; TODO: Isn't this byte equality?
+; TODO: Isn't this byte equality? N.B. Also require the "negative" bits to be the same.
 PUBLIC  equal_long
 equal_long:
     cmp     rbx,rax

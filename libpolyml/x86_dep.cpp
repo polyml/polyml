@@ -1864,6 +1864,40 @@ void X86TaskData::AtomicReset(Handle mutexp)
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
 }
 
+extern "C" {
+    POLYUNSIGNED PolyTest0();
+    POLYUNSIGNED PolyTest1(PolyWord arg1);
+    POLYUNSIGNED PolyTest2(PolyWord arg1, PolyWord arg2);
+    POLYUNSIGNED PolyTest3(PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    POLYUNSIGNED PolyTest4(PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4);
+}
+
+POLYUNSIGNED PolyTest0()
+{
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
+POLYUNSIGNED PolyTest1(PolyWord arg1)
+{
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
+POLYUNSIGNED PolyTest2(PolyWord arg1, PolyWord arg2)
+{
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
+POLYUNSIGNED PolyTest3(PolyWord arg1, PolyWord arg2, PolyWord arg3)
+{
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
+POLYUNSIGNED PolyTest4(PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4)
+{
+    return TAGGED(0).AsUnsigned(); // Result is unit
+}
+
+
 static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;

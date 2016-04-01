@@ -1519,12 +1519,6 @@ Handle equal_longc(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
-Handle not_equal_longc(TaskData *taskData, Handle y, Handle x)
-{
-    bool c = compareLong(taskData, y, x) != 0;
-    return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
-}
-
 Handle gt_longc(TaskData *taskData, Handle y, Handle x)
 {
     bool c = (compareLong(taskData, y, x) == 1);
@@ -1747,4 +1741,204 @@ Handle lcm_arbitrary(TaskData *taskData, Handle x, Handle y)
     return mult_longc(taskData, x, div_longc(taskData, g, y));
 }
 
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    DLLEXPORT POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+}
+
+POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        // Could raise an exception if out of memory.
+        result = add_longc(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        result = sub_longc(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        result = mult_longc(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        // May raise divide exception
+        result = div_longc(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        result = rem_longc(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle pushedArg3 = taskData->saveVec.push(arg3);
+
+    try {
+        quot_rem_c(taskData, pushedArg3, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return 0; // Result is unit
+}
+
+POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    int result = 0;
+
+    try {
+        result = compareLong(taskData, pushedArg2, pushedArg1);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    return result;
+}
+
+POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        result = gcd_arbitrary(taskData, pushedArg2, pushedArg1);
+        // Generally shouldn't raise an exception but might run out of store.
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+
+    try {
+        result = lcm_arbitrary(taskData, pushedArg2, pushedArg1);
+        // Generally shouldn't raise an exception but might run out of store.
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
 

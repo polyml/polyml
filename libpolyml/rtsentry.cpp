@@ -47,10 +47,26 @@
 #include "processes.h"
 #include "run_time.h"
 #include "globals.h"
+#include "arb.h"
 
 extern "C" {
     POLYUNSIGNED PolyChDir();
     POLYUNSIGNED PolyFinish();
+    POLYUNSIGNED PolyAddArbitrary();
+    POLYUNSIGNED PolySubtractArbitrary();
+    POLYUNSIGNED PolyMultiplyArbitrary();
+    POLYUNSIGNED PolyDivideArbitrary();
+    POLYUNSIGNED PolyRemainderArbitrary();
+    POLYUNSIGNED PolyQuotRemArbitrary();
+    POLYUNSIGNED PolyCompareArbitrary();
+    POLYUNSIGNED PolyGCDArbitrary();
+    POLYUNSIGNED PolyGCDArbitrary();
+    POLYUNSIGNED PolyLCMArbitrary();
+    POLYUNSIGNED PolyTest0();
+    POLYUNSIGNED PolyTest1();
+    POLYUNSIGNED PolyTest2();
+    POLYUNSIGNED PolyTest3();
+    POLYUNSIGNED PolyTest4();
 }
 
 static struct _entrypts {
@@ -59,7 +75,21 @@ static struct _entrypts {
 } entryPtTable[] =
 {
     { "PolyChDir", &PolyChDir},
-    { "PolyFinish", &PolyFinish}
+    { "PolyFinish", &PolyFinish},
+    { "PolyAddArbitrary", &PolyAddArbitrary},
+    { "PolySubtractArbitrary", &PolySubtractArbitrary},
+    { "PolyMultiplyArbitrary", &PolyMultiplyArbitrary},
+    { "PolyDivideArbitrary", &PolyDivideArbitrary},
+    { "PolyRemainderArbitrary", &PolyRemainderArbitrary},
+    { "PolyQuotRemArbitrary", &PolyQuotRemArbitrary},
+    { "PolyCompareArbitrary", &PolyCompareArbitrary},
+    { "PolyGCDArbitrary", &PolyGCDArbitrary},
+    { "PolyLCMArbitrary", &PolyLCMArbitrary},
+    { "PolyTest0", &PolyTest0},
+    { "PolyTest1", &PolyTest1},
+    { "PolyTest2", &PolyTest2},
+    { "PolyTest3", &PolyTest3},
+    { "PolyTest4", &PolyTest4}
 };
 
 // Find an entry point in the table.  We could use the system to find these because

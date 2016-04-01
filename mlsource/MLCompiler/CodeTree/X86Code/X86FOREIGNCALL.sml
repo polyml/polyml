@@ -37,10 +37,7 @@ functor X86FOREIGNCALL(
     structure DEBUG: DEBUGSIG
 
     sharing X86CODE.Sharing = X86OPTIMISE.Sharing
-):
-sig
-    val rtsCall2: string * Universal.universal list -> Address.address
-end
+): FOREIGNCALLSIG
 =
 struct
     open X86CODE
@@ -81,14 +78,20 @@ struct
         toMachineWord entryPt
     end
 
-    fun rtsCall2(functionName, debugSwitches) =
-    let
-        val entryPointAddr = createWeakEntryPoint()
+    local
         val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+    in
         (* Find the address of the function to get the entry point. *)
         val getEntryPoint = ioOp RuntimeCalls.POLY_SYS_get_entry_point
-        
-        datatype abi = X86_32 | X64Win | X64Unix
+    end
+
+    datatype abi = X86_32 | X64Win | X64Unix
+
+    val noException = 1
+
+    fun rtsCall (functionName, nArgs, debugSwitches) =
+    let
+        val entryPointAddr = createWeakEntryPoint()
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
@@ -97,8 +100,6 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        val noException = 1
-        
         (* Branch to check for address *)
         val (checkAddr, addrLabel) = condBranch(JNE, PredictTaken)
 
@@ -106,7 +107,7 @@ struct
         val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
         
         (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
-           The rest are on the stack.
+                      The rest are on the stack.
            Windows X64. The first four arguments are in rcx, rdx, r8 and r9.  The rest are
                        on the stack.  The caller must ensure the stack is aligned on 16-byte boundary
                        and must allocate 32-byte save area for the register args.
@@ -114,6 +115,8 @@ struct
            X86/32.  Arguments are pushed to the stack.
                    ebx, edi, esi, ebp and esp are saved by the called function.
                    We use esi to hold the argument data pointer and edi to save the ML stack pointer
+           Our ML conventions use eax, ebx for the first two arguments in X86/32 and
+                   rax, ebx, r8, r9, r10 for the first five arguments in X86/64.
         *)
         
         (* This is a pointer to data that the RTS provides on entry.  Fields
@@ -126,21 +129,36 @@ struct
            that isn't used for an argument. *)
         val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r12, r13) else (ecx, esi, edi)
+        
+        (* If we have to get the entry point address we need to save the registers
+           that contained the original arguments.  How many depends on whether this is
+           32-bit or 64-bit. *)
+        val regsToSave =
+            case (abi, nArgs) of
+                (_, 0) => []
+            |   (_, 1) => [eax]
+            |   (_, 2) => [eax, ebx]
+            |   (X86_32, _) => [eax, ebx]
+            |   (_, 3) => [eax, ebx, r8]
+            |   (_, 4) => [eax, ebx, r8, r9]
+            |   _ => [eax, ebx, r8, r9, r10]
 
         val code =
             [
                 MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 ArithRConst{opc=CMP, output=entryPtrReg, source=0},(* Has it been set? *)
-                checkAddr,
-                PushR eax, PushR ebx, (* Save original arguments.  Also r8/r9/r10 if necessary. *)
+                checkAddr
+            ] @ map PushR regsToSave @
+            [
                 MoveLongConstR{source=toMachineWord functionName, output=eax},
                 CallFunction(ConstantClosure getEntryPoint),
                 MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Reload the ref. *)
                 loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
                 StoreRegToMemory { toStore=eax, address=BaseOffset{base=entryPtrReg, offset=0, index=NoIndex} }, (* Save into ref. *)
-                MoveRR{source=eax, output=entryPtrReg}, (* Move to the call address register. *)
-                PopR ebx, PopR eax,
+                MoveRR{source=eax, output=entryPtrReg} (* Move to the call address register. *)
+            ] @ map PopR (List.rev regsToSave) @
+            [
                 JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
                 loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
                 StoreConstToMemory{toStore=noException, address=BaseOffset{base=argPtrReg, offset=argExceptionPacket, index=NoIndex}} (* Clear exception *)
@@ -152,18 +170,42 @@ struct
             ) @
             [
                 MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                MoveRR{source=ebp, output=esp}, ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt memRegSize}
+                MoveRR{source=ebp, output=esp},
+                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt (memRegSize+ (case abi of X64Win => 32 | _ => 0))}
             ] @
             (
-                case abi of  (* Set the argument registers. *)
-                    X64Unix => 
-                        [ MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi}]
-                |   X64Win => (* Windows requires a 32-byte save area *)
+                case (abi, nArgs) of  (* Set the argument registers. *)
+                    (_, 0) => []
+                |   (X64Unix, 1) => [ MoveRR{source=eax, output=edi} ]
+                |   (X64Unix, 2) =>
+                        [ MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi} ]
+                |   (X64Unix, 3) => 
+                        [ MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi}, MoveRR{source=r8, output=edx} ]
+                |   (X64Unix, 4) => 
+                        [ MoveRR{source=eax, output=edi}, MoveRR{source=ebx, output=esi}, MoveRR{source=r8, output=edx}, MoveRR{source=r9, output=ecx} ]
+                |   (X64Win, 1) => [ MoveRR{source=eax, output=ecx} ]
+                |   (X64Win, 2) => [ MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx} ]
+                |   (X64Win, 3) =>
+                        [ MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx} (* Arg3 is already in r8. *) ]
+                |   (X64Win, 4) =>
+                        [ MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx} (* Arg3 is already in r8 and arg4 in r9. *) ]
+                        (* TODO: We should at a minimum maintain an 8-byte alignment.  GCC like a 16-byte alignment. *)
+                |   (X86_32, 1) => [ PushR eax ]
+                |   (X86_32, 2) => [ PushR ebx, PushR eax ]
+                |   (X86_32, 3) =>
                         [
-                            MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx}, (* Set the argument registers. *)
-                            ArithRConst{ opc=SUB, output=esp, source=32} (* Allocate 32 byte save area *)
+                            (* We need to move an argument from the ML stack. *)
+                            loadMemory(edx, saveMLStackPtrReg, 4), PushR edx, PushR ebx, PushR eax
                         ]
-                |   X86_32 => [ PushR ebx, PushR eax ]
+                |   (X86_32, 4) =>
+                        [
+                            (* We need to move an arguments from the ML stack. *)
+                            loadMemory(edx, saveMLStackPtrReg, 4), PushR edx,
+                            loadMemory(edx, saveMLStackPtrReg, 8), PushR edx,
+                            PushR ebx, PushR eax
+                        ]
+                |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
             ) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
@@ -176,7 +218,9 @@ struct
             [
                 loadMemory(edx, argPtrReg, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr *)
                 ArithMemConst{opc=CMP, offset=argExceptionPacket, base=argPtrReg, source=noException},
-                checkExc, ReturnFromFunction 0, (* Check for exception and return if not. *)
+                checkExc,
+                (* Remove any arguments that have been passed on the stack. *)
+                ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
                 loadMemory(eax, argPtrReg, argExceptionPacket),
                 RaiseException
@@ -193,5 +237,4 @@ struct
         lock closure;
         closure
     end
-
 end;

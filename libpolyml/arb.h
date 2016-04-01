@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further modification Copyright 2015 David C. J. Matthews
+    Further modification Copyright 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -59,7 +59,6 @@ extern Handle xor_longc(TaskData *taskData, Handle,Handle);
 extern Handle neg_longc(TaskData *taskData, Handle);
 
 extern Handle equal_longc(TaskData *taskData, Handle y, Handle x);
-extern Handle not_equal_longc(TaskData *taskData, Handle y, Handle x);
 extern Handle gt_longc(TaskData *taskData, Handle y, Handle x);
 extern Handle ls_longc(TaskData *taskData, Handle y, Handle x);
 extern Handle ge_longc(TaskData *taskData, Handle y, Handle x);

@@ -374,10 +374,10 @@ struct
             (* [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                tagInject assemblyCodeTag true] *)
  
-            fun makeCall2 entryName = CODETREE.Foreign.rtsCall2(entryName, debugOpts)
+            fun makeCall n entryName = CODETREE.Foreign.rtsCall(entryName, n, debugOpts)
             (* We need to wrap this so that the arguments are passed in registers. *)
 
-            fun makeRunCallTupled (width:int) : codetree =
+            fun makeRunCallTupled (width:int, callN) : codetree =
             let
                 val name = "rtsCall" ^ Int.toString width;
 
@@ -391,7 +391,7 @@ struct
 
                 local
                     (* The closure contains the address of the RTS call. *)
-                    val f = mkEval(mkConst(toMachineWord makeCall2), [mkLoadArgument 0])
+                    val f = mkEval(mkConst callN, [mkLoadArgument 0])
                     val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
                 in
                     val outerBody = mkEnv([mkDec (0, f)], innerLambda)
@@ -401,17 +401,78 @@ struct
             in
                 outerLambda
             end
+
+            (* Versions that return the results in a container i.e. a tuple on the stack.
+               Currently this is only used for quotrem. *)
+            fun makeRunCallTupledWithContainer (width:int, containerWidth, callN) : codetree =
+            let 
+                val name =
+                    String.concat["run_call", Int.toString width, "C", Int.toString containerWidth]
+                
+                val innerLambda : codetree =
+                let
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
+                    val ca = 0 (* Address of container *)
+                    val args  =
+                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal ca]
+                in
+                    mkInlproc(
+                        mkEnv([mkContainer(ca, containerWidth, mkEval (f, args))],
+                              mkTupleFromContainer(ca, containerWidth)),
+                        1, name ^ "(1)", [mkLoadLocal 0], 1)
+                end
+
+                val outerLambda =
+                let
+                    val f = mkEval(mkConst callN, [mkLoadArgument 0])
+                in
+                    mkInlproc(mkEnv([mkDec (0, f)], innerLambda), 1, name, [], 1)
+                end
+            in
+                outerLambda
+            end
+
+            local
+                val a = makeTV ()
+                and b = makeTV ()
+                val name = "rtsCall1"
+                val n = mkLoadArgument 0                 (* the outer parameter *)
+                val call1 = toMachineWord(makeCall 1)
+                val body = mkEval(mkConst call1, [mkLoadArgument 0])
+            in
+                val rtsCall1Entry = makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
+            end
             
             local
                 val a = makeTV ()
-                val b = makeTV ()
-                val c = makeTV ()
+                and b = makeTV ()
+                and c = makeTV ()
+                and d = makeTV ()
+                and e = makeTV ()
             in
-                val rtsCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled 2)
+                val rtsCall0Entry = makePolymorphic([a], makeRunCallTupled(0, toMachineWord(makeCall 0)))
+                val rtsCall0Type = String ->> Unit ->> a
+ 
+                val rtsCall1Type = String ->> a ->> b
+
+                val rtsCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled(2, toMachineWord(makeCall 2)))
                 val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
+                val rtsCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled(3, toMachineWord(makeCall 3)))
+                val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
+                val rtsCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled(4, toMachineWord(makeCall 4)))
+                val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
+                val rtsCall3C2Entry =
+                    makePolymorphic([a, b, c, d, e], makeRunCallTupledWithContainer(3, 2, toMachineWord(makeCall 4)))
+                val rtsCall3C2Type = String ->> TYPETREE.mkProductType [a,b,c] ->> TYPETREE.mkProductType [d,e]
             end
         in
+            val () = enterRunCall ("rtsCall0", rtsCall0Entry, rtsCall0Type)
+            val () = enterRunCall ("rtsCall1", rtsCall1Entry, rtsCall1Type)
             val () = enterRunCall ("rtsCall2", rtsCall2Entry, rtsCall2Type)
+            val () = enterRunCall ("rtsCall3", rtsCall3Entry, rtsCall3Type)
+            val () = enterRunCall ("rtsCall4", rtsCall4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCall3C2", rtsCall3C2Entry, rtsCall3C2Type)
         end
 
         local
