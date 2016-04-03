@@ -67,22 +67,13 @@ struct
         toMachineWord profileObject
     end
     
-    fun createWeakEntryPoint () =
-    let
-        (* We hold the entry point in a weak mutable byte cell.  It is cleared to zero when the
-           code is loaded.  The first time it is referenced it is set by a call to
-           get_entry_point.  The result is then cached for the remainder of the session. *)
-        open Address
-        val entryPt = alloc(0w1, List.foldl Word8.orb 0w0 [F_mutable, F_bytes, F_weak], toMachineWord 0w0)
-    in
-        toMachineWord entryPt
-    end
-
     local
         val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
     in
         (* Find the address of the function to get the entry point. *)
-        val getEntryPoint = ioOp RuntimeCalls.POLY_SYS_get_entry_point
+        val getEntryPointAddr = ioOp RuntimeCalls.POLY_SYS_get_entry_point
+        val getEntryPoint: string * int -> machineWord =
+            RunCall.run_call2 RuntimeCalls.POLY_SYS_get_entry_point
     end
 
     datatype abi = X86_32 | X64Win | X64Unix
@@ -91,7 +82,7 @@ struct
 
     fun rtsCall (functionName, nArgs, debugSwitches) =
     let
-        val entryPointAddr = createWeakEntryPoint()
+        val entryPointAddr = getEntryPoint(functionName, 0)
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
@@ -168,11 +159,9 @@ struct
             ] @ map PushR regsToSave @
             [
                 MoveLongConstR{source=toMachineWord functionName, output=eax},
-                CallFunction(ConstantClosure getEntryPoint),
-                MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Reload the ref. *)
-                loadMemory(eax, eax, 0), (* Extract the value from the large word. *)
-                StoreRegToMemory { toStore=eax, address=BaseOffset{base=entryPtrReg, offset=0, index=NoIndex} }, (* Save into ref. *)
-                MoveRR{source=eax, output=entryPtrReg} (* Move to the call address register. *)
+                MoveLongConstR{source=entryPointAddr, output=ebx},
+                CallFunction(ConstantClosure getEntryPointAddr),
+                loadMemory(entryPtrReg, eax, 0) (* Extract the value from the result. *)
             ] @ map PopR (List.rev regsToSave) @
             [
                 JumpLabel addrLabel, (* Label to skip to if addr has been set. *)

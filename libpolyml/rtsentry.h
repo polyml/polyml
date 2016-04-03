@@ -25,6 +25,6 @@ class TaskData;
 
 typedef SaveVecEntry *Handle;
 
-extern Handle getEntryPoint(TaskData *taskData, Handle arg);
+extern Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH);
 
 #endif

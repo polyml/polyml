@@ -911,7 +911,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_get_entry_point:
-                CallIO1(this, &getEntryPoint);
+                CallIO2(this, &getEntryPoint);
                 break;
 
             case POLY_SYS_profiler:

@@ -94,15 +94,27 @@ static struct _entrypts {
 
 // Find an entry point in the table.  We could use the system to find these because
 // each entry is a system entry point but we need the table to do the reverse lookup.
-Handle getEntryPoint(TaskData *taskData, Handle arg)
+// This is currently called in two different cases.
+// When the code is created it is called with nil as the ref argument and a new
+// reference is made.
+// When the code is executed it checks to see if the first word of the ref is
+// zero and calls this function if it is in order to set the value.  Because the
+// ref is weak it may have been cleared as part of the loading process.
+Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH)
 {
-    TempCString entryName(Poly_string_to_C_alloc(arg->WordP()));
+    TempCString entryName(Poly_string_to_C_alloc(entryH->WordP()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
     for (unsigned i = 0; i < sizeof(entryPtTable)/sizeof(entryPtTable[0]); i++)
     {
         if (strcmp(entryName, entryPtTable[i].name) == 0)
-            return Make_sysword(taskData, (uintptr_t)entryPtTable[i].entry);
+        {
+            Handle resultH = refH;
+            if (resultH->Word() == TAGGED(0))
+                resultH = alloc_and_save(taskData, 1, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT);
+            *(uintptr_t*)(resultH->Word().AsCodePtr()) = (uintptr_t)entryPtTable[i].entry;
+            return resultH;
+        }
     }
     raise_fail(taskData, "entry point not found");
 }
