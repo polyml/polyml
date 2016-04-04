@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
