@@ -2,12 +2,11 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -135,6 +134,15 @@ enum {
     // Finally the symbol table
 };
 
+// Add an external reference to the RTS
+void ELFExport::addExternalReference(void *relocAddr, const char *name)
+{
+    size_t index = externTable.size();
+    externTable.push_back(name);
+    // The symbol is added after the memory table entries and poly_exports
+    writeRelocation(0, relocAddr, AreaToSym(memTableEntries) + 1 + index);
+}
+
 // Generate the address relative to the start of the segment.
 void ELFExport::setRelocationAddress(void *p, ElfXX_Addr *reloc)
 {
@@ -149,20 +157,24 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+    return writeRelocation(offset, relocAddr, AreaToSym(addrArea));
+}
 
+PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum)
+{
     if (useRela)
     {
         ElfXX_Rela reloc;
         // Set the offset within the section we're scanning.
         setRelocationAddress(relocAddr, &reloc.r_offset);
 #ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_sym = symbolNum;
         reloc.r_ssym = 0;
         reloc.r_type = directReloc;
         reloc.r_type2 = 0;
         reloc.r_type3 = 0;
 #else
-        reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+        reloc.r_info = ELFXX_R_INFO(symbolNum, directReloc);
 #endif
         reloc.r_addend = offset;
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -173,13 +185,13 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
         ElfXX_Rel reloc;
         setRelocationAddress(relocAddr, &reloc.r_offset);
 #ifdef HOSTARCHITECTURE_MIPS64
-        reloc.r_sym = AreaToSym(addrArea);
+        reloc.r_sym = symbolNum;
         reloc.r_ssym = 0;
         reloc.r_type = directReloc;
         reloc.r_type2 = 0;
         reloc.r_type3 = 0;
 #else
-        reloc.r_info = ELFXX_R_INFO(AreaToSym(addrArea), directReloc);
+        reloc.r_info = ELFXX_R_INFO(symbolNum, directReloc);
 #endif
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
@@ -562,63 +574,6 @@ void ELFExport::exportStore(void)
     // sections[sect_symtab].sh_size is set later
     // sections[sect_symtab].sh_offset is set later
 
-    // First the symbol table.
-    alignFile(sections[sect_symtab].sh_addralign);
-    sections[sect_symtab].sh_offset = ftell(exportFile);
-    writeSymbol("", 0, 0, 0, 0, 0); // Initial symbol
-    // Write the local symbols first.
-    writeSymbol("", 0, 0, STB_LOCAL, STT_SECTION, sect_data); // .data section
-
-    // Create symbols for the address areas.  AreaToSym assumes these come first.
-    for (i = 0; i < memTableEntries; i++)
-    {
-        unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
-        if (i == ioMemEntry)
-            writeSymbol("ioarea", 0, 0, STB_LOCAL, STT_OBJECT, s);
-        else {
-            char buff[50];
-            sprintf(buff, "area%1u", i);
-            writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, s);
-        }
-    }
-
-    // Extra symbols to help debugging.
-    for (i = 0; i < memTableEntries; i++)
-    {
-        if (i != ioMemEntry)
-        {
-            unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
-            char buff[50];
-            // Write the names of the functions as local symbols.  This isn't necessary
-            // but it makes debugging easier since the function names appear in gdb.
-            char *start = (char*)memTable[i].mtAddr;
-            char *end = start + memTable[i].mtLength;
-            for (p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                if (length != 0 && obj->IsCodeObject())
-                {
-                    PolyWord *name = obj->ConstPtrForCode();
-                    // Copy as much of the name as will fit and ignore any extra.
-                    // Do we need to worry about duplicates?
-                    (void)Poly_string_to_C(*name, buff, sizeof(buff));
-                    writeSymbol(buff, ((char*)p - start), 0, STB_LOCAL, STT_OBJECT, s);
-                }
-                p += length;
-            }
-        }
-    }
-
-    // Global symbols - Just one: poly_exports
-    writeSymbol("poly_exports", 0, 
-        sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries,
-        STB_GLOBAL, STT_OBJECT, sect_table_data);
-
-    sections[sect_symtab].sh_info = symbolCount-1; // One more than last local sym
-    sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolCount;
-
     // Write the relocations.
 
     for (i = 0; i < memTableEntries; i++)
@@ -661,7 +616,7 @@ void ELFExport::exportStore(void)
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
     POLYSIGNED memTableOffset = (POLYSIGNED)sizeof(exportDescription); // It follows immediately after this.
-    createStructsRelocation(symbolCount-1 /* Last symbol */, offsetof(exportDescription, memTable), memTableOffset);
+    createStructsRelocation(AreaToSym(memTableEntries), offsetof(exportDescription, memTable), memTableOffset);
 
     // Address of "rootFunction" within "exports"
     unsigned rootAddrArea = findArea(rootFunction);
@@ -679,7 +634,38 @@ void ELFExport::exportStore(void)
     sections[sect_table_data+1].sh_size =
         relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
 
-    // Now the binary data.
+    // Now the symbol table.
+    alignFile(sections[sect_symtab].sh_addralign);
+    sections[sect_symtab].sh_offset = ftell(exportFile);
+    writeSymbol("", 0, 0, 0, 0, 0); // Initial symbol
+    // Write the local symbols first.
+    writeSymbol("", 0, 0, STB_LOCAL, STT_SECTION, sect_data); // .data section
+
+    // Create symbols for the address areas.  AreaToSym assumes these come first.
+    for (i = 0; i < memTableEntries; i++)
+    {
+        unsigned s = sect_data + i*2 - (i > ioMemEntry ? 1 : 0);
+        if (i == ioMemEntry)
+            writeSymbol("ioarea", 0, 0, STB_LOCAL, STT_OBJECT, s);
+        else {
+            char buff[50];
+            sprintf(buff, "area%1u", i);
+            writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, s);
+        }
+    }
+    unsigned localSymbols = symbolCount;
+
+    // Global symbols - Exported symbol for table.
+    writeSymbol("poly_exports", 0, 
+        sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries,
+        STB_GLOBAL, STT_OBJECT, sect_table_data);
+ 
+    // External references
+    for (std::vector<const char *>::const_iterator i = externTable.begin(); i != externTable.end(); i++)
+        writeSymbol(*i, 0, 0, STB_GLOBAL, STT_FUNC, SHN_UNDEF);
+
+    sections[sect_symtab].sh_info = localSymbols; // One more than last local sym
+    sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolCount;
 
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)

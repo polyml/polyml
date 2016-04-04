@@ -2,13 +2,12 @@
     Title:     Export memory as an ELF object file
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2016 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -35,6 +34,8 @@
 #ifdef HAVE_ELF_ABI_H
 #include <elf_abi.h>
 #endif
+
+#include <vector>
 
 // Select 32 or 64 bit version depending on the word length
 #if (SIZEOF_VOIDP == 8)
@@ -106,10 +107,12 @@ private:
     virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void addExternalReference(void *addr, const char *name);
 
 private:
     void setRelocationAddress(void *p, ElfXX_Addr *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
+    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum);
     void writeSymbol(const char *symbolName, long value, long size, int binding, int sttype, int section);
     unsigned long makeStringTableEntry(const char *str, ExportStringTable *stab);
     void alignFile(int align);
@@ -121,7 +124,9 @@ private:
     // There are two tables - one is used for section names, the other for symbol names.
     ExportStringTable symStrings, sectionStrings;
     unsigned directReloc;
-    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel    TaskData *taskData; // Needed for exceptions.
+    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
+    // Table of external references.
+    std::vector<const char *> externTable;
 };
 
 #endif
