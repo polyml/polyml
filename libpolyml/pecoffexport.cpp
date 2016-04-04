@@ -77,6 +77,19 @@
 #define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
 #endif
 
+void PECOFFExport::addExternalReference(void *relocAddr, const char *name)
+{
+    size_t index = externTable.size();
+    externTable.push_back(name);
+    IMAGE_RELOCATION reloc;
+    // Set the offset within the section we're scanning.
+    setRelocationAddress(relocAddr, &reloc.VirtualAddress);
+    // The symbol is added after the memory table entries and "poly_exports".
+    reloc.SymbolTableIndex = (DWORD)(memTableEntries+1 + index);
+    reloc.Type = DIRECT_WORD_RELOCATION;
+    fwrite(&reloc, sizeof(reloc), 1, exportFile);
+    relocationCount++;
+}
 
 // Generate the address relative to the start of the segment.
 void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
@@ -102,21 +115,34 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     return PolyWord::FromUnsigned(offset);
 }
 
-void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern)
+#ifdef POLY_LINKAGE_PREFIX
+#define PLTOSTRING1(x) #x
+#define PLTOSTRING(x) PLTOSTRING1(x)
+#define POLY_PREFIX_STRING PLTOSTRING(POLY_LINKAGE_PREFIX)
+#else
+#define POLY_PREFIX_STRING ""
+#endif
+
+void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern, int symType)
 {
+    // On X86/32 we have to add an underscore to external symbols
+    TempCString fullSymbol;
+    fullSymbol = (char*)malloc(strlen(POLY_PREFIX_STRING) + strlen(symbolName) + 1);
+    if (fullSymbol == 0) throw MemoryException();
+    sprintf(fullSymbol, "%s%s", POLY_PREFIX_STRING, symbolName);
     IMAGE_SYMBOL symbol;
     memset(&symbol, 0, sizeof(symbol)); // Zero the unused part of the string
     // Short symbol names go in the entry, longer ones go in the string table.
-    if (strlen(symbolName) <= 8)
-        strcpy((char*)symbol.N.ShortName, symbolName);
+    if (strlen(fullSymbol) <= 8)
+        strcat((char*)symbol.N.ShortName, fullSymbol);
     else {
         symbol.N.Name.Short = 0;
         // We have to add 4 bytes because the first word written to the file is a length word.
-        symbol.N.Name.Long = stringTable.makeEntry(symbolName) + sizeof(unsigned);
+        symbol.N.Name.Long = stringTable.makeEntry(fullSymbol) + sizeof(unsigned);
     }
     symbol.Value = value;
     symbol.SectionNumber = section;
-    symbol.Type = IMAGE_SYM_TYPE_NULL;
+    symbol.Type = symType;
     symbol.StorageClass = isExtern ? IMAGE_SYM_CLASS_EXTERNAL : IMAGE_SYM_CLASS_STATIC;
     fwrite(&symbol, sizeof(symbol), 1, exportFile);
     symbolCount++;
@@ -363,14 +389,9 @@ void PECOFFExport::exportStore(void)
         }
     }
     // This is the only "real" symbol.
-    // Add an underscore prefix if required.
-#ifdef POLY_LINKAGE_PREFIX
-#define PLTOSTRING1(x) #x
-#define PLTOSTRING(x) PLTOSTRING1(x)
-    writeSymbol(PLTOSTRING(POLY_LINKAGE_PREFIX) "poly_exports", 0, memTableEntries+1, true);
-#else
     writeSymbol("poly_exports", 0, memTableEntries+1, true);
-#endif
+    for (std::vector<const char *>::const_iterator i = externTable.begin(); i != externTable.end(); i++)
+        writeSymbol(*i, 0, 0, true, 0x20);
 
     fhdr.NumberOfSymbols = symbolCount;
 

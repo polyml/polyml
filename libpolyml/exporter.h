@@ -46,12 +46,14 @@ public:
     // Called by the root thread to do the work.
     void RunExport(PolyObject *rootFunction);
 
+
 protected:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) = 0;
     void relocateValue(PolyWord *pt);
     void relocateObject(PolyObject *p);
     void createRelocation(PolyWord *pt) { *pt = createRelocation(*pt, pt); }
     unsigned findArea(void *p); // Find index of area that address is in.
+    virtual void addExternalReference(void *p, const char *entryPoint) {}
 
 public:
     FILE     *exportFile;
@@ -109,14 +111,6 @@ public:
 
     GraveYard *graveYard;
     unsigned tombs;
-};
-
-class ClearWeakByteRef: public ScanAddress
-{
-public:
-    ClearWeakByteRef() {}
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
 };
 
 #endif

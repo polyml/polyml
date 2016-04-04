@@ -723,6 +723,23 @@ void StateLoader::Perform(void)
     }
 }
 
+class ClearWeakByteRef: public ScanAddress
+{
+public:
+    ClearWeakByteRef() {}
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+};
+
+// Used to clear weak byte refs when they are loaded from a saved state.
+void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+{
+    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
+    {
+        memset(base, 0, base->Length() * sizeof(PolyWord));
+    }
+}
+
 // This class is used to relocate addresses in areas that have been loaded.
 class LoadRelocate
 {

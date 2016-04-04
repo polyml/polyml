@@ -26,5 +26,6 @@ class TaskData;
 typedef SaveVecEntry *Handle;
 
 extern Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH);
+extern const char *findEntryPoint(void *ep);
 
 #endif

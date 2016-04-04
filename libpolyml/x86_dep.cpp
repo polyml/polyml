@@ -1863,13 +1863,18 @@ void X86TaskData::AtomicReset(Handle mutexp)
 {
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
 }
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
 
 extern "C" {
-    POLYUNSIGNED PolyTest0();
-    POLYUNSIGNED PolyTest1(PolyWord arg1);
-    POLYUNSIGNED PolyTest2(PolyWord arg1, PolyWord arg2);
-    POLYUNSIGNED PolyTest3(PolyWord arg1, PolyWord arg2, PolyWord arg3);
-    POLYUNSIGNED PolyTest4(PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4);
+    DLLEXPORT POLYUNSIGNED PolyTest0();
+    DLLEXPORT POLYUNSIGNED PolyTest1(PolyWord arg1);
+    DLLEXPORT POLYUNSIGNED PolyTest2(PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyTest3(PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    DLLEXPORT POLYUNSIGNED PolyTest4(PolyWord arg1, PolyWord arg2, PolyWord arg3, PolyWord arg4);
 }
 
 POLYUNSIGNED PolyTest0()

@@ -118,3 +118,12 @@ Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH)
     }
     raise_fail(taskData, "entry point not found");
 }
+
+// See if an address is an entry point in the table.
+const char *findEntryPoint(void *ep)
+{
+    for (unsigned i = 0; i < sizeof(entryPtTable)/sizeof(entryPtTable[0]); i++)
+        if (entryPtTable[i].entry == ep)
+            return entryPtTable[i].name;
+    return 0;
+}

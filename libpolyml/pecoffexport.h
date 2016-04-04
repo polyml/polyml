@@ -28,6 +28,7 @@
 
 #include <windows.h>
 #include <winnt.h>
+#include <vector>
 
 class PECOFFExport: public Exporter, public ScanAddress
 {
@@ -43,16 +44,19 @@ private:
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     void alignFile(int align);
+    virtual void addExternalReference(void *addr, const char *name);
 
 private:
     void setRelocationAddress(void *p, DWORD *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
-    void writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern);
+    void writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern, int symType=0);
 
     unsigned relocationCount;
     unsigned symbolCount;
 
     ExportStringTable stringTable;
+
+    std::vector<const char *> externTable;
 };
 
 #endif

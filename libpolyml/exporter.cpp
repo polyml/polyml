@@ -71,6 +71,7 @@
 #include "memmgr.h"
 #include "processes.h" // For IO_SPACING
 #include "sys.h" // For EXC_Fail
+#include "rtsentry.h"
 
 #include "pexport.h"
 
@@ -351,14 +352,6 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
-// We clear the data in weak byte ref cells when they are exported
-// to an object file and also when they are read from a saved state.
-void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
-{
-    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
-        memset(base, 0, base->Length() * sizeof(PolyWord));
-}
-
 #define MAX_EXTENSION   4 // The longest extension we may need to add is ".obj"
 
 // Convert the forwarding pointers in a region back into length words.
@@ -539,11 +532,6 @@ void Exporter::RunExport(PolyObject *rootFunction)
         else
             entry->mtFlags = MTF_EXECUTABLE;
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
-        if (space->isMutable && space->byteOnly)
-        {
-            ClearWeakByteRef cwbr;
-            cwbr.ScanAddressesInRegion(space->bottom, space->topPointer);
-        }
     }
 
     ASSERT(memEntry == tableEntries);
@@ -630,6 +618,14 @@ void Exporter::relocateObject(PolyObject *p)
 {
     if (p->IsByteObject())
     {
+        if (p->IsMutable() && p->IsWeakRefObject())
+        {
+            // Look up external references.
+            const char *entryPoint = findEntryPoint(*(void**)p);
+            if (entryPoint != 0) addExternalReference(p, entryPoint);
+            // Clear the data whether we found the entry or not.
+            memset(p, 0, p->Length() * sizeof(PolyWord));
+        }
     }
     else if (p->IsCodeObject())
     {
