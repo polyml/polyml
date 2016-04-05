@@ -35,8 +35,6 @@
 #include <elf_abi.h>
 #endif
 
-#include <vector>
-
 // Select 32 or 64 bit version depending on the word length
 #if (SIZEOF_VOIDP == 8)
 #define ElfXX_Addr  Elf64_Addr
@@ -98,7 +96,7 @@ class TaskData;
 class ELFExport: public Exporter, public ScanAddress
 {
 public:
-    ELFExport(): relocationCount(0), symbolCount(0), directReloc(0) {}
+    ELFExport(): relocationCount(0), directReloc(0), symbolNum(0) {}
 public:
     virtual void exportStore(void);
 
@@ -119,14 +117,14 @@ private:
     void createStructsRelocation(unsigned area, POLYUNSIGNED offset, POLYSIGNED addend);
 
     unsigned relocationCount;
-    unsigned symbolCount;
 
     // There are two tables - one is used for section names, the other for symbol names.
     ExportStringTable symStrings, sectionStrings;
     unsigned directReloc;
     bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
-    // Table of external references.
-    std::vector<const char *> externTable;
+    // Table and count for external references.
+    ExportStringTable externTable;
+    unsigned symbolNum;
 };
 
 #endif

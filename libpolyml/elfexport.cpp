@@ -137,10 +137,9 @@ enum {
 // Add an external reference to the RTS
 void ELFExport::addExternalReference(void *relocAddr, const char *name)
 {
-    size_t index = externTable.size();
-    externTable.push_back(name);
+    externTable.makeEntry(name);
     // The symbol is added after the memory table entries and poly_exports
-    writeRelocation(0, relocAddr, AreaToSym(memTableEntries) + 1 + index);
+    writeRelocation(0, relocAddr, symbolNum++);
 }
 
 // Generate the address relative to the start of the segment.
@@ -297,7 +296,6 @@ void ELFExport::writeSymbol(const char *symbolName, long value, long size, int b
     symbol.st_other = 0;
     symbol.st_shndx = section;
     fwrite(&symbol, sizeof(symbol), 1, exportFile);
-    symbolCount++;
 }
 
 // Set the file alignment.
@@ -356,6 +354,9 @@ void ELFExport::exportStore(void)
     unsigned sect_symtab = sect_data + 2*memTableEntries + 2 - 1;
     
     unsigned i;
+    
+    // External symbols start after the memory table entries and "poly_exports".
+    symbolNum = EXTRA_SYMBOLS+memTableEntries+1;
 
     // Both the string tables have an initial null entry.
     symStrings.makeEntry("");
@@ -653,7 +654,6 @@ void ELFExport::exportStore(void)
             writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, s);
         }
     }
-    unsigned localSymbols = symbolCount;
 
     // Global symbols - Exported symbol for table.
     writeSymbol("poly_exports", 0, 
@@ -661,11 +661,11 @@ void ELFExport::exportStore(void)
         STB_GLOBAL, STT_OBJECT, sect_table_data);
  
     // External references
-    for (std::vector<const char *>::const_iterator i = externTable.begin(); i != externTable.end(); i++)
-        writeSymbol(*i, 0, 0, STB_GLOBAL, STT_FUNC, SHN_UNDEF);
+    for (unsigned i = 0; i < externTable.stringSize; i += (unsigned)strlen(externTable.strings+i) + 1)
+        writeSymbol(externTable.strings+i, 0, 0, STB_GLOBAL, STT_FUNC, SHN_UNDEF);
 
-    sections[sect_symtab].sh_info = localSymbols; // One more than last local sym
-    sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolCount;
+    sections[sect_symtab].sh_info = EXTRA_SYMBOLS+memTableEntries; // One more than last local sym
+    sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolNum;
 
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
