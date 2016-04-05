@@ -101,6 +101,7 @@ typedef char TCHAR;
 #include "osmem.h"
 #include "gc.h" // For FullGC.
 #include "timing.h"
+#include "rtsentry.h"
 
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
@@ -731,12 +732,14 @@ public:
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
 };
 
-// Used to clear weak byte refs when they are loaded from a saved state.
+// Set the values of external references and clear the values of other weak byte refs.
 void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
 {
     if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
     {
-        memset(base, 0, base->Length() * sizeof(PolyWord));
+        POLYUNSIGNED len = OBJ_OBJECT_LENGTH(lengthWord);
+        if (len > 0) base->Set(0, PolyWord::FromSigned(0));
+        setEntryPoint(base);
     }
 }
 
