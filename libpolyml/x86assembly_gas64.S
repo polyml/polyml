@@ -184,6 +184,7 @@ EXTNAME(id):
         popq  %rcx; \
         jmp   SaveFullState;
 
+
 /* Load the registers from the ML stack and jump to the code.
   This is used to start ML code.
   The argument is the address of the MemRegisters struct and goes into %rbp.
@@ -210,6 +211,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     subq    $(Fr_Size-40),%rsp
     movq    %rdi,%rcx                       # Argument is in %rdi
 #endif
+
     movq    %rcx,Fr_Argument(%rbp)
     movq    Arg_StackLimit(%rcx),%rax
     movq    %rax,Fr_StackLimit(%rbp)
@@ -217,13 +219,13 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    %rax,Fr_LocalMbottom(%rbp)
     movq    Arg_HandlerRegister(%rcx),%rax
     movq    %rax,Fr_HandlerRegister(%rbp)
-    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOWEX,%rax
+    lea     callExStackEx(%rip),%rax
     movq    %rax,Fr_StackOverflowEx(%rbp)
-    movq    $X86AsmCallExtraRETURN_STACK_OVERFLOW,%rax
+    lea     callExStack(%rip),%rax
     movq    %rax,Fr_StackOverflow(%rbp)
-    movq    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%rax
+    lea     callExHeap(%rip),%rax
     movq    %rax,Fr_HeapOverflow(%rbp)
-    movq    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%rax
+    lea     callExRaiseOverflow(%rip),%rax
     movq    %rax,Fr_RaiseOverflow(%rbp)
     movq    Arg_PolyStack(%rcx),%rax
     movq    Arg_LocalMpointer(%rcx),%r15
@@ -254,7 +256,6 @@ sw2polyfull:
     cld                                     # Clear this just in case
     movq    EAX_OFF(%rax),%rax
     ret                                     # Jump to code address
-
 
 /* Code to save the state and switch to C
    This saves the full register state. */
@@ -298,6 +299,15 @@ SaveFullState:
     popq    %rbx
     popq    %rbp
     ret
+
+callExHeap:
+    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
+callExStack:
+    CALL_EXTRA(RETURN_STACK_OVERFLOW)
+callExStackEx:
+    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+callExRaiseOverflow:
+    CALL_EXTRA(RETURN_RAISE_OVERFLOW)
 
 # As X86AsmSaveFullState but only save what is necessary for an RTS call.
 INLINE_ROUTINE(X86AsmSaveStateAndReturn)
@@ -497,7 +507,6 @@ INLINE_ROUTINE(not_bool)
 INLINE_ROUTINE(or_word)
     orq     %rbx,%rax
     ret
-
 
 INLINE_ROUTINE(and_word)
     andq    %rbx,%rax
@@ -1017,7 +1026,6 @@ igtr3:
     CALL_IO(POLY_SYS_int_gtr)
 
 
-
 INLINE_ROUTINE(int_lss)
     testq   $TAG,%rax # Is first arg short?
     jz      ilss2
@@ -1451,7 +1459,7 @@ and pop them afterwards.  This isn't the final version of this code
 but is useful as a test. */
     pushq   %rax
     pushq   %rbx
-    call    X86AsmCallExtraRETURN_HEAP_OVERFLOW
+    call    callExHeap
     popq    %rbx
     popq    %rax
 mem_for_real1:
@@ -1817,7 +1825,6 @@ INLINE_ROUTINE(orb_longword)
     ret
 
 
-
 INLINE_ROUTINE(xorb_longword)
     call    mem_for_largeword
     movq    (%rax),%rax
@@ -2058,10 +2065,6 @@ INLINE_ROUTINE(get_flags)
     INLINE_ROUTINE(Call##index##) \
     CALL_IO(index)
 
-#define CREATE_EXTRA_CALL(index) \
-    INLINE_ROUTINE(X86AsmCallExtra##index##) \
-    CALL_EXTRA(index)
-
     CREATE_IO_CALL(POLY_SYS_exit)
     CREATE_IO_CALL(POLY_SYS_make_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
@@ -2091,8 +2094,3 @@ INLINE_ROUTINE(get_flags)
     CREATE_IO_CALL(POLY_SYS_exp_real)
     CREATE_IO_CALL(POLY_SYS_arctan_real)
     CREATE_IO_CALL(POLY_SYS_cos_real)
-
-    CREATE_EXTRA_CALL(RETURN_HEAP_OVERFLOW)
-    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
-    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
-    CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)

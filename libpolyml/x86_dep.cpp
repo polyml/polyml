@@ -337,13 +337,6 @@ extern "C" {
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 
-    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
-    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
-    extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
-    extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
-    extern int X86AsmCallExtraRETURN_RAISE_OVERFLOW(void);
-
     // The entry points to assembly code functions.
     extern byte CallPOLY_SYS_exit, alloc_store, alloc_uninit, raisex,
         get_length_a, get_flags, str_compare, teststrgtr, teststrlss,
