@@ -24,7 +24,8 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_get_entry_point     = 10
+  val POLY_SYS_make_entry_point    =  9
+  val POLY_SYS_get_entry_point     = 10 (* Legacy - only for bootstrap. *)
   val POLY_SYS_alloc_store         = 11
   val POLY_SYS_alloc_uninit        = 12
   val POLY_SYS_raisex              = 14

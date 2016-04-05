@@ -71,9 +71,9 @@ struct
         val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
     in
         (* Find the address of the function to get the entry point. *)
-        val getEntryPointAddr = ioOp RuntimeCalls.POLY_SYS_get_entry_point
-        val getEntryPoint: string * int -> machineWord =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_get_entry_point
+        val makeEntryPointAddr = ioOp RuntimeCalls.POLY_SYS_make_entry_point
+        val makeEntryPoint: string * int -> machineWord =
+            RunCall.run_call2 RuntimeCalls.POLY_SYS_make_entry_point
     end
 
     datatype abi = X86_32 | X64Win | X64Unix
@@ -82,7 +82,7 @@ struct
 
     fun rtsCall (functionName, nArgs, debugSwitches) =
     let
-        val entryPointAddr = getEntryPoint(functionName, 0)
+        val entryPointAddr = makeEntryPoint(functionName, 0)
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
@@ -160,7 +160,7 @@ struct
             [
                 MoveLongConstR{source=toMachineWord functionName, output=eax},
                 MoveLongConstR{source=entryPointAddr, output=ebx},
-                CallFunction(ConstantClosure getEntryPointAddr),
+                CallFunction(ConstantClosure makeEntryPointAddr),
                 loadMemory(entryPtrReg, eax, 0) (* Extract the value from the result. *)
             ] @ map PopR (List.rev regsToSave) @
             [

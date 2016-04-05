@@ -1678,7 +1678,11 @@ Handle IntTaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_get_entry_point:
-                CallIO2(this, &getEntryPoint);
+                CallIO1(this, &oldGetEntryPoint);
+                break;
+
+            case POLY_SYS_make_entry_point:
+                CallIO2(this, &makeEntryPoint);
                 break;
 
             case POLY_SYS_str_compare:
@@ -2095,6 +2099,7 @@ Handle IntTaskData::EnterPolyCode()
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
+    add_word_to_io_area(POLY_SYS_make_entry_point, TAGGED(POLY_SYS_make_entry_point));
     add_word_to_io_area(POLY_SYS_get_entry_point, TAGGED(POLY_SYS_get_entry_point));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
     add_word_to_io_area(POLY_SYS_alloc_uninit, TAGGED(POLY_SYS_alloc_uninit));

@@ -22,10 +22,13 @@
 #define RTSENTRY_H_INCLUDED
 class SaveVecEntry;
 class TaskData;
+class PolyObject;
 
 typedef SaveVecEntry *Handle;
 
-extern Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH);
-extern const char *findEntryPoint(void *ep);
+extern Handle makeEntryPoint(TaskData *taskData, Handle refH, Handle entryH);
+extern Handle oldGetEntryPoint(TaskData *taskData, Handle entryH);
+extern const char *getEntryPointName(PolyObject *p);
+extern bool setEntryPoint(PolyObject *p);
 
 #endif

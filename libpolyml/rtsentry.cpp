@@ -42,6 +42,7 @@
 #define ASSERT(x)
 #endif
 
+#include "rtsentry.h"
 #include "save_vec.h"
 #include "polystring.h"
 #include "processes.h"
@@ -100,30 +101,51 @@ static struct _entrypts {
 // When the code is executed it checks to see if the first word of the ref is
 // zero and calls this function if it is in order to set the value.  Because the
 // ref is weak it may have been cleared as part of the loading process.
-Handle getEntryPoint(TaskData *taskData, Handle refH, Handle entryH)
+Handle makeEntryPoint(TaskData *taskData, Handle refH, Handle entryH)
 {
-    TempCString entryName(Poly_string_to_C_alloc(entryH->WordP()));
-    if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (refH->Word() == TAGGED(0))
+    {
+        TempCString entryName(Poly_string_to_C_alloc(entryH->WordP()));
+        if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        // Create space for the address followed by the name as a C string.
+        POLYUNSIGNED space = 1 + (strlen(entryName) + 1 + sizeof(PolyWord) - 1) / sizeof(PolyWord);
+        refH = alloc_and_save(taskData, space, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT);
+        strcpy((char*)(refH->WordP()->AsBytePtr() + sizeof(PolyWord)), entryName);
+    }
+    if (! setEntryPoint(refH->WordP()))
+        raise_fail(taskData, "entry point not found");
+    return refH;
+}
 
+// This is a legacy entry.  Previously the code took a single argument
+// that was the string and returned the entry point in a single word object.
+Handle oldGetEntryPoint(TaskData *taskData, Handle entryH)
+{
+    Handle refH = taskData->saveVec.push(TAGGED(0));
+    return makeEntryPoint(taskData, refH, entryH);
+}
+
+// Return the string entry point.
+const char *getEntryPointName(PolyObject *p)
+{
+    if (p->Length() <= 1) return 0; // Doesn't contain an entry point
+    return (const char *)(p->AsBytePtr() + sizeof(PolyWord));
+}
+
+// Sets the address of the entry point in an entry point object.
+bool setEntryPoint(PolyObject *p)
+{
+    if (p->Length() == 0) return false;
+    p->Set(0, PolyWord::FromSigned(0)); // Clear it by default
+    if (p->Length() == 1) return false;
+    const char *entryName = (const char*)(p->AsBytePtr()+sizeof(PolyWord));
     for (unsigned i = 0; i < sizeof(entryPtTable)/sizeof(entryPtTable[0]); i++)
     {
         if (strcmp(entryName, entryPtTable[i].name) == 0)
         {
-            Handle resultH = refH;
-            if (resultH->Word() == TAGGED(0))
-                resultH = alloc_and_save(taskData, 1, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT);
-            *(uintptr_t*)(resultH->Word().AsCodePtr()) = (uintptr_t)entryPtTable[i].entry;
-            return resultH;
+            *(uintptr_t*)p = (uintptr_t)entryPtTable[i].entry;
+            return true;
         }
     }
-    raise_fail(taskData, "entry point not found");
-}
-
-// See if an address is an entry point in the table.
-const char *findEntryPoint(void *ep)
-{
-    for (unsigned i = 0; i < sizeof(entryPtTable)/sizeof(entryPtTable[0]); i++)
-        if (entryPtTable[i].entry == ep)
-            return entryPtTable[i].name;
-    return 0;
+    return false;
 }

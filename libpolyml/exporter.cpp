@@ -620,11 +620,13 @@ void Exporter::relocateObject(PolyObject *p)
     {
         if (p->IsMutable() && p->IsWeakRefObject())
         {
-            // Look up external references.
-            const char *entryPoint = findEntryPoint(*(void**)p);
-            if (entryPoint != 0) addExternalReference(p, entryPoint);
-            // Clear the data whether we found the entry or not.
-            memset(p, 0, p->Length() * sizeof(PolyWord));
+            // Weak mutable byte refs are used for external references and
+            // also in the FFI for non-persistent values.
+            const char *entryName = getEntryPointName(p);
+            if (entryName != 0) addExternalReference(p, entryName);
+            // Clear the first word of the data.
+            ASSERT(p->Length() > 0);
+            p->Set(0, PolyWord::FromSigned(0));
         }
     }
     else if (p->IsCodeObject())

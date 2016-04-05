@@ -27,12 +27,11 @@
 
 #include <windows.h>
 #include <winnt.h>
-#include <vector>
 
 class PECOFFExport: public Exporter, public ScanAddress
 {
 public:
-    PECOFFExport(): relocationCount(0), symbolCount(0) {}
+    PECOFFExport(): relocationCount(0), symbolNum(0) {}
 public:
     virtual void exportStore(void);
 
@@ -51,11 +50,12 @@ private:
     void writeSymbol(const char *symbolName, __int32 value, int section, bool isExtern, int symType=0);
 
     unsigned relocationCount;
-    unsigned symbolCount;
 
     ExportStringTable stringTable;
 
-    std::vector<const char *> externTable;
+    // Table and count for external references.
+    ExportStringTable externTable;
+    unsigned symbolNum;
 };
 
 #endif

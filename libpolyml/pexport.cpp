@@ -53,6 +53,7 @@
 #include "processes.h" // For IO_SPACING
 #include "memmgr.h"
 #include "osmem.h"
+#include "rtsentry.h"
 
 /*
 This file contains the code both to export the file and to import it
@@ -158,6 +159,12 @@ void PExport::printObject(PolyObject *p)
 
     if (p->IsByteObject())
     {
+        if (p->IsMutable() && p->IsWeakRefObject())
+        {
+            // This is either an entry point or a weak ref used in the FFI.
+            // Clear the first word
+            if (p->Length() >= 1) p->Set(0, PolyWord::FromSigned(0));
+        }
         /* May be a string, a long format arbitrary precision
            number or a real number. */
         PolyStringObject* ps = (PolyStringObject*)p;
@@ -739,6 +746,9 @@ bool PImport::DoImport()
                 }
                 ch = getc(f);
                 ASSERT(ch == '\n');
+                // If this is an entry point object set its value.
+                if (p->IsMutable() && p->IsWeakRefObject())
+                    setEntryPoint(p);
                 break;
             }
 

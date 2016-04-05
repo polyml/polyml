@@ -78,13 +78,11 @@
 
 void PECOFFExport::addExternalReference(void *relocAddr, const char *name)
 {
-    size_t index = externTable.size();
-    externTable.push_back(name);
+    externTable.makeEntry(name);
     IMAGE_RELOCATION reloc;
     // Set the offset within the section we're scanning.
     setRelocationAddress(relocAddr, &reloc.VirtualAddress);
-    // The symbol is added after the memory table entries and "poly_exports".
-    reloc.SymbolTableIndex = (DWORD)(memTableEntries+1 + index);
+    reloc.SymbolTableIndex = symbolNum++;
     reloc.Type = DIRECT_WORD_RELOCATION;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -144,7 +142,6 @@ void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int sectio
     symbol.Type = symType;
     symbol.StorageClass = isExtern ? IMAGE_SYM_CLASS_EXTERNAL : IMAGE_SYM_CLASS_STATIC;
     fwrite(&symbol, sizeof(symbol), 1, exportFile);
-    symbolCount++;
 }
 
 /* This is called for each constant within the code. 
@@ -198,7 +195,6 @@ void PECOFFExport::alignFile(int align)
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
 
-
 void PECOFFExport::exportStore(void)
 {
     PolyWord    *p;
@@ -224,6 +220,9 @@ void PECOFFExport::exportStore(void)
     fhdr.TimeDateStamp = (DWORD)now;
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
+
+    // External symbols are added after the memory table entries and "poly_exports".
+    symbolNum = memTableEntries+1; // The first external symbol
 
     // Section headers.
     for (i = 0; i < memTableEntries; i++)
@@ -391,10 +390,10 @@ void PECOFFExport::exportStore(void)
     writeSymbol("poly_exports", 0, memTableEntries+1, true);
 
     // External references.
-    for (std::vector<const char *>::const_iterator i = externTable.begin(); i != externTable.end(); i++)
-        writeSymbol(*i, 0, 0, true, 0x20);
+    for (unsigned i = 0; i < externTable.stringSize; i += (unsigned)strlen(externTable.strings+i) + 1)
+        writeSymbol(externTable.strings+i, 0, 0, true, 0x20);
 
-    fhdr.NumberOfSymbols = symbolCount;
+    fhdr.NumberOfSymbols = symbolNum;
 
     // The string table is written immediately after the symbols.
     // The length is included as the first word.
