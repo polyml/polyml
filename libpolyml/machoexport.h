@@ -2,13 +2,12 @@
     Title:     Export memory as a Mach object file
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006,2016 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -33,7 +32,7 @@
 class MachoExport: public Exporter, public ScanAddress
 {
 public:
-    MachoExport(): relocationCount(0), symbolCount(0) {}
+    MachoExport(): relocationCount(0), symbolNum(0) {}
 public:
     virtual void exportStore(void);
 
@@ -42,18 +41,22 @@ private:
     virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void addExternalReference(void *addr, const char *name);
 
 private:
     void setRelocationAddress(void *p, int32_t *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
-    void writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset);
+    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNumber, bool isExtern);
     void alignFile(int align);
     void createStructsRelocation(unsigned area, POLYUNSIGNED offset);
     void adjustOffset(unsigned area, POLYUNSIGNED &offset);
 
     unsigned relocationCount;
-    unsigned symbolCount;
     ExportStringTable stringTable;
+
+    // Table and count for external references.
+    ExportStringTable externTable;
+    unsigned symbolNum;
 };
 
 #endif

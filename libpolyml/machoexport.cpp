@@ -2,12 +2,11 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -94,6 +93,12 @@ void MachoExport::adjustOffset(unsigned area, POLYUNSIGNED &offset)
     }
 }
 
+void MachoExport::addExternalReference(void *relocAddr, const char *name)
+{
+    externTable.makeEntry(name);
+    writeRelocation(0, relocAddr, symbolNum++, true);
+}
+
 // Generate the address relative to the start of the segment.
 void MachoExport::setRelocationAddress(void *p, int32_t *reloc)
 {
@@ -109,12 +114,16 @@ PolyWord MachoExport::createRelocation(PolyWord p, void *relocAddr)
     unsigned addrArea = findArea(addr);
     POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
     adjustOffset(addrArea, offset);
+    return writeRelocation(offset, relocAddr, addrArea+1 /* Sections count from 1 */, false);
+}
 
+PolyWord MachoExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNumber, bool isExtern)
+{
     // It looks as though struct relocation_info entries are only used
     // with GENERIC_RELOC_VANILLA types.
     struct relocation_info relInfo;
     setRelocationAddress(relocAddr, &relInfo.r_address);
-    relInfo.r_symbolnum = addrArea+1; // Section numbers start at 1
+    relInfo.r_symbolnum = symbolNumber;
     relInfo.r_pcrel = 0;
 #if (SIZEOF_VOIDP == 8)
     relInfo.r_length = 3; // 8 bytes
@@ -123,7 +132,7 @@ PolyWord MachoExport::createRelocation(PolyWord p, void *relocAddr)
     relInfo.r_length = 2; // 4 bytes
     relInfo.r_type = GENERIC_RELOC_VANILLA;
 #endif
-    relInfo.r_extern = 0; // r_symbolnum is a section number.  It should be 1 if we make the IO area a common.
+    relInfo.r_extern = isExtern ? 1 : 0;
 
     fwrite(&relInfo, sizeof(relInfo), 1, exportFile);
     relocationCount++;
@@ -213,24 +222,6 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
     }
 }
 
-void MachoExport::writeSymbol(const char *symbolName, unsigned char nType, unsigned char nSect, unsigned long offset)
-{
-#if (SIZEOF_VOIDP == 8)
-    struct nlist_64 symbol;
-#else
-    struct nlist symbol;
-#endif
-    memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
-    symbol.n_un.n_strx = stringTable.makeEntry(symbolName);
-    symbol.n_type = nType;
-    symbol.n_sect = nSect+1; // Sections count from 1.
-    symbol.n_desc = REFERENCE_FLAG_DEFINED;
-    adjustOffset(nSect, offset);
-    symbol.n_value = offset;
-    fwrite(&symbol, sizeof(symbol), 1, exportFile);
-    symbolCount++;
-}
-
 // Set the file alignment.
 void MachoExport::alignFile(int align)
 {
@@ -303,6 +294,8 @@ void MachoExport::exportStore(void)
 #error "No support for exporting on this architecture"
 #endif
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
+
+    symbolNum = 1; // The first symbol is poly_exports
 
     // Segment header.
     memset(&sHdr, 0, sizeof(sHdr));
@@ -395,48 +388,6 @@ void MachoExport::exportStore(void)
     //symTab.strsize is set later
     fwrite(&symTab, sizeof(symTab), 1, exportFile);
 
-    // Create the symbol table first before we mess up the addresses by turning them
-    // into relocations.
-    symTab.symoff = ftell(exportFile);
-    // Global symbols: Just one.  Mach prefixes symbols with an underscore.
-    writeSymbol("_poly_exports", N_EXT | N_SECT, memTableEntries, 0); // The export table comes first
-    // We create local symbols because they make debugging easier.  They may also
-    // mean that we can use the usual Unix profiling tools.
-    writeSymbol("memTable", N_SECT, memTableEntries, sizeof(exportDescription)); // Then the memTable.
-    for (i = 0; i < memTableEntries; i++)
-    {
-        if (i == ioMemEntry)
-            writeSymbol("ioarea", N_SECT, i, 0);
-        else {
-            char buff[50];
-            sprintf(buff, "area%0d", i);
-            writeSymbol(buff, N_SECT, i, 0);
-#if (SIZEOF_VOIDP == 8)
-            // See if we can find the names of any functions.
-            // This seems to break on 32-bit Mac OS X.  It seems to align
-            // some relocations onto an 8-byte boundary so we just disable it.
-            char *start = (char*)memTable[i].mtAddr;
-            char *end = start + memTable[i].mtLength;
-            for (p = (PolyWord*)start; p < (PolyWord*)end; )
-            {
-                p++;
-                PolyObject *obj = (PolyObject*)p;
-                POLYUNSIGNED length = obj->Length();
-                if (length != 0 && obj->IsCodeObject())
-                {
-                    PolyWord *name = obj->ConstPtrForCode();
-                    // Copy as much of the name as will fit and ignore any extra.
-                    // Do we need to worry about duplicates?
-                    (void)Poly_string_to_C(*name, buff, sizeof(buff));
-                    writeSymbol(buff, N_SECT, i, (char*)p - start);
-                }
-                p += length;
-            }
-#endif
-        }
-    }
-    symTab.nsyms = symbolCount;
-
     // Create and write out the relocations.
     for (i = 0; i < memTableEntries; i++)
     {
@@ -482,6 +433,48 @@ void MachoExport::exportStore(void)
             sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr));
     }
     sections[memTableEntries].nreloc = relocationCount;
+
+    // The symbol table.
+
+    symTab.symoff = ftell(exportFile);
+    // Global symbols: Just one.
+    {
+#if (SIZEOF_VOIDP == 8)
+        struct nlist_64 symbol;
+#else
+        struct nlist symbol;
+#endif
+        memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
+        symbol.n_un.n_strx = stringTable.makeEntry("_poly_exports");
+        symbol.n_type = N_EXT | N_SECT;
+        symbol.n_sect = memTableEntries+1; // Sections count from 1.
+        symbol.n_desc = REFERENCE_FLAG_DEFINED;
+        fwrite(&symbol, sizeof(symbol), 1, exportFile);
+    }
+
+    // External references.
+    for (unsigned i = 0; i < externTable.stringSize; i += (unsigned)strlen(externTable.strings+i) + 1)
+    {
+        const char *symbolName = externTable.strings+i;
+#if (SIZEOF_VOIDP == 8)
+        struct nlist_64 symbol;
+#else
+        struct nlist symbol;
+#endif
+        memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
+        // Have to add an underscore to the symbols.
+        TempCString fullSymbol;
+        fullSymbol = (char*)malloc(strlen(symbolName) + 2);
+        if (fullSymbol == 0) throw MemoryException();
+        sprintf(fullSymbol, "_%s", symbolName);
+        symbol.n_un.n_strx = stringTable.makeEntry(fullSymbol);
+        symbol.n_type = N_EXT | N_UNDF;
+        symbol.n_sect = NO_SECT;
+        symbol.n_desc = REFERENCE_FLAG_UNDEFINED_NON_LAZY;
+        fwrite(&symbol, sizeof(symbol), 1, exportFile);
+    }
+
+    symTab.nsyms = symbolNum;
 
     // The symbol name table
     symTab.stroff = ftell(exportFile);
