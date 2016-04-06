@@ -196,13 +196,13 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    %eax,Fr_HandlerRegister(%ebp)
     movl    Arg_LocalMpointer(%ecx),%eax
     movl    %eax,Fr_LocalMpointer(%ebp)
-    movl    $X86AsmCallExtraRETURN_STACK_OVERFLOWEX,%eax
+    movl    $callExStackEx,%eax
     movl    %eax,Fr_StackOverflowEx(%ebp)
-    movl    $X86AsmCallExtraRETURN_STACK_OVERFLOW,%eax
+    movl    $callExStack,%eax
     movl    %eax,Fr_StackOverflow(%ebp)
-    movl    $X86AsmCallExtraRETURN_HEAP_OVERFLOW,%eax
+    movl    $callExHeap,%eax
     movl    %eax,Fr_HeapOverflow(%ebp)
-    movl    $X86AsmCallExtraRETURN_RAISE_OVERFLOW,%eax
+    movl    $callExRaiseOverflow,%eax
     movl    %eax,Fr_RaiseOverflow(%ebp)
     movl    Arg_PolyStack(%ecx),%eax
     movl    SP_OFF(%eax),%esp               # Set the new stack ptr
@@ -254,6 +254,16 @@ SaveFullState:
     popl    %ebx
     popl    %ebp
     ret
+
+callExHeap:
+callheapOverflowLocal:
+    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
+callExStack:
+    CALL_EXTRA(RETURN_STACK_OVERFLOW)
+callExStackEx:
+    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+callExRaiseOverflow:
+    CALL_EXTRA(RETURN_RAISE_OVERFLOW)
 
 # As X86AsmSaveFullState but only save what is necessary for an RTS call.
 INLINE_ROUTINE(X86AsmSaveStateAndReturn)
@@ -2020,9 +2030,3 @@ INLINE_ROUTINE(get_flags)
     CREATE_IO_CALL(POLY_SYS_arctan_real)
     CREATE_IO_CALL(POLY_SYS_cos_real)
 
-callheapOverflowLocal:
-    CREATE_EXTRA_CALL(RETURN_HEAP_OVERFLOW)
-
-    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOW)
-    CREATE_EXTRA_CALL(RETURN_STACK_OVERFLOWEX)
-    CREATE_EXTRA_CALL(RETURN_RAISE_OVERFLOW)
