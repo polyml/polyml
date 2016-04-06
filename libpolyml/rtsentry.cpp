@@ -94,10 +94,10 @@ static void *getSymbol(const char *entryName)
     if (sym != NULL) return sym;
 #else
     void *lib = dlopen(NULL, RTLD_LAZY);
-    void *sym = dlsym(lib, symName);
+    void *sym = dlsym(lib, entryName);
     if (sym != NULL) return sym;
     lib = dlopen("libpolyml", RTLD_LAZY);
-    void *sym = dlsym(lib, symName);
+    sym = dlsym(lib, entryName);
     if (sym != NULL) return sym;
 #endif
     return 0;

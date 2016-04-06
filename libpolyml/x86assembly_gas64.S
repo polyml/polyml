@@ -2066,7 +2066,6 @@ INLINE_ROUTINE(get_flags)
     CALL_IO(index)
 
     CREATE_IO_CALL(POLY_SYS_exit)
-    CREATE_IO_CALL(POLY_SYS_make_entry_point)
     CREATE_IO_CALL(POLY_SYS_get_entry_point)
     CREATE_IO_CALL(POLY_SYS_profiler)
     CREATE_IO_CALL(POLY_SYS_Real_str)
