@@ -84,6 +84,9 @@ if EXPMACHO
 poly_LDFLAGS += -Wl,-no_pie
 endif
 
+poly_LDFLAGS += -Wl,-export-dynamic
+polyimport_LDFLAGS += -Wl,-export-dynamic
+
 poly_SOURCES = 
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 

@@ -441,8 +441,9 @@ man_MANS = poly.1 polyimport.1 polyc.1
 # Select the architecture-specific pre-built compiler
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_8) $(am__append_10)
-polyimport_LDFLAGS = $(am__append_5) $(am__append_7)
+poly_LDFLAGS = $(am__append_8) $(am__append_10) -Wl,-export-dynamic
+polyimport_LDFLAGS = $(am__append_5) $(am__append_7) \
+	-Wl,-export-dynamic
 POLYRESOURCES = $(am__append_9)
 EXTRALDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3) \
 	$(am__append_4) $(am__append_6)
