@@ -1049,6 +1049,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (fseek(loadFile, descr->relocations, SEEK_SET) != 0)
             {
                 errorResult = "Unable to read relocation segment";
+                return false;
             }
             for (unsigned k = 0; k < descr->relocationCount; k++)
             {
@@ -1056,6 +1057,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 if (fread(&reloc, sizeof(reloc), 1, loadFile) != 1)
                 {
                     errorResult = "Unable to read relocation segment";
+                    return false;
                 }
                 MemSpace *toSpace =
                     reloc.targetSegment == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(reloc.targetSegment);
