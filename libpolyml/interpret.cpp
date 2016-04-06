@@ -201,7 +201,12 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 }
 
 extern "C" {
+    typedef POLYUNSIGNED(*callRts0)();
+    typedef POLYUNSIGNED(*callRts1)(POLYUNSIGNED);
     typedef POLYUNSIGNED(*callRts2)(POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callRts3)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callRts4)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callRts5)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
 }
 
 void IntTaskData::InterruptCode()
@@ -1191,6 +1196,39 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
+        case INSTR_callRTS0:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                callRts0 doCall = (callRts0)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall();
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callRTS1:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg1 = *sp++;
+                callRts1 doCall = (callRts1)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned());
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
         case INSTR_callRTS2:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
@@ -1202,6 +1240,69 @@ int IntTaskData::SwitchToPoly()
                 this->p_lastInstr = li;
                 this->p_sp = sp;
                 POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned());
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callRTS3:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callRts3 doCall = (callRts3)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned());
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callRTS4:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg4 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg3 = *sp++;
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callRts4 doCall = (callRts4)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result =
+                        doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned(), rtsArg4.AsUnsigned());
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callRTS5:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg5 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg4 = *sp++;
+                PolyWord rtsArg3 = *sp++;
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callRts5 doCall = (callRts5)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result =
+                        doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned(),
+                               rtsArg4.AsUnsigned(), rtsArg5.AsUnsigned());
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
@@ -1678,11 +1779,7 @@ Handle IntTaskData::EnterPolyCode()
                 break;
 
             case POLY_SYS_get_entry_point:
-                CallIO1(this, &oldGetEntryPoint);
-                break;
-
-            case POLY_SYS_make_entry_point:
-                CallIO2(this, &makeEntryPoint);
+                CallIO1(this, &creatEntryPointObject);
                 break;
 
             case POLY_SYS_str_compare:
@@ -2099,7 +2196,6 @@ Handle IntTaskData::EnterPolyCode()
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
-    add_word_to_io_area(POLY_SYS_make_entry_point, TAGGED(POLY_SYS_make_entry_point));
     add_word_to_io_area(POLY_SYS_get_entry_point, TAGGED(POLY_SYS_get_entry_point));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
     add_word_to_io_area(POLY_SYS_alloc_uninit, TAGGED(POLY_SYS_alloc_uninit));

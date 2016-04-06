@@ -1005,52 +1005,26 @@ struct
     end
 
     local
-        fun createWeakEntryPoint () =
-        let
-            (* We hold the entry point in a weak mutable byte cell.  It is cleared to zero when the
-               code is loaded.  The first time it is referenced it is set by a call to
-               get_entry_point.  The result is then cached for the remainder of the session. *)
-            open Address
-            val entryPt = alloc(0w1, List.foldl Word8.orb 0w0 [F_mutable, F_bytes, F_weak], toMachineWord 0w0)
-        in
-            toMachineWord entryPt
-        end
-
-        val zeroSysWord: SysWord.word = 0w0 (* Make a single entry since it's boxed. *)
+        val makeEntryPoint:
+            Thread.Thread.thread * string -> machineWord =
+                RunCall.rtsCall2 "PolyCreateEntryPointObject"
 
     in
         structure Foreign = 
         struct
-            fun rtsCall2 (entryName: string, debugArgs: Universal.universal list): address =
+            fun rtsCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
             let
-                val numOfArgs = 2
                 open Address
                 val cvec = codeCreate (entryName, debugArgs)
                 val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
 
-                val entryPointAddr = createWeakEntryPoint()
-                
-                (* Test if we have already set the entry point *)
-                val () = pushConst(entryPointAddr, cvec)
-                val () = pushConst(toMachineWord zeroSysWord, cvec)
-                val () = pushConst(ioOp RuntimeCalls.POLY_SYS_eq_longword, cvec)
-                val () = genCallClosure cvec
-                val alreadySet = putBranchInstruction(jumpFalse, cvec)
-                (* Have to set it. *)
-                val () = pushConst(toMachineWord entryName, cvec)
-                val () = pushConst(ioOp RuntimeCalls.POLY_SYS_get_entry_point, cvec)
-                val () = genCallClosure cvec
-                val () = pushConst(toMachineWord 0w0, cvec)
-                val () = pushConst(entryPointAddr, cvec)
-                val () = pushConst(toMachineWord 0w0, cvec)
-                val () = pushConst(toMachineWord wordSize, cvec)
-                val () = pushConst(ioOp RuntimeCalls.POLY_SYS_move_bytes, cvec)
-                val () = genCallClosure cvec
-                val () = resetStack(1, false, cvec) (* Pop the unit result *)
+                val entryPointAddr = makeEntryPoint(Thread.Thread.self(), entryName)
 
-                val () = fixup (alreadySet, cvec)
-                val () = genLocal(numOfArgs +1, cvec) (* First argument. (n-1) args + 2 (return addr and closure) *)
-                val () = genLocal(numOfArgs +1, cvec) (* Second argument. (n-2) args + 2 + 1 (just pushed) *)
+                (* Each argument is at the same offset, essentially we're just shifting them *)
+                fun genLocals 0 = ()
+                |   genLocals n = (genLocal(numOfArgs +1, cvec); genLocals (n-1))
+                val () = genLocals numOfArgs
+
                 val () = pushConst(entryPointAddr, cvec)
                 val () = genRTSCall(numOfArgs, cvec)
                 val () = genReturn (numOfArgs, cvec)
