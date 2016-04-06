@@ -1741,25 +1741,6 @@ Handle lcm_arbitrary(TaskData *taskData, Handle x, Handle y)
     return mult_longc(taskData, x, div_longc(taskData, g, y));
 }
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
-    DLLEXPORT POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-    DLLEXPORT POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
-}
-
 POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);

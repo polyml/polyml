@@ -32,7 +32,7 @@ extern "C" {
 #ifdef _MSC_VER
     __declspec(dllexport)
 #endif
-        POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+    POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
 }
 
 #endif /* BASICIO_H */

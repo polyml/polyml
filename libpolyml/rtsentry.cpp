@@ -42,22 +42,42 @@
 #define ASSERT(x)
 #endif
 
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#endif
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#include <windows.h>
-#include "Console.h" /* For hApplicationInstance. */
-#endif
-
+#include "globals.h"
 #include "rtsentry.h"
 #include "save_vec.h"
 #include "polystring.h"
 #include "processes.h"
 #include "run_time.h"
-#include "globals.h"
 #include "arb.h"
+#include "basicio.h"
+#include "process_env.h"
+
+// Table of RTS entry functions.  In theory it ought to be possible to get these
+// using dlsym/GetProcAddress but that's difficult to get to work with various
+// combinations of static/dynamic libraries and different systems.
+
+typedef void (*polyRTSFunction)();
+
+static struct _entrypts {
+    const char *name;
+    polyRTSFunction entry;
+} entryPtTable[] =
+{
+    { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
+    { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
+    { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
+    { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
+    { "PolyMultiplyArbitrary",          (polyRTSFunction)&PolyMultiplyArbitrary},
+    { "PolyDivideArbitrary",            (polyRTSFunction)&PolyDivideArbitrary},
+    { "PolyRemainderArbitrary",         (polyRTSFunction)&PolyRemainderArbitrary},
+    { "PolyQuotRemArbitrary",           (polyRTSFunction)&PolyQuotRemArbitrary},
+    { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
+    { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
+    { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
+    { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
+
+    { NULL, NULL} // End of list.
+};
 
 // Create an entry point containing the address of the entry and the
 // string name.  Having the string in there allows us to export the entry.
@@ -83,26 +103,6 @@ const char *getEntryPointName(PolyObject *p)
     return (const char *)(p->AsBytePtr() + sizeof(PolyWord));
 }
 
-static void *getSymbol(const char *entryName)
-{
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    HINSTANCE lib = hApplicationInstance;
-    void *sym = (void*)GetProcAddress(lib, entryName);
-    if (sym != NULL) return sym;
-    lib = LoadLibraryA("PolyLib");
-    sym = (void*)GetProcAddress(lib, entryName);
-    if (sym != NULL) return sym;
-#else
-    void *lib = dlopen(NULL, RTLD_LAZY);
-    void *sym = dlsym(lib, entryName);
-    if (sym != NULL) return sym;
-    lib = dlopen("libpolyml", RTLD_LAZY);
-    sym = dlsym(lib, entryName);
-    if (sym != NULL) return sym;
-#endif
-    return 0;
-}
-
 // Sets the address of the entry point in an entry point object.
 bool setEntryPoint(PolyObject *p)
 {
@@ -110,18 +110,17 @@ bool setEntryPoint(PolyObject *p)
     p->Set(0, PolyWord::FromSigned(0)); // Clear it by default
     if (p->Length() == 1) return false;
     const char *entryName = (const char*)(p->AsBytePtr()+sizeof(PolyWord));
-    void *sym = getSymbol(entryName);
-    if (sym == 0) return false;
-    *(void**)p = sym;
-    return true;
-}
 
-extern "C" {
-#ifdef _MSC_VER
-    __declspec(dllexport)
-#endif
-    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
-};
+    for (struct _entrypts *ep = entryPtTable; ep->entry != NULL; ep++)
+    {
+        if (strcmp(entryName, ep->name) == 0)
+        {
+            *(polyRTSFunction*)p = ep->entry;
+            return true;
+        }
+    }
+    return false;
+}
 
 // External call
 POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)

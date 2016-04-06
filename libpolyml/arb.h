@@ -88,4 +88,22 @@ extern double           get_arbitrary_precision_as_real(TaskData *taskData, Poly
 void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft);
 #endif
 
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    DLLEXPORT POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+}
 #endif

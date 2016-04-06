@@ -30,4 +30,11 @@ extern Handle creatEntryPointObject(TaskData *taskData, Handle entryH);
 extern const char *getEntryPointName(PolyObject *p);
 extern bool setEntryPoint(PolyObject *p);
 
+extern "C" {
+#ifdef _MSC_VER
+    __declspec(dllexport)
+#endif
+    POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg);
+};
+
 #endif
