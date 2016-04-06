@@ -26,8 +26,7 @@ class PolyObject;
 
 typedef SaveVecEntry *Handle;
 
-extern Handle makeEntryPoint(TaskData *taskData, Handle refH, Handle entryH);
-extern Handle oldGetEntryPoint(TaskData *taskData, Handle entryH);
+extern Handle creatEntryPointObject(TaskData *taskData, Handle entryH);
 extern const char *getEntryPointName(PolyObject *p);
 extern bool setEntryPoint(PolyObject *p);
 

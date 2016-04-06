@@ -67,14 +67,9 @@ struct
         toMachineWord profileObject
     end
     
-    local
-        val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-    in
-        (* Find the address of the function to get the entry point. *)
-        val makeEntryPointAddr = ioOp RuntimeCalls.POLY_SYS_make_entry_point
-        val makeEntryPoint: string * int -> machineWord =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_make_entry_point
-    end
+    val makeEntryPoint:
+        Thread.Thread.thread * string -> machineWord =
+            RunCall.rtsCall2 "PolyCreateEntryPointObject"
 
     datatype abi = X86_32 | X64Win | X64Unix
 
@@ -82,7 +77,7 @@ struct
 
     fun rtsCall (functionName, nArgs, debugSwitches) =
     let
-        val entryPointAddr = makeEntryPoint(functionName, 0)
+        val entryPointAddr = makeEntryPoint(Thread.Thread.self(), functionName)
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
@@ -90,9 +85,6 @@ struct
                 1 => X64Unix
             |   2 => X64Win
             |   _ => X86_32
-
-        (* Branch to check for address *)
-        val (checkAddr, addrLabel) = condBranch(JNE, PredictTaken)
 
         (* Branch to check for exception. *)
         val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
@@ -154,17 +146,6 @@ struct
             [
                 MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
-                ArithRConst{opc=CMP, output=entryPtrReg, source=0},(* Has it been set? *)
-                checkAddr
-            ] @ map PushR regsToSave @
-            [
-                MoveLongConstR{source=toMachineWord functionName, output=eax},
-                MoveLongConstR{source=entryPointAddr, output=ebx},
-                CallFunction(ConstantClosure makeEntryPointAddr),
-                loadMemory(entryPtrReg, eax, 0) (* Extract the value from the result. *)
-            ] @ map PopR (List.rev regsToSave) @
-            [
-                JumpLabel addrLabel, (* Label to skip to if addr has been set. *)
                 loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
                 StoreConstToMemory{toStore=noException, address=BaseOffset{base=argPtrReg, offset=argExceptionPacket, index=NoIndex}} (* Clear exception *)
             ] @

@@ -37,8 +37,7 @@
  *********************************************************************/
 
 #define POLY_SYS_exit                1
-#define POLY_SYS_make_entry_point    9
-#define POLY_SYS_get_entry_point     10 // Old entry
+#define POLY_SYS_get_entry_point     10
 #define POLY_SYS_alloc_store         11
 #define POLY_SYS_alloc_uninit        12
 #define POLY_SYS_raisex              14 /* This is now used only by SetException. */

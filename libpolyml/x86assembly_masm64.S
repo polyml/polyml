@@ -2020,7 +2020,6 @@ X86AsmCallExtra&index&:
 
 
 CREATE_IO_CALL CallPOLY_SYS_exit,POLY_SYS_exit
-CREATE_IO_CALL CallPOLY_SYS_make_entry_point,POLY_SYS_make_entry_point
 CREATE_IO_CALL CallPOLY_SYS_get_entry_point,POLY_SYS_get_entry_point
 CREATE_IO_CALL CallPOLY_SYS_profiler,POLY_SYS_profiler
 CREATE_IO_CALL CallPOLY_SYS_Real_str,POLY_SYS_Real_str
