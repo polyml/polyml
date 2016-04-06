@@ -225,7 +225,7 @@ public:
     MainThreadRequest (enum _mainThreadPhase phase): mtp(phase), completed(false) {}
     virtual ~MainThreadRequest () {} // Suppress silly GCC warning
     const enum _mainThreadPhase mtp;
-    bool completed;
+    volatile bool completed;
     virtual void Perform() = 0;
 };
 
