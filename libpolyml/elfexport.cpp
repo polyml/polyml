@@ -429,6 +429,12 @@ void ELFExport::exportStore(void)
     directReloc = R_ARM_ABS32;
     useRela = false;
     fhdr.e_flags = EF_ARM_EABI_VER4;
+#elif defined(HOSTARCHITECTURE_HPPA)
+    fhdr.e_ident[EI_OSABI] = ELFOSABI_HPUX;
+    fhdr.e_machine = EM_PARISC;
+    directReloc = R_PARISC_DIR32;
+    fhdr.e_flags = EFA_PARISC_1_0;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_IA64)
     fhdr.e_machine = EM_IA_64;
     directReloc = R_IA64_DIR64LSB;
