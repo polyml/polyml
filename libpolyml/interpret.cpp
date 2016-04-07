@@ -116,7 +116,7 @@ public:
 
 class IntTaskData: public TaskData {
 public:
-    IntTaskData(): interrupt_requested(false) {}
+    IntTaskData(): interrupt_requested(false), overflowPacket(0), dividePacket(0) {}
 
     virtual void GarbageCollect(ScanAddress *process);
     PolyWord ScanStackAddress(ScanAddress *process, PolyWord val, StackSpace *stack, bool isCode);
@@ -157,6 +157,8 @@ public:
     PolyWord        *p_hr;
     PolyWord        p_exception_arg;
     unsigned        p_lastInstr;
+
+    PolyObject      *overflowPacket, *dividePacket;
 };
 
 // Special value for return address.
@@ -198,6 +200,14 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 
     *(--this->p_sp) = SPECIAL_PC_END_THREAD; /* Return address. */
     *(--this->p_sp) = closure; /* Closure address */
+
+    // Make packets for exceptions.
+    Handle reset = this->saveVec.mark();
+    Handle exn = make_exn(this, EXC_overflow, this->saveVec.push(TAGGED(0)));
+    overflowPacket = exn->WordP();
+    exn = make_exn(this, EXC_divide, this->saveVec.push(TAGGED(0)));
+    dividePacket = exn->WordP();
+    this->saveVec.reset(reset);
 }
 
 extern "C" {
@@ -764,7 +774,11 @@ int IntTaskData::SwitchToPoly()
                             POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
                             if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
                                 *sp = TAGGED(t);
-                            else raise_exception0(this, EXC_overflow);
+                            else
+                            {
+                                *(--sp) = overflowPacket;
+                                goto RAISE_EXCEPTION;
+                            }
                             break;
                         }
 
@@ -775,7 +789,11 @@ int IntTaskData::SwitchToPoly()
                             POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
                             if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
                                 *sp = TAGGED(t);
-                            else raise_exception0(this, EXC_overflow);
+                            else
+                            {
+                                *(--sp) = overflowPacket;
+                                goto RAISE_EXCEPTION;
+                            }
                             break;
                         }
 
@@ -1320,6 +1338,9 @@ int IntTaskData::SwitchToPoly()
 void IntTaskData::GarbageCollect(ScanAddress *process)
 {
     TaskData::GarbageCollect(process);
+
+    overflowPacket = process->ScanObjectAddress(overflowPacket);
+    dividePacket = process->ScanObjectAddress(dividePacket);
 
     if (stack != 0)
     {
