@@ -113,19 +113,6 @@ struct
         val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r12, r13) else (ecx, esi, edi)
         
-        (* If we have to get the entry point address we need to save the registers
-           that contained the original arguments.  How many depends on whether this is
-           32-bit or 64-bit. *)
-        val regsToSave =
-            case (abi, nArgs) of
-                (_, 0) => []
-            |   (_, 1) => [eax]
-            |   (_, 2) => [eax, ebx]
-            |   (X86_32, _) => [eax, ebx]
-            |   (_, 3) => [eax, ebx, r8]
-            |   (_, 4) => [eax, ebx, r8, r9]
-            |   _ => [eax, ebx, r8, r9, r10]
-            
         val stackSpace =
             case abi of
                 X64Unix => memRegSize
