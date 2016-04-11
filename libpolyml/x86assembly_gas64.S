@@ -134,14 +134,15 @@ EXTNAME(id):
 #define Arg_SaveRCX             0x60
 #define Arg_SaveRDX             0x68
 #define Arg_SaveRSI             0x70
-#define Arg_SaveR8              0x78
-#define Arg_SaveR9              0x80
-#define Arg_SaveR10             0x88
-#define Arg_SaveR11             0x90
-#define Arg_SaveR12             0x98
-#define Arg_SaveR13             0xa0
-#define Arg_SaveR14             0xa8
-#define Arg_SaveFP              0xb0
+#define Arg_SaveRDI             0x78
+#define Arg_SaveR8              0x80
+#define Arg_SaveR9              0x88
+#define Arg_SaveR10             0x90
+#define Arg_SaveR11             0x98
+#define Arg_SaveR12             0xa0
+#define Arg_SaveR13             0xa8
+#define Arg_SaveR14             0xb0
+#define Arg_SaveFP              0xb8
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -275,7 +276,7 @@ SaveFullState:
     movq    %r14,Arg_SaveR14(%rax)
     popq    %rbx                                # Get old rax value
     movq    %rbx,Arg_SaveRAX(%rax)
-    movq    %rsp,Arg_SaveStackPtr(%rax)
+    movq    %rsp,Arg_StackPtr(%rax)
     movq    Fr_Argument(%rbp),%rax
     movq    %r15,Arg_LocalMpointer(%rax)        # Save back heap pointer
     movq    Fr_HandlerRegister(%rbp),%rbx       # and handler pointer
