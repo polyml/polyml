@@ -110,16 +110,23 @@ EXTNAME(id):
 /* This is the argument vector passed in to X86AsmSwitchToPoly
    It is used to initialise the frame.  A few values are updated
    when ML returns. */
-#define Arg_LocalMpointer           0
-#define Arg_HandlerRegister         4
-#define Arg_LocalMbottom            8
-#define Arg_StackLimit              12
-#define Arg_ExceptionPacket         16  /* Address of packet to raise */
-#define Arg_RequestCode             20  /* Byte: Io function to call. */
-#define Arg_ReturnReason            22  /* Byte: Reason for returning from ML. */
-#define Arg_FullRestore             23  /* Byte: Full/partial restore */
-#define Arg_PolyStack               24  /* Current stack base */
-#define Arg_ThreadId                28  /* My thread id */
+#define Arg_LocalMpointer       0x0
+#define Arg_HandlerRegister     0x4
+#define Arg_LocalMbottom        0x8
+#define Arg_StackLimit          0xc
+#define Arg_ExceptionPacket     0x10  /* Address of packet to raise */
+#define Arg_RequestCode         0x14 /* Byte: Io function to call. */
+#define Arg_ReturnReason        0x16  /* Byte: Reason for returning from ML. */
+#define Arg_FullRestore         0x17  /* Byte: Full/partial restore */
+#define Arg_PolyStack           0x18  /* Current stack base */
+#define Arg_ThreadId            0x1c  /* My thread id */
+#define Arg_StackPtr            0x20  /* Stack Pointer */
+#define Arg_ProgramCtr          0x24
+#define Arg_SaveRAX             0x28
+#define Arg_SaveRBX             0x2c
+#define Arg_SaveRCX             0x30
+#define Arg_SaveRDX             0x34
+#define Arg_SaveFP              0x38
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -131,18 +138,6 @@ EXTNAME(id):
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
-
-/* Starting offsets */
-
-#define    PC_OFF     4
-#define    SP_OFF     8
-#define    EAX_OFF    20
-#define    EBX_OFF    24
-#define    ECX_OFF    28
-#define    EDX_OFF    32
-#define    ESI_OFF    36
-#define    EDI_OFF    40
-#define    FPREGS_OFF 44
 
 # Mark the stack as non-executable when supported
 #ifdef HAVE_GNU_STACK
@@ -204,25 +199,27 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    %eax,Fr_HeapOverflow(%ebp)
     movl    $callExRaiseOverflow,%eax
     movl    %eax,Fr_RaiseOverflow(%ebp)
-    movl    Arg_PolyStack(%ecx),%eax
-    movl    SP_OFF(%eax),%esp               # Set the new stack ptr
-    pushl   PC_OFF(%eax)                    # Push the code address
-    testb   $ 1,Arg_FullRestore(%ecx)           # Should we restore or clear the regs?
+    movl    Arg_StackPtr(%ecx),%esp               # Set the new stack ptr
+    movq    Arg_ExceptionPacket(%ecx),%eax
+    cmpq    $1,%eax                             # Did we raise an exception?
+    jnz     raisex
+    testb   $1,Arg_FullRestore(%ecx)           # Should we restore or clear the regs?
     jnz     sw2polyfull
 /* We're returning from an RTS call. */
-    movl    EAX_OFF(%eax),%eax              # The return value
+    movl    Arg_SaveRAX(%ecx),%eax              # The return value
     cld                                     # Clear this just in case
-    ret                                     # Jump to code address
+    jmp     Arg_ProgramCtr(%ecx)            # Jump to code address
 
 sw2polyfull:
-    FRSTOR  FPREGS_OFF(%eax)
-    movl    EBX_OFF(%eax),%ebx              # Load the registers
-    movl    ECX_OFF(%eax),%ecx
-    movl    EDX_OFF(%eax),%edx
-    movl    ESI_OFF(%eax),%esi
-    movl    EDI_OFF(%eax),%edi
+    FRSTOR  Arg_SaveFP(%ecx)
+    movq    Arg_SaveRAX(%ecx),%eax              # Load the registers
+    movl    Arg_SaveRBX(%ecx),%ebx              # Load the registers
+    movl    Arg_SaveRDX(%ecx),%edx
+    movl    Arg_SaveRSI(%ecx),%esi
+    movl    Arg_SaveRDI(%ecx),%edi
     cld                                     # Clear this just in case
-    movl    EAX_OFF(%eax),%eax
+    push    Arg_ProgramCtr(%ecx)
+    movl    Arg_SaveRCX(%ecx),%ecx
     ret                                     # Jump to code address
 
 
@@ -231,17 +228,16 @@ sw2polyfull:
 SaveFullState:
     pushl   %eax                            # Save eax
     movl    Fr_Argument(%ebp),%eax
-    movl    Arg_PolyStack(%eax),%eax
-    movl    %ebx,EBX_OFF(%eax)
-    movl    %ecx,ECX_OFF(%eax)
-    movl    %edx,EDX_OFF(%eax)
-    movl    %esi,ESI_OFF(%eax)
-    movl    %edi,EDI_OFF(%eax)
-    fnsave  FPREGS_OFF(%eax)                # Save FP state.  Also resets the state so...
-    fldcw   FPREGS_OFF(%eax)                # ...load because we need the same rounding mode in the RTS
+    movl    %ebx,Arg_SaveRBX(%eax)
+    movl    %ecx,Arg_SaveRCX(%eax)
+    movl    %edx,Arg_SaveRDX(%eax)
+    movl    %esi,Arg_SaveRSI(%eax)
+    movl    %edi,Arg_SaveRDI(%eax)
+    fnsave  Arg_SaveFP(%eax)                # Save FP state.  Also resets the state so...
+    fldcw   Arg_SaveFP(%eax)                # ...load because we need the same rounding mode in the RTS
     popl    %ebx                            # Get old eax value
-    movl    %ebx,EAX_OFF(%eax)
-    movl    %esp,SP_OFF(%eax)               # Save ML stack pointer
+    movl    %ebx,Arg_SaveRAX(%eax)
+    movl    %esp,Arg_SaveStackPtr(%eax)               # Save ML stack pointer
     movl    Fr_Argument(%ebp),%eax
     movl    Fr_LocalMpointer(%ebp),%ebx     # Copy back heap pointer
     movl    %ebx,Arg_LocalMpointer(%eax)

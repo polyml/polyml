@@ -83,16 +83,29 @@ Fr_Size             EQU     56
 ; This is the argument vector passed in to X86AsmSwitchToPoly
 ; It is used to initialise the frame.  A few values are updated
 ; when ML returns.
-Arg_LocalMpointer   EQU     0
-Arg_HandlerRegister EQU     4
-Arg_LocalMbottom    EQU     8
-Arg_StackLimit      EQU     12
-Arg_ExceptionPacket EQU     16  ;# Address of packet to raise
-Arg_RequestCode     EQU     20  ;# Byte: Io function to call.
-Arg_ReturnReason    EQU     22  ;# Byte: Reason for returning from ML.
-Arg_FullRestore     EQU     23  ;# Byte: Full/partial restore
-Arg_PolyStack       EQU     24  ;# Current stack base
-Arg_ThreadId        EQU     28  ;# My thread id
+ArgVector STRUCT
+LocalMPointer       DWORD   ?
+HandlerRegister     DWORD   ?
+LocalMbottom        DWORD   ?
+StackLimit          DWORD   ?
+ExceptionPacket     DWORD   ?       ; Address of packet to raise
+RequestCode         DB      ?       ; Byte: Io function to call.
+UnusedFlag          DB      ?
+ReturnReason        DB      ?       ; Byte: Reason for returning from ML.
+FullRestore         DB      ?       ; Byte: Full/partial restore
+PolyStack           DWORD   ?       ; Current stack base
+ThreadId            DWORD   ?       ; My thread id
+StackPtr            DWORD   ?       ; Stack pointer
+ProgramCtr          DWORD   ?
+SaveRAX             DWORD   ?
+SaveRBX             DWORD   ?
+SaveRCX             DWORD   ?
+SaveRDX             DWORD   ?
+SaveRSI             DWORD   ?
+SaveRDI             DWORD   ?
+SaveFP              WORD   ?         ; Actually larger
+ArgVector ENDS
+
 
 ; Codes to indicate the reason for return.  Zero indicates an RTS call.
 RETURN_HEAP_OVERFLOW        EQU 1
@@ -101,18 +114,6 @@ RETURN_STACK_OVERFLOWEX     EQU 3
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_RAISE_OVERFLOW       EQU 8
-
-;
-; Starting offsets
-PC_OFF      EQU     4
-SP_OFF      EQU     8
-EAX_OFF     EQU     20
-EBX_OFF     EQU     24
-ECX_OFF     EQU     28
-EDX_OFF     EQU     32
-ESI_OFF     EQU     36
-EDI_OFF     EQU     40
-FPREGS_OFF  EQU     44
 
 ;
 ; CODE STARTS HERE
@@ -124,14 +125,14 @@ FPREGS_OFF  EQU     44
 
 CALL_IO    MACRO   index
     mov     ecx,[Fr_Argument+ebp]
-    mov     byte ptr [Arg_RequestCode+ecx],index
+    mov     byte ptr [ArgVector.RequestCode+ecx],index
     jmp     SaveStateAndReturnLocal
 ENDM
 
 CALL_EXTRA  MACRO   index
     push    ecx
     mov     ecx,[Fr_Argument+ebp]
-    mov     byte ptr [Arg_ReturnReason+ecx],index
+    mov     byte ptr [ArgVector.ReturnReason+ecx],index
     pop     ecx
     jmp     SaveFullState
 ENDM
@@ -155,13 +156,13 @@ X86AsmSwitchToPoly:
     push    esi
     sub     esp,(Fr_size-12)                ; Allocate frame
     mov     ecx,[Fr_Argument+ebp]           ; Address of argument vector
-    mov     eax,[Arg_StackLimit+ecx]
+    mov     eax,[ArgVector.StackLimit+ecx]
     mov     [Fr_StackLimit+ebp],eax
-    mov     eax,[Arg_LocalMbottom+ecx]
+    mov     eax,[ArgVector.LocalMbottom+ecx]
     mov     [Fr_LocalMbottom+ebp],eax
-    mov     eax,[Arg_HandlerRegister+ecx]
+    mov     eax,[ArgVector.HandlerRegister+ecx]
     mov     [Fr_HandlerRegister+ebp],eax
-    mov     eax,[Arg_LocalMpointer+ecx]
+    mov     eax,[ArgVector.LocalMpointer+ecx]
     mov     [Fr_LocalMpointer+ebp],eax
     mov     eax,offset X86AsmCallExtraRETURN_STACK_OVERFLOWEX
     mov     [Fr_StackOverflowEx+ebp],eax
@@ -171,26 +172,29 @@ X86AsmSwitchToPoly:
     mov     [Fr_HeapOverflow+ebp],eax
     mov     eax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
     mov     [Fr_RaiseOverflow+ebp],eax
-    mov     eax,Arg_PolyStack[ecx]
-    mov     esp,SP_OFF[eax]
-    push    PC_OFF[eax]                    ; Push the code address
-    test    byte ptr [ecx+Arg_FullRestore],1   ; Should we restore or clear the regs?
+    mov     esp,[ArgVector.StackPtr+ecx]
+    mov     eax,[ArgVector.ExceptionPacket+ecx]
+    cmp     eax,1                                           ; Did we raise an exception?
+    jnz     raisex
+
+    test    byte ptr [ecx+ArgVector.FullRestore],1          ; Should we restore or clear the regs?
 
     jnz     sw2polyfull
 ; We're returning from an RTS call.
-    mov     eax,EAX_OFF[eax]                ; The return value
-    cld                                     ; Clear this just in case
-    ret                                     ; Jump to code address
+    mov     eax,[ArgVector.SaveRAX+ecx]                 ; The return value
+    cld                                                 ; Clear this just in case
+    jmp     [ArgVector.ProgramCtr+ecx]                  ; Jump to code address
 
 sw2polyfull:
-    frstor  FPREGS_OFF[eax]
-    mov     ebx,EBX_OFF[eax]
-    mov     ecx,ECX_OFF[eax]
-    mov     edx,EDX_OFF[eax]
-    mov     esi,ESI_OFF[eax]
-    mov     edi,EDI_OFF[eax]
+    frstor  [ArgVector.SaveFP+ecx]
+    mov     eax,[ArgVector.SaveRAX+ecx]
+    mov     ebx,[ArgVector.SaveRBX+ecx]
+    mov     edx,[ArgVector.SaveRDX+ecx]
+    mov     esi,[ArgVector.SaveRSI+ecx]
+    mov     edi,[ArgVector.SaveRDI+ecx]
     cld                                     ; Clear this just in case
-    mov     eax,EAX_OFF[eax]
+    push    [ArgVector.ProgramCtr+ecx]
+    mov     ecx,[ArgVector.SaveRCX+ecx]
     ret                                     ; Jump to code address
 
 ; Code to save the state and switch to C
@@ -198,22 +202,21 @@ sw2polyfull:
 SaveFullState:
     push    eax                             ; Save eax
     mov     eax,[Fr_Argument+ebp]
-    mov     eax,[Arg_PolyStack+eax]
-    mov     EBX_OFF[eax],ebx
-    mov     ECX_OFF[eax],ecx
-    mov     EDX_OFF[eax],edx
-    mov     ESI_OFF[eax],esi
-    mov     EDI_OFF[eax],edi
-    FNSAVE  FPREGS_OFF[eax]                 ; Save FP state.  Also resets the state so...
-    FLDCW   FPREGS_OFF[eax]                 ; ...load because we need the same rounding mode in the RTS
+    mov     [ArgVector.SaveRBX+eax],ebx
+    mov     [ArgVector.SaveRCX+eax],ecx
+    mov     [ArgVector.SaveRDX+eax],edx
+    mov     [ArgVector.SaveRSI+eax],esi
+    mov     [ArgVector.SaveRDI+eax],edi
+    FNSAVE  [ArgVector.SaveFP+eax]          ; Save FP state.  Also resets the state so...
+    FLDCW   [ArgVector.SaveFP+eax]          ; ...load because we need the same rounding mode in the RTS
     pop     ebx                             ; Get old eax value
-    mov     EAX_OFF[eax],ebx
-    mov     SP_OFF[eax],esp                 ; Save ML stack pointer
+    mov     [ArgVector.SaveRAX+eax],ebx
+    mov     [ArgVector.StackPtr+eax],esp                 ; Save ML stack pointer
     mov     eax,[Fr_Argument+ebp]
     mov     ebx,[Fr_LocalMpointer+ebp]      ; Copy back heap pointer
-    mov     [Arg_LocalMpointer+eax],ebx
+    mov     [ArgVector.LocalMpointer+eax],ebx
     mov     ebx,[Fr_HandlerRegister+ebp]    ; and handler pointer
-    mov     [Arg_HandlerRegister+eax],ebx
+    mov     [ArgVector.HandlerRegister+eax],ebx
     mov     esp,ebp                         ; Restore C stack pointer
     sub     esp,12                          ; Sp is just before the registers
     pop     esi                             ; Restore saved registers
@@ -1415,7 +1418,7 @@ atomic_reset:
 PUBLIC  thread_self
 thread_self:
     mov     eax,[Fr_Argument+ebp]
-    mov     eax,[Arg_ThreadId+eax]
+    mov     eax,[ArgVector.ThreadId+eax]
     ret
 
 

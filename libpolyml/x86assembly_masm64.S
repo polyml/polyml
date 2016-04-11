@@ -81,16 +81,36 @@ Fr_Size             EQU     144         ; Must be multiple of 16 to get alignmen
 ; This is the argument vector passed in to X86AsmSwitchToPoly
 ; It is used to initialise the frame.  A few values are updated
 ; when ML returns.
-Arg_LocalMpointer   EQU     0
-Arg_HandlerRegister EQU     8
-Arg_LocalMbottom    EQU     16
-Arg_StackLimit      EQU     24
-Arg_ExceptionPacket EQU     32  ;# Address of packet to raise
-Arg_RequestCode     EQU     40  ;# Byte: Io function to call.
-Arg_ReturnReason    EQU     42  ;# Byte: Reason for returning from ML.
-Arg_FullRestore     EQU     43  ;# Byte: Full/partial restore
-Arg_PolyStack       EQU     48  ;# Current stack base
-Arg_ThreadId        EQU     56  ;# My thread id
+ArgVector STRUCT
+LocalMPointer       QWORD   ?
+HandlerRegister     QWORD   ?
+LocalMbottom        QWORD   ?
+StackLimit          QWORD   ?
+ExceptionPacket     QWORD   ?       ; Address of packet to raise
+RequestCode         DB      ?       ; Byte: Io function to call.
+UnusedFlag          DB      ?
+ReturnReason        DB      ?       ; Byte: Reason for returning from ML.
+FullRestore         DB      ?       ; Byte: Full/partial restore
+UnusedAlign         DWORD   ?
+PolyStack           QWORD   ?       ; Current stack base
+ThreadId            QWORD   ?       ; My thread id
+StackPtr            QWORD   ?       ; Stack pointer
+ProgramCtr          QWORD   ?
+SaveRAX             QWORD   ?
+SaveRBX             QWORD   ?
+SaveRCX             QWORD   ?
+SaveRDX             QWORD   ?
+SaveRSI             QWORD   ?
+SaveRDI             QWORD   ?
+SaveR8              QWORD   ?
+SaveR9              QWORD   ?
+SaveR10             QWORD   ?
+SaveR11             QWORD   ?
+SaveR12             QWORD   ?
+SaveR13             QWORD   ?
+SaveR14             QWORD   ?
+SaveFP              WORD   ?         ; Actually larger
+ArgVector ENDS
 
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
@@ -98,25 +118,6 @@ RETURN_STACK_OVERFLOWEX     EQU 3
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_RAISE_OVERFLOW       EQU 8
-
-;
-; Starting offsets
-PC_OFF      EQU     8
-SP_OFF      EQU     16
-EAX_OFF     EQU     40
-EBX_OFF     EQU     48
-ECX_OFF     EQU     56
-EDX_OFF     EQU     64
-ESI_OFF     EQU     72
-EDI_OFF     EQU     80
-R8_OFF      EQU     88
-R9_OFF      EQU     96
-R10_OFF     EQU     104
-R11_OFF     EQU     112
-R12_OFF     EQU     120
-R13_OFF     EQU     128
-R14_OFF     EQU     136
-FPREGS_OFF  EQU     144
 
 ;
 ; CODE STARTS HERE
@@ -128,14 +129,14 @@ FPREGS_OFF  EQU     144
 
 CALL_IO    MACRO   index
     mov     rcx,[Fr_Argument+rbp]
-    mov     byte ptr [Arg_RequestCode+rcx],index
+    mov     byte ptr [ArgVector.RequestCode+rcx],index
     jmp     SaveStateAndReturnLocal
 ENDM
 
 CALL_EXTRA  MACRO   index
     push    rcx
     mov     rcx,[Fr_Argument+rbp]
-    mov     byte ptr [Arg_ReturnReason+rcx],index
+    mov     byte ptr [ArgVector.ReturnReason+rcx],index
     pop     rcx
     jmp     SaveFullState
 ENDM
@@ -155,13 +156,13 @@ entryName PROC FRAME
     .PUSHREG rsi
     .endprolog
     mov     r12,[Fr_Argument+rbp]                           ; Load arg into r12 - saved across call
-    mov     qword ptr [Arg_ExceptionPacket+r12],1           ; Clear exception
-    mov     [Arg_LocalMpointer+r12],r15                     ; Save heap pointer
+    mov     qword ptr [ArgVector.ExceptionPacket+r12],1           ; Clear exception
+    mov     [ArgVector.LocalMpointer+r12],r15                     ; Save heap pointer
     mov     r13,rsp                                         ; Save ML stack ptr in r13 - also saved
     mov     rsp,rbp                                         ; Switch to C stack
     sub     rsp,Fr_size
     ; X86-64 Windows calling conventions.
-    mov     rcx,[Arg_ThreadId+r12]                          ; First argument - thread Id
+    mov     rcx,[ArgVector.ThreadId+r12]                          ; First argument - thread Id
 ENDM
 
 POSTRTSCALL MACRO  entryName,rtsName
@@ -170,14 +171,14 @@ POSTRTSCALL MACRO  entryName,rtsName
 EXTRN   rtsName:PROC
     call    rtsName
     mov     rsp,r13                                         ; Restore the ML stack ptr
-    mov     r15,[Arg_LocalMpointer+r12]                     ; Update heap pointer
-    mov     rdx,[Arg_LocalMbottom+r12]
+    mov     r15,[ArgVector.LocalMpointer+r12]                     ; Update heap pointer
+    mov     rdx,[ArgVector.LocalMbottom+r12]
     mov     [Fr_LocalMbottom+rbp],rdx                       ; and heap base because we may have GCd
-    cmp     qword ptr [Arg_ExceptionPacket+r12],1
+    cmp     qword ptr [ArgVector.ExceptionPacket+r12],1
     jne     rtsraisex
     ret
 rtsraisex:
-    mov     rax,[Arg_ExceptionPacket+r12]
+    mov     rax,[ArgVector.ExceptionPacket+r12]
     jmp     raisex
 entryName ENDP
 ENDM
@@ -246,11 +247,11 @@ X86AsmSwitchToPoly  PROC FRAME
     .PUSHREG rsi
     .endprolog
     sub     rsp,(Fr_size-56)
-    mov     rax,[Arg_StackLimit+rcx]
+    mov     rax,[ArgVector.StackLimit+rcx]
     mov     [Fr_StackLimit+rbp],rax
-    mov     rax,[Arg_LocalMbottom+rcx]
+    mov     rax,[ArgVector.LocalMbottom+rcx]
     mov     [Fr_LocalMbottom+rbp],rax
-    mov     rax,[Arg_HandlerRegister+rcx]
+    mov     rax,[ArgVector.HandlerRegister+rcx]
     mov     [Fr_HandlerRegister+rbp],rax
     mov     rax,offset X86AsmCallExtraRETURN_STACK_OVERFLOWEX
     mov     [Fr_StackOverflowEx+rbp],rax
@@ -260,37 +261,38 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     [Fr_HeapOverflow+rbp],rax
     mov     rax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
     mov     [Fr_RaiseOverflow+rbp],rax
-    mov     r15,[Arg_LocalMpointer+rcx]
-    mov     rax,Arg_PolyStack[rcx]
-    mov     rsp,SP_OFF[rax]
-    push    PC_OFF[rax]                    ; Push the code address
-    test    byte ptr [rcx+Arg_FullRestore],1   ; Should we restore or clear the regs?
-
+    mov     r15,[ArgVector.LocalMpointer+rcx]
+    mov     rsp,[ArgVector.StackPtr+rcx]
+    mov     rax,[ArgVector.ExceptionPacket+rcx]
+    cmp     rax,1                                           ; Did we raise an exception?
+    jnz     raisex
+    test    byte ptr [rcx+ArgVector.FullRestore],1          ; Should we restore or clear the regs?
     jnz     sw2polyfull
 ; We're returning from an RTS call.
-    mov     rax,EAX_OFF[rax]
-    cld                                     ; Clear this just in case
-    ret                                     ; Jump to code address
+    mov     rax,[ArgVector.SaveRAX+rcx]
+    cld                                                     ; Clear this just in case
+    jmp     [ArgVector.ProgramCtr+rcx]                      ; Jump to code address
 
 ; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
 X86AsmSwitchToPoly ENDP
 
 sw2polyfull:
-    FRSTOR  FPREGS_OFF[rax]
-    mov     rbx,EBX_OFF[rax]
-    mov     rcx,ECX_OFF[rax]
-    mov     rdx,EDX_OFF[rax]
-    mov     rsi,ESI_OFF[rax]
-    mov     rdi,EDI_OFF[rax]
-    mov     r8,R8_OFF[rax]
-    mov     r9,R9_OFF[rax]
-    mov     r10,R10_OFF[rax]
-    mov     r11,R11_OFF[rax]
-    mov     r12,R12_OFF[rax]
-    mov     r13,R13_OFF[rax]
-    mov     r14,R14_OFF[rax]
+    FRSTOR  [ArgVector.SaveFP+rcx]
+    mov     rax,[ArgVector.SaveRAX+rcx]
+    mov     rbx,[ArgVector.SaveRBX+rcx]
+    mov     rdx,[ArgVector.SaveRDX+rcx]
+    mov     rsi,[ArgVector.SaveRSI+rcx]
+    mov     rdi,[ArgVector.SaveRDI+rcx]
+    mov     r8,[ArgVector.SaveR8+rcx]
+    mov     r9,[ArgVector.SaveR9+rcx]
+    mov     r10,[ArgVector.SaveR10+rcx]
+    mov     r11,[ArgVector.SaveR11+rcx]
+    mov     r12,[ArgVector.SaveR12+rcx]
+    mov     r13,[ArgVector.SaveR13+rcx]
+    mov     r14,[ArgVector.SaveR14+rcx]
     cld                                     ; Clear this just in case
-    mov     rax,EAX_OFF[rax]
+    push    [ArgVector.ProgramCtr+rcx]
+    mov     rcx,[ArgVector.SaveRCX+rcx]
     ret                                     ; Jump to code address
 
 
@@ -299,28 +301,27 @@ sw2polyfull:
 SaveFullState:
     push    rax                ; Save rax
     mov     rax,[Fr_Argument+rbp]
-    mov     rax,[Arg_PolyStack+rax]
-    mov     EBX_OFF[rax],rbx
-    mov     ECX_OFF[rax],rcx
-    mov     EDX_OFF[rax],rdx
-    mov     ESI_OFF[rax],rsi
-    mov     EDI_OFF[rax],rdi
-    FNSAVE  FPREGS_OFF[rax]          ; Save FP state.  Also resets the state so...
-    FLDCW   FPREGS_OFF[rax]          ; ...load because we need the same rounding mode in the RTS
-    mov     R8_OFF[rax],r8
-    mov     R9_OFF[rax],r9
-    mov     R10_OFF[rax],r10
-    mov     R11_OFF[rax],r11
-    mov     R12_OFF[rax],r12
-    mov     R13_OFF[rax],r13
-    mov     R14_OFF[rax],r14
+    mov     [ArgVector.SaveRBX+rax],rbx
+    mov     [ArgVector.SaveRCX+rax],rcx
+    mov     [ArgVector.SaveRDX+rax],rdx
+    mov     [ArgVector.SaveRSI+rax],rsi
+    mov     [ArgVector.SaveRDI+rax],rdi
+    FNSAVE  [ArgVector.SaveFP+rax]          ; Save FP state.  Also resets the state so...
+    FLDCW   [ArgVector.SaveFP+rax]          ; ...load because we need the same rounding mode in the RTS
+    mov     [ArgVector.SaveR8+rax],r8
+    mov     [ArgVector.SaveR9+rax],r9
+    mov     [ArgVector.SaveR10+rax],r10
+    mov     [ArgVector.SaveR11+rax],r11
+    mov     [ArgVector.SaveR12+rax],r12
+    mov     [ArgVector.SaveR13+rax],r13
+    mov     [ArgVector.SaveR14+rax],r14
     pop     rbx                             ; Get old rax value
-    mov     EAX_OFF[rax],rbx
-    mov     SP_OFF[rax],rsp
+    mov     [ArgVector.SaveRAX+rax],rbx
+    mov     [ArgVector.StackPtr+rax],rsp
     mov     rax,[Fr_Argument+rbp]
-    mov     [Arg_LocalMpointer+rax],r15     ; Save back heap pointer
+    mov     [ArgVector.LocalMpointer+rax],r15     ; Save back heap pointer
     mov     rbx,[Fr_HandlerRegister+rbp]    ; Copy back handler pointer
-    mov     [Arg_HandlerRegister+rax],rbx
+    mov     [ArgVector.HandlerRegister+rax],rbx
     mov     rsp,rbp                         ; Restore C stack pointer
     sub     rsp,56
     pop     rsi
@@ -1411,7 +1412,7 @@ atomic_reset:
 PUBLIC  thread_self
 thread_self:
     mov     rax,[Fr_Argument+rbp]
-    mov     rax,[Arg_ThreadId+rax]
+    mov     rax,[ArgVector.ThreadId+rax]
     ret
 
 ; Memory for LargeWord.word values.  This is the same as mem_for_real on
