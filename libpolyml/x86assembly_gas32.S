@@ -126,7 +126,9 @@ EXTNAME(id):
 #define Arg_SaveRBX             0x2c
 #define Arg_SaveRCX             0x30
 #define Arg_SaveRDX             0x34
-#define Arg_SaveFP              0x38
+#define Arg_SaveRSI             0x38
+#define Arg_SaveRDI             0x3c
+#define Arg_SaveFP              0x40
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -200,19 +202,19 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movl    $callExRaiseOverflow,%eax
     movl    %eax,Fr_RaiseOverflow(%ebp)
     movl    Arg_StackPtr(%ecx),%esp               # Set the new stack ptr
-    movq    Arg_ExceptionPacket(%ecx),%eax
-    cmpq    $1,%eax                             # Did we raise an exception?
+    movl    Arg_ExceptionPacket(%ecx),%eax
+    cmpl    $1,%eax                             # Did we raise an exception?
     jnz     raisex
     testb   $1,Arg_FullRestore(%ecx)           # Should we restore or clear the regs?
     jnz     sw2polyfull
 /* We're returning from an RTS call. */
     movl    Arg_SaveRAX(%ecx),%eax              # The return value
     cld                                     # Clear this just in case
-    jmp     Arg_ProgramCtr(%ecx)            # Jump to code address
+    jmp     *Arg_ProgramCtr(%ecx)            # Jump to code address
 
 sw2polyfull:
     FRSTOR  Arg_SaveFP(%ecx)
-    movq    Arg_SaveRAX(%ecx),%eax              # Load the registers
+    movl    Arg_SaveRAX(%ecx),%eax              # Load the registers
     movl    Arg_SaveRBX(%ecx),%ebx              # Load the registers
     movl    Arg_SaveRDX(%ecx),%edx
     movl    Arg_SaveRSI(%ecx),%esi
@@ -237,7 +239,7 @@ SaveFullState:
     fldcw   Arg_SaveFP(%eax)                # ...load because we need the same rounding mode in the RTS
     popl    %ebx                            # Get old eax value
     movl    %ebx,Arg_SaveRAX(%eax)
-    movl    %esp,Arg_SaveStackPtr(%eax)               # Save ML stack pointer
+    movl    %esp,Arg_StackPtr(%eax)               # Save ML stack pointer
     movl    Fr_Argument(%ebp),%eax
     movl    Fr_LocalMpointer(%ebp),%ebx     # Copy back heap pointer
     movl    %ebx,Arg_LocalMpointer(%eax)
