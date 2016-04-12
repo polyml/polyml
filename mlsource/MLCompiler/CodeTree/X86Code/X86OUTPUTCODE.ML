@@ -191,7 +191,6 @@ struct
     and memRegHeapOverflowCall    = if isX64 then ~104 else ~40
     and memRegStackOverflowCall   = if isX64 then ~96 else ~36
     and memRegStackOverflowCallEx = if isX64 then ~88 else ~32
-    and memRegThreadSelf          = if isX64 then ~112 else ~44
     and memRegRaiseOverflow       = if isX64 then ~120 else ~48
     and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
 
@@ -199,6 +198,8 @@ struct
     val argLocalMpointer          = 0
     and argLocalMbottom           = 2 * wordSize
     and argExceptionPacket        = 4 * wordSize
+    and argThreadSelf             = 7 * wordSize
+    and argStackPointer           = 8 * wordSize
 
   (* Several operations are not generated immediately but recorded and
      generated later.  Labels (i.e. the destination of a branch) are recorded

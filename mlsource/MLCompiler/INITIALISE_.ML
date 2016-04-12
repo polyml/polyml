@@ -374,7 +374,9 @@ struct
             (* [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
                tagInject assemblyCodeTag true] *)
  
-            fun makeCall n entryName = CODETREE.Foreign.rtsCall(entryName, n, debugOpts)
+            fun makeCall rtsCall n entryName = rtsCall (entryName, n, debugOpts)
+            val makeFastCall = makeCall CODETREE.Foreign.rtsCallFast
+            and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (width:int, callN) : codetree =
@@ -436,12 +438,18 @@ struct
             local
                 val a = makeTV ()
                 and b = makeTV ()
-                val name = "rtsCall1"
-                val n = mkLoadArgument 0                 (* the outer parameter *)
-                val call1 = toMachineWord(makeCall 1)
-                val body = mkEval(mkConst call1, [mkLoadArgument 0])
+
+                fun makeInlCode(makeCall, name) =
+                let
+                    val call1 = toMachineWord(makeCall 1)
+                    val body = mkEval(mkConst call1, [mkLoadArgument 0])
+                    val proc = mkInlproc (body, 1, name, [], 0)
+                in
+                    makePolymorphic([a, b], proc)
+                end
             in
-                val rtsCall1Entry = makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
+                val rtsCallFull1Entry = makeInlCode(makeFullCall, "rtsCallFull1")
+                and rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
             end
             
             local
@@ -450,29 +458,39 @@ struct
                 and c = makeTV ()
                 and d = makeTV ()
                 and e = makeTV ()
+                
+                fun makeRtsCall(n, makeCall) =
+                    makeRunCallTupled(n, toMachineWord(makeCall n))
             in
-                val rtsCall0Entry = makePolymorphic([a], makeRunCallTupled(0, toMachineWord(makeCall 0)))
+                val rtsCallFull0Entry = makePolymorphic([a], makeRtsCall(0, makeFullCall))
+                and rtsCallFast0Entry = makePolymorphic([a], makeRtsCall(0, makeFastCall))
                 val rtsCall0Type = String ->> Unit ->> a
  
                 val rtsCall1Type = String ->> a ->> b
 
-                val rtsCall2Entry = makePolymorphic([a, b, c], makeRunCallTupled(2, toMachineWord(makeCall 2)))
+                val rtsCallFull2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFullCall))
+                and rtsCallFast2Entry = makePolymorphic([a, b, c], makeRtsCall(2, makeFastCall))
                 val rtsCall2Type = String ->> TYPETREE.mkProductType [a,b] ->> c
-                val rtsCall3Entry = makePolymorphic([a, b, c, d], makeRunCallTupled(3, toMachineWord(makeCall 3)))
+                val rtsCallFull3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFullCall))
+                val rtsCallFast3Entry = makePolymorphic([a, b, c, d], makeRtsCall(3, makeFastCall))
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
-                val rtsCall4Entry = makePolymorphic([a, b, c, d, e], makeRunCallTupled(4, toMachineWord(makeCall 4)))
+                val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
-                val rtsCall3C2Entry =
-                    makePolymorphic([a, b, c, d, e], makeRunCallTupledWithContainer(3, 2, toMachineWord(makeCall 4)))
+                val rtsCallFull3C2Entry =
+                    makePolymorphic([a, b, c, d, e], makeRunCallTupledWithContainer(3, 2, toMachineWord(makeFullCall 4)))
                 val rtsCall3C2Type = String ->> TYPETREE.mkProductType [a,b,c] ->> TYPETREE.mkProductType [d,e]
             end
         in
-            val () = enterRunCall ("rtsCall0", rtsCall0Entry, rtsCall0Type)
-            val () = enterRunCall ("rtsCall1", rtsCall1Entry, rtsCall1Type)
-            val () = enterRunCall ("rtsCall2", rtsCall2Entry, rtsCall2Type)
-            val () = enterRunCall ("rtsCall3", rtsCall3Entry, rtsCall3Type)
-            val () = enterRunCall ("rtsCall4", rtsCall4Entry, rtsCall4Type)
-            val () = enterRunCall ("rtsCall3C2", rtsCall3C2Entry, rtsCall3C2Type)
+            val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
+            val () = enterRunCall ("rtsCallFast0", rtsCallFast0Entry, rtsCall0Type)
+            val () = enterRunCall ("rtsCallFull1", rtsCallFull1Entry, rtsCall1Type)
+            val () = enterRunCall ("rtsCallFast1", rtsCallFast1Entry, rtsCall1Type)
+            val () = enterRunCall ("rtsCallFull2", rtsCallFull2Entry, rtsCall2Type)
+            val () = enterRunCall ("rtsCallFast2", rtsCallFast2Entry, rtsCall2Type)
+            val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
+            val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
+            val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
+            val () = enterRunCall ("rtsCallFull3C2", rtsCallFull3C2Entry, rtsCall3C2Type)
         end
 
         local

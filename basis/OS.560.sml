@@ -768,7 +768,11 @@ struct
                 doIo(53, d, s)
         end
 
-        val chDir: string -> unit = RunCall.rtsCallFull1 "PolyChDir"
+        local
+            val callChdir: Thread.Thread.thread * string -> unit = RunCall.rtsCall2 "PolyChDir"
+        in
+            fun chDir s = callChdir (Thread.Thread.self(), s)
+        end
 
         local
             val doIo: int*unit*unit -> string
@@ -1145,7 +1149,7 @@ struct
 
         local
             (* exit - supply result code and close down all threads. *)
-            val doExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
+            val doExit: Thread.Thread.thread * int -> unit = RunCall.rtsCall2 "PolyFinish"
             val doCall: int*unit -> (unit->unit) =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in
@@ -1154,7 +1158,9 @@ struct
                 (* Get a function from the atExit list.  If that list
                    is empty it will raise an exception and we've finished. *)
                 val exitFun =
-                    doCall(19, ()) handle _ => (doExit n; fn () => ())
+                    doCall(19, ())
+                        handle _ =>
+                            (doExit(Thread.Thread.self(), n); fn () => ())
             in
                 (* Run the function and then repeat. *)
                 exitFun() handle _ => (); (* Ignore exceptions in the function. *)

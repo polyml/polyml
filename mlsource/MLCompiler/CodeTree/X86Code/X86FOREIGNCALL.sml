@@ -66,18 +66,25 @@ struct
     in
         toMachineWord profileObject
     end
-    
+
+    val makeEntryPoint: string -> machineWord =
+        RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point
+(*
     val makeEntryPoint:
         Thread.Thread.thread * string -> machineWord =
-            RunCall.rtsCall2 "PolyCreateEntryPointObject"
+            RunCall.rtsCall2 "PolyCreateEntryPointObject"*)
 
     datatype abi = X86_32 | X64Win | X64Unix
 
     val noException = 1
 
-    fun rtsCall (functionName, nArgs, debugSwitches) =
+    (* Full RTS call version.  An extra argument is passed that contains the thread ID.
+       This allows the taskData object to be found which is needed if the code allocates
+       any ML memory or raises an exception.  It also saves the stack and heap pointers
+       in case of a GC. *)
+    fun rtsCallFull (functionName, nArgs (* Not counting the thread ID *), debugSwitches) =
     let
-        val entryPointAddr = makeEntryPoint(Thread.Thread.self(), functionName)
+        val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
         val abi =
@@ -110,8 +117,119 @@ struct
            loaded into registers that will be saved by the callee.
            The entry point doesn't need to be but must be a register
            that isn't used for an argument. *)
+        (* We have to save the stack pointer to the argument structure but
+           we still need a register if we have args on the stack. *)
         val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r12, r13) else (ecx, esi, edi)
+        
+        val stackSpace =
+            case abi of
+                X64Unix => memRegSize
+            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
+            |   X86_32 =>
+                let
+                    (* GCC likes to keep the stack on a 16-byte alignment. *)
+                    val argSpace = (nArgs+1)*4
+                    val align = argSpace mod 16
+                in
+                    (* Add sufficient space so that esp will be 16-byte aligned *)
+                    if align = 0
+                    then memRegSize
+                    else memRegSize + 16 - align
+                end
+
+        val code =
+            [
+                MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
+                loadMemory(argPtrReg, ebp, memRegArgumentPtr) (* Get argument data ptr  - use r12 to save reloading after the call *)
+            ] @
+            (
+                (* Save heap ptr.  This is in r15 in X86/64 *)
+                if isX64 then [storeMemory(r15, argPtrReg, argLocalMpointer)] (* Save heap ptr *)
+                else [loadMemory(edx, ebp, memRegLocalMPointer), storeMemory(edx, argPtrReg, argLocalMpointer) ]
+            ) @
+            [
+                MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save this in case it is needed for arguments. *)
+                (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
+                storeMemory(esp, argPtrReg, argStackPointer), (* Save ML stack and switch to C stack. *)
+                MoveRR{source=ebp, output=esp},
+                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt stackSpace}
+            ] @
+            (
+                case (abi, nArgs) of  (* Set the argument registers. *)
+                    (X64Unix, 0) => [ loadMemory(edi, argPtrReg, argThreadSelf) ]
+                |   (X64Unix, 1) => [ loadMemory(edi, argPtrReg, argThreadSelf), MoveRR{source=eax, output=esi} ]
+                |   (X64Unix, 2) =>
+                        [ loadMemory(edi, argPtrReg, argThreadSelf), MoveRR{source=eax, output=esi}, MoveRR{source=ebx, output=edx} ]
+                |   (X64Unix, 3) => 
+                        [ loadMemory(edi, argPtrReg, argThreadSelf), MoveRR{source=eax, output=esi}, MoveRR{source=ebx, output=edx}, MoveRR{source=r8, output=ecx} ]
+                |   (X64Win, 0) => [ loadMemory(ecx, argPtrReg, argThreadSelf) ]
+                |   (X64Win, 1) => [ loadMemory(ecx, argPtrReg, argThreadSelf), MoveRR{source=eax, output=edx} ]
+                |   (X64Win, 2) =>
+                        [ loadMemory(ecx, argPtrReg, argThreadSelf), MoveRR{source=eax, output=edx}, MoveRR{source=ebx, output=r8} ]
+                |   (X64Win, 3) =>
+                        [ loadMemory(ecx, argPtrReg, argThreadSelf), MoveRR{source=eax, output=edx}, MoveRR{source=r8, output=r9}, MoveRR{source=ebx, output=r8} ]
+                |   (X86_32, 0) => [ PushMem{base=argPtrReg, offset=argThreadSelf} ]
+                |   (X86_32, 1) => [ PushR eax, PushMem{base=argPtrReg, offset=argThreadSelf} ]
+                |   (X86_32, 2) => [ PushR ebx, PushR eax, PushMem{base=argPtrReg, offset=argThreadSelf} ]
+                |   (X86_32, 3) =>
+                        [
+                            (* We need to move an argument from the ML stack. *)
+                            PushMem{base=saveMLStackPtrReg, offset=4}, PushR ebx, PushR eax,
+                            PushMem{base=argPtrReg, offset=argThreadSelf}
+                        ]
+                |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                MoveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
+            ] @
+            (
+            if isX64 then [loadMemory(r15, argPtrReg, argLocalMpointer) ] (* Copy back the heap ptr *)
+            else [loadMemory(edx, esi, argLocalMpointer), storeMemory(edx, ebp, memRegLocalMPointer) ]
+            ) @
+            [
+                loadMemory(edx, argPtrReg, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr *)
+                ArithMemConst{opc=CMP, offset=argExceptionPacket, base=argPtrReg, source=noException},
+                checkExc,
+                (* Remove any arguments that have been passed on the stack. *)
+                ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
+                JumpLabel exLabel, (* else raise the exception *)
+                loadMemory(eax, argPtrReg, argExceptionPacket),
+                RaiseException
+            ]
+ 
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        (* Have to create a closure for this *)
+        open Address
+        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+    in
+        assignWord(closure, 0w0, toMachineWord createdCode);
+        lock closure;
+        closure
+    end
+
+    (* This is a quicker version but can only be used if the RTS entry does
+       not allocated ML memory, raise an exception or need to suspend the thread. *)
+    fun rtsCallFast (functionName, nArgs, debugSwitches) =
+    let
+        val entryPointAddr = makeEntryPoint functionName
+
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val abi =
+            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+                1 => X64Unix
+            |   2 => X64Win
+            |   _ => X86_32
+
+        (* We don't need an argument pointer but we do need to save
+           the ML stack pointer across the call. *)
+        val (entryPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -133,15 +251,6 @@ struct
             [
                 MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
-                loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
-                StoreConstToMemory{toStore=noException, address=BaseOffset{base=argPtrReg, offset=argExceptionPacket, index=NoIndex}} (* Clear exception *)
-            ] @
-            (
-                (* Save heap ptr.  This is in r15 in X86/64 *)
-                if isX64 then [storeMemory(r15, argPtrReg, argLocalMpointer)] (* Save heap ptr *)
-                else [loadMemory(edx, ebp, memRegLocalMPointer), storeMemory(edx, argPtrReg, argLocalMpointer) ]
-            ) @
-            [
                 MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 MoveRR{source=ebp, output=esp},
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
@@ -163,7 +272,6 @@ struct
                         [ MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx} (* Arg3 is already in r8. *) ]
                 |   (X64Win, 4) =>
                         [ MoveRR{source=eax, output=ecx}, MoveRR{source=ebx, output=edx} (* Arg3 is already in r8 and arg4 in r9. *) ]
-                        (* TODO: We should at a minimum maintain an 8-byte alignment.  GCC like a 16-byte alignment. *)
                 |   (X86_32, 1) => [ PushR eax ]
                 |   (X86_32, 2) => [ PushR ebx, PushR eax ]
                 |   (X86_32, 3) =>
@@ -182,21 +290,9 @@ struct
             ) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
-                MoveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
-            ] @
-            (
-            if isX64 then [loadMemory(r15, argPtrReg, argLocalMpointer) ] (* Copy back the heap ptr *)
-            else [loadMemory(edx, esi, argLocalMpointer), storeMemory(edx, ebp, memRegLocalMPointer) ]
-            ) @
-            [
-                loadMemory(edx, argPtrReg, argLocalMbottom), storeMemory(edx, ebp, memRegLocalMbottom), (* and base ptr *)
-                ArithMemConst{opc=CMP, offset=argExceptionPacket, base=argPtrReg, source=noException},
-                checkExc,
+                MoveRR{source=saveMLStackPtrReg, output=esp}, (* Restore the ML stack pointer *)
                 (* Remove any arguments that have been passed on the stack. *)
-                ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
-                JumpLabel exLabel, (* else raise the exception *)
-                loadMemory(eax, argPtrReg, argExceptionPacket),
-                RaiseException
+                ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0))
             ]
  
         val profileObject = createProfileObject functionName

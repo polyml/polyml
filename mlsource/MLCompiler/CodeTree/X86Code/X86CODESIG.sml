@@ -188,7 +188,6 @@ sig
     and memRegHandlerRegister: int
     and memRegLocalMbottom: int
     and memRegRaiseOverflow: int
-    and memRegThreadSelf: int
     and memRegStackLimit: int
     and memRegStackOverflowCall: int
     and memRegStackOverflowCallEx: int
@@ -197,6 +196,8 @@ sig
     val argLocalMpointer: int
     and argLocalMbottom: int
     and argExceptionPacket: int
+    and argThreadSelf: int
+    and argStackPointer: int
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool
