@@ -403,7 +403,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             Handle mutexH = SAVE(args->WordP()->Get(0));
             Handle wakeTime = SAVE(args->WordP()->Get(1));
             // We pass zero as the wake time to represent infinity.
-            bool isInfinite = compareLong(taskData, wakeTime, SAVE(TAGGED(0))) == 0;
+            bool isInfinite = wakeTime->Word() == TAGGED(0);
 
             // Convert the time into the correct format for WaitUntil before acquiring
             // schedLock.  div_longc could do a GC which requires schedLock.
