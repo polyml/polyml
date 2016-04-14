@@ -435,6 +435,10 @@ case "${host_cpu}" in
                 polyarch=interpret
             fi
             ;;
+      sparc64*)
+            AC_DEFINE([HOSTARCHITECTURE_SPARC64], [1], [Define if the host is a Sparc (64-bit)])
+            polyarch=interpret
+            ;;
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32-bit)])
             polyarch=interpret
@@ -453,6 +457,10 @@ case "${host_cpu}" in
             ;;
       aarch64*)
             AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64-bit)])
+            polyarch=interpret
+            ;;
+      hppa*)
+            AC_DEFINE([HOSTARCHITECTURE_HPPA], [1], [Define if the host is an HP PA-RISC (32-bit)])
             polyarch=interpret
             ;;
       ia64*)
@@ -477,6 +485,10 @@ case "${host_cpu}" in
             ;;
       s390*)
             AC_DEFINE([HOSTARCHITECTURE_S390], [1], [Define if the host is an S/390 (32-bit)])
+            polyarch=interpret
+            ;;
+      sh*)
+            AC_DEFINE([HOSTARCHITECTURE_SH], [1], [Define if the host is a SuperH (32-bit)])
             polyarch=interpret
             ;;
       alpha*)

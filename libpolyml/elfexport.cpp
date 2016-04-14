@@ -402,6 +402,10 @@ void ELFExport::exportStore(void)
     fhdr.e_machine = EM_S390;
     directReloc = R_390_64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_SH)
+    fhdr.e_machine = EM_SH;
+    directReloc = R_SH_DIR32;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_SPARC)
     fhdr.e_machine = EM_SPARC;
     directReloc = R_SPARC_32;
@@ -410,6 +414,13 @@ void ELFExport::exportStore(void)
        though, it adds the value in the location being relocated (as with ELF32_Rel
        relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
        relocation we always zero the location to be relocated. */
+#elif defined(HOSTARCHITECTURE_SPARC64)
+    fhdr.e_machine = EM_SPARCV9;
+    directReloc = R_SPARC_64;
+    /* Use the most relaxed memory model. At link time, the most restrictive one is
+       chosen, so it does no harm to be as permissive as possible here. */
+    fhdr.e_flags = EF_SPARCV9_RMO;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_X86_64)
     /* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
        Linux will support either so we now use Rela on X86-64. */
@@ -431,6 +442,12 @@ void ELFExport::exportStore(void)
     directReloc = R_ARM_ABS32;
     useRela = false;
     fhdr.e_flags = EF_ARM_EABI_VER4;
+#elif defined(HOSTARCHITECTURE_HPPA)
+    fhdr.e_ident[EI_OSABI] = ELFOSABI_HPUX;
+    fhdr.e_machine = EM_PARISC;
+    directReloc = R_PARISC_DIR32;
+    fhdr.e_flags = EFA_PARISC_1_0;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_IA64)
     fhdr.e_machine = EM_IA_64;
     directReloc = R_IA64_DIR64LSB;

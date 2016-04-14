@@ -566,6 +566,9 @@
 /* Define if the host is an ARM (32-bit) */
 #undef HOSTARCHITECTURE_ARM
 
+/* Define if the host is an HP PA-RISC (32-bit) */
+#undef HOSTARCHITECTURE_HPPA
+
 /* Define if the host is an Itanium */
 #undef HOSTARCHITECTURE_IA64
 
@@ -590,8 +593,14 @@
 /* Define if the host is an S/390 (64-bit) */
 #undef HOSTARCHITECTURE_S390X
 
+/* Define if the host is a SuperH (32-bit) */
+#undef HOSTARCHITECTURE_SH
+
 /* Define if the host is a Sparc (32-bit) */
 #undef HOSTARCHITECTURE_SPARC
+
+/* Define if the host is a Sparc (64-bit) */
+#undef HOSTARCHITECTURE_SPARC64
 
 /* Define if the host is an X86 (32-bit ABI, 64-bit processor) */
 #undef HOSTARCHITECTURE_X32
