@@ -172,7 +172,7 @@ private:
 #ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
-#ifdef HAVE_PTHREAD
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 public:
     bool threadExited;
 private:
