@@ -205,12 +205,10 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     *(--this->p_sp) = closure; /* Closure address */
 
     // Make packets for exceptions.
-    Handle reset = this->saveVec.mark();
-    Handle exn = make_exn(this, EXC_overflow, this->saveVec.push(TAGGED(0)));
+    Handle exn = make_exn(parentTask, EXC_overflow, parentTask->saveVec.push(TAGGED(0)));
     overflowPacket = exn->WordP();
-    exn = make_exn(this, EXC_divide, this->saveVec.push(TAGGED(0)));
+    exn = make_exn(parentTask, EXC_divide, parentTask->saveVec.push(TAGGED(0)));
     dividePacket = exn->WordP();
-    this->saveVec.reset(reset);
 }
 
 void IntTaskData::InterruptCode()
