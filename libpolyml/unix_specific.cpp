@@ -1241,6 +1241,33 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     }
 }
 
+// General interface to Unix OS-specific.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = OS_spec_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyGetOSType()
+{
+    return TAGGED(0).AsUnsigned(); // Return 0 for Unix
+}
+
 Handle waitForProcess(TaskData *taskData, Handle args)
 /* Get result status of a child process. */
 {

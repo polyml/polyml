@@ -572,6 +572,28 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     }
 }
 
+// General interface to process-env.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = process_env_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // Terminate normally with a result code.
 void PolyFinish(PolyObject *threadId, PolyWord arg)
 {
@@ -585,6 +607,16 @@ void PolyFinish(PolyObject *threadId, PolyWord arg)
     processes->ThreadExit(taskData); // Doesn't return.
 }
 
+// Terminate without running the atExit list or flushing buffers
+void PolyTerminate(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    int i = get_C_int(taskData, arg);
+    _exit(i); // Doesn't return.
+}
+
 // Retain for the moment.  It's needed for bootstrapping.
 Handle finishc(TaskData *taskData, Handle h)
 {
@@ -596,6 +628,7 @@ Handle finishc(TaskData *taskData, Handle h)
     // Push a dummy result to keep lint happy
     return taskData->saveVec.push(TAGGED(0));
 }
+
 class ProcessEnvModule: public RtsModule
 {
 public:

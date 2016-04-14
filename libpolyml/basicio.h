@@ -28,11 +28,17 @@ class TaskData;
 
 extern Handle IO_dispatch_c(TaskData *mdTaskData, Handle args, Handle strm, Handle code);
 
-extern "C" {
+#ifndef DLLEXPORT
 #ifdef _MSC_VER
-    __declspec(dllexport)
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
 #endif
-    POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+    DLLEXPORT POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
 }
 
 #endif /* BASICIO_H */
