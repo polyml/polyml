@@ -790,11 +790,11 @@ struct
            OS.Process.exit to be defined in terms of it. In particular
            it doesn't execute the functions registered with atExit. *)
         local
-            val doExit: Thread.Thread.thread * Word8.word -> unit = RunCall.rtsCall2 "PolyFinish"
+            val doExit: Word8.word -> unit = RunCall.rtsCallFull1 "PolyFinish"
         in
             fun exit w =
             (
-                doExit(Thread.Thread.self(), w);
+                doExit w;
                 raise Bind (* Never executed but gives the correct result type.*)
             )
         end
