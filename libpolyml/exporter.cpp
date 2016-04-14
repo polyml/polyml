@@ -579,6 +579,41 @@ Handle exportPortable(TaskData *taskData, Handle args)
     return taskData->saveVec.push(TAGGED(0));
 }
 
+POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        exportNative(taskData, pushedArg);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Returns unit
+}
+
+POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        PExport exports;
+        exporter(taskData, pushedArg, _T(".txt"), &exports);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Returns unit
+}
+
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.

@@ -55,9 +55,6 @@ in
             in
                 OS.Process.exit result (* Perform close-down actions. *)
             end
-            
-            val callExport: string * (unit->unit) -> unit = RunCall.rtsCallFull2 "PolyExport"
-            and callExportP: string * (unit->unit) -> unit = RunCall.rtsCallFull2 "PolyExportPortable"
         in
             (* The equivalent of atExit except that functions are added to
                the list persistently and of course the functions are executed
@@ -69,49 +66,38 @@ in
                 ThreadLib.protect onEntryMutex (fn () => onEntryList := f :: !onEntryList) ()
         
             (* Export functions - write out the function and everything reachable from it. *)
-            fun export(filename, f) = callExport(filename, runFunction f)
-            and exportPortable(filename, f) = callExportP(filename, runFunction f)
+            fun export(filename: string, f: unit->unit): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (1, (filename, runFunction f))
+            fun exportPortable(filename: string, f: unit->unit): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (3, (filename, runFunction f))
         end
         
         fun shareCommonData(root: 'a): unit =
             RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
 
-        (* ObjSize etc all take values of any type but we can't give the RTS call type 'a->int. *)
-        local
-            val callObjSize: word -> int = RunCall.rtsCallFull1 "PolyObjSize"
-            and callShowSize: word -> int = RunCall.rtsCallFull1 "PolyShowSize"
-            and callObjProfile: word -> int = RunCall.rtsCallFull1 "PolyObjProfile"
-        in
-            fun objSize(x:'a) = callObjSize(RunCall.unsafeCast x)
-            and showSize(x:'a) = callShowSize(RunCall.unsafeCast x)
-            and objProfile(x:'a) = callObjProfile(RunCall.unsafeCast x)
-        end
+        fun objSize(x:'a): int    = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (14, x)
+        and showSize(x:'a): int   = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (15, x)
+        and objProfile(x:'a): int = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (16, x)
     
-        val fullGC: unit -> unit = RunCall.rtsCallFull0 "PolyFullGC"
+        val fullGC: unit -> unit = 
+            RunCall.run_call0 POLY_SYS_full_gc
       
         local
             val eqWord : word*word->bool = RunCall.run_call2 POLY_SYS_word_eq
         in
             fun pointerEq(x: 'a ,y: 'a): bool = RunCall.unsafeCast eqWord (x,y)
         end
-
-        local
-            val doCall: int * unit -> int = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
-        in
-            fun rtsVersion () : int = doCall(104, ())
-        end
-        
-        local
-            val doCall: int * unit -> string = RunCall.rtsCallFull2 "PolySpecificGeneral"
-        in
-            fun architecture(): string = doCall (12, ())
-            fun rtsArgumentHelp(): string = doCall (19, ())
-        end
+    
+        fun rtsVersion () : int = RunCall.run_call2 POLY_SYS_process_env(104, ())
+        fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
+        fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
 
         structure IntInf =
         struct
-            val gcd: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyGCDArbitrary"
-            and lcm: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyLCMArbitrary"
+            fun gcd(args: LargeInt.int * LargeInt.int): LargeInt.int =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (50, args)
+            and lcm(args: LargeInt.int * LargeInt.int): LargeInt.int =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (51, args)
         end
     end
 

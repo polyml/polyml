@@ -31,6 +31,9 @@
 
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
+#define ASSERT(x) assert(x)
+#else
+#define ASSERT(x) 0
 #endif
 
 #ifdef HAVE_STRING_H
@@ -551,4 +554,26 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+// General interface to poly-specific.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = poly_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }

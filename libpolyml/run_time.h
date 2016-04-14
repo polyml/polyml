@@ -87,7 +87,6 @@ extern void IncrementRTSCallCount(unsigned ioFunction);
 extern Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size );
 extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
-extern Handle stack_trace_c(TaskData *taskData);
 
 // Create fixed precision values.
 extern Handle Make_fixed_precision(TaskData *taskData, long);
@@ -102,5 +101,17 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 #endif
 
 extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
+
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyFullGC(PolyObject *threadId);
+}
 
 #endif /* _RUNTIME_H_DEFINED */

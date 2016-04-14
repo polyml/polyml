@@ -52,6 +52,9 @@
 #include "basicio.h"
 #include "process_env.h"
 #include "os_specific.h"
+#include "poly_specific.h"
+#include "objsize.h"
+#include "exporter.h"
 
 // Table of RTS entry functions.  In theory it ought to be possible to get these
 // using dlsym/GetProcAddress but that's difficult to get to work with various
@@ -85,6 +88,17 @@ static struct _entrypts {
     // OS-specific
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+    // Poly-specific
+    { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
+    // Run-time
+    { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
+    // Objsize
+    { "PolyObjSize",                    (polyRTSFunction)&PolyObjSize},
+    { "PolyShowSize",                   (polyRTSFunction)&PolyShowSize},
+    { "PolyObjProfile",                 (polyRTSFunction)&PolyObjProfile},
+    // Exporter
+    { "PolyExport",                     (polyRTSFunction)&PolyExport},
+    { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
 
     { NULL, NULL} // End of list.
 };

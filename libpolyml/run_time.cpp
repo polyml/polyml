@@ -114,16 +114,26 @@ Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
     return SAVE(alloc(taskData, size, flags));
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      full_gc_c - called by assembly code                                */
-/*                                                                            */
-/******************************************************************************/
 /* CALL_IO0(full_gc_, NOIND) */
 Handle full_gc_c(TaskData *taskData)
 {
     FullGC(taskData);
     return SAVE(TAGGED(0));
+}
+
+POLYUNSIGNED PolyFullGC(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+
+    try {
+        // Can this raise an exception e.g. if there is insufficient memory?
+        FullGC(taskData);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Returns unit.
 }
 
 
