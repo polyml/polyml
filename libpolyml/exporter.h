@@ -44,8 +44,8 @@ extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 #endif
 
 extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord arg);
-    DLLEXPORT POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord arg);
+    DLLEXPORT POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
+    DLLEXPORT POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
 }
 
 // This is the base class for the exporters for the various object-code formats.
