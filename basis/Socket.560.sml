@@ -186,7 +186,7 @@ struct
 
         local
             val doCall: int*unit -> (string * addr_family) list
-                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun list () = doCall(11, ())
         end
@@ -218,7 +218,7 @@ struct
 
         local
             val doCall: int*unit -> (string * sock_type) list
-                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun list () = doCall(12, ())
         end
@@ -263,19 +263,14 @@ struct
        references. *)
     fun sameAddr (SOCKADDR a, SOCKADDR b) = a = b
 
-    (* Many of these calls involve type variables.  We have to use a cast to
-       get the types right. *)
-    local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-    in
-        fun familyOfAddr (sa: 'af sock_addr) = doCall(39, RunCall.unsafeCast sa)
-    end
+    fun familyOfAddr (sa: 'af sock_addr) =
+            RunCall.run_call2 RuntimeCalls.POLY_SYS_network(39, sa)
 
     structure Ctl =
     struct
         local
-            val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            val doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val doCall1 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+            val doCall2 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getOpt (i:int) (SOCK s) = doCall1(i, s)
             fun setOpt (i: int) (SOCK s, b: bool) = doCall2(i, (s, b))
@@ -297,8 +292,8 @@ struct
         and getATMARK s = getOpt 45 s
 
         local
-            val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            val doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+            val doCall1 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+            val doCall2 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getSNDBUF (SOCK s) = doCall1(30, s)
             fun setSNDBUF (SOCK s, i: int) = doCall2(29, (s, i))
@@ -329,13 +324,11 @@ struct
                 end
         end
 
-        local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        in
-            fun getPeerName (SOCK s): 'af sock_addr = RunCall.unsafeCast(doCall(37, s))
+        fun getPeerName (SOCK s): 'af sock_addr =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_network(37, s)
 
-            fun getSockName (SOCK s): 'af sock_addr = RunCall.unsafeCast(doCall(38, s))
-        end
+        fun getSockName (SOCK s): 'af sock_addr =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_network (38, s)
         end (* Ctl *)
 
 
@@ -343,34 +336,23 @@ struct
        otherwise returns SOME result.  Other exceptions are passed back as normal. *)
     val nonBlockingCall = LibraryIOSupport.nonBlocking
 
-    local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-    in
-        fun accept (SOCK s) = RunCall.unsafeCast(doCall (46, s))
-    end
+    fun accept (SOCK s) =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_network (46, s)
 
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        fun acc sock = doCall (58, RunCall.unsafeCast sock)
+        fun acc sock = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (58, sock)
     in
-        fun acceptNB sock = RunCall.unsafeCast(nonBlockingCall acc sock)
+        fun acceptNB sock = nonBlockingCall acc sock
     end
 
-    local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-    in
-        fun bind (SOCK s, a) = doCall (47, RunCall.unsafeCast (s, a))
-    end
+    fun bind (SOCK s, a) =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_network (47, (s, a))
+
+    fun connect (SOCK s, a) =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_network (48, (s, a))
 
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-    in
-        fun connect (SOCK s, a) = doCall (48, RunCall.unsafeCast (s, a))
-    end
-
-    local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        fun connct sa = doCall (59, RunCall.unsafeCast sa)
+        fun connct sa = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (59, sa)
     in
         fun connectNB (SOCK s, a) =
             case nonBlockingCall connct (s,a) of SOME () => true | NONE => false
@@ -379,28 +361,23 @@ struct
     fun listen (SOCK s, b) =
         RunCall.run_call2 RuntimeCalls.POLY_SYS_network (49, (s, b))
 
-    (* We use the normal "close" for streams. *)
-    local
-        val doCall = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
-    in
-        fun close (SOCK strm): unit = doCall(7, strm, 0)
-    end
+    (* We use the normal "close" for streams.  We can't use the normal
+       "local in" here to avoid the extra function calls at run-time
+       because of the polymorphism. *)
+    fun close (SOCK strm): unit =
+        RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch(7, strm, 0)
 
     datatype shutdown_mode = NO_RECVS | NO_SENDS | NO_RECVS_OR_SENDS
 
-    local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+    fun shutdown (SOCK s, mode) =
+    let
+        val m =
+            case mode of
+                NO_RECVS => 1
+             |  NO_SENDS => 2
+             |  NO_RECVS_OR_SENDS => 3
     in
-        fun shutdown (SOCK s, mode) =
-        let
-            val m =
-                case mode of
-                    NO_RECVS => 1
-                 |  NO_SENDS => 2
-                 |  NO_RECVS_OR_SENDS => 3
-        in
-            doCall (50, (s, m))
-        end
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_network (50, (s, m))
     end
 
     (* The IO descriptor is the underlying socket. *)
@@ -425,8 +402,7 @@ struct
            deals with the special case of sending a single byte vector where the
            "address" is actually the byte itself. *)
         local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            fun doSend i a = doCall (i, a)
+            fun doSend i a = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (i, a)
         in
             fun send (SOCK sock, base: address, offset: int, length: int, rt: bool, oob: bool): int =
                 doSend 51 (sock, base, offset, length, rt, oob)
@@ -438,38 +414,35 @@ struct
         local
             (* Although the underlying call returns the number of bytes written the
                ML functions now return unit. *)
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            fun doSendTo i a = doCall (i, a)
+            fun doSendTo i a = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (i, a)
         in
             fun sendTo (SOCK sock, addr, base: address, offset: int, length: int, rt: bool, oob: bool): unit =
-                doSendTo 52 (RunCall.unsafeCast(sock, addr, base, offset, length, rt, oob))
+                doSendTo 52 (sock, addr, base, offset, length, rt, oob)
     
             fun sendToNB (SOCK sock, addr, base: address, offset: int, length: int, rt: bool, oob: bool): bool =
-                case nonBlockingCall (doSendTo 61) (RunCall.unsafeCast(sock, addr, base, offset, length, rt, oob)) of
+                case nonBlockingCall (doSendTo 61) (sock, addr, base, offset, length, rt, oob) of
                     NONE => false | SOME _ => true
         end
 
         local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            fun doRecv i a = doCall (i, a)
+            fun doRecv i a = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (i, a)
         in
             (* Receive the data into an array. *)
             fun recv (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool): int =
-                doRecv 53 (RunCall.unsafeCast(sock, base, offset, length, peek, oob))
+                doRecv 53 (sock, base, offset, length, peek, oob)
 
             fun recvNB (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool): int option =
-                nonBlockingCall (doRecv 62) (RunCall.unsafeCast(sock, base, offset, length, peek, oob))
+                nonBlockingCall (doRecv 62) (sock, base, offset, length, peek, oob)
         end
 
         local
-            val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-            fun doRecvFrom i a = doCall (i, a)
+            fun doRecvFrom i a = RunCall.run_call2 RuntimeCalls.POLY_SYS_network (i, a)
         in 
             fun recvFrom (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool) =
-                RunCall.unsafeCast(doRecvFrom 54 (RunCall.unsafeCast (sock, base, offset, length, peek, oob)))
+                doRecvFrom 54 (sock, base, offset, length, peek, oob)
 
             fun recvFromNB (SOCK sock, base: address, offset: int, length: int, peek: bool, oob: bool) =
-                RunCall.unsafeCast(nonBlockingCall (doRecvFrom 63) (RunCall.unsafeCast (sock, base, offset, length, peek, oob)))
+                nonBlockingCall (doRecvFrom 63) (sock, base, offset, length, peek, oob)
         end
     in
         fun sendVec' (sock, slice: Word8VectorSlice.slice, {don't_route, oob}) =
@@ -624,7 +597,7 @@ struct
            in the appropriate state.  It sets inactive elements to ~1. *)
         val doIo: int * (OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * Time.time) ->
                     OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector * OS.IO.iodesc Vector.vector
-             = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+             = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun sys_select_block(rds, wrs, exs) = doIo(64, (rds, wrs, exs, Time.zeroTime))
         fun sys_select_poll(rds, wrs, exs) = doIo(65, (rds, wrs, exs, Time.zeroTime))

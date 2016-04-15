@@ -1,12 +1,11 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,5 +26,17 @@ typedef SaveVecEntry *Handle;
 class TaskData;
 
 extern Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code);
+
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
 
 #endif

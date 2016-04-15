@@ -1,11 +1,12 @@
 (*
     Title:      Standard Basis Library: NetProtDB Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2016
+    Copyright   David Matthews 2000
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,6 +17,8 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
+
+(* G&R 2004 status: checked, no change. *)
 
 signature NET_PROT_DB =
 sig
@@ -37,7 +40,7 @@ struct
 
     local
         val doCall: int*string -> entry
-             = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+             = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByName s =
             SOME(doCall(3, s)) handle OS.SysErr _ => NONE
@@ -45,7 +48,7 @@ struct
 
     local
         val doCall: int*int -> entry
-             = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+             = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByNumber n =
             SOME(doCall(4, n)) handle OS.SysErr _ => NONE

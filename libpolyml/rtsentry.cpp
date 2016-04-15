@@ -56,6 +56,7 @@
 #include "objsize.h"
 #include "exporter.h"
 #include "sharedata.h"
+#include "network.h"
 
 // Table of RTS entry functions.  In theory it ought to be possible to get these
 // using dlsym/GetProcAddress but that's difficult to get to work with various
@@ -103,6 +104,8 @@ static struct _entrypts {
     { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
     // Share data
     { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
+    // Networking
+    { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
 
     { NULL, NULL} // End of list.
 };

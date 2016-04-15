@@ -1,7 +1,7 @@
 /*
     Title:      Network functions.
 
-    Copyright (c) 2000-7 David C. J. Matthews
+    Copyright (c) 2000-7, 2016 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1585,6 +1585,28 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(wrResult));
     DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(exResult));
     return result;
+}
+
+// General interface to networking.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = Net_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 class Networking: public RtsModule

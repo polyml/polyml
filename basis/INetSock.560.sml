@@ -1,11 +1,12 @@
 (*
     Title:      Standard Basis Library: Internet Sockets
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2016
+    Copyright   David Matthews 2000
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -16,6 +17,8 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
+
+(* G&R 2004 status: Checked, no change. *)
 
 signature INET_SOCK =
 sig
@@ -61,15 +64,15 @@ struct
         |   SOME s => s
 
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun toAddr(iaddr: NetHostDB.in_addr, port: int) : sock_addr =
             doCall(40, (port, iaddr))
     end
 
     local
-        val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        and doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall1 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+        and doCall2 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun fromAddr (s: sock_addr) : NetHostDB.in_addr * int =
             if Socket.familyOfAddr s <> inetAF
@@ -78,15 +81,15 @@ struct
     end
 
     local
-        val doCall = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         val iAddrAny: NetHostDB.in_addr = doCall(13, ())
     in
     fun any (p: int) : sock_addr = toAddr(iAddrAny, p)
     end
     
     local
-        val doCall1 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
-        val doCall2 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
+        val doCall1 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+        val doCall2 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         structure UDP =
         struct
