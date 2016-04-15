@@ -135,7 +135,7 @@ struct
         executeInEnv(cmd, args, Posix.ProcEnv.environ())
 
     local (* Internal function to get the preferred buffer size. *)
-        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
+        val doIo = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
     in
         fun sys_get_buffsize (strm: OS.IO.iodesc): int = doIo(15, strm, 0)
     end
@@ -192,7 +192,7 @@ struct
 
     (* Internal function - inverse of Posix.Process.fromStatus. *)
     local
-        val doCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+        val doCall = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific
     in
         fun toStatus W_EXITED: OS.Process.status = doCall(16, (1, 0))
          |  toStatus(W_EXITSTATUS w) = doCall(16, (1, Word8.toInt w))
