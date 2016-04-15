@@ -73,8 +73,12 @@ in
             and exportPortable(filename, f) = callExportP(filename, runFunction f)
         end
         
-        fun shareCommonData(root: 'a): unit =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (13, root)
+        local
+            (* shareCommonData needs to be able to take a value of any type. *)
+            val callShare: word -> unit = RunCall.rtsCallFull1 "PolyShareCommonData"
+        in
+            fun shareCommonData(root: 'a): unit = callShare(RunCall.unsafeCast root)
+        end
 
         (* ObjSize etc all take values of any type but we can't give the RTS call type 'a->int. *)
         local

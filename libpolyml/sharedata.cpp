@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13
+    and David C. J. Matthews 2006, 2010-13, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,6 +56,7 @@
 #include "processes.h"
 #include "gctaskfarm.h"
 #include "diagnostics.h"
+#include "sharedata.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the
@@ -902,4 +903,31 @@ void ShareData(TaskData *taskData, Handle root)
     // Raise an exception if it failed.
     if (! request.result)
         raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+}
+
+// RTS call entry.
+POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        if (! root.IsDataPtr())
+            return TAGGED(0).AsUnsigned(); // Nothing to do.
+
+        // Request the main thread to do the sharing.
+        ShareRequest request(taskData->saveVec.push(root));
+        processes->MakeRootRequest(taskData, &request);
+
+        // Raise an exception if it failed.
+        if (! request.result)
+            raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
 }

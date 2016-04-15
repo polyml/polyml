@@ -75,7 +75,7 @@ struct
     local
         local
             val doIo: int*int*string -> fileDescr
-                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
+                 = RunCall.run_call3 POLY_SYS_io_dispatch
         in
             fun sys_open_in_bin name = doIo(4, 0, name)
             and sys_open_out_bin name = doIo(6, 0, name)
@@ -83,7 +83,7 @@ struct
         end
 
         local
-            val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
+            val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
         in
             fun sys_get_buffsize (strm: fileDescr): int = doIo(15, strm, 0)
         end
