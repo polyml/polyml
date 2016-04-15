@@ -912,7 +912,6 @@ POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    Handle result = 0;
 
     try {
         if (! root.IsDataPtr())

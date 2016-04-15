@@ -115,4 +115,25 @@ extern PIOSTRUCT basic_io_vector;
 
 extern bool emfileFlag;
 
+// This is used in both basicio and unix-specific
+#if defined(HAVE_STRUCT_STAT_ST_ATIM)
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##tim.tv_sec
+# define STAT_USECS(stat,kind) (((stat)->st_##kind##tim.tv_nsec + 500) / 1000)
+#elif defined(HAVE_STRUCT_STAT_ST_ATIMENSEC)
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
+# define STAT_USECS(stat,kind) (((stat)->st_##kind##timensec + 500) / 1000)
+#elif defined(HAVE_STRUCT_STAT_ST_ATIMESPEC)
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##timespec.tv_sec
+# define STAT_USECS(stat,kind) (((stat)->st_##kind##timespec.tv_nsec + 500) / 1000)
+#elif defined(HAVE_STRUCT_STAT_ST_ATIME_N)
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
+# define STAT_USECS(stat,kind) (((stat)->st_##kind##time_n + 500) / 1000)
+#elif defined(HAVE_STRUCT_STAT_ST_UATIME)
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
+# define STAT_USECS(stat,kind)   (stat)->st_u##kind##time
+#else
+# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
+# define STAT_USECS(stat,kind)   0
+#endif
+
 #endif

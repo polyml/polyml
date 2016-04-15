@@ -465,7 +465,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
     if (stream->Word().IsDataPtr())
     {
         PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
-        if (strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
+        if (strm != NULL && strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
         // Ignore closed streams, stdin, stdout or stderr.
         if (strm != NULL) close_stream(strm);
     }
@@ -1290,26 +1290,6 @@ Handle fullPath(TaskData *taskData, Handle filename)
     }
 #endif
 }
-
-#if defined(HAVE_STRUCT_STAT_ST_ATIM)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##tim.tv_sec
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##tim.tv_nsec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIMENSEC)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##timensec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIMESPEC)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##timespec.tv_sec
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##timespec.tv_nsec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIME_N)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##time_n + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_UATIME)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind)   (stat)->st_u##kind##time
-#else
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind)   0
-#endif
 
 /* Get file modification time.  This returns the value in the
    time units and from the base date used by timing.c. c.f. filedatec */
