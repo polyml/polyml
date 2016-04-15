@@ -1,14 +1,13 @@
 /*
     Title:      Data structures shared between basioio.c and network.c.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000, 2016 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -66,7 +65,7 @@ typedef int SOCKET;
 
 typedef struct basic_io_struct
 {
-    PolyObject *token; /* pointer into ML heap */
+    PolyWord token; // Either a pointer or a tagged int for stdIn etc.
     int ioBits; /* Flag bits */
     union {
         int ioDesc; /* File descriptor. */
@@ -103,7 +102,10 @@ class TaskData;
 #define isConsole(s)    ((s)->ioBits & IO_BIT_GUI_CONSOLE)
 #endif
 
-extern PIOSTRUCT get_stream(PolyObject *obj);
+// Token representing a closed stream.
+#define ClosedToken TAGGED(-1)
+
+extern PIOSTRUCT get_stream(PolyWord token);
 
 extern Handle make_stream_entry(TaskData *mdTaskData);
 extern void free_stream_entry(POLYUNSIGNED stream_no);
@@ -112,25 +114,5 @@ extern void close_stream(PIOSTRUCT str);
 extern PIOSTRUCT basic_io_vector;
 
 extern bool emfileFlag;
-
-#if defined(HAVE_STRUCT_STAT_ST_ATIM)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##tim.tv_sec
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##tim.tv_nsec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIMENSEC)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##timensec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIMESPEC)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##timespec.tv_sec
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##timespec.tv_nsec + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_ATIME_N)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind) (((stat)->st_##kind##time_n + 500) / 1000)
-#elif defined(HAVE_STRUCT_STAT_ST_UATIME)
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind)   (stat)->st_u##kind##time
-#else
-# define STAT_SECS(stat,kind)    (stat)->st_##kind##time
-# define STAT_USECS(stat,kind)   0
-#endif
 
 #endif

@@ -209,7 +209,7 @@ structure TextIO :> TEXT_IO = struct
 
     open Thread.Thread
     open Thread.Mutex
-    open RuntimeCalls LibrarySupport.CharArray
+    open LibrarySupport.CharArray
     type fileDescr = OS.IO.iodesc;
     type address = LibrarySupport.address
     (* We have to declare doIo separately depending on the
@@ -218,9 +218,9 @@ structure TextIO :> TEXT_IO = struct
        each io call. *)
     local
         val doIo: int*int*string -> fileDescr
-             = RunCall.run_call3 POLY_SYS_io_dispatch
+             = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
-        val stdInDesc: fileDescr = doIo(0, 0, "")
+        val stdInDesc: fileDescr = RunCall.unsafeCast 0
 
         fun sys_open_in_text name = doIo(3, 0, name)
         and sys_open_out_text name = doIo(5, 0, name)
@@ -228,7 +228,7 @@ structure TextIO :> TEXT_IO = struct
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_get_buffsize (strm: fileDescr): int = doIo(15, strm, 0)
     end
@@ -330,7 +330,7 @@ structure TextIO :> TEXT_IO = struct
        buffering to use.  DCJM 1/9/00. *)
     val stdOut =
     let
-        val f = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_stdout
+        val f: fileDescr = RunCall.unsafeCast 1
     in
         wrapOutFileDescr (f, "stdOut", IO.LINE_BUF
             (* if System_is_term f then IO.LINE_BUF else IO.BLOCK_BUF *),
@@ -339,7 +339,7 @@ structure TextIO :> TEXT_IO = struct
 
     val stdErr =
     let
-        val f = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_stderr
+        val f: fileDescr = RunCall.unsafeCast 2
     in
         wrapOutFileDescr (f, "stdErr",
             IO.NO_BUF (* Defined to be unbuffered. *),

@@ -110,7 +110,7 @@ typedef struct {
         struct {
             /* Process and IO channels. */
             HANDLE hProcess, hInput, hOutput, hEvent;
-            PolyObject *readToken, *writeToken;
+            PolyWord readToken, writeToken;
         } process;
         HCONV hcDDEConv; /* DDE Conversation. */
     } entry;
@@ -335,23 +335,23 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (hnd->entry.process.hEvent)
                 CloseHandle(hnd->entry.process.hEvent);
             hnd->entry.process.hEvent = NULL;
-            if (hnd->entry.process.readToken)
+            if (hnd->entry.process.readToken.IsDataPtr())
             {
                 PIOSTRUCT strm =
                     get_stream(hnd->entry.process.readToken);
                 if (strm != NULL) close_stream(strm);
             }
-            hnd->entry.process.readToken = 0;
+            hnd->entry.process.readToken = ClosedToken;
             if (hnd->entry.process.hOutput != INVALID_HANDLE_VALUE)
                 CloseHandle(hnd->entry.process.hOutput);
             hnd->entry.process.hOutput = INVALID_HANDLE_VALUE;
-            if (hnd->entry.process.writeToken)
+            if (hnd->entry.process.writeToken.IsDataPtr())
             {
                 PIOSTRUCT strm =
                     get_stream(hnd->entry.process.writeToken);
                 if (strm != NULL) close_stream(strm);
             }
-            hnd->entry.process.writeToken = 0;
+            hnd->entry.process.writeToken = ClosedToken;
 
             // See if it's finished.
             while (true) {
@@ -933,8 +933,8 @@ static Handle execute(TaskData *taskData, Handle args)
     pTab->entry.process.hInput = hReadFromChild;
     pTab->entry.process.hOutput = hWriteToChild;
     pTab->entry.process.hEvent = hEvent;
-    pTab->entry.process.readToken = 0;
-    pTab->entry.process.writeToken = 0;
+    pTab->entry.process.readToken = ClosedToken;
+    pTab->entry.process.writeToken = ClosedToken;
 
     return(handToken);
 
@@ -1012,8 +1012,8 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     pTab->entry.process.hInput = INVALID_HANDLE_VALUE;
     pTab->entry.process.hOutput = INVALID_HANDLE_VALUE;
     pTab->entry.process.hEvent = NULL;
-    pTab->entry.process.readToken = 0;
-    pTab->entry.process.writeToken = 0;
+    pTab->entry.process.readToken = ClosedToken;
+    pTab->entry.process.writeToken = ClosedToken;
 
     return(handToken);
 }
@@ -1319,10 +1319,18 @@ void WindowsModule::GarbageCollect(ScanAddress *process)
                 /* Update the references to opened streams but
                    do this only as weak references.  If the stream
                    has gone away then that's fine. */
-                if (str->entry.process.readToken)
-                    process->ScanRuntimeAddress(&str->entry.process.readToken, ScanAddress::STRENGTH_WEAK);
-                if (str->entry.process.writeToken)
-                    process->ScanRuntimeAddress(&str->entry.process.writeToken, ScanAddress::STRENGTH_WEAK);
+                if (str->entry.process.readToken.IsDataPtr())
+                {
+                    PolyObject *token = str->entry.process.readToken.AsObjPtr();
+                    process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
+                    str->entry.process.readToken = token == 0 ? ClosedToken : token;
+                }
+                if (str->entry.process.writeToken.IsDataPtr())
+                {
+                    PolyObject *token = str->entry.process.writeToken.AsObjPtr();
+                    process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
+                    str->entry.process.writeToken = token == 0 ? ClosedToken : token;
+                }
             }
             process->ScanRuntimeAddress(&str->token, ScanAddress::STRENGTH_WEAK);
             /* Unreferenced entries may return zero. */ 

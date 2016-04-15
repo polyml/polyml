@@ -81,6 +81,7 @@ static struct _entrypts {
     { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
+    // RTS entry itself
     { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
     // Process-env
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
