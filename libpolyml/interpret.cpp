@@ -1335,11 +1335,8 @@ int IntTaskData::SwitchToPoly()
 
 void IntTaskData::GarbageCollect(ScanAddress *process)
 {
-<<<<<<< HEAD
     TaskData::GarbageCollect(process);
 
-=======
->>>>>>> master
     overflowPacket = process->ScanObjectAddress(overflowPacket);
     dividePacket = process->ScanObjectAddress(dividePacket);
 
