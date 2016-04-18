@@ -1168,13 +1168,13 @@ static int compare_unsigned(PolyWord x, PolyWord y)
 {
 #ifdef USE_GMP
     mp_size_t lx = numLimbs(x);
-    mp_size_t ly = numLimbs(y));
+    mp_size_t ly = numLimbs(y);
 
     if (lx != ly)  /* u > v if u longer than v */
     {
         return (lx > ly ? 1 : -1);
     }
-    return mpn_cmp(x, y, lx);
+    return mpn_cmp((mp_limb_t *)x.AsCodePtr(), (mp_limb_t *)y.AsCodePtr(), lx);
 #else
     /* First look at the lengths */
     POLYUNSIGNED lx = get_length(x);
