@@ -586,7 +586,11 @@ POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord
 
     try {
         result = process_env_dispatch_c(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();

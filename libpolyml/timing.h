@@ -3,12 +3,11 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2011-12.
+    Further development Copyright David C.J. Matthews 2011-12, 16.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -51,6 +50,18 @@ class TaskData;
 /* time functions etc */
 
 extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
+
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
 
 // Define classes for operations on time values in Windows and Posix.
 // N.B. In Cygwin we use both classes because in some cases we need

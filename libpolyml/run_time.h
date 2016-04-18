@@ -31,9 +31,7 @@ typedef SaveVecEntry *Handle;
 class TaskData;
 
 // Exceptions thrown by C++ code.  Indicates that the caller should not return normally.
-// They can be thrown in one of two different situations:
-// 1.  The IO function needs to raise an ML exception
-// 2.  The IO function needs to retry the call.
+// They now result in ML exceptions.
 
 class IOException {
 public:
@@ -47,7 +45,8 @@ public:
     MemoryException() {}
 };
 
-// A request to kill the thread raises this exception. 
+// A request to kill the thread raises this exception.
+// This allows IO operations to handle this and unwind.
 class KillException {
 public:
     KillException() {}

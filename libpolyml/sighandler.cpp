@@ -225,8 +225,50 @@ void SignalRequest::Perform()
 }
 #endif
 
+static Handle waitForSignal(TaskData *taskData)
+{
+    while (true)
+    {
+        processes->ProcessAsynchRequests(taskData); // Check for kill.
+        sigLock.Lock();
+        // Any pending signals?
+        for (int sig = 0; sig < NSIG; sig++)
+        {
+            if (sigData[sig].signalCount > 0)
+            {
+                sigData[sig].signalCount--;
+                if (!IS_INT(findHandler(sig))) /* If it's not DEFAULT or IGNORE. */
+                {
+                    // Create a pair of the handler and signal and pass
+                    // them back to be run.
+                    Handle pair = alloc_and_save(taskData, 2);
+                    // Have to call findHandler again here because that
+                    // allocation could have garbage collected.
+                    DEREFHANDLE(pair)->Set(0, findHandler(sig));
+                    DEREFHANDLE(pair)->Set(1, TAGGED(sig));
+                    sigLock.Unlock();
+                    return pair;
+                }
+            }
+        }
+        if (convertedWeak)
+        {
+            // Last GC converted a weak SOME into NONE.  This isn't
+            // anything to do with signals but the signal thread can
+            // deal with this.
+            sigLock.Unlock();
+            convertedWeak = false;
+            return SAVE(TAGGED(0));
+        }
+        // No pending signal.  Wait until we're woken up.
+        // This releases sigLock after acquiring schedLock.
+        if (! processes->WaitForSignal(taskData, &sigLock))
+            raise_exception_string(taskData, EXC_Fail, "Only one thread may wait for signals");
+    }
 
-/* CALL_IO2(Sig_dispatch_,IND) */
+}
+
+
 /* This function behaves fairly similarly to the Unix and Windows signal
    handler.  It takes a signal number and a handler which may be a function
    or may be 0 (default) or 1 (ignore) and returns the value corresponding
@@ -275,48 +317,8 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return oldaction;
         }
 
-    case 1: // Called by the signal handler thread.  Blocks until a signal
-            // is available.
-        {
-            while (true)
-            {
-                processes->ProcessAsynchRequests(taskData); // Check for kill.
-                sigLock.Lock();
-                // Any pending signals?
-                for (int sig = 0; sig < NSIG; sig++)
-                {
-                    if (sigData[sig].signalCount > 0)
-                    {
-                        sigData[sig].signalCount--;
-                        if (!IS_INT(findHandler(sig))) /* If it's not DEFAULT or IGNORE. */
-                        {
-                            // Create a pair of the handler and signal and pass
-                            // them back to be run.
-                            Handle pair = alloc_and_save(taskData, 2);
-                            // Have to call findHandler again here because that
-                            // allocation could have garbage collected.
-                            DEREFHANDLE(pair)->Set(0, findHandler(sig));
-                            DEREFHANDLE(pair)->Set(1, TAGGED(sig));
-                            sigLock.Unlock();
-                            return pair;
-                        }
-                    }
-                }
-                if (convertedWeak)
-                {
-                    // Last GC converted a weak SOME into NONE.  This isn't
-                    // anything to do with signals but the signal thread can
-                    // deal with this.
-                    sigLock.Unlock();
-                    convertedWeak = false;
-                    return SAVE(TAGGED(0));
-                }
-                // No pending signal.  Wait until we're woken up.
-                // This releases sigLock after acquiring schedLock.
-                if (! processes->WaitForSignal(taskData, &sigLock))
-                    raise_exception_string(taskData, EXC_Fail, "Only one thread may wait for signals");
-            }
-        }
+    case 1: // Called by the signal handler thread.  Blocks until a signal is available.
+        return waitForSignal(taskData);
 
     default:
         {
@@ -326,6 +328,83 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedAction = taskData->saveVec.push(action);
+    Handle oldaction = 0;
+
+    try {
+        {
+            int sign;
+            int action;
+            {
+                // Lock while we look at the signal vector but release
+                // it before making a root request.
+                PLocker locker(&sigLock);
+                // We have to pass this to the main thread to 
+                // set up the signal handler.
+                sign = get_C_int(taskData, signalNo);
+                /* Decode the action if it is Ignore or Default. */
+                if (pushedAction->Word().IsTagged())
+                    action = (int)pushedAction->Word().UnTagged();
+                else action = HANDLE_SIG; /* Set the handler. */
+                if (sign <= 0 || sign >= NSIG)
+                    raise_syscall(taskData, "Invalid signal value", EINVAL);
+
+                /* Get the old action before updating the vector. */
+                oldaction = SAVE(findHandler(sign));
+                // Now update it.
+                sigData[sign].handler = pushedAction->Word();
+            }
+
+            // Request a change in the masking by the root thread.
+            // This doesn't do anything in Windows so the only "signal"
+            // we affect is SIGINT and that is handled by RequestConsoleInterrupt.
+            if (! sigData[sign].nonMaskable)
+            {
+#ifdef USE_PTHREAD_SIGNALS
+                SignalRequest request(sign, action);
+                processes->MakeRootRequest(taskData, &request);
+#endif
+            }
+        }
+
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (oldaction == 0) return TAGGED(0).AsUnsigned();
+    else return oldaction->Word().AsUnsigned();
+
+}
+
+// Called by the signal handler thread.  Blocks until a signal is available.
+POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try {
+        result = waitForSignal(taskData);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Set up per-thread signal data: basically signal stack.

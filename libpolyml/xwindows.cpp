@@ -9559,6 +9559,28 @@ void XWinModule::Init(void)
     XSetErrorHandler(XWindowsError);
 }
 
+DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(params);
+    Handle result = 0;
+
+    try {
+        result = XWindows_c(taskData, pushedArg);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 #else
 // We haven't got X or we haven't got Motif
 
@@ -9579,5 +9601,17 @@ Handle XWindows_c(TaskData *taskData, Handle/*params*/)
     return taskData->saveVec.push(TAGGED(0)); /* just to keep lint happy */
 }
 
+DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord /*params*/)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    taskData->PreRTSCall();
+
+    try {
+        raise_exception_string(taskData, EXC_XWindows, "Not implemented");
+    } catch (...) { } // Handle the C++ exception
+
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Return unit since we're raising an exception
+}
 #endif
 

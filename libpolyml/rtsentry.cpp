@@ -57,6 +57,13 @@
 #include "exporter.h"
 #include "sharedata.h"
 #include "network.h"
+#include "sighandler.h"
+#include "timing.h"
+#include "profiling.h"
+#include "xwindows.h"
+#include "polyffi.h"
+#include "foreign.h"
+#include "reals.h"
 
 // Table of RTS entry functions.  In theory it ought to be possible to get these
 // using dlsym/GetProcAddress but that's difficult to get to work with various
@@ -106,6 +113,26 @@ static struct _entrypts {
     { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
     // Networking
     { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
+    // Signal handling
+    { "PolySetSignalHandler",           (polyRTSFunction)&PolySetSignalHandler},
+    { "PolyWaitForSignal",              (polyRTSFunction)&PolyWaitForSignal},
+    // Timing
+    { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
+    // Profiling
+    { "PolyProfiling",                  (polyRTSFunction)&PolyProfiling},
+    // Threads
+    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
+    // FFI (new interface)
+    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
+    // Foreign (old interface)
+    { "PolyForeignGeneral",             (polyRTSFunction)&PolyForeignGeneral},
+    // X-Windows
+    { "PolyXWindowsGeneral",            (polyRTSFunction)&PolyXWindowsGeneral},
+    // Reals
+    { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
+    { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
+    { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
+    { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
 
     { NULL, NULL} // End of list.
 };

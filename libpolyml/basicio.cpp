@@ -1908,7 +1908,11 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
 
     try {
         result = IO_dispatch_c(taskData, pushedArg, pushedStrm, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();

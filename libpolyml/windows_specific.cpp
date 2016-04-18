@@ -812,7 +812,11 @@ POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord
 
     try {
         result = OS_spec_dispatch_c(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // Call 1005 may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();

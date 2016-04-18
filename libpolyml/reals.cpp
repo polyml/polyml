@@ -5,12 +5,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C.J. Matthews 2011
+    Further work copyright David C.J. Matthews 2011, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -260,6 +259,25 @@ Handle Real_intc(TaskData *mdTaskData, Handle x)
     return Make_arbitrary_precision(mdTaskData, i);
 }
 
+// Convert a boxed real to a long precision int.
+POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    double dx = real_arg(pushedArg);
+    int64_t i = (int64_t)dx;
+    Handle result = Make_arbitrary_precision(taskData, i);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 /* CALL_IO1(Real_sqrt, REF, NOIND) */
 Handle Real_sqrtc(TaskData *mdTaskData, Handle arg)
 {
@@ -309,7 +327,7 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     double result;
     int i;
     char *finish;
-    char *string_buffer = Poly_string_to_C_alloc(DEREFHANDLE(str));
+    TempCString string_buffer(Poly_string_to_C_alloc(DEREFHANDLE(str)));
     
     /* Scan the string turning '~' into '-' */
     for(i = 0; string_buffer[i] != '\0'; i ++)
@@ -323,14 +341,32 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
 #else
     result = poly_strtod(string_buffer, &finish);
 #endif
-    bool isError = *finish != '\0'; // Test before deallocating
-    free(string_buffer);
     // We no longer detect overflow and underflow and instead return
     // (signed) zeros for underflow and (signed) infinities for overflow.
-    if (isError) raise_exception_string(mdTaskData, EXC_conversion, "");
+    if (*finish != '\0') raise_exception_string(mdTaskData, EXC_conversion, "");
 
     return real_result(mdTaskData, result);
 }/* Real_conv */
+
+// Convert a string to a boxed real.  This should really return an unboxed real.
+POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedString = taskData->saveVec.push(str);
+    Handle result = 0;
+
+    try {
+        result = Real_convc(taskData, pushedString);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
 
 static double real_arg1(Handle x)
 {
@@ -582,6 +618,28 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
     return mdTaskData->saveVec.push(result);
 }
 
+// Convert boxed real to string.  This should be changed to use an unboxed real argument.
+POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord mode, PolyWord digits)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle pushedMode = taskData->saveVec.push(mode);
+    Handle pushedDigits = taskData->saveVec.push(digits);
+    Handle result = 0;
+
+    try {
+        result = Real_strc(taskData, pushedDigits, pushedMode, pushedArg);
+    } catch (...) { } // Can this raise an exception?
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 /* Functions added for Standard Basis Library are all indirected through here. */
 Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
@@ -724,6 +782,26 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = Real_dispatchc(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 class RealArithmetic: public RtsModule

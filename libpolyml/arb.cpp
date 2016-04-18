@@ -1738,7 +1738,8 @@ POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     try {
         // Could raise an exception if out of memory.
         result = add_longc(taskData, pushedArg2, pushedArg1);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();

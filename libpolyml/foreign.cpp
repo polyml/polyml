@@ -1725,6 +1725,25 @@ Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
     return (handlers[fcode])(taskData, args);
 }
 
+DLLEXPORT POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle result = 0;
+
+    try {
+        result = foreign_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 #else
 // The foreign function interface isn't available.
 #include "foreign.h"
@@ -1734,6 +1753,19 @@ Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
 Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
 {
     raise_exception_string(taskData, EXC_foreign, "The foreign function interface is not available on this platform");
+}
+
+DLLEXPORT POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord /*code*/, PolyWord /*arg*/)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    taskData->PreRTSCall();
+
+    try {
+        raise_exception_string(taskData, EXC_foreign, "The foreign function interface is not available on this platform");
+    } catch (...) { }  // Handle the C++ exception
+
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Return unit since we're raising an exception
 }
 
 #endif

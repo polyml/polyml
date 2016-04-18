@@ -1601,7 +1601,11 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
 
     try {
         result = Net_dispatch_c(taskData, pushedArg, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // May test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();

@@ -28,7 +28,7 @@ structure Signal: SIGNAL =
 struct
     datatype sig_handle = SIG_DFL | SIG_IGN | SIG_HANDLE of int->unit
     local
-        val setHandler = RunCall.rtsCallFull2 "PolySetSignalHandler"
+        val doSig = RunCall.run_call2 RuntimeCalls.POLY_SYS_signal_handler
     in
         fun signal(s, cmd) =
         let
@@ -38,7 +38,7 @@ struct
                 |   SIG_IGN => 1
                 |   SIG_HANDLE f => RunCall.unsafeCast f
         in
-            case setHandler(s, c) of
+            case doSig(0, (s, c)) of
                 0 => SIG_DFL
             |   1 => SIG_IGN
             |   f => SIG_HANDLE(RunCall.unsafeCast f)
@@ -47,7 +47,7 @@ struct
     
     local
         datatype sigHandle = SigHandle of (int->unit) * int | WeakMarker
-        val waitForSig = RunCall.rtsCallFull0 "PolyWaitForSignal"
+        val doSig = RunCall.run_call2 RuntimeCalls.POLY_SYS_signal_handler
         open Thread
 
         fun sigThread(): unit =
@@ -56,7 +56,7 @@ struct
                and a handler or a flag indicating that some wek reference
                has been set to NONE.  These aren't logically related but
                it's convenient to use a single thread for both. *)
-            val nextSig: sigHandle = waitForSig()
+            val nextSig: sigHandle = doSig(1, ())
 
             (* When we get a WeakMarker message we need to broadcast
                on this condition variable. *)
