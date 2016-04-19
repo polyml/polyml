@@ -1489,7 +1489,6 @@ real_abs:
     movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
-real_abs_mask DQ   7fffffffffffffffh
 
 PUBLIC  real_neg
 real_neg:
@@ -1504,6 +1503,9 @@ real_neg:
     movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
+
+    ALIGN 8
+real_abs_mask DQ   7fffffffffffffffh
 real_neg_sign DQ   8000000000000000h
 
 PUBLIC  real_eq
