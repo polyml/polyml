@@ -142,7 +142,13 @@ EXTNAME(id):
 #define Arg_SaveR12             0xa0
 #define Arg_SaveR13             0xa8
 #define Arg_SaveR14             0xb0
-#define Arg_SaveFP              0xb8
+#define Arg_SaveXMM0            0xb8
+#define Arg_SaveXMM1            0xc0
+#define Arg_SaveXMM2            0xc8
+#define Arg_SaveXMM3            0xd0
+#define Arg_SaveXMM4            0xd8
+#define Arg_SaveXMM5            0xe0
+#define Arg_SaveXMM6            0xe8
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -234,10 +240,16 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 /* We're returning from an RTS call. */
     movq    Arg_SaveRAX(%rcx),%rax
     cld                                         # Clear this just in case
-    jmp     Arg_ProgramCtr(%rcx)                # Jump to code address
+    jmp     *Arg_ProgramCtr(%rcx)                # Jump to code address
 
 sw2polyfull:
-    FRSTOR  Arg_SaveFP(%rcx)
+    movsd   Arg_SaveXMM0(%rcx),%xmm0
+    movsd   Arg_SaveXMM1(%rcx),%xmm1
+    movsd   Arg_SaveXMM2(%rcx),%xmm2
+    movsd   Arg_SaveXMM3(%rcx),%xmm3
+    movsd   Arg_SaveXMM4(%rcx),%xmm4
+    movsd   Arg_SaveXMM5(%rcx),%xmm5
+    movsd   Arg_SaveXMM6(%rcx),%xmm6
     movq    Arg_SaveRAX(%rcx),%rax              # Load the registers
     movq    Arg_SaveRBX(%rcx),%rbx
     movq    Arg_SaveRDX(%rcx),%rdx
@@ -265,8 +277,13 @@ SaveFullState:
     movq    %rdx,Arg_SaveRDX(%rax)
     movq    %rsi,Arg_SaveRSI(%rax)
     movq    %rdi,Arg_SaveRDI(%rax)
-    FNSAVE  Arg_SaveFP(%rax)          # Save FP state.  Also resets the state so...
-    FLDCW   Arg_SaveFP(%rax)          # ...load because we need the same rounding mode in the RTS
+    movsd   %xmm0,Arg_SaveXMM0(%rax)
+    movsd   %xmm1,Arg_SaveXMM1(%rax)
+    movsd   %xmm2,Arg_SaveXMM2(%rax)
+    movsd   %xmm3,Arg_SaveXMM3(%rax)
+    movsd   %xmm4,Arg_SaveXMM4(%rax)
+    movsd   %xmm5,Arg_SaveXMM5(%rax)
+    movsd   %xmm6,Arg_SaveXMM6(%rax)
     movq    %r8,Arg_SaveR8(%rax)
     movq    %r9,Arg_SaveR9(%rax)
     movq    %r10,Arg_SaveR10(%rax)
@@ -310,36 +327,6 @@ callExRaiseOverflow:
 INLINE_ROUTINE(X86AsmSaveStateAndReturn)
 SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
     jmp SaveFullState
-    
-#if (0)
-    pushq   %rax                # Save eax
-    movq    PolyStack(%rbp),%rax
-    movq    %rbx,EBX_OFF(%rax)
-    movq    %rdx,EDX_OFF(%rax)
-    FSTCW   FPREGS_OFF(%rax)
-    FNINIT                     # Reset the FP state.
-    FLDCW   FPREGS_OFF(%rax)   # But reload the rounding mode
-    movq    %r8,R8_OFF(%rax)
-    movq    %r9,R9_OFF(%rax)
-    movq    %r10,R10_OFF(%rax)
-    movq    %r15,LocalMpointer(%rbp)  # Save the heap pointer
-    popq    %rbx                # Get old eax value
-    movq    %rbx,EAX_OFF(%rax)
-    movq    %rsp,SP_OFF(%rax)
-    movb    $1,InRTS(%rbp)             # inRTS:=0 (stack now kosher)
-    movq    SavedSp(%rbp),%rsp
-#ifdef _WIN32
-    popq    %rsi
-    popq    %rdi
-#endif
-    popq    %r15                            # Restore callee-save registers
-    popq    %r14
-    popq    %r13
-    popq    %r12
-    popq    %rbx
-    popq    %rbp
-    ret
-#endif
 
 /* Used when entering new code.  The argument and closure are on the stack
    in case there is a GC before we enter the code. */
@@ -1469,74 +1456,46 @@ mem_for_real1:
 INLINE_ROUTINE(real_add)
     call    mem_for_real
 /* Do the operation and put the result in the allocated space. */
-    FLDL    (%rax)
-    FADDL   (%rbx)
-    FSTPL   (%rcx)
+    movsd   (%rax),%xmm0
+    addsd   (%rbx),%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
-
-# The mask includes FP7 rather than FP0 because this pushes a value which
-# overwrites the bottom of the stack.
-
-
-
 
 INLINE_ROUTINE(real_sub)
-        call    mem_for_real
-# Do the operation and put the result in the allocated
-# space.
-    FLDL    (%rax)
-    FSUBL   (%rbx)
-    FSTPL   (%rcx)
+    call    mem_for_real
+    movsd   (%rax),%xmm0
+    subsd   (%rbx),%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
-
-
-
 
 INLINE_ROUTINE(real_mul)
-        call    mem_for_real
-# Do the operation and put the result in the allocated
-# space.
-    FLDL    (%rax)
-    FMULL   (%rbx)
-    FSTPL   (%rcx)
+    call    mem_for_real
+    movsd   (%rax),%xmm0
+    mulsd   (%rbx),%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
-
-
-
 
 INLINE_ROUTINE(real_div)
-        call    mem_for_real
-# Do the operation and put the result in the allocated
-# space.
-    FLDL    (%rax)
-    FDIVL   (%rbx)
-    FSTPL   (%rcx)
+    call    mem_for_real
+    movsd   (%rax),%xmm0
+    divsd   (%rbx),%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
-
-
-
-
-# For all values except NaN it's possible to do this by a test such as
-# "if x < 0.0 then ~ x else x" but the test always fails for NaNs
 
 INLINE_ROUTINE(real_abs)
     movq    %rax,%rbx                # Put a valid value in %rbx
     call    mem_for_real
-# Do the operation and put the result in the allocated
-# space.
-# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
-    FLDL    (%rax)
-    FABS
-    FSTPL   (%rcx)
+# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0
+    movsd   (%rax),%xmm0
+    movsd   real_abs_mask(%rip),%xmm1
+    andpd   %xmm1,%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
-
-
-
 
 INLINE_ROUTINE(real_neg)
     movq    %rax,%rbx                # Put a valid value in %rbx
@@ -1544,90 +1503,56 @@ INLINE_ROUTINE(real_neg)
 # Do the operation and put the result in the allocated
 # space.
 # N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
-    FLDL    (%rax)
-    FCHS
-    FSTPL   (%rcx)
+    movsd   (%rax),%xmm0
+    movsd   real_neg_sign(%rip),%xmm1
+    xorpd   %xmm1,%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
 
-
-
+    .align 8
+real_abs_mask:  .quad  0x7fffffffffffffff
+real_neg_sign:  .quad  0x8000000000000000
 
 
 INLINE_ROUTINE(real_eq)
-    FLDL    (%rax)
-    FCOMPL  (%rbx)
-    FNSTSW  %ax
-# Not all 64-bit processors support SAHF.
-# The result is true if the zero flag is set and parity flag clear.  
-    andq    $17408,%rax        # 0x4400
-    cmpq    $16384,%rax        # 0x4000
-    je      RetTrue
-    jmp     RetFalse
-
+    movsd   (%rax),%xmm0
+    ucomisd (%rbx),%xmm0
+    jp      RetFalse                # If either was a NaN we return false
+    jnz     RetFalse
+    jmp     RetTrue
 
 
 INLINE_ROUTINE(real_neq)
-    FLDL    (%rax)
-    FCOMPL  (%rbx)
-    FNSTSW  %ax
-    andq    $17408,%rax        # 0x4400
-    cmpq    $16384,%rax        # 0x4000
-    jne     RetTrue
+    movsd   (%rax),%xmm0
+    ucomisd (%rbx),%xmm0
+    jp      RetTrue                # If either was a NaN we return true
+    jnz     RetTrue
     jmp     RetFalse
-
-
-
 
 INLINE_ROUTINE(real_lss)
-# Compare %rbx > %rax
-    FLDL    (%rbx)
-    FCOMPL  (%rax)
-    FNSTSW  %ax
-
-# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
-    andq    $17664,%rax # 0x4500
-    je      RetTrue
-    jmp     RetFalse
-
-
-
+    movsd   (%rbx),%xmm0
+    ucomisd (%rax),%xmm0            # Sets CF if less than or unordered, ZF if equal or unordered
+    jbe     RetFalse                # Return false if <= or unordered
+    jmp     RetTrue
 
 INLINE_ROUTINE(real_gtr)
-    FLDL    (%rax)
-    FCOMPL  (%rbx)
-    FNSTSW  %ax
-
-# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
-    andq    $17664,%rax    # 0x4500
-    je      RetTrue
-    jmp     RetFalse
-
-
-
+    movsd   (%rax),%xmm0
+    ucomisd (%rbx),%xmm0
+    jbe     RetFalse
+    jmp     RetTrue
 
 INLINE_ROUTINE(real_leq)
-# Compare %rbx > %rax
-    FLDL    (%rbx)
-    FCOMPL  (%rax)
-    FNSTSW  %ax
-# True if the carry flag (C0) and parity (C2) are both clear
-    andq    $1280,%rax # 0x500
-    je      RetTrue
-    jmp     RetFalse
-
-
-
+    movsd   (%rbx),%xmm0
+    ucomisd (%rax),%xmm0
+    jb      RetFalse                # Return false if < or unordered
+    jmp     RetTrue
 
 INLINE_ROUTINE(real_geq)
-    FLDL    (%rax)
-    FCOMPL  (%rbx)
-    FNSTSW  %ax
-# True if the carry flag (C0) and parity (C2) are both clear
-    andq    $1280,%rax # 0x500
-    je      RetTrue
-    jmp     RetFalse
-
+    movsd   (%rax),%xmm0
+    ucomisd (%rbx),%xmm0
+    jb      RetFalse
+    jmp     RetTrue
 
 
 INLINE_ROUTINE(real_from_int)
@@ -1637,17 +1562,13 @@ INLINE_ROUTINE(real_from_int)
 real_float_1:
     CALL_IO(POLY_SYS_int_to_real)
 
-
-
 INLINE_ROUTINE(fixed_to_real)
 fixed_to_real_internal:
     movq    %rax,%rbx                # Put a valid value in %rbx
     call    mem_for_real
     sarq    $TAGSHIFT,%rax # Untag the value
-    pushq   %rax                     # Push it to the stack.  We can only load it from memory
-    fildl   (%rsp)
-    popq    %rax
-    FSTPL   (%rcx)
+    cvtsi2sd %rax,%xmm0
+    movsd   %xmm0,(%rcx)
     movq    %rcx,%rax
     ret
 
