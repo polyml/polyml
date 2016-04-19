@@ -110,6 +110,11 @@
  *
  **********************************************************************/
 
+#ifdef HOSTARCHITECTURE_X86_64
+struct fpSaveArea {
+    double fpregister[7]; // Save area for xmm0-6
+};
+#else
 // Structure of floating point save area.
 // This is dictated by the hardware.
 typedef byte fpregister[10];
@@ -129,6 +134,7 @@ struct fpSaveArea {
     unsigned short _unused4;
     fpregister registers[8];
 };
+#endif
 
 /* the amount of ML stack space to reserve for registers,
    C exception handling etc. The compiler requires us to
@@ -1122,11 +1128,12 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.programCtr = (byte*)&X86AsmPopArgAndClosure;
 
     // Floating point save area.
-    ASSERT(sizeof(struct fpSaveArea) == 108);
-    memset(&assemblyInterface.p_fp, 0, 108);
+    memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
+#ifndef HOSTARCHITECTURE_X86_64
     // Set the control word for 64-bit precision otherwise we get inconsistent results.
     assemblyInterface.p_fp.cw = 0x027f ; // Control word
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
+#endif
 
     ((PolyWord*)newStack)[topStack] = DEREFWORDHANDLE(proc); // Closure
     ((PolyWord*)newStack)[topStack+1] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
@@ -1248,25 +1255,6 @@ void X86TaskData::InterruptCode()
 // This is called from SwitchToPoly before we enter the ML code.
 void X86TaskData::SetMemRegisters()
 {
-    // Clear the registers first, apart from eax/rax which is used for the result.
-    // If this is a heap allocation we may put the result into one of these.
-    // TODO: What happens if we're extending the stack?
-    assemblyInterface.fullRestore = true;
-    regBX() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    regCX() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    regDX() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    regSI() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    regDI() = PolyWord::FromUnsigned(0xaaaaaaaa);
-#ifdef HOSTARCHITECTURE_X86_64
-    reg8() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg9() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg10() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg11() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg12() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg13() = PolyWord::FromUnsigned(0xaaaaaaaa);
-    reg14() = PolyWord::FromUnsigned(0xaaaaaaaa);
-#endif
-
     // Copy the current store limits into variables before we go into the assembly code.
 
     // If we haven't yet set the allocation area or we don't have enough we need
