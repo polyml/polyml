@@ -187,7 +187,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         return 0;
     // Ignore pointers to the IO area.  They will be relocated
     // when we write out the memory
-    MemSpace *space = gMem.SpaceForAddress(val.AsAddress());
+    MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
     ASSERT(space != 0);
     if (space->spaceType == ST_IO)
         return 0;
@@ -376,7 +376,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
     {
         PolyObject *forwardedTo = obj->GetForwardingPtr();
         POLYUNSIGNED length = GetObjLength(forwardedTo);
-        MemSpace *space = gMem.SpaceForAddress(forwardedTo);
+        MemSpace *space = gMem.SpaceForAddress(forwardedTo-1);
         if (space->spaceType == ST_EXPORT)
             obj->SetLengthWord(length);
         return length;
