@@ -285,6 +285,12 @@ Handle Real_sqrtc(TaskData *mdTaskData, Handle arg)
     return real_result(mdTaskData, sqrt(dx));
 }
 
+// RTS call for square-root.
+double PolyRealSqrt(double arg)
+{
+    return sqrt(arg);
+}
+
 /* CALL_IO1(Real_sin, REF, NOIND) */
 Handle Real_sinc(TaskData *mdTaskData, Handle arg)
 {

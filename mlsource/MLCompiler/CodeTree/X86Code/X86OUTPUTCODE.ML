@@ -441,13 +441,15 @@ struct
     end
 
 
-    (* Registers and pseudo-registers. *)
+    (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
     and fpReg = FloatingPtReg of Word8.word
+    and xmmReg = SSE2Reg of Word8.word
     
     datatype reg =
         GenReg of genReg
     |   FPReg of fpReg
+    |   XMMReg of xmmReg
 
     (* These are the real registers we have.  The AMD extension encodes the
        additional registers through the REX prefix. *)
@@ -479,6 +481,17 @@ struct
     and fp6 = FloatingPtReg 0w6
     and fp7 = FloatingPtReg 0w7
 
+    (* SSE2 Registers.  These are used for floating point in 64-bity mode.
+       We only use XMM0-6 because the others are callee save and we don't
+       currently save them. *)
+    val xmm0 = SSE2Reg 0w0
+    and xmm1 = SSE2Reg 0w1
+    and xmm2 = SSE2Reg 0w2
+    and xmm3 = SSE2Reg 0w3
+    and xmm4 = SSE2Reg 0w4
+    and xmm5 = SSE2Reg 0w5
+    and xmm6 = SSE2Reg 0w6
+
     val regClosure  = edx (* Addr. of closure for fn. call goes here. *)
 
     fun getReg (GeneralReg r) = r
@@ -489,7 +502,7 @@ struct
        to treat it as having seven "real" registers.  Items are pushed to the
        stack and then stored and popped into the current location.  It may be
        possible to improve the code by some peephole optimisation. *)
-    val regs = 23 (* Include the X86/64 registers even if this is 32-bit. *)
+    val regs = 30 (* Include the X86/64 registers even if this is 32-bit. *)
 
     (* The nth register (counting from 0). *)
     (* Profiling shows that applying the constructors here creates a lot of
@@ -500,7 +513,9 @@ struct
             then GenReg(GeneralReg(Word8.fromInt i, false))
             else if i < 16
             then GenReg(GeneralReg(Word8.fromInt(i-8), true))
-            else FPReg(FloatingPtReg(Word8.fromInt(i-16)))
+            else if i < 23
+            then FPReg(FloatingPtReg(Word8.fromInt(i-16)))
+            else XMMReg(SSE2Reg(Word8.fromInt(i-23)))
         val regVec = Vector.tabulate(regs, regN)
     in
         fun regN i = Vector.sub(regVec, i) handle Subscript => raise InternalError "Bad register number"
@@ -510,6 +525,7 @@ struct
     fun nReg(GenReg(GeneralReg(r, false))) = Word8.toInt r
     |   nReg(GenReg(GeneralReg(r, true))) = Word8.toInt r + 8
     |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
+    |   nReg(XMMReg(SSE2Reg r)) = Word8.toInt r + 23
 
     fun genRegRepr r =
           if r = eax then (if isX64 then "%rax" else "%eax") else
@@ -523,9 +539,12 @@ struct
           (* X86/64 registers *) "%r" ^ Int.toString (nReg(GenReg r))
    
     and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
+    
+    and xmmRegRepr(SSE2Reg n) = "xmm" ^ Word8.toString n
 
     fun regRepr(GenReg r) = genRegRepr r
     |   regRepr(FPReg r) = fpRegRepr r
+    |   regRepr(XMMReg r) = xmmRegRepr r
 
     (* Install a pretty printer.  This is simply for when this code is being
        run under the debugger.  N.B. We need PolyML.PrettyString here. *)
@@ -563,6 +582,9 @@ struct
         
         val floatingPtRegisters =
             listToSet(map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)])
+
+        val sse2Registers =
+            listToSet(map XMMReg [xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6])
 
         fun isAllRegs rs = rs = allRegisters
 
@@ -731,91 +753,90 @@ struct
     |   branchOpRepr JA = "JumpAfter"
         
 
- (* Primary opCodes.  N.B. only opCodes actually used are listed here.
-    If new instruction are added check they will be handled by the
-    run-time system in the event of trap. *)
-  datatype opCode =
-    Group1_8_A
-  | Group1_32_A
-  | Group1_8_a
-  | JMP_8
-  | JMP_32
-  | CALL_32 (* SPF 6/6/95 *)
-  | MOVL_A_R
-  | MOVL_R_A
-  | MOVB_R_A
-  | PUSH_R of Word8.word
-  | POP_R  of Word8.word
-  | Group5
-  | NOP
-  | LEAL
-  | MOVL_32_64_R of Word8.word
-  | MOVL_32_A
-  | MOVB_8_A
-  | ESCAPE
-  | POP_A
-  | RET
-  | RET_16
-  | CondJump of branchOps
-  | Arith of arithOp * Word8.word
-  | STC
-  | Group3_A
-  | Group3_a
-  | Group2_8_A
-  | Group2_CL_A
-  | Group2_1_A
-  | PUSH_8
-  | PUSH_32
-  | TEST_ACC8
-  | LOCK_XADD
-  | FPESC of Word8.word
-  | XCHNG
-  | REP (* Rep prefix *)
-  | SAHF
-  | MOVZX (* Needs escape code. *)
-  | IMULRR (* Needs escape code. *)
+    (* Primary opCodes.  N.B. only opCodes actually used are listed here.
+       If new instruction are added check they will be handled by the
+       run-time system in the event of trap. *)
+    datatype opCode =
+        Group1_8_A
+    |   Group1_32_A
+    |   Group1_8_a
+    |   JMP_8
+    |   JMP_32
+    |   CALL_32
+    |   MOVL_A_R
+    |   MOVL_R_A
+    |   MOVB_R_A
+    |   PUSH_R of Word8.word
+    |   POP_R  of Word8.word
+    |   Group5
+    |   NOP
+    |   LEAL
+    |   MOVL_32_64_R of Word8.word
+    |   MOVL_32_A
+    |   MOVB_8_A
+    |   ESCAPE
+    |   POP_A
+    |   RET
+    |   RET_16
+    |   CondJump of branchOps
+    |   Arith of arithOp * Word8.word
+    |   STC
+    |   Group3_A
+    |   Group3_a
+    |   Group2_8_A
+    |   Group2_CL_A
+    |   Group2_1_A
+    |   PUSH_8
+    |   PUSH_32
+    |   TEST_ACC8
+    |   LOCK_XADD
+    |   FPESC of Word8.word
+    |   XCHNG
+    |   REP (* Rep prefix *)
+    |   SAHF
+    |   MOVZX (* Needs escape code. *)
+    |   IMULRR (* Needs escape code. *)
 
-  fun opToInt opn: Word8.word =
-    case opn of
-      Group1_8_A    =>  0wx83
-    | Group1_32_A   =>  0wx81
-    | Group1_8_a    =>  0wx80
-    | JMP_8         =>  0wxeb
-    | JMP_32        =>  0wxe9
-    | CALL_32       =>  0wxe8
-    | MOVL_A_R      =>  0wx8b
-    | MOVL_R_A      =>  0wx89
-    | MOVB_R_A      =>  0wx88
-    | PUSH_R reg    =>  0wx50 + reg
-    | POP_R  reg    =>  0wx58 + reg
-    | Group5        =>  0wxff
-    | NOP           =>  0wx90
-    | LEAL          =>  0wx8d
-    | MOVL_32_64_R reg =>  0wxb8 + reg
-    | MOVL_32_A     =>  0wxc7
-    | MOVB_8_A      =>  0wxc6
-    | ESCAPE        =>  0wx0f
-    | POP_A         =>  0wx8f
-    | RET           => 0wxc3
-    | RET_16        => 0wxc2
-    | CondJump opc  => 0wx70 + branchOpToWord opc
-    | Arith (ao,dw) => arithOpToWord ao * 0w8 + dw
-    | STC           => 0wxf9
-    | Group3_A      => 0wxf7
-    | Group3_a      => 0wxf6
-    | Group2_8_A    => 0wxc1
-    | Group2_1_A    => 0wxd1
-    | Group2_CL_A   => 0wxd3
-    | PUSH_8        => 0wx6a
-    | PUSH_32       => 0wx68
-    | TEST_ACC8     => 0wxa8
-    |   LOCK_XADD   => 0wxC1 (* Needs lock and escape prefixes. *)
-    |   FPESC n     => 0wxD8 orb8 n
-    |   XCHNG       => 0wx87
-    |   REP         => 0wxf3
-    |   SAHF        => 0wx9e
-    |   MOVZX       => 0wxb6 (* Needs escape code. *)
-    |   IMULRR      => 0wxaf (* Needs escape code. *)
+
+    fun opToInt Group1_8_A    =  0wx83
+    |   opToInt Group1_32_A   =  0wx81
+    |   opToInt Group1_8_a    =  0wx80
+    |   opToInt JMP_8         =  0wxeb
+    |   opToInt JMP_32        =  0wxe9
+    |   opToInt CALL_32       =  0wxe8
+    |   opToInt MOVL_A_R      =  0wx8b
+    |   opToInt MOVL_R_A      =  0wx89
+    |   opToInt MOVB_R_A      =  0wx88
+    |   opToInt (PUSH_R reg)  =  0wx50 + reg
+    |   opToInt (POP_R  reg)  =  0wx58 + reg
+    |   opToInt Group5        =  0wxff
+    |   opToInt NOP           =  0wx90
+    |   opToInt LEAL          =  0wx8d
+    |   opToInt (MOVL_32_64_R reg) =  0wxb8 + reg
+    |   opToInt MOVL_32_A     =  0wxc7
+    |   opToInt MOVB_8_A      =  0wxc6
+    |   opToInt ESCAPE        =  0wx0f
+    |   opToInt POP_A         =  0wx8f
+    |   opToInt RET           = 0wxc3
+    |   opToInt RET_16        = 0wxc2
+    |   opToInt (CondJump opc) = 0wx70 + branchOpToWord opc
+    |   opToInt (Arith (ao,dw)) = arithOpToWord ao * 0w8 + dw
+    |   opToInt STC           = 0wxf9
+    |   opToInt Group3_A      = 0wxf7
+    |   opToInt Group3_a      = 0wxf6
+    |   opToInt Group2_8_A    = 0wxc1
+    |   opToInt Group2_1_A    = 0wxd1
+    |   opToInt Group2_CL_A   = 0wxd3
+    |   opToInt PUSH_8        = 0wx6a
+    |   opToInt PUSH_32       = 0wx68
+    |   opToInt TEST_ACC8     = 0wxa8
+    |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
+    |   opToInt (FPESC n)     = 0wxD8 orb8 n
+    |   opToInt XCHNG         = 0wx87
+    |   opToInt REP           = 0wxf3
+    |   opToInt SAHF          = 0wx9e
+    |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
+    |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
 
 (* ...
 

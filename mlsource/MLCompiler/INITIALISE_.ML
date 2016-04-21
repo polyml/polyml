@@ -113,6 +113,7 @@ struct
             val Unit   = unitType;
             val Char   = charType;
             val Word   = wordType;
+            val Real   = realType
             val Exn    = exnType
             
             val mkTypeConstruction = mkTypeConstruction;
@@ -377,6 +378,7 @@ struct
             fun makeCall rtsCall n entryName = rtsCall (entryName, n, debugOpts)
             val makeFastCall = makeCall CODETREE.Foreign.rtsCallFast
             and makeFullCall = makeCall CODETREE.Foreign.rtsCallFull
+            fun makeFastRealRealCall _ entryName = CODETREE.Foreign.rtsCallFastFloattoFloat (entryName, debugOpts)
             (* We need to wrap this so that the arguments are passed in registers. *)
 
             fun makeRunCallTupled (width:int, callN) : codetree =
@@ -450,6 +452,7 @@ struct
             in
                 val rtsCallFull1Entry = makeInlCode(makeFullCall, "rtsCallFull1")
                 and rtsCallFast1Entry = makeInlCode(makeFastCall, "rtsCallFast1")
+                and rtsCallFastF_FEntry = makeInlCode(makeFastRealRealCall, "rtsCallFastRealReal")
             end
             
             local
@@ -479,6 +482,7 @@ struct
                 val rtsCallFull3C2Entry =
                     makePolymorphic([a, b, c, d, e], makeRunCallTupledWithContainer(3, 2, toMachineWord(makeFullCall 4)))
                 val rtsCall3C2Type = String ->> TYPETREE.mkProductType [a,b,c] ->> TYPETREE.mkProductType [d,e]
+                val rtsCallF_FType = String ->> Real ->> Real
             end
         in
             val () = enterRunCall ("rtsCallFull0", rtsCallFull0Entry, rtsCall0Type)
@@ -491,6 +495,7 @@ struct
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
             val () = enterRunCall ("rtsCallFull3C2", rtsCallFull3C2Entry, rtsCall3C2Type)
+            val () = enterRunCall ("rtsCallFastF_F", rtsCallFastF_FEntry, rtsCallF_FType)
         end
 
         local

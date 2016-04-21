@@ -69,6 +69,7 @@ extern "C" {
     DLLEXPORT POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     DLLEXPORT POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str);
     DLLEXPORT POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg);
+    DLLEXPORT double PolyRealSqrt(double arg);
 }
 
 #endif

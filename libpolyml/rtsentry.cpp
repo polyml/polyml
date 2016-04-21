@@ -133,6 +133,7 @@ static struct _entrypts {
     { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
     { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
     { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
+    { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
 
     { NULL, NULL} // End of list.
 };
