@@ -629,7 +629,7 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpa
     // We have an address.  Check it's in our memory.  We may have pointers into
     // the code and we MUSTN'T try to follow them.  We may also have pointers
     // within the stack.
-    MemSpace *space = gMem.SpaceForAddress(val.AsAddress());
+    MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
     if (space == 0)
         return;
     if (space->spaceType == ST_STACK)

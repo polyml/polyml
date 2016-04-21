@@ -327,7 +327,7 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
         PolyWord val = *(--pt);
         if (! val.IsTagged())
         {
-            LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
+            LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
 
             // We only copy it if it is in a local allocation space and not in the
             // "overflow" area of data that could not copied by the last full GC.

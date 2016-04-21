@@ -1477,12 +1477,24 @@ double get_arbitrary_precision_as_real(TaskData *, PolyWord x)
         POLYSIGNED t = UNTAGGED(x);
         return (double)t;
     }
+    double acc = 0;
+#if USE_GMP
+    mp_limb_t *u = (mp_limb_t *)(x.AsObjPtr());
+    mp_size_t lx = numLimbs(x);
+    for ( ; lx > 0; lx--) {
+        int ll = sizeof(mp_limb_t);
+        for ( ; ll > 0 ; ll-- ) {
+            acc = acc * 256;
+        }
+        acc = acc + (double)u[lx-1];
+    }
+#else
     byte *u = (byte *)(x.AsObjPtr());
     POLYUNSIGNED lx = OBJECT_LENGTH(x)*sizeof(PolyWord);
-    double acc = 0;
     for( ; lx > 0; lx--) {
         acc = acc * 256 + (double)u[lx-1];
     }
+#endif
     if (OBJ_IS_NEGATIVE(GetLengthWord(x)))
         return -acc;
     else return acc;

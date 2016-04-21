@@ -207,7 +207,7 @@ void MTGCProcessMarkPointers::Reset()
 // in the range to be rescanned.
 void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
 {
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj);
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
     ASSERT(space != 0);
     PLocker lock(&space->spaceLock);
     // Have to include this in the range to rescan.
@@ -312,7 +312,7 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
         *pt = obj;
     }
 
-    if (gMem.LocalSpaceForAddress(obj) == 0)
+    if (gMem.LocalSpaceForAddress(obj-1) == 0)
         return false; // Ignore it if it points to a permanent area
 
     POLYUNSIGNED L = obj->LengthWord();
@@ -346,7 +346,7 @@ void MTGCProcessMarkPointers::MarkAndTestForScan(PolyWord *pt)
 PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord val = obj;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
     if (space == 0)
         return obj; // Ignore it if it points to a permanent area
 
@@ -356,7 +356,7 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     {
         obj = FollowForwarding(obj);
         val = obj;
-        space = gMem.LocalSpaceForAddress(val.AsAddress());
+        space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
     }
 
     ASSERT(obj->ContainsNormalLengthWord());
@@ -494,7 +494,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
                 // be a code address.
                 // Check that this is actually an address.  If we have had a bad pointer
                 // earlier we may treat some length fields as values.
-                ASSERT(gMem.SpaceForAddress(wordAt.AsCodePtr()) != 0);
+                ASSERT(gMem.SpaceForAddress(wordAt.AsCodePtr()-1) != 0);
                 PolyObject *oldObject = ObjCodePtrToPtr(wordAt.AsCodePtr());
                 // Calculate the byte offset of this value within the code object.
                 POLYUNSIGNED offset = wordAt.AsCodePtr() - (byte*)oldObject;

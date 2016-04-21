@@ -280,7 +280,7 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             // If we can't find a permanent space choose a space that isn't
             // an allocation space.  Otherwise we could break the invariant
             // that immutable areas never point into the allocation area.
-            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt);
+            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt-1);
             if (bestSpace == 0)
             {
                 bestShare = itemVec[j].pt;
@@ -552,7 +552,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return 0;
 
-    MemSpace *space = gMem.SpaceForAddress(old.AsAddress());
+    MemSpace *space = gMem.SpaceForAddress(old.AsStackAddr()-1);
     if (space == 0 || space->spaceType == ST_IO)
         return 0;
 
