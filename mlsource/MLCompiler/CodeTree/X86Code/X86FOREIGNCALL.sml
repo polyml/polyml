@@ -358,8 +358,10 @@ struct
             ] @
             (
                 case abi of
-                    X64Unix => raise Fail "TODO"
-                |   X64Win => raise Fail "TODO"
+                    (* X64 on both Windows and Unix take the first arg in xmm0.  We need to
+                       unbox the value pointed at by rax. *)
+                    X64Unix => [ XMMLoadFromMemory { base=eax, offset=0, output=xmm0 } ]
+                |   X64Win => [ XMMLoadFromMemory { base=eax, offset=0, output=xmm0 } ]
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
@@ -375,9 +377,7 @@ struct
             (
                 (* Put the floating point result into a box. *)
                 case abi of
-                    X64Unix => raise Fail "TODO"
-                |   X64Win => raise Fail "TODO"
-                |   X86_32 =>
+                   X86_32 =>
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
@@ -385,6 +385,15 @@ struct
                         FPStoreToMemory{ base=eax, offset=0, andPop=true },
                         StoreInitialised
                     ]
+                |   _ => (* X64 The result is in xmm0 *)
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
+                            address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
+                        StoreByteConstToMemory{toStore=F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
+                        StoreInitialised
+                    ]                    
             ) @
             [
                 (* Remove any arguments that have been passed on the stack. *)
