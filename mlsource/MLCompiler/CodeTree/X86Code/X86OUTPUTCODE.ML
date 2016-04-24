@@ -526,23 +526,45 @@ struct
     |   nReg(GenReg(GeneralReg(r, true))) = Word8.toInt r + 8
     |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
     |   nReg(XMMReg(SSE2Reg r)) = Word8.toInt r + 23
+        
+    datatype opsize = SZByte | SZDWord | SZQWord
+    
+    val sz32_64 = if isX64 then SZQWord else SZDWord
 
-    fun genRegRepr r =
-          if r = eax then (if isX64 then "rax" else "eax") else
-          if r = ebx then (if isX64 then "rbx" else "ebx") else
-          if r = ecx then (if isX64 then "rcx" else "ecx") else
-          if r = edx then (if isX64 then "rdx" else "edx") else
-          if r = esp then (if isX64 then "rsp" else "esp") else
-          if r = ebp then (if isX64 then "rbp" else "ebp") else
-          if r = esi then (if isX64 then "rsi" else "esi") else
-          if r = edi then (if isX64 then "rdi" else "edi") else
-          (* X86/64 registers *) "r" ^ Int.toString (nReg(GenReg r))
-   
+    fun genRegRepr(GeneralReg (0w0, false), SZByte) = "al"
+    |   genRegRepr(GeneralReg (0w1, false), SZByte) = "cl"
+    |   genRegRepr(GeneralReg (0w2, false), SZByte) = "dl"
+    |   genRegRepr(GeneralReg (0w3, false), SZByte) = "bl"
+    |   genRegRepr(GeneralReg (0w4, false), SZByte) = "ah" (* TODO: May be different if there's a rex code *)
+    |   genRegRepr(GeneralReg (0w5, false), SZByte) = "ch"
+    |   genRegRepr(GeneralReg (0w6, false), SZByte) = "dh"
+    |   genRegRepr(GeneralReg (0w7, false), SZByte) = "bh"
+    |   genRegRepr(GeneralReg (reg, true),  SZByte) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "b"
+    |   genRegRepr(GeneralReg (0w0, false), SZDWord) = "eax"
+    |   genRegRepr(GeneralReg (0w1, false), SZDWord) = "ecx"
+    |   genRegRepr(GeneralReg (0w2, false), SZDWord) = "edx"
+    |   genRegRepr(GeneralReg (0w3, false), SZDWord) = "ebx"
+    |   genRegRepr(GeneralReg (0w4, false), SZDWord) = "esp"
+    |   genRegRepr(GeneralReg (0w5, false), SZDWord) = "ebp"
+    |   genRegRepr(GeneralReg (0w6, false), SZDWord) = "esi"
+    |   genRegRepr(GeneralReg (0w7, false), SZDWord) = "edi"
+    |   genRegRepr(GeneralReg (reg, true),  SZDWord) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "d"
+    |   genRegRepr(GeneralReg (0w0, false), SZQWord) = "rax"
+    |   genRegRepr(GeneralReg (0w1, false), SZQWord) = "rcx"
+    |   genRegRepr(GeneralReg (0w2, false), SZQWord) = "rdx"
+    |   genRegRepr(GeneralReg (0w3, false), SZQWord) = "rbx"
+    |   genRegRepr(GeneralReg (0w4, false), SZQWord) = "rsp"
+    |   genRegRepr(GeneralReg (0w5, false), SZQWord) = "rbp"
+    |   genRegRepr(GeneralReg (0w6, false), SZQWord) = "rsi"
+    |   genRegRepr(GeneralReg (0w7, false), SZQWord) = "rdi"
+    |   genRegRepr(GeneralReg (reg, true),  SZQWord) = "r" ^ Int.toString(Word8.toInt reg +8)
+    |   genRegRepr _ = "unknown" (* Suppress warning because word values are not exhaustive. *)
+
     and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
     
     and xmmRegRepr(SSE2Reg n) = "xmm" ^ Word8.toString n
 
-    fun regRepr(GenReg r) = genRegRepr r
+    fun regRepr(GenReg r) = genRegRepr (r, sz32_64)
     |   regRepr(FPReg r) = fpRegRepr r
     |   regRepr(XMMReg r) = xmmRegRepr r
 
@@ -774,7 +796,6 @@ struct
     |   MOVL_32_64_R of Word8.word
     |   MOVL_32_A
     |   MOVB_8_A
-    |   ESCAPE
     |   POP_A
     |   RET
     |   RET_16
@@ -791,7 +812,6 @@ struct
     |   LOCK_XADD
     |   FPESC of Word8.word
     |   REP (* Rep prefix *)
-    |   SAHF
     |   MOVZX (* Needs escape code. *)
     |   IMULRR (* Needs escape code. *)
     |   SSE2Load (* movsd with register destination - needs escape sequence. *)
@@ -815,7 +835,6 @@ struct
     |   opToInt (MOVL_32_64_R reg) =  0wxb8 + reg
     |   opToInt MOVL_32_A     =  0wxc7
     |   opToInt MOVB_8_A      =  0wxc6
-    |   opToInt ESCAPE        =  0wx0f
     |   opToInt POP_A         =  0wx8f
     |   opToInt RET           = 0wxc3
     |   opToInt RET_16        = 0wxc2
@@ -832,7 +851,6 @@ struct
     |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
     |   opToInt REP           = 0wxf3
-    |   opToInt SAHF          = 0wx9e
     |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
     |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
@@ -1225,9 +1243,9 @@ SS-relative addressing modes:
     val maxInstrSize = if isX64 then 15 else 12
     
     (* A few instructions require an escape. *)
-    fun genEscape(MOVZX, cvec) = gen8u(opToInt ESCAPE, cvec)
-    |   genEscape(LOCK_XADD, cvec) = gen8u(opToInt ESCAPE, cvec)
-    |   genEscape(IMULRR, cvec) = gen8u(opToInt ESCAPE, cvec)
+    fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(IMULRR, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(SSE2Load, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape _ = ()
@@ -1343,19 +1361,24 @@ SS-relative addressing modes:
     fun genRex(opb, rrX, rbX, riX, code) =
     let
         (* We need a rex prefix if we need to set the length to 64-bit. *)
-        (* TODO: I'm not completely sure about this list. *)
         val need64bit =
             case opb of
                 Group1_8_A => isX64 (* Arithmetic operations - must be 64-bit *)
+            |   Group1_32_A => isX64 (* Arithmetic operations - must be 64-bit *)
             |   Group2_1_A => isX64 (* 1-bit shifts - must be 64-bit *)
             |   Group2_8_A => isX64 (* n-bit shifts - must be 64-bit *)
+            |   Group2_CL_A => isX64 (* Shifts by value in CL *)
+            |   Group3_A => isX64 (* Test, Not, Mul etc. *)
             |   Arith _ => isX64
-            |   MOVL_A_R => isX64
-            |   MOVL_R_A => isX64
-            |   LEAL => isX64
-            |   MOVZX => isX64
-            |   MOVL_32_64_R _ => isX64
-            |   MOVL_32_A => isX64
+            |   MOVL_A_R => isX64 (* Needed *)
+            |   MOVL_R_A => isX64 (* Needed *)
+            |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVZX => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVL_32_64_R _ => isX64 (* Needed *)
+            |   MOVL_32_A => isX64 (* Needed *)
+            |   IMULRR => isX64 (* Needed to ensure the result is 64-bits *)
+            |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
+            (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
     in
         if need64bit orelse rrX orelse rbX orelse riX
@@ -2034,8 +2057,8 @@ SS-relative addressing modes:
 
     fun printOperation(operation, stream) =
     let
-        val printGReg = stream o genRegRepr
-        and printFPReg = stream o fpRegRepr
+        fun printGReg r = stream(genRegRepr(r, sz32_64))
+        val printFPReg = stream o fpRegRepr
         and printXMMReg = stream o xmmRegRepr
         fun printBaseOffset(b, x, i) =
         (
@@ -2135,7 +2158,7 @@ SS-relative addressing modes:
         |   StoreRegToMemory { toStore, address } =>
             (
                 stream "StoreRegToMemory "; printMemAddress address;
-                stream " <= "; stream(genRegRepr toStore)
+                stream " <= "; printGReg toStore
             )
 
         |   StoreConstToMemory { toStore, address } =>
@@ -2152,7 +2175,7 @@ SS-relative addressing modes:
         |   StoreByteRegToMemory { toStore, address } =>
             (
                 stream "StoreByteRegToMemory "; printMemAddress address;
-                stream " <= "; stream(genRegRepr toStore)
+                stream " <= "; stream(genRegRepr(toStore, SZByte))
             )
 
         |   StoreByteConstToMemory { toStore, address } =>
@@ -2719,10 +2742,7 @@ SS-relative addressing modes:
             (
                 checkSources[base, output]; addDests[output];
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
-                genOpEA (LOCK_XADD, 0, base, output, code); (*0wxF0
-                gen8u (0wx0f (* ESCAPE *), code);
-                gen8u(0wxC1 (* xaddl *), code);
-                genEA(0, base, output, code);*)
+                genOpEA (LOCK_XADD, 0, base, output, code);
                 cgOp remainder
             )
 
@@ -3268,8 +3288,6 @@ SS-relative addressing modes:
         in
             print (Word.fmt StringCvt.HEX (Word.fromInt valu + !ptr))
         end
-        
-        datatype opsize = SZByte | SZWord | SZQWord
  
         (* Print an effective address. *)
         fun printEA(rex, sz) =
@@ -3280,13 +3298,13 @@ SS-relative addressing modes:
             val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
             val prefix =
-                case (sz, isX64) of
-                    (SZByte, _) => "byte ptr "
-                |   (SZWord, false) => "dword ptr "
-                |   _ => "qword ptr "
+                case sz of
+                    SZByte  => "byte ptr "
+                |   SZDWord => "dword ptr "
+                |   SZQWord => "qword ptr "
         in
             case (modrm >>- 0w6, modrm andb8 0w7, isX64) of
-                (0w3, rm, _) => print (genRegRepr (mkReg(rm, rexB))) (* TODO - what if it's a byte? *)
+                (0w3, rm, _) => print (genRegRepr (mkReg(rm, rexB), sz))
       
             |   (md, 0w4, _) =>
                 let (* s-i-b present. *)
@@ -3296,6 +3314,8 @@ SS-relative addressing modes:
                     val index = (sib  >>- 0w3) andb8 0w7
                     val base   = sib andb8 0w7
                 in
+                    print prefix;
+
                     case (md, base, isX64) of
                         (0w1, _, _) => print8 ()
                     |   (0w2, _, _) => print32 ()
@@ -3305,12 +3325,12 @@ SS-relative addressing modes:
                     print "(";
         
                     if md <> 0w0 orelse base <> 0w5
-                    then print (genRegRepr (mkReg (base, rexB)))
+                    then print (genRegRepr (mkReg (base, rexB), sz32_64))
                     else if isX64 then print "rip" else ();
         
                     if index <> 0w4 (* No index. *)
                     then 
-                        print ("," ^ genRegRepr (mkReg(index, rexX)) ^ 
+                        print ("," ^ genRegRepr (mkReg(index, rexX), sz32_64) ^ 
                             (if ss = 0w0 then "*1"
                             else if ss = 0w1 then "*2"
                             else if ss = 0w2 then "*4"
@@ -3332,7 +3352,7 @@ SS-relative addressing modes:
                     else if md = 0w2 then print32 ()
                     else ();
          
-                    print ("(" ^ genRegRepr (mkReg(rm, rexB)) ^ ")")
+                    print ("(" ^ genRegRepr (mkReg(rm, rexB), sz32_64) ^ ")")
                 )
         end;
  
@@ -3357,17 +3377,17 @@ SS-relative addressing modes:
         in
             printArith(Word8.toInt((opByte div 0w8) mod 0w8));
             print "\t";
-            print (genRegRepr (mkReg(reg, rexR)));
+            print (genRegRepr (mkReg(reg, rexR), sz));
             print ",";
             printEA(rex, sz)
         end
         
-        fun printMovCToR (opByte, rexW, rexB) =
+        fun printMovCToR (opByte, sz, rexB) =
         (
             print "mov \t";
-            print(genRegRepr (mkReg (opByte mod 0w8, rexB)));
+            print(genRegRepr (mkReg (opByte mod 0w8, rexB), sz));
             print ",";
-            if rexW then print64 () else print32 ()
+            case sz of SZByte => print "???" | SZDWord => print32 () | SZQWord => print64 ()
         )
         
         fun printShift (opByte, rex, sz) =
@@ -3478,13 +3498,14 @@ SS-relative addressing modes:
             val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
 
-            val opByte = get8u (!ptr, seg);
-            val () = ptr +:= 0w1;
+            val opByte = get8u (!ptr, seg) before ptr +:= 0w1
+            
+            val defSize = if rexW then SZQWord else SZDWord
         in
             case opByte of
-                0wx03 => printGvEv (opByte, rex, rexR, SZWord)
+                0wx03 => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx0b => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx0b => printGvEv (opByte, rex, rexR, defSize)
 
             |   0wx0f => (* ESCAPE *)
                 let
@@ -3499,9 +3520,9 @@ SS-relative addressing modes:
                         val reg = (nb >>- 0w3) andb8 0w7
                     in
                         print (if opByte2 = 0xB6 then "movzx\t" else if opByte2 = 0xC1 then "xadd\t" else "imul\t");
-                        printEA (rex, SZWord);
+                        printEA (rex, defSize);
                         print ",";
-                        print (genRegRepr (mkReg(reg, rexR)))
+                        print (genRegRepr (mkReg(reg, rexR), if opByte2 = 0xB6 then SZByte else defSize))
                     end
        
                     else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
@@ -3531,35 +3552,36 @@ SS-relative addressing modes:
                 end (* ESCAPE *)
 
 
-            |   0wx13 => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx13 => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx1b => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx1b => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx23 => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx23 => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx2b => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx2b => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx33 => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx33 => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx3b => printGvEv (opByte, rex, rexR, SZWord)
+            |   0wx3b => printGvEv (opByte, rex, rexR, defSize)
 
-            |   0wx50 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx51 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx52 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx53 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx54 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx55 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx56 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx57 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
+                (* Push and Pop.  These are 64-bit on X86/64 whether there is REX prefix or not. *)
+            |   0wx50 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx51 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx52 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx53 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx54 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx55 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx56 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx57 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
-            |   0wx58 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx59 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5a => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5b => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5c => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5d => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
+            |   0wx58 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx59 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5a => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5b => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5c => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5d => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
             |   0wx68 =>(print "push\t"; print32 ())
          
@@ -3598,7 +3620,7 @@ SS-relative addressing modes:
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
-                    printEA(rex, SZWord);
+                    printEA(rex, defSize);
                     print ",";
                     print32 ()
                 end
@@ -3610,7 +3632,7 @@ SS-relative addressing modes:
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
-                    printEA(rex, SZWord);
+                    printEA(rex, defSize);
                     print ",";
                     print8 ()
                 end
@@ -3646,9 +3668,9 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
-                    printEA(rex, SZWord);
+                    printEA(rex, defSize);
                     print ",";
-                    print (genRegRepr (mkReg(reg, rexR)))
+                    print (genRegRepr (mkReg(reg, rexR), defSize))
                 end
          
             |   0wx8b =>
@@ -3658,9 +3680,9 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
-                    print (genRegRepr (mkReg(reg, rexR)));
+                    print (genRegRepr (mkReg(reg, rexR), defSize));
                     print ",";
-                    printEA(rex, SZWord)
+                    printEA(rex, defSize)
                 end
 
             |   0wx8d =>
@@ -3670,12 +3692,12 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "lea \t";
-                    print (genRegRepr (mkReg(reg, rexR)));
+                    print (genRegRepr (mkReg(reg, rexR), defSize));
                     print ",";
-                    printEA(rex, SZWord)
+                    printEA(rex, defSize)
                 end
          
-            |   0wx8f => (print "pop \t"; printEA(rex, SZWord))
+            |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
             |   0wx90 => print "nop"
             
             |   0wx9e => print "sahf\n"
@@ -3689,14 +3711,14 @@ SS-relative addressing modes:
             |   0wxaa => print "stosb\n"
             |   0wxab => print "stosl\n"
 
-            |   0wxb8 => printMovCToR (opByte, rexW, rexB)
-            |   0wxb9 => printMovCToR (opByte, rexW, rexB)
-            |   0wxba => printMovCToR (opByte, rexW, rexB)
-            |   0wxbb => printMovCToR (opByte, rexW, rexB)
-            |   0wxbc => printMovCToR (opByte, rexW, rexB)
-            |   0wxbd => printMovCToR (opByte, rexW, rexB)
-            |   0wxbe => printMovCToR (opByte, rexW, rexB)
-            |   0wxbf => printMovCToR (opByte, rexW, rexB)
+            |   0wxb8 => printMovCToR (opByte, defSize, rexB)
+            |   0wxb9 => printMovCToR (opByte, defSize, rexB)
+            |   0wxba => printMovCToR (opByte, defSize, rexB)
+            |   0wxbb => printMovCToR (opByte, defSize, rexB)
+            |   0wxbc => printMovCToR (opByte, defSize, rexB)
+            |   0wxbd => printMovCToR (opByte, defSize, rexB)
+            |   0wxbe => printMovCToR (opByte, defSize, rexB)
+            |   0wxbf => printMovCToR (opByte, defSize, rexB)
    
             |   0wxc1 => (* Group2_8_A *) printShift (opByte, rex, SZByte)
 
@@ -3714,14 +3736,14 @@ SS-relative addressing modes:
             |   0wxc7 => (* move 32/64-bit constant to memory *)
                 (
                     print "mov \t";
-                    printEA(rex, SZWord);
+                    printEA(rex, SZDWord);
                     print ",";
                     print32 ()
                 )
 
-            |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, SZWord)
+            |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, SZDWord)
 
-            |   0wxd3 => (* Group2_CL_A *) printShift (opByte, rex, SZWord)
+            |   0wxd3 => (* Group2_CL_A *) printShift (opByte, rex, SZDWord)
            
             |   0wxd8 => printFloat (opByte, rex) (* Floating point escapes *)
             |   0wxd9 => printFloat (opByte, rex)
@@ -3749,6 +3771,22 @@ SS-relative addressing modes:
                 end
 
             |   0wxeb => (print "jmp \t"; printJmp())
+            
+            |   0wxf2 => (* On its own this is REPNE but we don't use that. *)
+                if get8u (!ptr, seg) = 0wx0f
+                then (* SSE2 instruction *)
+                let
+                    val () = ptr +:= 0w1
+                    val op2 = get8u (!ptr, seg) before ptr +:= 0w1
+                    val nb = csegGet (seg, !ptr)
+                    val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                in
+                    case op2 of
+                        0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   0wx11 => ( print "movsd\t"; printEA(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
+                    |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                end
+                else print "repne\t"
 
             |   0wxf3 => print "rep\t"
         
@@ -3786,7 +3824,8 @@ SS-relative addressing modes:
                        | _ => "???"
                       );
                     print "\t";
-                    printEA(rex, SZWord);
+                    printEA(rex, defSize);
+                    (* Test has an immediate operand.  It's 32-bits even in 64-bit mode. *)
                     if opc = 0 then (print ","; print32 ()) else ()
                 end
          
@@ -3804,10 +3843,10 @@ SS-relative addressing modes:
                        | _ => "???"
                       );
                     print "\t";
-                    printEA(rex, SZWord)
+                    printEA(rex, sz32_64) (* None of the cases we use need a prefix. *)
                 end
  
-            |   _ => printValue(Word8.toLargeInt opByte);
+            |   _ => print(Word8.fmt StringCvt.HEX opByte);
       
             print "\n"
         end; (* end of while loop *)
