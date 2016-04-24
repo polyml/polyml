@@ -27,16 +27,4 @@ class TaskData;
 
 extern Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
-
 #endif

@@ -94,6 +94,12 @@ typedef char TCHAR;
 
 #include "poly_specific.h" // For the functions that have been moved.
 
+extern "C" {
+    POLYEXTERNALSYMBOL void PolyFinish(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL void PolyTerminate(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
+
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(mdTaskData, n)
 
@@ -633,10 +639,20 @@ Handle finishc(TaskData *taskData, Handle h)
     return taskData->saveVec.push(TAGGED(0));
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
+    { "PolyTerminate",                  (polyRTSFunction)&PolyTerminate},
+    { "PolyProcessEnvGeneral",          (polyRTSFunction)&PolyProcessEnvGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class ProcessEnvModule: public RtsModule
 {
 public:
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

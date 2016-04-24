@@ -91,6 +91,18 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "processes.h"
 #include "memmgr.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyMultiplyArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+}
+
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
 #define BITS_PER_POLYWORD (SIZEOF_VOIDP*8)
 
@@ -1907,3 +1919,26 @@ POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
+    { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
+    { "PolyMultiplyArbitrary",          (polyRTSFunction)&PolyMultiplyArbitrary},
+    { "PolyDivideArbitrary",            (polyRTSFunction)&PolyDivideArbitrary},
+    { "PolyRemainderArbitrary",         (polyRTSFunction)&PolyRemainderArbitrary},
+    { "PolyQuotRemArbitrary",           (polyRTSFunction)&PolyQuotRemArbitrary},
+    { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
+    { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
+    { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
+
+    { NULL, NULL} // End of list.
+};
+
+class ArbitraryPrecisionArithmetic: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static ArbitraryPrecisionArithmetic arbModule;

@@ -113,6 +113,9 @@ now in dynamic memory.  That avoids a possible segfault if the normal
 C stack overflows.
 */
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root);
+}
 typedef struct
 {
     POLYUNSIGNED    L;
@@ -930,3 +933,19 @@ POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
     taskData->PostRTSCall();
     return TAGGED(0).AsUnsigned();
 }
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
+
+    { NULL, NULL} // End of list.
+};
+
+class ShareDataModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static ShareDataModule shareDataModule;

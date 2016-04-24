@@ -51,18 +51,6 @@ class TaskData;
 
 extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
-
 // Define classes for operations on time values in Windows and Posix.
 // N.B. In Cygwin we use both classes because in some cases we need
 // Windows-style timing and in other places we use Unix-style.

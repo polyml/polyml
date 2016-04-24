@@ -57,6 +57,10 @@
 #include "run_time.h"
 #include "sys.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode);
+}
+
 static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
 static const char* const mainThreadText[MTP_MAXENTRY] =
 {
@@ -543,12 +547,21 @@ void ProfileRequest::Perform()
     
 } /* profilerc */
 
+static struct _entrypts entryPtTable[] =
+{
+    // Profiling
+    { "PolyProfiling",                  (polyRTSFunction)&PolyProfiling},
+
+    { NULL, NULL} // End of list.
+};
+
 
 class Profiling: public RtsModule
 {
 public:
     virtual void Init(void);
     virtual void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

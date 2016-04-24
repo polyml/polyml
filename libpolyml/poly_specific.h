@@ -30,17 +30,5 @@ class TaskData;
 
 extern Handle poly_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
-
 #endif
 

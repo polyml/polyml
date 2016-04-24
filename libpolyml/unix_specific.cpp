@@ -131,6 +131,11 @@
 #include "save_vec.h"
 #include "rts_module.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+}
+
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -2075,10 +2080,19 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
     raise_syscall(taskData, "pathconf argument not found", EINVAL);
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
+    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class UnixSpecific: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

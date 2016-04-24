@@ -59,6 +59,10 @@
 #include "rts_module.h"
 #include "memmgr.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFullGC(PolyObject *threadId);
+}
+
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
@@ -458,11 +462,19 @@ void IncrementRTSCallCount(unsigned ioFunction)
         rtsCallCounts[ioFunction]++;
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
+
+    { NULL, NULL} // End of list.
+};
+
 // This RTS module is defined purely to allow us to print the statistics.
 class RTS: public RtsModule
 {
 public:
     virtual void Stop(void);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 static RTS rtsModule;

@@ -84,6 +84,10 @@
 #include "diagnostics.h"
 #include "reals.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
+
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
 {
 // Unfortunately the ABI entries are enums rather than #defines so we
@@ -707,10 +711,18 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     processes->ThreadReleaseMLMemory(taskData);
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class PolyFFI: public RtsModule
 {
 public:
     virtual void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

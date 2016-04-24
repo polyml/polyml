@@ -45,17 +45,5 @@ extern Handle cmem_store_double(TaskData *taskData, Handle valueH, Handle indexH
 extern Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
 extern Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
 #endif
-  
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
 
 #endif

@@ -110,6 +110,14 @@
     DCJM: March 2000.
 */
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord mode, PolyWord digits);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
+}
+
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
 
@@ -810,10 +818,22 @@ POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
+    { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
+    { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
+    { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
+    { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
+
+    { NULL, NULL} // End of list.
+};
+
 class RealArithmetic: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

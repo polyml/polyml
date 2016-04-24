@@ -122,6 +122,10 @@
 #include "processes.h"
 #include "heapsizing.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
+
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 /* Windows file times are 64-bit numbers representing times in
    tenths of a microsecond. */
@@ -533,10 +537,18 @@ void TimeValTime::sub(const TimeValTime &f)
 #endif
 
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class Timing: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

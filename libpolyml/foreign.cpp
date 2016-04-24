@@ -109,6 +109,9 @@ typedef char TCHAR;
 #include "rts_module.h"
 #include "locking.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
 
 /**********************************************************************
  *
@@ -601,6 +604,13 @@ effect on Pass 3.
 
 **********************************************************************/
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyForeignGeneral",             (polyRTSFunction)&PolyForeignGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class Foreign: public RtsModule
 {
 public:
@@ -608,6 +618,7 @@ public:
     virtual void Start(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -1725,7 +1736,7 @@ Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
     return (handlers[fcode])(taskData, args);
 }
 
-DLLEXPORT POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();
@@ -1755,7 +1766,7 @@ Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
     raise_exception_string(taskData, EXC_foreign, "The foreign function interface is not available on this platform");
 }
 
-DLLEXPORT POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord /*code*/, PolyWord /*arg*/)
+POLYEXTERNALSYMBOL POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord /*code*/, PolyWord /*arg*/)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();

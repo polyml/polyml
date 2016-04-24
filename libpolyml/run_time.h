@@ -101,16 +101,4 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 
 extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyFullGC(PolyObject *threadId);
-}
-
 #endif /* _RUNTIME_H_DEFINED */

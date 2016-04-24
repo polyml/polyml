@@ -192,18 +192,6 @@ NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
-
 class ScanAddress;
 
 // Indicate what the main thread is doing if the profile

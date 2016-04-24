@@ -47,16 +47,4 @@ extern Handle profilerc(TaskData *taskData, Handle mode_handle);
 extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, POLYUNSIGNED incr);
 extern void AddObjectProfile(PolyObject *obj);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode);
-}
-
 #endif /* _PROFILING_H_DEFINED */

@@ -32,18 +32,4 @@ extern Handle ObjSize(TaskData *taskData, Handle obj);
 extern Handle ShowSize(TaskData *taskData, Handle obj);
 extern Handle ObjProfile(TaskData *taskData, Handle obj);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj);
-    DLLEXPORT POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj);
-    DLLEXPORT POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj);
-}
-
 #endif

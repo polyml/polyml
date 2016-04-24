@@ -43,100 +43,12 @@
 #endif
 
 #include "globals.h"
+#include "rts_module.h"
 #include "rtsentry.h"
 #include "save_vec.h"
-#include "polystring.h"
 #include "processes.h"
 #include "run_time.h"
-#include "arb.h"
-#include "basicio.h"
-#include "process_env.h"
-#include "os_specific.h"
-#include "poly_specific.h"
-#include "objsize.h"
-#include "exporter.h"
-#include "sharedata.h"
-#include "network.h"
-#include "sighandler.h"
-#include "timing.h"
-#include "profiling.h"
-#include "xwindows.h"
-#include "polyffi.h"
-#include "foreign.h"
-#include "reals.h"
-
-// Table of RTS entry functions.  In theory it ought to be possible to get these
-// using dlsym/GetProcAddress but that's difficult to get to work with various
-// combinations of static/dynamic libraries and different systems.
-
-typedef void (*polyRTSFunction)();
-
-static struct _entrypts {
-    const char *name;
-    polyRTSFunction entry;
-} entryPtTable[] =
-{
-    // Basic IO
-    { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
-    { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
-    // Arbitrary precision
-    { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
-    { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
-    { "PolyMultiplyArbitrary",          (polyRTSFunction)&PolyMultiplyArbitrary},
-    { "PolyDivideArbitrary",            (polyRTSFunction)&PolyDivideArbitrary},
-    { "PolyRemainderArbitrary",         (polyRTSFunction)&PolyRemainderArbitrary},
-    { "PolyQuotRemArbitrary",           (polyRTSFunction)&PolyQuotRemArbitrary},
-    { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
-    { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
-    { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
-    // RTS entry itself
-    { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
-    // Process-env
-    { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
-    { "PolyTerminate",                  (polyRTSFunction)&PolyTerminate},
-    { "PolyProcessEnvGeneral",          (polyRTSFunction)&PolyProcessEnvGeneral},
-    // OS-specific
-    { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
-    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
-    // Poly-specific
-    { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
-    // Run-time
-    { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
-    // Objsize
-    { "PolyObjSize",                    (polyRTSFunction)&PolyObjSize},
-    { "PolyShowSize",                   (polyRTSFunction)&PolyShowSize},
-    { "PolyObjProfile",                 (polyRTSFunction)&PolyObjProfile},
-    // Exporter
-    { "PolyExport",                     (polyRTSFunction)&PolyExport},
-    { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
-    // Share data
-    { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
-    // Networking
-    { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
-    // Signal handling
-    { "PolySetSignalHandler",           (polyRTSFunction)&PolySetSignalHandler},
-    { "PolyWaitForSignal",              (polyRTSFunction)&PolyWaitForSignal},
-    // Timing
-    { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
-    // Profiling
-    { "PolyProfiling",                  (polyRTSFunction)&PolyProfiling},
-    // Threads
-    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
-    // FFI (new interface)
-    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
-    // Foreign (old interface)
-    { "PolyForeignGeneral",             (polyRTSFunction)&PolyForeignGeneral},
-    // X-Windows
-    { "PolyXWindowsGeneral",            (polyRTSFunction)&PolyXWindowsGeneral},
-    // Reals
-    { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
-    { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
-    { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
-    { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
-    { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
-
-    { NULL, NULL} // End of list.
-};
+#include "polystring.h"
 
 // Create an entry point containing the address of the entry and the
 // string name.  Having the string in there allows us to export the entry.
@@ -170,13 +82,12 @@ bool setEntryPoint(PolyObject *p)
     if (p->Length() == 1) return false;
     const char *entryName = (const char*)(p->AsBytePtr()+sizeof(PolyWord));
 
-    for (struct _entrypts *ep = entryPtTable; ep->entry != NULL; ep++)
+    // Search the modules to find the entry point.
+    polyRTSFunction entry = FindModuleEntryPoint(entryName);
+    if (entry != 0)
     {
-        if (strcmp(entryName, ep->name) == 0)
-        {
-            *(polyRTSFunction*)p = ep->entry;
-            return true;
-        }
+        *(polyRTSFunction*)p = entry;
+        return true;
     }
     return false;
 }
@@ -200,3 +111,19 @@ POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
 }
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
+
+    { NULL, NULL} // End of list.
+};
+
+class RTSCaller: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static RTSCaller rtsCallModule;
