@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2015 David C. J. Matthews
+    Copyright (c) 2009, 2015-16 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,8 @@ sig
     type level
 
     val codeId: typeId * level -> codetree
-    val codeGenerativeId: typeId * bool * (int->int) * level -> codetree
+    val codeGenerativeId:
+        { source: typeId, isEq: bool, isDatatype: bool, mkAddr: int->int, level: level} -> codetree
     
     val createDatatypeFunctions:
          {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *

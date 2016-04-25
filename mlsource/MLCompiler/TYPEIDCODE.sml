@@ -1077,7 +1077,7 @@ struct
        the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level) =
+    fun codeGenerativeId{source=TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level, ...} =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
@@ -1104,7 +1104,7 @@ struct
                 })
         end
 
-    |   codeGenerativeId(TypeId{idKind=TypeFn(argTypes, resType), ...}, isEq, mkAddr, level) =
+    |   codeGenerativeId{source=TypeId{idKind=TypeFn(argTypes, resType), ...}, isEq, mkAddr, level, ...} =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
@@ -1156,8 +1156,12 @@ struct
                 })
         end
 
-    |   codeGenerativeId(sourceId, _, mkAddr, level: level) =
+    |   codeGenerativeId{source=sourceId, isDatatype, mkAddr, level, ...} =
         let (* Datatype.  This is the same for monotype and polytypes except for the print fn. *)
+            (* We hide the print function if the target is just a type name but if the target
+               is a datatype it's probably better to have a print function.  We inherit it
+               from the source although that may expose the representation of other types.
+               e.g. structure S:> sig type t datatype s = A of t end = ... *)
             open TypeValue
             val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
             val loadLocal = load level
@@ -1168,9 +1172,11 @@ struct
                 |   TypeId{idKind=TypeFn _,...} => raise InternalError "Already checked"
 
             val printFn =
-                if arity = 0 then codePrintDefault
+                if isDatatype
+                then mkEval(rtsFunction POLY_SYS_load_word, [extractPrinter loadLocal, CodeZero])
+                else if arity = 0 then codePrintDefault
                 else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
-
+                
             val printCode =
                     mkBuiltIn(POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn ]
