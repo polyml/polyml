@@ -57,30 +57,24 @@ struct
     structure Math: MATH =
     struct
         type real = real (* Pick up from globals. *)
-        
-        (* These are provided directly in the RTS.  *)
-        (* These are the old functions which had separate entries in the
-           interface vector.  *)
-        val sqrt:   real -> real = RunCall.run_call1 POLY_SYS_sqrt_real;
-        val sin:    real -> real = RunCall.run_call1 POLY_SYS_sin_real;
-        val cos:    real -> real = RunCall.run_call1 POLY_SYS_cos_real;
-        val atan:   real -> real = RunCall.run_call1 POLY_SYS_arctan_real;
-        val exp:    real -> real = RunCall.run_call1 POLY_SYS_exp_real;
-        val ln:     real -> real = RunCall.run_call1 POLY_SYS_ln_real;
-    
-        (* Functions added for ML 97.  These use the Real_dispatch entry. *)
-         (* It may well be possible to derive these from the old ML90 functions
-           but it's almost certainly quicker to implement them in the RTS. *)
-        val tan = callReal 0
-        val asin = callReal 1
-        val acos = callReal 2
+        val sqrt  = RunCall.rtsCallFastF_F "PolyRealSqrt"
+        and sin   = RunCall.rtsCallFastF_F "PolyRealSin"
+        and cos   = RunCall.rtsCallFastF_F "PolyRealCos"
+        and atan  = RunCall.rtsCallFastF_F "PolyRealArctan"
+        and exp   = RunCall.rtsCallFastF_F "PolyRealExp"
+        and ln    = RunCall.rtsCallFastF_F "PolyRealLog"
+        and tan   = RunCall.rtsCallFastF_F "PolyRealTan"
+        and asin  = RunCall.rtsCallFastF_F "PolyRealArcSin"
+        and acos  = RunCall.rtsCallFastF_F "PolyRealArcCos"
+        and log10 = RunCall.rtsCallFastF_F "PolyRealLog10"
+        and sinh  = RunCall.rtsCallFastF_F "PolyRealSinh"
+        and cosh  = RunCall.rtsCallFastF_F "PolyRealCosh"
+        and tanh  = RunCall.rtsCallFastF_F "PolyRealTanh"
+
+        (* These have not yet been done. *)
         val atan2 = callRealReal 3
         val pow = callRealReal 4
-        val log10 = callReal 5
-        val sinh = callReal 6
-        val cosh = callReal 7
-        val tanh = callReal 8
-        
+
         (* Derived values. *)
         val e = exp 1.0
         val pi = 4.0 * atan 1.0
@@ -186,11 +180,10 @@ struct
            some power of two. *)
         val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
     in
-        
-        val realFloor = callReal 19
-        and realCeil  = callReal 20
-        and realTrunc = callReal 21
-        and realRound = callReal 22
+        val realFloor = RunCall.rtsCallFastF_F "PolyRealFloor"
+        and realCeil  = RunCall.rtsCallFastF_F "PolyRealCeil"
+        and realTrunc  = RunCall.rtsCallFastF_F "PolyRealTrunc"
+        and realRound  = RunCall.rtsCallFastF_F "PolyRealRound"
 
         fun toArbitrary x = 
             if isNan x then raise General.Domain

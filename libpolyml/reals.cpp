@@ -116,6 +116,22 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL double PolyRealSqrt(double arg);
+    POLYEXTERNALSYMBOL double PolyRealSin(double arg);
+    POLYEXTERNALSYMBOL double PolyRealCos(double arg);
+    POLYEXTERNALSYMBOL double PolyRealArctan(double arg);
+    POLYEXTERNALSYMBOL double PolyRealExp(double arg);
+    POLYEXTERNALSYMBOL double PolyRealLog(double arg);
+    POLYEXTERNALSYMBOL double PolyRealTan(double arg);
+    POLYEXTERNALSYMBOL double PolyRealArcSin(double arg);
+    POLYEXTERNALSYMBOL double PolyRealArcCos(double arg);
+    POLYEXTERNALSYMBOL double PolyRealLog10(double arg);
+    POLYEXTERNALSYMBOL double PolyRealSinh(double arg);
+    POLYEXTERNALSYMBOL double PolyRealCosh(double arg);
+    POLYEXTERNALSYMBOL double PolyRealTanh(double arg);
+    POLYEXTERNALSYMBOL double PolyRealFloor(double arg);
+    POLYEXTERNALSYMBOL double PolyRealCeil(double arg);
+    POLYEXTERNALSYMBOL double PolyRealTrunc(double arg);
+    POLYEXTERNALSYMBOL double PolyRealRound(double arg);
 }
 
 // Positive and negative infinities and (positive) NaN.
@@ -305,10 +321,22 @@ Handle Real_sinc(TaskData *mdTaskData, Handle arg)
     return real_result(mdTaskData, sin(real_arg(arg)));
 }
 
+// RTS call for sine.
+double PolyRealSin(double arg)
+{
+    return sin(arg);
+}
+
 /* CALL_IO1(Real_cos, REF, NOIND) */
 Handle Real_cosc(TaskData *mdTaskData, Handle arg)
 {
     return real_result(mdTaskData, cos(real_arg(arg)));
+}
+
+// RTS call for cosine.
+double PolyRealCos(double arg)
+{
+    return cos(arg);
 }
 
 /* CALL_IO1(Real_arctan, REF, NOIND) */
@@ -317,10 +345,22 @@ Handle Real_arctanc(TaskData *mdTaskData, Handle arg)
     return real_result(mdTaskData, atan(real_arg(arg)));
 }
 
+// RTS call for arctan.
+double PolyRealArctan(double arg)
+{
+    return atan(arg);
+}
+
 /* CALL_IO1(Real_exp, REF, NOIND) */
 Handle Real_expc(TaskData *mdTaskData, Handle arg)
 {
     return real_result(mdTaskData, exp(real_arg(arg)));
+}
+
+// RTS call for exp.
+double PolyRealExp(double arg)
+{
+    return exp(arg);
 }
 
 /* CALL_IO1(Real_ln, REF, NOIND) */
@@ -333,6 +373,93 @@ Handle Real_lnc(TaskData *mdTaskData, Handle arg)
     else if (x == 0.0) /* x may be +0.0 or -0.0 */
         return real_result(mdTaskData, negInf); /* -infinity. */
     else return real_result(mdTaskData, log(x));
+}
+
+// RTS call for ln.
+double PolyRealLog(double arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return log(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInf; // -infinity.
+    else return notANumber;
+}
+
+// These were handled by the general dispatch function
+double PolyRealTan(double arg)
+{
+    return tan(arg);
+}
+
+double PolyRealArcSin(double arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return asin(arg);
+    else return notANumber;
+}
+
+double PolyRealArcCos(double arg)
+{
+    if (arg >= -1.0 && arg <= 1.0)
+        return acos(arg);
+    else return notANumber;
+}
+
+double PolyRealLog10(double arg)
+{
+    // Make sure the result conforms to the definition.
+    // If the argument is a Nan each of the first two tests will fail.
+    if (arg > 0.0)
+        return log10(arg);
+    else if (arg == 0.0) // x may be +0.0 or -0.0
+        return negInf; // -infinity.
+    else return notANumber;
+}
+
+double PolyRealSinh(double arg)
+{
+    return sinh(arg);
+}
+
+double PolyRealCosh(double arg)
+{
+    return cosh(arg);
+}
+
+double PolyRealTanh(double arg)
+{
+    return tanh(arg);
+}
+
+double PolyRealFloor(double arg)
+{
+    return floor(arg);
+}
+
+double PolyRealCeil(double arg)
+{
+    return ceil(arg);
+}
+
+double PolyRealTrunc(double arg)
+{
+    // Truncate towards zero
+    if (arg >= 0.0) return floor(arg);
+    else return ceil(arg);
+}
+
+double PolyRealRound(double arg)
+{
+    // Round to nearest integral value.
+    double drem = fmod(arg, 2.0);
+    if (drem == 0.5 || drem == -1.5)
+        // If the value was exactly positive even + 0.5 or
+        // negative odd -0.5 round it down, otherwise round it up. 
+        return ceil(arg-0.5);
+    else return floor(arg+0.5);
+
 }
 
 /* CALL_IO1(Real_conv, REF, NOIND) */
@@ -825,6 +952,23 @@ static struct _entrypts entryPtTable[] =
     { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
     { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
     { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
+    { "PolyRealSin",                    (polyRTSFunction)&PolyRealSin},
+    { "PolyRealCos",                    (polyRTSFunction)&PolyRealCos},
+    { "PolyRealArctan",                 (polyRTSFunction)&PolyRealArctan},
+    { "PolyRealExp",                    (polyRTSFunction)&PolyRealExp},
+    { "PolyRealLog",                    (polyRTSFunction)&PolyRealLog},
+    { "PolyRealTan",                    (polyRTSFunction)&PolyRealTan},
+    { "PolyRealArcSin",                 (polyRTSFunction)&PolyRealArcSin},
+    { "PolyRealArcCos",                 (polyRTSFunction)&PolyRealArcCos},
+    { "PolyRealLog10",                  (polyRTSFunction)&PolyRealLog10},
+    { "PolyRealSinh",                   (polyRTSFunction)&PolyRealSinh},
+    { "PolyRealCosh",                   (polyRTSFunction)&PolyRealCosh},
+    { "PolyRealTanh",                   (polyRTSFunction)&PolyRealTanh},
+    { "PolyRealFloor",                  (polyRTSFunction)&PolyRealFloor},
+    { "PolyRealCeil",                   (polyRTSFunction)&PolyRealCeil},
+    { "PolyRealTrunc",                  (polyRTSFunction)&PolyRealTrunc},
+    { "PolyRealRound",                  (polyRTSFunction)&PolyRealRound},
+
 
     { NULL, NULL} // End of list.
 };
