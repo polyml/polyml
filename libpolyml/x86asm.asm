@@ -2334,7 +2334,7 @@ ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
         jnb      mem_for_largeword1
-        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+        call	 returnHeapOverflowLocal
 mem_for_largeword1:
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
 IFDEF WINDOWS
@@ -2364,7 +2364,7 @@ ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
         jnb      mem_for_real1
-        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+        call	 returnHeapOverflowLocal
 mem_for_real1:
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
@@ -2678,38 +2678,38 @@ CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFn
     ;# The exception packet is the first argument.
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ELSE
         MOVB    CONST POLY_SYS_give_ex_trace_fn,RequestCode[Rebp]
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ENDIF
 
 ;# RTS call to kill the current thread. 
 CALLMACRO INLINE_ROUTINE X86AsmKillSelf
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_kill_self
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ELSE
         MOVB    CONST POLY_SYS_kill_self,RequestCode[Rebp]
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ENDIF
 
 CALLMACRO INLINE_ROUTINE X86AsmCallbackReturn
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_RETURN
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ELSE
         MOVB    CONST RETURN_CALLBACK_RETURN,ReturnReason[Rebp]
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ENDIF
 
 CALLMACRO INLINE_ROUTINE X86AsmCallbackException
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_EXCEPTION
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ELSE
         MOVB    CONST RETURN_CALLBACK_EXCEPTION,ReturnReason[Rebp]
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ENDIF
 
 ;# This implements atomic addition in the same way as atomic_increment
@@ -3323,7 +3323,9 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_exp_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_arctan_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_cos_real
 
+returnHeapOverflowLocal:
 CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
+
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
