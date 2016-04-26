@@ -106,7 +106,7 @@ EXTNAME(id):
 #ifdef _WIN32
 #define Fr_Argument             16
 #else
-#define Fr_Argument             -32
+#define Fr_Argument             -48
 #endif
 
 /* Extra entries on the C stack */
@@ -213,6 +213,12 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 #else
     subq    $(Fr_Size-40),%rsp
     movq    %rdi,%rcx                       # Argument is in %rdi
+/* ***************************************** */
+/* The location has changed.  It used to be offset -32 but that's actually where
+    %r14 is stored.  It's been changed to -48 which is where Windows stores %rdi
+    but we need the old location because old ML code for e.g. PolyFinish uses it.*/
+    movq    %rcx,-32(%rbp)                  # TEMPORARY work-around.
+/* ***************************************** */
 #endif
 
     movq    %rcx,Fr_Argument(%rbp)
@@ -234,7 +240,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_StackPtr(%rcx),%rsp               # Set the new stack ptr
     movq    Arg_ExceptionPacket(%rcx),%rax
     cmpq    $1,%rax                             # Did we raise an exception?
-    jnz     raisex
+    jnz     raisexLocal
     testb   $1,Arg_FullRestore(%rcx)            # Should we restore or clear the regs?
     jnz     sw2polyfull
 /* We're returning from an RTS call. */
@@ -266,6 +272,11 @@ sw2polyfull:
     push    Arg_ProgramCtr(%rcx)
     movq    Arg_SaveRCX(%rcx),%rcx
     ret                                     # Jump to code address
+
+/* This is exactly the same as raisex but seems to be needed to work round a PIC problem. */
+raisexLocal:
+    movq    Fr_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
+    jmp     *(%rcx)
 
 /* Code to save the state and switch to C
    This saves the full register state. */
