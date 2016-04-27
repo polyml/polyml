@@ -178,13 +178,15 @@ struct
         val pushClosureReg = case closure of [] => [] | _ => push edx
         val closureRegAddr = !stackCount
 
-        val numArgs = List.length argTypes
+        val numFunctionArgs = List.length argTypes
         val argRegsUsed =
-            if numArgs >= List.length argRegs
+            if numFunctionArgs >= List.length argRegs
             then argRegs
-            else List.take(argRegs, numArgs)
+            else List.take(argRegs, numFunctionArgs)
         val pushArgs =
             List.foldr (fn (r, l) => push r @ l) [] argRegsUsed
+        (* Number of argumens on the stack and not in registers. *)
+        val currentStackArgs = Int.max(0, numFunctionArgs - List.length argRegs)
 
         fun allocateHeap(size, flag, toReg) =
         let
@@ -200,12 +202,12 @@ struct
         end
 
         (* This is a naive code-generator that simply evaluates everything to eax. *)
-        fun codeToX86(BICNewenv (bindings, exp), context) =
+        fun codeToX86(BICNewenv (bindings, exp), context, isTail) =
             let
                 val startStack = !stackCount
                 fun doBinding(BICDeclar{value, addr, ...}, l) =
                     let
-                        val code = codeToX86(value, context)
+                        val code = codeToX86(value, context, false)
                         val pushR = push eax
                         val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
                     in
@@ -215,7 +217,7 @@ struct
                 |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
                     (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
                     let
-                        val code = codeToX86(BICLambda lambda, context)
+                        val code = codeToX86(BICLambda lambda, context, false)
                         val pushR = push eax
                         val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
                     in
@@ -252,7 +254,7 @@ struct
                                     loadStack(eax, (!stackCount - valOf(Array.sub(stackOffsetArray, addr)))*wordSize)
                             |   loadFields(f :: rest, n) =
                                 let
-                                    val code = codeToX86(f, context) @ push eax
+                                    val code = codeToX86(f, context, false) @ push eax
                                     val restAndAlloc = loadFields(rest, n+1)
                                     val storeValue =
                                         pop ebx @ storeMemory(ebx, eax, n * wordSize)
@@ -269,33 +271,33 @@ struct
                     end
 
                 |   doBinding(BICNullBinding exp, l) =
-                        l @ codeToX86(exp, context) (* And discard result. *)
+                        l @ codeToX86(exp, context, false) (* And discard result. *)
                 val code =
-                    List.foldl doBinding [] bindings @ codeToX86(exp, context)
+                    List.foldl doBinding [] bindings @ codeToX86(exp, context, isTail)
             in
                 code @ resetStack startStack
             end
 
-        |   codeToX86(BICConstnt(value, _), _) =
+        |   codeToX86(BICConstnt(value, _), _, _) =
                 if isShort value
                 then [MoveConstR{source=tag(Word.toLargeIntX(toShort value)), output=eax}]
                 else [MoveLongConstR{source=value, output=eax}]
 
-        |   codeToX86(BICExtract(BICLoadLocal l, _(*lastRef*)), _) =
+        |   codeToX86(BICExtract(BICLoadLocal l, _(*lastRef*)), _, _) =
                 loadStack(eax, (!stackCount - valOf(Array.sub(stackOffsetArray, l)))*wordSize)
 
-        |   codeToX86(BICExtract(BICLoadArgument a, _(*lastRef*)), _) =
+        |   codeToX86(BICExtract(BICLoadArgument a, _(*lastRef*)), _, _) =
             if a < numArgRegs
             then (* It was originally in a register. *) loadStack(eax, (!stackCount - closureRegAddr - 1 - a)*wordSize)
             else (* Pushed before call. *) loadStack(eax, (!stackCount + List.length argTypes - a)*wordSize)
 
-        |   codeToX86(BICExtract(BICLoadClosure c, _(*lastRef*)), _) =
+        |   codeToX86(BICExtract(BICLoadClosure c, _(*lastRef*)), _, _) =
             (* N.B.  We need to add one to the closure entry because zero is the code address. *)
             if c >= List.length closure then raise InternalError "BICExtract: closure"
             else loadStack(eax, (!stackCount - closureRegAddr)*wordSize) @
                     loadMemory(eax, eax, (c+1) * wordSize)
 
-        |   codeToX86(BICExtract(BICLoadRecursive, _(*lastRef*)), _) =
+        |   codeToX86(BICExtract(BICLoadRecursive, _(*lastRef*)), _, _) =
             (
                 (* If the closure is empty we must use the constant.  We can't guarantee that
                    the caller will actually load the closure register if it knows the closure
@@ -305,16 +307,16 @@ struct
                 |   _ => loadStack(eax, (!stackCount - closureRegAddr)*wordSize)
             )
 
-        |   codeToX86(BICField{base, offset}, context) =
-                codeToX86(base, context) @ loadMemory(eax, eax, offset * wordSize)
+        |   codeToX86(BICField{base, offset}, context, _) =
+                codeToX86(base, context, false) @ loadMemory(eax, eax, offset * wordSize)
     
-        |   codeToX86(BICEval{function, argList, ...}, context) =
+        |   codeToX86(BICEval{function, argList, ...}, context, false (* Non-tail *)) =
             let
                 val startStack = !stackCount
                 (* Codegenerate the closure and the arguments and push everything to
                    the stack. *)
                 val codeArgs =
-                    List.foldl(fn (arg, l) => l @ codeToX86(arg, context) @ push eax) []
+                    List.foldl(fn (arg, l) => l @ codeToX86(arg, context, false) @ push eax) []
                         (function :: List.map #1 argList)
                 (* Load the earlier arguments into registers. *)
                 (* Load until we've done all the arguments or all the registers whichever is earlier. *)
@@ -334,14 +336,50 @@ struct
             in
                 codeArgs @ loadRegs @ loadClosure @ callFunction @ resetStack startStack
             end
+    
+        |   codeToX86(code as BICEval{function, argList, ...}, context, true (* Tail recursive *)) =
+            let
+                val startStack = !stackCount
+                (* The first part is the same as the recursive case. *)
+                val codeArgs =
+                    List.foldl(fn (arg, l) => l @ codeToX86(arg, context, false) @ push eax) []
+                        (function :: List.map #1 argList)
+                (* Load the earlier arguments into registers.  Do that first because
+                   they're lower down the stack and we could overwrite them if we wait. *)
+                (* Load until we've done all the arguments or all the registers whichever is earlier. *)
+                fun loadArgRegs(_ :: args, argReg :: argRegs, argOffset) =
+                    loadStack(argReg, argOffset) @ loadArgRegs(args, argRegs, argOffset-wordSize)
+                |   loadArgRegs _ = []
+                val numArgs = List.length argList
+                val loadRegs = loadArgRegs(argList, argRegs, (numArgs-1)*wordSize)
+                (* The later arguments are already on the stack. *)
+                val loadClosure = loadStack(edx, numArgs*wordSize)
+                (* Load the return address.  This could be overwritten. *)
+                val loadReturn = loadStack(edi, !stackCount*wordSize)
+                (* Move the stack arguments into the space occupied by this function's args. *)
+                val numArgsToMove = Int.max(0, numArgs-List.length argRegs)
+                val argOffset = !stackCount + currentStackArgs + 1 - numArgsToMove
+                fun copyArgs 0 = []
+                |   copyArgs n = 
+                        loadStack(esi, (n-1)*wordSize) @ storeMemory(esi, esp, (argOffset+n-1)*wordSize) @ copyArgs(n-1)
+                val moveArgs = copyArgs numArgsToMove
+                val storeReturn = storeMemory(edi, esp, (argOffset-1)*wordSize)
+                val stackReset = [ResetStack(argOffset-1)]
+                val jumpToFunction = [JumpToFunction FullCall]
+                (* To keep everything straight, set the stack pointer even though it's not used. *)
+                val () = stackCount := startStack
+                (* Remove the saved arguments. *)
+            in
+                codeArgs @ loadRegs @ loadClosure @ loadReturn @ moveArgs @ storeReturn @ stackReset @ jumpToFunction
+            end
 
-        |   codeToX86(BICBuiltIn(rtsNo, args), context) =
+        |   codeToX86(BICBuiltIn(rtsNo, args), context, isTail) =
                 (* For the moment just call the RTS function. *)
                 codeToX86(
                     BICEval{function=BICConstnt(ioOp rtsNo, []),
-                            argList = map (fn c => (c, GeneralType)) args, resultType=GeneralType}, context)
+                            argList = map (fn c => (c, GeneralType)) args, resultType=GeneralType}, context, isTail)
 
-        |   codeToX86(BICLambda(lambda as { closure = [], ...}), _) =
+        |   codeToX86(BICLambda(lambda as { closure = [], ...}), _, _) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let
                 val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
@@ -353,25 +391,25 @@ struct
                 [MoveLongConstR{source=toMachineWord closure, output=eax}]
             end
 
-        |   codeToX86(BICLambda(lambda as { closure, ...}), context) =
+        |   codeToX86(BICLambda(lambda as { closure, ...}), context, isTail) =
             (* Non-empty closure.  Ignore stack closure option at the moment. *)
             let
                 val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
             in
                 (* Treat it as a tuple with the code as the first field. *)
-                codeToX86(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: closure), context)
+                codeToX86(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: closure), context, isTail)
             end
 
-        |   codeToX86(BICCond(test, thenPt, elsePt), context) =
+        |   codeToX86(BICCond(test, thenPt, elsePt), context, isTail) =
             let
                 val startStack = ! stackCount
-                val testCode = codeToX86(test, context)
+                val testCode = codeToX86(test, context, false)
                 val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 }
                 val (condJump, startElse) = condBranch(JE, PredictNeutral)
                 val (skipToEnd, endIf) = uncondBranch()
-                val thenCode = codeToX86(thenPt, context)
+                val thenCode = codeToX86(thenPt, context, isTail)
                 val _ = !stackCount = startStack orelse raise InternalError "Check stack- then"
-                val elseCode = codeToX86(elsePt, context)
+                val elseCode = codeToX86(elsePt, context, isTail)
                 val _ = !stackCount = startStack orelse raise InternalError "Check stack- else"
             in
                 (* Evaluate the test.  See if it is zero and go to ELSE if it is.
@@ -381,7 +419,7 @@ struct
                     forwardJumpLabel startElse @ elseCode @ forwardJumpLabel endIf
             end
 
-        |   codeToX86(BICCase{ cases, test, caseType, default}, context) =
+        |   codeToX86(BICCase{ cases, test, caseType, default}, context, isTail) =
             let (* Indexed case.  This is produced from if-then-else. *)
                 
                 (* Sort the cases into ascending order.  It's possible that we may have
@@ -419,7 +457,7 @@ struct
                             (false, min, max)
                         end
                 (* The value to test. *)
-                val testValue = codeToX86(test, context)
+                val testValue = codeToX86(test, context, false)
 
                 (* Check the range and branch into the table. *)
                 val (indexCaseInstr, caseLabels, defaultLabel) =
@@ -447,7 +485,7 @@ struct
                     
                     val otherDefaults = genDefaults(min, caseLabels, cases)
                     
-                    val defaultCode = codeToX86(default, context)
+                    val defaultCode = codeToX86(default, context, isTail)
                     
                     val (branchCode, lab) = uncondBranch()
                 in
@@ -465,7 +503,7 @@ struct
                         val startCode = forwardJumpLabel label
 
                         (* Generate this case. *)
-                        val expCode = codeToX86(caseExp, context)
+                        val expCode = codeToX86(caseExp, context, isTail)
                     in
                         if null cps
                         then (*  Finished. *) startCode @ expCode
@@ -485,7 +523,7 @@ struct
                 testValue @ indexCaseInstr @ defaultCode @ caseResult @ forwardJumpLabel exitDefault
             end
 
-        |   codeToX86(BICBeginLoop{loop, arguments}, context) =
+        |   codeToX86(BICBeginLoop{loop, arguments}, context, isTail) =
             let (* Begin a loop.  This is produced from tail-recursive inline functions.  The loop variables
                    are initialised and the loop is entered.  There will be at least one Loop instruction
                    which computes new values for the loop variables and jumps back to the start. *)
@@ -493,7 +531,7 @@ struct
                 (* Evaluate the arguments and push them to the stack. *)
                 fun pushArg(({addr, value, ...}, _), l) =
                 let
-                    val code = codeToX86(value, context)
+                    val code = codeToX86(value, context, false)
                     val pushR = push eax
                     val () = Array.update(stackOffsetArray, addr, SOME(!stackCount))
                 in
@@ -502,12 +540,12 @@ struct
 
                 val pushLoop = List.foldl pushArg [] arguments
                 val (startLoopCode, startLoop) = backJumpLabel()
-                val loopBody = codeToX86(loop, {loopAddr=SOME {startStack=startStack, startLoop=startLoop}})
+                val loopBody = codeToX86(loop, {loopAddr=SOME {startStack=startStack, startLoop=startLoop}}, isTail)
             in
                 pushLoop @ startLoopCode @ loopBody @ resetStack startStack
             end
 
-        |   codeToX86(BICLoop args, context as {loopAddr=SOME {startStack=startStack, startLoop=startLoop}, ...}) =
+        |   codeToX86(BICLoop args, context as {loopAddr=SOME {startStack=startStack, startLoop=startLoop}, ...}, _) =
             let
                 (* Evaluate the arguments and push them to the stack.  Then pop them off
                    and store them to the loop argument locations. *)
@@ -516,7 +554,7 @@ struct
                 fun evalArgs [] = []
                 |   evalArgs((arg, _) :: argRest) =
                     let
-                        val codeArg = codeToX86(arg, context) @ push eax
+                        val codeArg = codeToX86(arg, context, false) @ push eax
                         val codeRest = evalArgs argRest
                         val popArg = pop eax
                         (* The offset here does not depend on the number of args or the count
@@ -536,18 +574,18 @@ struct
                 codeArgs @ reset @ jumpBackwards startLoop
             end
 
-        |   codeToX86(BICLoop _, {loopAddr=NONE, ...}) =
+        |   codeToX86(BICLoop _, {loopAddr=NONE, ...}, _) =
                 raise InternalError "BICLoop without BICBeginLoop"
 
-        |   codeToX86(BICKillItems{expression, ...}, context) =
-                codeToX86(expression, context)
+        |   codeToX86(BICKillItems{expression, ...}, context, isTail) =
+                codeToX86(expression, context, isTail)
 
-        |   codeToX86(BICRaise exc, context) =
-                codeToX86(exc, context) @ [RaiseException]
+        |   codeToX86(BICRaise exc, context, _) =
+                codeToX86(exc, context, false) @ [RaiseException]
 
-        |   codeToX86(BICLdexc, _) = [] (* Do nothing - the packet is in eax. *)
+        |   codeToX86(BICLdexc, _, _) = [] (* Do nothing - the packet is in eax. *)
 
-        |   codeToX86(BICHandle{exp, handler}, context) =
+        |   codeToX86(BICHandle{exp, handler}, context, isTail) =
             let
                 fun storeToHandler reg =
                     [StoreRegToMemory{
@@ -562,8 +600,9 @@ struct
                 val pushR = push eax
                 (* Set the handler to the current stack pointer. *)
                 val setCurrentHandler = storeToHandler esp
-                (* Process the expression to be "handled". *)
-                val codeExp = codeToX86(exp, context)
+                (* Process the expression to be "handled".  It cannot be treated as
+                   a tail because we have to remove the handler. *)
+                val codeExp = codeToX86(exp, context, false)
                 (* We have our result in eax so we mustn't use it here. *)
                 (* Pop the handler and restore the old handler. *)
                 val restoreHandle =
@@ -578,20 +617,20 @@ struct
                      LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp },
                      LoadMemR{ source=BaseOffset{base=esp, offset=wordSize, index=NoIndex}, output=ebx }, ResetStack 2] @
                     storeToHandler ebx
-                val codeHandler = codeToX86(handler, context)
+                val codeHandler = codeToX86(handler, context, isTail)
             in
                 pushCurrentHandler @ loadCode @ pushR @ setCurrentHandler @ codeExp @ restoreHandle @
                 skipHandler @ startHandler @ codeHandler @ forwardJumpLabel toExit
             end
 
-        |   codeToX86(BICTuple fields, context) =
+        |   codeToX86(BICTuple fields, context, _) =
             let
                 (* Generate the fields and push to the stack. *)
                 fun loadFields([], n) =
                         allocateHeap(n, 0w0, eax)
                 |   loadFields(f :: rest, n) =
                     let
-                        val code = codeToX86(f, context) @ push eax
+                        val code = codeToX86(f, context, false) @ push eax
                         val restAndAlloc = loadFields(rest, n+1)
                         val storeValue =
                             pop ebx @ storeMemory(ebx, eax, n * wordSize)
@@ -602,7 +641,7 @@ struct
                 loadFields(fields, 0) @ allocationComplete
             end
 
-        |   codeToX86(BICContainer size, _) =
+        |   codeToX86(BICContainer size, _, _) =
             (* Reserve a section of memory on the stack.  It must be zeroed. *)
             let
                 fun pushZero 0 = []
@@ -613,11 +652,11 @@ struct
                 pushAll @ [MoveRR{source=esp, output=eax}]
             end
 
-        |   codeToX86(BICSetContainer{container, tuple, filter}, context) =
+        |   codeToX86(BICSetContainer{container, tuple, filter}, context, _) =
             let
-                val containerAddr = codeToX86(container, context)
+                val containerAddr = codeToX86(container, context, false)
                 val pushC = push eax
-                val tupleAddr = codeToX86(tuple, context)
+                val tupleAddr = codeToX86(tuple, context, false)
                 val loadContainer = pop ebx
                 (* The source (tuple) address is in eax and the destination (container) address in ebx.
                    Copy the required fields using ecx as a work register. *)
@@ -637,7 +676,7 @@ struct
                 containerAddr @ pushC @ tupleAddr @ loadContainer @ copyContainer(0, 0)
             end
 
-        |   codeToX86(BICTagTest{test, tag, ...}, context) =
+        |   codeToX86(BICTagTest{test, tag, ...}, context, isTail) =
             let
                 (* Convert this into a simple equality function. *)
                 val code =
@@ -646,12 +685,12 @@ struct
                         argList=[(test, GeneralType), (BICConstnt(Address.toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
-                codeToX86 (code, context)
+                codeToX86 (code, context, isTail)
             end
 
         val ops =
-            pushClosureReg @ pushArgs @ codeToX86(body, {loopAddr=NONE}) @
-                [ResetStack(!stackCount), ReturnFromFunction(Int.max(0, numArgs-numArgRegs))]
+            pushClosureReg @ pushArgs @ codeToX86(body, {loopAddr=NONE}, true) @
+                [ResetStack(!stackCount), ReturnFromFunction currentStackArgs]
 
         (* The stack limit register is set at least twice this far from the
            end of the stack so we can simply compare the stack pointer with
