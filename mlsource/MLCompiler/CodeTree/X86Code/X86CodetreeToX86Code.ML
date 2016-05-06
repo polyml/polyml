@@ -122,10 +122,11 @@ struct
                 testTag @ range1 @ range2
             end
         val code = testCode @ [IndexedCase{testReg=testReg, workReg=workReg, min=minCase, cases=indexLabels}]
-        val () = raise InternalError "This must be reversed"
     in
-        (code, indexLabels, defaultLab)
+        (* Reverse the list.  TODO: Build it in reverse order to save having to do this. *)
+        (List.rev code, indexLabels, defaultLab)
     end
+
     fun loadMemory(reg, base, offset) =
         [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=reg}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
@@ -206,6 +207,13 @@ struct
             
     |   LoadExceptionPacket of {dest: pseudoReg}
 
+        (* Indexed case.  This could possibly be simplified. *)
+    |   IndexedCaseOperation of { testReg: pseudoReg, workReg: pseudoReg, default: x86ICode list,
+                         cases: (x86ICode list * word) list, exhaustive: bool, min: word, max: word,
+                         arbitrary: bool, resultReg: pseudoReg}
+
+        (* Lock a mutable cell by turning off the mutable bit. *)
+    |   LockMutable of { addr: pseudoReg }
 (*   
         (* Tail-recursive jump to a function. *)
     |   JumpToFunctionInPreg of { regArgs: (pseudoReg * genReg) list, stackArgs: pseudoReg list }
@@ -277,7 +285,59 @@ struct
                         end
 
                     |   doBinding(BICRecDecs decs, l) =
-                        raise InternalError "TODO: BICRecDecs - multiple"
+                        let
+                            val destRegs = map (fn _ => newPReg()) decs
+
+                            (* First build the closures as mutable cells containing zeros.  Set the
+                               entry in the address table to the register containing the address. *)
+                            fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
+                            let
+                                val () = Array.update(locToPregArray, addr, SOME dest)
+                                val sizeClosure = List.length closure + 1
+                                fun clear n =
+                                    if n = sizeClosure
+                                    then [AllocateMemoryToPreg{size=sizeClosure, isMutable=true, dest=dest}]
+                                    else
+                                    let
+                                        val d = newPReg()
+                                    in
+                                        MoveConstntToPreg{source=toMachineWord 0, dest=d} ::
+                                            (clear (n+1) @
+                                                [StoreMemoryToPRegAddr { source=d, offset=n, base=dest}])
+                                    end
+                            in
+                                c @ clear 0 @ [InitialisationComplete{dest=dest}]
+                            end
+                            
+                            val allocClosures = ListPair.foldlEq makeClosure [] (decs, destRegs)
+                            
+                            fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
+                            let
+                                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                                (* Basically the same as tuple except we load the address of
+                                   the closure we've made.  It's complicated because
+                                   StoreMemoryToPRegAddr assumes that the top of the stack is
+                                   the address of the allocated memory and the items below
+                                   are the values to store. *)
+                                val dstCopy = newPReg()
+                                fun loadFields([], _) = [MovePregToPreg{source=dest, dest=dstCopy}]
+                                |   loadFields(f :: rest, n) =
+                                    let
+                                        val fReg = newPReg()
+                                        val code = codeToICode(f, context, false, fReg)
+                                        val restAndAlloc = loadFields(rest, n+1)
+                                        val storeValue = [StoreMemoryToPRegAddr{ source=fReg, offset=n, base=dstCopy }]
+                                    in
+                                        code @ restAndAlloc @ storeValue
+                                    end
+                                val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: closure, 0)
+                            in
+                                l @ setFields @ [LockMutable{addr=dest}]
+                            end
+                            val setClosures = ListPair.foldlEq setClosure [] (decs, destRegs)
+                        in
+                            l @ allocClosures @ setClosures
+                        end
 
                     |   doBinding(BICNullBinding exp, l) =
                         let
@@ -395,7 +455,54 @@ struct
                         [Conditional{test=testReg, thenPt=thenCode, elsePt=elseCode, resultReg=target}]
                 end
             
-            |   codeToICode(BICCase _ , _, _, _) = raise InternalError "TODO: BICCase"
+            |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, target) =
+                let
+                    (* Sort the cases into ascending order.  It's possible that we may have
+                       duplicates if this came from an if-then-else construction so we
+                       need to retain the ordering for items with the same case label. *)
+                    (* TODO: This should be done in the higher level. *)
+                    local
+                        val labelCount = List.length cases
+                        (* Add an extra field before sorting which retains the ordering for
+                           equal labels. *)
+                        val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                        fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                            if w1 = w2 then n1 <= n2 else w1 < w2
+                        val sorted = List.map #1 (Misc.quickSort leq ordered)
+                        (* Filter out any duplicates. *)
+                        fun filter [] = []
+                        |   filter [p] = [p]
+                        |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                                if lab1 = lab2
+                                then p :: filter tl
+                                else p :: filter (q :: tl)
+                    in
+                        val cases = filter sorted
+                    end
+
+                    val (isExhaustive, min, max) =
+                        case caseType of
+                            CaseTag max => (true, 0w0, max)
+                        |   _ =>
+                            let
+                                val (_, aLabel) = hd cases
+                                fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                                val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                            in
+                                (false, min, max)
+                            end
+                    val testReg = newPReg() and workReg = newPReg()
+                    val testCode = codeToICode(test, context, false, testReg)
+                    (* Put in the default case.  Even when the case is exhaustive one entry is
+                       always treated as a default and not included in the list of cases. *)
+                    val defaultCode = codeToICode(default, context, isTail, target)
+                    val codeCases =
+                        map (fn (c, w) => (codeToICode(c, context, isTail, target), w)) cases
+                in
+                    testCode @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultCode,
+                                            cases=codeCases, exhaustive=isExhaustive, min=min, max=max,
+                                            arbitrary=caseType = CaseInt, resultReg=target}]
+                end
             
             |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, target) =
                 let
@@ -499,7 +606,7 @@ struct
                             val destCode = MovePregToPreg{source=containerTarget, dest=destCopy}
                             val storeCode = StoreMemoryToPRegAddr{source=loadReg, offset=destWord, base=destCopy}
                         in
-                            [srcCode, load, destCode, storeCode]
+                            srcCode :: load :: destCode :: storeCode :: copyContainer(sourceWord+1, destWord+1)
                         end
                         else copyContainer(sourceWord+1, destWord)
                 in
@@ -877,7 +984,7 @@ struct
                             icode=handler, state=pushedState,
                             code=startHandler @ skipHandler @ restoreHandle @ resetAfterBody @ bodyCode, context=context}
                     (* We're merging the states at this point. *)
-                    val (resultState, resetAfterHandle) = resetStack(handleState, startState, resultReg)
+                    val (resultState, resetAfterHandle) = resetStack(handleState, pushedState, resultReg)
                     val resCode = forwardJumpLabel toExit @ resetAfterHandle @ handleCode
                 in
                     codeICode{icode=rest, state=resultState, code=resCode, context=context}
@@ -887,6 +994,91 @@ struct
                 (* The exception packet is already in rax so we just add it to the state. *)
                     codeICode{icode=rest, state={preg=dest, loc=InRax}::state, code=code, context=context}
 
+            |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max,
+                                             arbitrary, resultReg} :: rest, state, code, context} =
+                let
+                    (* We should have the value to test at the top of the stack. *)
+                    val bodyState =
+                        case state of
+                            {preg, loc=InRax } :: bodyState =>
+                                if preg = testReg then bodyState else raise InternalError "IndexedCase"
+                        |   _ => raise InternalError "IndexedCase"
+                    val (indexCaseInstr, caseLabels, defaultLabel) =
+                        indexedCase{testReg=eax, workReg=ebx, minCase=min, maxCase=max, 
+                                isArbitrary=arbitrary, isExhaustive=exhaustive}
+
+                    (* Put in the default case.  Even when the case is exhaustive one entry is
+                       always treated as a default and not included in the list of cases. *)
+                    local
+                        val startDefault = forwardJumpLabel defaultLabel
+                        (* Go down the list of cases and fix up any default labels to come here.
+                           Default entries are represented by "holes" in the case list. *)
+                        fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
+                            if indexVal = caseLabel
+                            then genDefaults(indexVal+0w1, labelList, cps)
+                            else genDefaults(indexVal+0w1, labelList, cl) @ forwardJumpLabel label
+
+                        |   genDefaults(indexVal, label :: labelList, []) =
+                                genDefaults(indexVal+0w1, labelList, []) @ forwardJumpLabel label
+
+                        |   genDefaults(_, [], _) = []
+                    
+                        val otherDefaults = genDefaults(min, caseLabels, cases)
+                    
+                        val (defaultState, defaultCode) =
+                            codeICode{icode=default, state=bodyState,
+                                        code=otherDefaults @ startDefault @ indexCaseInstr @ code, context=context}
+
+                        val (finalState, resetAfterDefault) =
+                            resetStack(defaultState, bodyState, resultReg)
+                    
+                        val (branchCode, lab) = uncondBranch()
+                    in
+                        val defaultCode = branchCode @ resetAfterDefault @ defaultCode
+                        val exitDefault = lab
+                        val finalState = finalState
+                    end
+
+                    (* Generate the cases. *)
+                    fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps, incode) =
+                        if indexVal <> caseLabel
+                        then (* We have a hole.  Skip this item. *)
+                            genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps, incode)
+                        else (* The index value corresponds to a label. *)
+                        let
+                            val startCode = forwardJumpLabel label @ incode
+                            (* Generate this case. *)
+                            val (expState, expCode) =
+                                codeICode{icode=caseExp, state=bodyState, code=startCode, context=context}
+                            val (_, resetAfterExp) = resetStack(expState, bodyState, resultReg)
+                        in
+                            if null cps
+                            then (*  Finished. *) resetAfterExp @ expCode
+                            else
+                            let
+                                val (branchCode, lab) = uncondBranch()
+                                val otherCases =
+                                    genCases(indexVal+0w1, labelList, cps, branchCode @ resetAfterExp @ expCode)
+                            in
+                                forwardJumpLabel lab @ otherCases
+                            end
+                        end
+                    | genCases _ = raise InternalError "genCase - null case list"
+
+                    val caseResult = genCases(min, caseLabels, cases, defaultCode)
+                in
+                    codeICode{icode=rest, state=finalState, code=forwardJumpLabel exitDefault @ caseResult, context=context}
+                end
+
+                (* Lock a mutable segment. *)
+            |   codeICode{icode=LockMutable{ addr } :: rest, state, code, context} =
+                let
+                    val (pushedState, pushCode) = pushRax state
+                    val load = loadSource(addr, eax, pushedState)
+                    val lockCode = LockMutableSegment eax :: (load @ pushCode) @ code
+                in
+                    codeICode{icode=rest, state=pushedState, code=lockCode, context=context}
+                end
 
             val (fnState, fnCode) = codeICode{icode=icode, state=[], code=[], context={loopArgs=NONE}}
             val (_, resetCode) = resetStack(fnState, [], resultTarget)
