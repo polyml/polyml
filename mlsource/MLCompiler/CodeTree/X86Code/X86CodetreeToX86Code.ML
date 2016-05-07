@@ -171,10 +171,11 @@ struct
 
     |   MoveStackArgToPreg of { offset: int, dest: pseudoReg} (* Load an argument or the return address *)
     
-        (* Call a function.  Currently this assumes that the closure is in edx/rdx.  The result is
-           stored in the destination register. *)
-    |   FunctionCall of { regArgs: (pseudoReg * genReg) list, stackArgs: pseudoReg list, dest: pseudoReg}
-    
+        (* Call or jump to a function.  Currently this assumes that the closure is in edx/rdx.  The result is
+           stored in the destination register.  If isTail is true this is tail-recursive and should be
+           a jump. *)
+    |   FunctionCall of { regArgs: (pseudoReg * genReg) list, stackArgs: pseudoReg list, dest: pseudoReg, isTail: bool}
+
         (* Typically used to load a field from a tuple.  The offset is in words. *)
     |   LoadMemoryToPreg of { offset: int, base: pseudoReg, dest: pseudoReg}
 
@@ -214,14 +215,7 @@ struct
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: pseudoReg }
-(*   
-        (* Tail-recursive jump to a function. *)
-    |   JumpToFunctionInPreg of { regArgs: (pseudoReg * genReg) list, stackArgs: pseudoReg list }
-    
-    
-    *)
-    
-    (* Case, Handler, Raise, Ldexc etc. *)
+
   
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
@@ -394,7 +388,7 @@ struct
                     codeToICode(base, context, false, baseR) @ [LoadMemoryToPreg{offset=offset, base=baseR, dest=target}]
                 end
             
-            |   codeToICode(BICEval {function, argList, ...}, context, _, target) = (* For the moment ignore tail recursion. *)
+            |   codeToICode(BICEval {function, argList, ...}, context, isTail, target) =
                 let
                     val numArgs = List.length argList
                     (* Create pregs for the closure and each argument. *)
@@ -413,7 +407,7 @@ struct
                         then List.drop(argPRegs, List.length argRegs)
                         else []
                 in
-                    codeArgs @ [FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=target}]
+                    codeArgs @ [FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=target, isTail=isTail}]
                 end
 
             |   codeToICode(BICBuiltIn(rtsNo, args), context, isTail, target) =
@@ -816,7 +810,7 @@ struct
                 end
                 
                 (* Function call. *)
-            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest} :: rest, state, code, context} =
+            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state, code, context} =
                 let
                     val (pushedState, pushCode) = pushRax state
                     (* We should find the stack arguments occupy the immediately preceding
@@ -852,6 +846,42 @@ struct
                         stackReset @ [CallFunction FullCall] @ doLoad @ pushCode @ code
                 in
                     codeICode{icode=rest, state=finalState, code=functionCode, context=context}
+                end
+
+                (* Jump to a function.  The arguments have to be moved into the space currently used
+                   by the arguments to this function.  That could result in values being overwritten
+                   so we have to save them, especially the return address. *)
+            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=true} :: rest, state, code, context} =
+                let
+                    val (pushedState, pushCode) = pushRax state
+                    val currentSp = stackPtr pushedState
+
+                    (* Load the earlier arguments into registers.  Do that first because
+                       they're lower down the stack and we could overwrite them if we wait. *)
+                    (* Load until we've done all the arguments or all the registers whichever is earlier.
+                       This includes the closure register. *)
+                    val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, gr, pushedState)) [] regArgs
+                    
+                    (* Load the return address.  This could be overwritten by an argument. *)
+                    val loadReturn = loadStack(edi, currentSp * wordSize)
+
+                    (* Move the stack arguments into the space occupied by this function's args. *)
+                    val numArgsToMove = List.length stackArgs
+                    val argOffset = currentSp + currentStackArgs - numArgsToMove
+                    fun copyArgs (0, _) = []
+                    |   copyArgs (n, r :: rl) =
+                            (* N.B. This is reversed *)
+                            copyArgs(n-1, rl) @ storeMemory(esi, esp, (argOffset+n)*wordSize) @ loadSource(r, esi, pushedState)
+                    val moveArgs = copyArgs(numArgsToMove, stackArgs)
+                    val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
+
+                    val functionCode =
+                        JumpToFunction FullCall :: ResetStack argOffset ::
+                            (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
+                in
+                    (* We don't really need to worry too much about the state since we've
+                       exited.  Add a dummy result just to keep everything neat. *)
+                    codeICode{icode=rest, state={preg=dest, loc=InRax} :: pushedState, code=functionCode, context=context}
                 end
 
                 (* Load a value from a piece of memory, typically the offset in a tuple. *)
