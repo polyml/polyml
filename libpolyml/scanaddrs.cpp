@@ -38,7 +38,6 @@
 #include "globals.h"
 #include "scanaddrs.h"
 #include "machine_dep.h"
-#include "check_objects.h"
 #include "diagnostics.h"
 #include "memmgr.h"
 
@@ -182,7 +181,6 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
             while (obj->ContainsForwardingPtr())
                 obj = obj->GetForwardingPtr();
             ASSERT(obj->ContainsNormalLengthWord());
-            CheckObject(obj);
             pt += obj->Length();
         }
         else
@@ -362,7 +360,6 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             length = 0; // Finished
         }
-        ASSERT(! OBJ_IS_BYTE_OBJECT(lengthWord)); // Check - remove this later
 
         // else it's a normal object,
 
