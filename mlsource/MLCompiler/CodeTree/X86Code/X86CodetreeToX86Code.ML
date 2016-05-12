@@ -185,12 +185,16 @@ struct
            low-level code-generator. *)
     |   InitialisationComplete of { dest: argument}
 
-        (* Begin a loop.  A set of loop registers are initialised and the loop is entered.  *)
-    |   StartLoop of { arguments: {source: argument, loopReg: argument} list, loopCode: x86ICode list }
+        (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
+           The loopLabel in all of these is for checking only, at least at the moment. *)
+    |   StartLoop of { arguments: {source: argument, loopReg: argument} list, loopLabel: iLabel }
+
+        (* End a loop.  Causes the loop stack to be popped. *)
+    |   EndLoop of { loopLabel: iLabel }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: argument, loopReg: argument} list }
+    |   JumpLoop of { arguments: {source: argument, loopReg: argument} list, loopLabel: iLabel }
     
     |   RaiseExceptionPacket of { packet: argument }
 
@@ -220,7 +224,7 @@ struct
     |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument }
 
         (* Marks the start of a handler.  This sets the stack pointer and
-           restores the old handler.  As a special case it ensures that rax is
+           restores the old handler.  As a special case it must ensure that rax is
            preserved because that contains the exception packet. *) 
     |   BeginHandler of { handleStart: iLabel }
 
@@ -458,13 +462,14 @@ struct
                     fun makeLoopReg ({addr, ...}, _) =
                         let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
                     val loopRegs = map makeLoopReg arguments
-                    val loopBody = codeToICode(loop, {loopArgs=SOME loopRegs}, isTail, target)
+                    val loopLabel = newLabel()
+                    val loopBody = codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel) }, isTail, target)
                     val args = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
                 in
-                    codeArgs @ [StartLoop{arguments=args, loopCode=loopBody}]
+                    codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}]
                 end
             
-            |   codeToICode(BICLoop args, context as {loopArgs=SOME loopRegs, ...}, _, _) =
+            |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel), ...}, _, _) =
                 let
                     (* Registers to receive the evaluated arguments.  We can't put the
                        values into the loop variables yet because the values could depend
@@ -475,7 +480,7 @@ struct
                             (args, argPRegs)
                     val jumpArgs = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
                 in
-                    codeArgs @ [JumpLoop{arguments=jumpArgs}]
+                    codeArgs @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}]
                 end
 
             |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
@@ -878,6 +883,17 @@ struct
 
             |   codeICode{icode=BeginHandler _ :: _, ...} =
                     raise InternalError "codeICode: BeginHandler not preceded by jump or not in handler"
+                    
+            |   codeICode{icode=EndLoop{loopLabel} :: rest, state, code, context={forwardLabels, loopArgs=(_, _, lab)::otherLoops, handlers}} =
+                let
+                    val _ = lab = loopLabel orelse raise InternalError "codeICode: EndLoop - mismatched labels"
+                 
+                in
+                    codeICode{icode=rest, state=state, code=code,
+                            context={forwardLabels=forwardLabels, loopArgs=otherLoops, handlers=handlers}}
+                end
+
+            |   codeICode{icode=EndLoop _ :: _, ...} = raise InternalError "codeICode: EndLoop outside loop"
 
                 (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                    can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
@@ -1162,7 +1178,8 @@ struct
                 end
 
                 (* Start of a loop.  The loop body contains one or more tail jumps to the start. *)
-            |   codeICode{icode=StartLoop{arguments, loopCode} :: rest, state=NormalState state, code, context as {forwardLabels, handlers, ...}} =
+            |   codeICode{icode=StartLoop{arguments, loopLabel} :: rest, state=NormalState state, code,
+                          context={forwardLabels, handlers, loopArgs}} =
                 let
                     (* The arguments have been evaluated to the stack.  Replace
                        the preg entries in the state with those of the loop variables. *)
@@ -1175,18 +1192,16 @@ struct
                     val tailList = List.drop(pushedState, numArgs)
                     val bodyState = newHead @ tailList
                     val (startLoopCode, startLoop) = backJumpLabel()
-                    val (loopState, loopBody) =
-                        codeICode{
-                            icode=loopCode, state=NormalState bodyState, code=startLoopCode @ pushCode @ code,
-                            context={loopArgs=SOME(bodyState, startLoop), forwardLabels=forwardLabels, handlers=handlers}}
                 in
-                    codeICode{icode=rest, state=loopState, code=loopBody, context=context}
+                    codeICode{icode=rest, state=NormalState bodyState, code=startLoopCode @ pushCode @ code,
+                              context={loopArgs=(bodyState, startLoop, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}}
                 end
 
                 (* A loop tail jump.  The arguments have been evaluated to the stack. *)
-            |   codeICode{icode=JumpLoop{arguments, ...} :: rest, state=NormalState state, code,
-                          context=context as {loopArgs=SOME(startState, startLoop), ...}} =
+            |   codeICode{icode=JumpLoop{arguments, loopLabel} :: rest, state=NormalState state, code,
+                          context=context as {loopArgs=(startState, startLoop, lab) :: _, ...}} =
                 let
+                    val _ = loopLabel = lab orelse raise InternalError "codeICode: JumpLoop - mismatched labels"
                     (* Move each argument from the source to the loop variable.  This isn't the same as
                        MoveArgument because the destination already exists. *)
                     fun moveArg{source, loopReg} =
@@ -1388,7 +1403,7 @@ struct
                     raise Bind
                 end*)
 
-            val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=NONE, forwardLabels=[], handlers=[]}}
+            val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
             val resetCode =
                 case fnState of
                     NormalState s =>
