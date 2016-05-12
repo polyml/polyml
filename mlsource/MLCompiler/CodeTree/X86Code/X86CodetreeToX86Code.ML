@@ -197,10 +197,6 @@ struct
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: argument }
 
-        (* Set up a handler and execute some code with the handler in place. *)
-    |   HandleException of
-            { tohandle: x86ICode list, handler: x86ICode list, saveHandle: argument, resultReg: argument }
-
         (* Indexed case.  This could possibly be simplified. *)
     |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: x86ICode list,
                          cases: (x86ICode list * word) list, exhaustive: bool, min: word, max: word,
@@ -216,6 +212,17 @@ struct
 
         (* Jump if the register contains false. *)
     |   ConditionalForwardJump of { testReg: argument, label: iLabel }
+    
+        (* Exception handling.  - Set up an exception handler. *)
+    |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
+
+        (* End of a handled section.  Restore the previous handler. *)
+    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument }
+
+        (* Marks the start of a handler.  This sets the stack pointer and
+           restores the old handler.  As a special case it ensures that rax is
+           preserved because that contains the exception packet. *) 
+    |   BeginHandler of { handleStart: iLabel }
 
 
     fun argToPReg(PReg n) = n | argToPReg _ = raise InternalError "argToPReg"
@@ -493,8 +500,13 @@ struct
                        to be removed after *)
                     val expCode = codeToICode(exp, context, false (* Not tail *), target)
                     val handleCode = codeToICode(handler, context, isTail, target)
+                    val saveHandle = newPReg()
+                    val handlerLab = newLabel()
+                    val skipHandler = newLabel()
                 in
-                    [HandleException { tohandle = expCode, handler=handleCode, saveHandle=newPReg(), resultReg=target }]
+                    [PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab}] @ expCode @
+                    [PopExceptionHandler{handlerAddr=saveHandle, resultReg=target}, UnconditionalForwardJump{label=skipHandler},
+                     BeginHandler{handleStart=handlerLab}] @ handleCode @ [ForwardJumpLabel{label=skipHandler, result=SOME target}]
                 end
             
             |   codeToICode(BICTuple fields, context, _, target) =
@@ -695,10 +707,7 @@ struct
             datatype pregLoc = InRax | OnStack of int
             
             datatype state = NormalState of {preg: int, loc: pregLoc} list | Exited
-            
-            fun checkState Exited = raise InternalError "checkState"
-            |   checkState (NormalState state) = state
-            
+
             (* Return the location on the real stack immediately above the top item. *)
             fun stackPtr [] = 0
             |   stackPtr ({loc=OnStack sp, ...} :: _) = sp+1
@@ -760,10 +769,10 @@ struct
                    state associated with the branch.  We can only adjust the state on the
                    "drop through" side so if we need to change the state on the branch
                    side we have to create a new branch. *)
-            |   codeICode{icode=ForwardJumpLabel{label, result} :: rest, state, code, context as {forwardLabels, loopArgs}} =
+            |   codeICode{icode=ForwardJumpLabel{label, result} :: rest, state, code, context as {forwardLabels, loopArgs, handlers}} =
                 let
-                    (* Find the label in the list.  It should be there and we can remove it. *)
-                    fun findAndRemoveLabel(label, (hd as (l, s)) :: tl) =
+            (* Find the label in the list.  It should be there and we can remove it. *)
+                    fun findAndRemoveLabel(label: iLabel, (hd as (l, s)) :: tl) =
                         if label = l
                         then (s, tl)
                         else
@@ -777,14 +786,14 @@ struct
                 in
                     case (state, labelCondition) of
                         (state, NONE) => (* We didn't actually take a branch.  Discard the label and continue. *)
-                            codeICode{icode=rest, state=state, code=code, context={forwardLabels=newLabels, loopArgs=loopArgs}}
+                            codeICode{icode=rest, state=state, code=code, context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
 
                     |   (Exited, SOME(labelState, labelCode)) =>
                             (* There is no drop-through to consider because the preceding instruction
                                was an unconditional jump or something similar.  We can just set the state
                                and continue. *)
                             codeICode{icode=rest, state=NormalState labelState, code=forwardJumpLabel labelCode @ code,
-                                      context={forwardLabels=newLabels, loopArgs=loopArgs}}
+                                      context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
 
                     |   (NormalState cstate, SOME(labelState, labelCode)) =>
                         (* There was a drop-through.  Merge the states.  We can only actually change the
@@ -822,7 +831,7 @@ struct
                             if labelSp = finalSp
                             then (* We don't need to do anything to the incoming branch. *)
                                 codeICode{icode=rest, state=NormalState finalState, code=forwardJumpLabel labelCode @ adjustSpOnDropThrough @ code,
-                                          context={forwardLabels=newLabels, loopArgs=loopArgs}}
+                                          context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
                             else (* We're going to have to adjust the stack pointer on the incoming branch.
                                     We can't actually do that so instead we have to branch and merge again. *)
                             let
@@ -842,27 +851,50 @@ struct
                 end
 
                (* Unconditional jump with Exited state.  This can happen if we have e.g. made a tail recursive call or
-                   taken a JumpLoop.  Remove the label from the list and continue. *)
-            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=Exited, code, context={forwardLabels, loopArgs}} =
+                   taken a JumpLoop.  Add the label to the list and continue. *)
+            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=Exited, code, context={forwardLabels, loopArgs, handlers}} =
                    codeICode{icode=rest, state=Exited, code=code,
-                                          context={forwardLabels=(label, NONE) :: forwardLabels, loopArgs=loopArgs}}
-                                          
+                                          context={forwardLabels=(label, NONE) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+
+                (* Start of a handler.  This is similar to a ForwardLabel and should only occur in an Exited state.
+                   The handlers form a stack so the one we want should be on the top. *)
+            |   codeICode{
+                    icode=BeginHandler{handleStart} :: rest, state=Exited, code,
+                    context={forwardLabels, loopArgs, handlers=(handleLab, handlerStartState, handlerLabRef) :: otherHandlers}} =
+                let
+                    val _ = handleLab = handleStart orelse raise InternalError "codeICode: BeginHandler handler stack mismatch"
+                    val handlerCode =
+                        [
+                            StoreRegToMemory{
+                                toStore=ebx, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}},
+                            PopR ebx, ResetStack 1,
+                            LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp },
+                            StartHandler{handlerLab=handlerLabRef}
+                        ]
+                in
+                    codeICode{icode=rest, state=NormalState handlerStartState, code=handlerCode @ code,
+                            context={forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=otherHandlers}}
+                end
+
+            |   codeICode{icode=BeginHandler _ :: _, ...} =
+                    raise InternalError "codeICode: BeginHandler not preceded by jump or not in handler"
+
                 (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                    can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
                    until it eventually exits by calling a "stop" function. *)
             |   codeICode{icode=_ :: rest, state=Exited, code, context} =
                    codeICode{icode=rest, state=Exited, code=code, context=context}
 
-            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs}} =
+            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
                 let
                     val (branchCode, lab) = uncondBranch()
                 in
                     codeICode{icode=rest, state=Exited, code=branchCode @ code,
-                                          context={forwardLabels=(label, SOME(state, lab)) :: forwardLabels, loopArgs=loopArgs}}
+                                          context={forwardLabels=(label, SOME(state, lab)) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
                 end
 
                 (* Test the register and jump if the condition is false. *)
-            |   codeICode{icode=ConditionalForwardJump{testReg, label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs}} =
+            |   codeICode{icode=ConditionalForwardJump{testReg, label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
                 let
                     val testR = argToPReg testReg
                     (* The value on the top of the stack should be in rax and the value we want to test. *)
@@ -876,7 +908,55 @@ struct
                     val (condJump, branchLabel) = condBranch(JE, PredictNeutral)
                 in
                     codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
-                                          context={forwardLabels=(label, SOME(startState, branchLabel)) :: forwardLabels, loopArgs=loopArgs}}
+                                          context={forwardLabels=(label, SOME(startState, branchLabel)) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                end
+
+                (* Set up an exception handler. *)
+            |   codeICode{icode=PushExceptionHandler{ handlerAddr, handleStart } :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+                let
+                    val sHandle = argToPReg handlerAddr
+                    val (pushedState, pushCode) = pushRax state
+                    val sp = stackPtr pushedState
+                    val labelRef = ref addrZero (* Will be set to the address of the start of the handler. *)
+                    val thisHandler = (handleStart, pushedState, labelRef)
+                    (* Set up the handler by pushing the old handler to the stack, pushing the
+                       entry point and setting the handler address to the current stack pointer. *)
+                    val setHandler =
+                        [
+                            StoreRegToMemory{
+                                toStore=esp, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}},
+                            PushR eax,
+                            LoadHandlerAddress{ handlerLab=labelRef, output=eax},
+                            PushMem{base=ebp, offset=memRegHandlerRegister}
+                        ]
+                    val startState = {preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: pushedState
+                in
+                    codeICode{icode=rest, state=NormalState startState, code=setHandler @ pushCode @ code,
+                                          context={forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}}
+                end
+
+                (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised. *)
+            |   codeICode{icode=PopExceptionHandler{ handlerAddr, resultReg } :: rest, state=NormalState state, code, context} =
+                let
+                    val resReg = argToPReg resultReg and handleAddr = argToPReg handlerAddr
+                    (* handlerStartState is the state BEFORE we pushed the handler. *)
+                    (* Search down the state until we find the handler. *)
+                    fun popState [] = raise InternalError "codeICode: PopExceptionHandler - not found"
+                    |   popState (hState as ({preg, ...} :: tail)) =
+                            if preg = handleAddr then hState else popState tail
+                    val handlerStartState = popState state
+                    (* Reset to just above the handler. *)
+                    val (_, resetCode) = resetStack(state, handlerStartState, resReg)
+                    val restoreHandle =
+                        [
+                            StoreRegToMemory{
+                                toStore=ebx, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}},
+                            PopR ebx, ResetStack 1
+                        ]
+                    (* The result state is after the handler has been popped. *)
+                    val resultState = {loc=InRax, preg=resReg } :: tl handlerStartState
+                in
+                    codeICode{icode=rest, state=NormalState resultState, code=restoreHandle @ resetCode @ code, context=context}
                 end
 
                 (* MoveArgument - this is used for loads, stores and moves.  *)
@@ -1082,7 +1162,7 @@ struct
                 end
 
                 (* Start of a loop.  The loop body contains one or more tail jumps to the start. *)
-            |   codeICode{icode=StartLoop{arguments, loopCode} :: rest, state=NormalState state, code, context as {forwardLabels, ...}} =
+            |   codeICode{icode=StartLoop{arguments, loopCode} :: rest, state=NormalState state, code, context as {forwardLabels, handlers, ...}} =
                 let
                     (* The arguments have been evaluated to the stack.  Replace
                        the preg entries in the state with those of the loop variables. *)
@@ -1098,7 +1178,7 @@ struct
                     val (loopState, loopBody) =
                         codeICode{
                             icode=loopCode, state=NormalState bodyState, code=startLoopCode @ pushCode @ code,
-                            context={loopArgs=SOME(bodyState, startLoop), forwardLabels=forwardLabels}}
+                            context={loopArgs=SOME(bodyState, startLoop), forwardLabels=forwardLabels, handlers=handlers}}
                 in
                     codeICode{icode=rest, state=loopState, code=loopBody, context=context}
                 end
@@ -1155,54 +1235,6 @@ struct
                         code=MoveRR{source=esp, output=eax} :: (pushAll @ pushCode @ code), context=context}
                 end
                 
-            |   codeICode{icode=HandleException{ tohandle, handler, resultReg, saveHandle } :: rest, state=NormalState state, code, context} =
-                let
-                    val resReg = argToPReg resultReg and sHandle = argToPReg saveHandle
-                    val (pushedState, pushCode) = pushRax state
-                    val sp = stackPtr pushedState
-                    fun storeToHandler reg =
-                        StoreRegToMemory{
-                            toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}
-                    (* We actually push two words here.  The first is the old handler, the second is the entry
-                       point of the handler.  N.B.  This is reversed. *)
-                    val labelRef = ref addrZero
-                    val setHandler =
-                        [
-                            storeToHandler esp, PushR eax,
-                            LoadHandlerAddress{ handlerLab=labelRef, output=eax},
-                            PushMem{base=ebp, offset=memRegHandlerRegister}
-                        ]
-                    val startState = NormalState({preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: pushedState)
-                    val (bodyState, bodyCode) =
-                        codeICode{icode=tohandle, state=startState, code=setHandler @ pushCode @ code, context=context}
-                    (* TODO: What if the body exited?  E.g. Raised an exception. *)
-                    val (_, resetAfterBody) = resetStack(checkState bodyState, checkState startState, resReg)
-                    (* Use ebx here to hold the old handler *)
-                    val restoreHandle = [storeToHandler ebx, PopR ebx, ResetStack 1]
-                    (* Jump round the handler code. *)
-                    val (skipHandler, toExit) = uncondBranch()
-                    (* Start of handler.  Set the label, reload esp from the handler register, remove the handler
-                       address and restore old handler.  N.B.  This is reversed. *)
-                    val startHandler =
-                        [
-                            storeToHandler ebx, ResetStack 2,
-                            LoadMemR{ source=BaseOffset{base=esp, offset=wordSize, index=NoIndex}, output=ebx },
-                            LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp },
-                            StartHandler{handlerLab=labelRef}
-                        ]
-                    val (handleState, handleCode) =
-                        codeICode{
-                            icode=handler, state=NormalState pushedState,
-                            code=startHandler @ skipHandler @ restoreHandle @ resetAfterBody @ bodyCode, context=context}
-                    (* Merge the states unless the handler has exited. *)
-                    val resultState = NormalState ({loc=InRax, preg=resReg}::pushedState)
-                    val resetAfterHandle =
-                        case handleState of
-                            Exited => [] | NormalState hState => #2(resetStack(hState, pushedState, resReg))
-                    val resCode = forwardJumpLabel toExit @ resetAfterHandle @ handleCode
-                in
-                    codeICode{icode=rest, state=resultState, code=resCode, context=context}
-                end
 
             |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max,
                                              arbitrary, resultReg} :: rest, state=NormalState state, code, context} =
@@ -1356,7 +1388,7 @@ struct
                     raise Bind
                 end*)
 
-            val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=NONE, forwardLabels=[]}}
+            val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=NONE, forwardLabels=[], handlers=[]}}
             val resetCode =
                 case fnState of
                     NormalState s =>
