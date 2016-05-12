@@ -164,12 +164,12 @@ struct
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
 
+    datatype iLabel = ILabel of int
+
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument}
-
-    |   Conditional of { test: argument, thenPt: x86ICode list, elsePt: x86ICode list, resultReg: argument}
 
     |   MoveStackArgToPreg of { offset: int, dest: argument} (* Load an argument or the return address *)
     
@@ -190,9 +190,9 @@ struct
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: argument, loopReg: argument} list, loopDest: argument }
+    |   JumpLoop of { arguments: {source: argument, loopReg: argument} list }
     
-    |   RaiseExceptionPacket of { packet: argument, dummyResult: argument }
+    |   RaiseExceptionPacket of { packet: argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: argument }
@@ -209,6 +209,14 @@ struct
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: argument }
 
+        (* Forward branches. *)
+    |   ForwardJumpLabel of { label: iLabel, result: argument option }
+    
+    |   UnconditionalForwardJump of { label: iLabel }
+
+        (* Jump if the register contains false. *)
+    |   ConditionalForwardJump of { testReg: argument, label: iLabel }
+
 
     fun argToPReg(PReg n) = n | argToPReg _ = raise InternalError "argToPReg"
 
@@ -217,8 +225,10 @@ struct
     let
         val profileObject = createProfileObject name
         val pregCounter = ref 0
-        fun newPReg() = (PReg(!pregCounter)) before pregCounter := !pregCounter + 1
+        fun newPReg() = PReg(!pregCounter) before pregCounter := !pregCounter + 1
         val locToPregArray = Array.array(localCount, NONE: argument option)
+        val labelCounter = ref 0
+        fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
 
         val numFunctionArgs = List.length argTypes
         val argRegsUsed =
@@ -254,92 +264,7 @@ struct
         (* First pass - turn the ML code into ICode.  All targets are pseudo-registers. *)
         local
             fun codeToICode(BICNewenv (bindings, exp), context, isTail, target) =
-                let
-                    fun doBinding(BICDeclar{value, addr, ...}, l) =
-                        let
-                            val dest = newPReg()
-                            val code = codeToICode(value, context, false, dest)
-                            val () = Array.update(locToPregArray, addr, SOME dest)
-                        in
-                            l @ code
-                        end
-
-                    |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
-                        (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
-                        let
-                            val dest = newPReg()
-                            val code = codeToICode(BICLambda lambda, context, false, dest)
-                            val () = Array.update(locToPregArray, addr, SOME dest)
-                        in
-                            l @ code
-                        end
-
-                    |   doBinding(BICRecDecs decs, l) =
-                        let
-                            val destRegs = map (fn _ => newPReg()) decs
-
-                            (* First build the closures as mutable cells containing zeros.  Set the
-                               entry in the address table to the register containing the address. *)
-                            fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
-                            let
-                                val () = Array.update(locToPregArray, addr, SOME dest)
-                                val sizeClosure = List.length closure + 1
-                                fun clear n =
-                                    if n = sizeClosure
-                                    then [AllocateMemoryToPreg{size=sizeClosure, isMutable=true, dest=dest}]
-                                    else
-                                    let
-                                        val d = newPReg()
-                                    in
-                                        MoveArgument{source=IntegerConstant(tag 0), dest=d} ::
-                                            (clear (n+1) @
-                                                [MoveArgument{source=d, dest=MemoryLocation{offset=n*wordSize, base=dest}}])
-                                    end
-                            in
-                                c @ clear 0 @ [InitialisationComplete{dest=dest}]
-                            end
-                            
-                            val allocClosures = ListPair.foldlEq makeClosure [] (decs, destRegs)
-                            
-                            fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
-                            let
-                                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
-                                (* Basically the same as tuple except we load the address of
-                                   the closure we've made.  It's complicated because
-                                   MoveArgument to MemoryLocation assumes that the top of the stack is
-                                   the address of the allocated memory and the items below
-                                   are the values to store. *)
-                                val dstCopy = newPReg()
-                                fun loadFields([], _) = [MoveArgument{source=dest, dest=dstCopy}]
-                                |   loadFields(f :: rest, n) =
-                                    let
-                                        val fReg = newPReg()
-                                        val code = codeToICode(f, context, false, fReg)
-                                        val restAndAlloc = loadFields(rest, n+1)
-                                        val storeValue = [MoveArgument{ source=fReg, dest=MemoryLocation{offset=n*wordSize, base=dstCopy} }]
-                                    in
-                                        code @ restAndAlloc @ storeValue
-                                    end
-                                val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: closure, 0)
-                            in
-                                l @ setFields @ [LockMutable{addr=dest}]
-                            end
-                            val setClosures = ListPair.foldlEq setClosure [] (decs, destRegs)
-                        in
-                            l @ allocClosures @ setClosures
-                        end
-
-                    |   doBinding(BICNullBinding exp, l) =
-                        let
-                            val dest = newPReg()
-                        in
-                            l @ codeToICode(exp, context, false, dest) (* And discard result. *)
-                        end
-                    val code =
-                        List.foldl doBinding [] bindings @ codeToICode(exp, context, isTail, target)
-                in
-                    code
-                end
+                codeBindingsToICode(bindings, context) @ codeToICode(exp, context, isTail, target)
                 
             |   codeToICode(BICConstnt(value, _), _, _, target) =
                 let
@@ -442,17 +367,28 @@ struct
                     codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: closure), context, isTail, target)
                 end
 
-            
             |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, target) =
                 let
                     val testReg = newPReg()
+                    val testCode = codeToICode(test, context, false, testReg)
+                    (* Put the result in the target register. *)
+                    val thenCode = codeToICode(thenPt, context, isTail, target)
+                    val elseCode = codeToICode(elsePt, context, isTail, target)
+                    val thenJump = newLabel() and elseJump = newLabel()
+                in
+                    testCode @ [ConditionalForwardJump{ testReg=testReg, label=thenJump }] @
+                        thenCode @ [UnconditionalForwardJump{label=elseJump}, ForwardJumpLabel{label=thenJump, result=NONE}] @
+                        elseCode @ [ForwardJumpLabel{label=elseJump, result=SOME target}]
+                end
+(*                let
+                    (* Generate the condition.  There is special code for this. *)
+                    val testCode = codeCondition(test, context)
                     (* Put the result in the target register. *)
                     val thenCode = codeToICode(thenPt, context, isTail, target)
                     val elseCode = codeToICode(elsePt, context, isTail, target)
                 in
-                    codeToICode(test, context, false, testReg) @
-                        [Conditional{test=testReg, thenPt=thenCode, elsePt=elseCode, resultReg=target}]
-                end
+                    [Conditional{test=testCode, thenPt=thenCode, elsePt=elseCode, resultReg=target}]
+                end*)
             
             |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, target) =
                 let
@@ -515,13 +451,13 @@ struct
                     fun makeLoopReg ({addr, ...}, _) =
                         let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
                     val loopRegs = map makeLoopReg arguments
-                    val loopBody = codeToICode(loop, {loopArgs=SOME(loopRegs, target)}, isTail, target)
+                    val loopBody = codeToICode(loop, {loopArgs=SOME loopRegs}, isTail, target)
                     val args = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
                 in
                     codeArgs @ [StartLoop{arguments=args, loopCode=loopBody}]
                 end
             
-            |   codeToICode(BICLoop args, context as {loopArgs=SOME(loopRegs, loopDest), ...}, _, _) =
+            |   codeToICode(BICLoop args, context as {loopArgs=SOME loopRegs, ...}, _, _) =
                 let
                     (* Registers to receive the evaluated arguments.  We can't put the
                        values into the loop variables yet because the values could depend
@@ -532,7 +468,7 @@ struct
                             (args, argPRegs)
                     val jumpArgs = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
                 in
-                    codeArgs @ [JumpLoop{arguments=jumpArgs, loopDest=loopDest}]
+                    codeArgs @ [JumpLoop{arguments=jumpArgs}]
                 end
 
             |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
@@ -541,11 +477,11 @@ struct
             |   codeToICode(BICKillItems{expression, ...}, context, isTail, target) =
                     codeToICode(expression, context, isTail, target)
 
-            |   codeToICode(BICRaise exc, context, _, target) =
+            |   codeToICode(BICRaise exc, context, _, _) =
                 let
                     val excReg = newPReg()
                 in
-                    codeToICode(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg, dummyResult=target}]
+                    codeToICode(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}]
                 end
             
             |   codeToICode(BICLdexc, _, _, target) = (* The argument is in eax. *)
@@ -626,6 +562,128 @@ struct
                     codeToICode (code, context, isTail, target)
                 end
 
+            (* Process a list of bindings. *)
+            and codeBindingsToICode(bindings, context) =
+            let
+                fun doBinding(BICDeclar{value, addr, ...}, l) =
+                    let
+                        val dest = newPReg()
+                        val code = codeToICode(value, context, false, dest)
+                        val () = Array.update(locToPregArray, addr, SOME dest)
+                    in
+                        l @ code
+                    end
+
+                |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
+                    (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
+                    let
+                        val dest = newPReg()
+                        val code = codeToICode(BICLambda lambda, context, false, dest)
+                        val () = Array.update(locToPregArray, addr, SOME dest)
+                    in
+                        l @ code
+                    end
+
+                |   doBinding(BICRecDecs decs, l) =
+                    let
+                        val destRegs = map (fn _ => newPReg()) decs
+
+                        (* First build the closures as mutable cells containing zeros.  Set the
+                           entry in the address table to the register containing the address. *)
+                        fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
+                        let
+                            val () = Array.update(locToPregArray, addr, SOME dest)
+                            val sizeClosure = List.length closure + 1
+                            fun clear n =
+                                if n = sizeClosure
+                                then [AllocateMemoryToPreg{size=sizeClosure, isMutable=true, dest=dest}]
+                                else
+                                let
+                                    val d = newPReg()
+                                in
+                                    MoveArgument{source=IntegerConstant(tag 0), dest=d} ::
+                                        (clear (n+1) @
+                                            [MoveArgument{source=d, dest=MemoryLocation{offset=n*wordSize, base=dest}}])
+                                end
+                        in
+                            c @ clear 0 @ [InitialisationComplete{dest=dest}]
+                        end
+                        
+                        val allocClosures = ListPair.foldlEq makeClosure [] (decs, destRegs)
+                        
+                        fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
+                        let
+                            val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                            (* Basically the same as tuple except we load the address of
+                               the closure we've made.  It's complicated because
+                               MoveArgument to MemoryLocation assumes that the top of the stack is
+                               the address of the allocated memory and the items below
+                               are the values to store. *)
+                            val dstCopy = newPReg()
+                            fun loadFields([], _) = [MoveArgument{source=dest, dest=dstCopy}]
+                            |   loadFields(f :: rest, n) =
+                                let
+                                    val fReg = newPReg()
+                                    val code = codeToICode(f, context, false, fReg)
+                                    val restAndAlloc = loadFields(rest, n+1)
+                                    val storeValue = [MoveArgument{ source=fReg, dest=MemoryLocation{offset=n*wordSize, base=dstCopy} }]
+                                in
+                                    code @ restAndAlloc @ storeValue
+                                end
+                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: closure, 0)
+                        in
+                            l @ setFields @ [LockMutable{addr=dest}]
+                        end
+                        val setClosures = ListPair.foldlEq setClosure [] (decs, destRegs)
+                    in
+                        l @ allocClosures @ setClosures
+                    end
+
+                    (* This should be removed in due course.  The level above indicates the
+                       last reference to a binding by adding these references. *)
+                |   doBinding(BICNullBinding (BICExtract _), l) = l
+
+                |   doBinding(BICNullBinding exp, l) =
+                    let
+                        val dest = newPReg()
+                    in
+                        l @ codeToICode(exp, context, false, dest) (* And discard result. *)
+                    end
+                in
+                    List.foldl doBinding [] bindings
+                end
+(*
+                (* Code a branch condition.  This is really meant for andalso/orelse. *)
+                and codeCondition(BICConstnt(value, _), _) = ([], TestConstant(toShort value <> 0w0))
+                
+                |   codeCondition(BICNewenv(decs, exp), context) =
+                    let
+                        val bindCode = codeBindingsToICode(decs, context)
+                        val (expCode, expTest) = codeCondition(exp, context)
+                    in
+                        (bindCode @ expCode, expTest)
+                    end
+
+                |   codeCondition(BICCond (testPart, thenPart, elsePart), context) =
+                    let
+                        val (testCode, testTest) = codeCondition(testPart, context)
+                        val (thenCode, thenTest) = codeCondition(thenPart, context)
+                        val (elseCode, elseTest) = codeCondition(elsePart, context)
+                    in
+                        (testCode,
+                            TestConditional{ test=testTest, thenPart=(thenCode, thenTest), elsePart=(elseCode, elseTest) })
+                    end
+                    
+                    (* Other special cases are BICTagTest which should be a simple equality. *)
+
+                |   codeCondition(condition, context) =
+                    let
+                        val testReg = newPReg()
+                        val testCode = codeToICode(condition, context, false, testReg) 
+                    in
+                        (testCode, TestGeneral{testReg=testReg})
+                    end *)
+
         in
             val icode = pushClosureReg @ pushArgs @ codeToICode(body, {loopArgs=NONE}, true, resultTarget)
         end
@@ -636,14 +694,17 @@ struct
             
             datatype pregLoc = InRax | OnStack of int
             
-            type state = {preg: int, loc: pregLoc} list
+            datatype state = NormalState of {preg: int, loc: pregLoc} list | Exited
+            
+            fun checkState Exited = raise InternalError "checkState"
+            |   checkState (NormalState state) = state
             
             (* Return the location on the real stack immediately above the top item. *)
             fun stackPtr [] = 0
             |   stackPtr ({loc=OnStack sp, ...} :: _) = sp+1
             |   stackPtr (_ :: stack) = stackPtr stack
        
-            fun findEntry (_, []: state) = raise InternalError "findEntry: not found"
+            fun findEntry (_, []) = raise InternalError "findEntry: not found"
             |   findEntry (reg, {preg, loc} :: rest) = if reg = preg then loc else findEntry(reg, rest)
         
             fun loadSource(source, dest, state) =
@@ -652,7 +713,7 @@ struct
                 |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
 
             (* If the top of the stack is in RAX push it otherwise do nothing. *)
-            fun pushRax ({preg, loc=InRax} :: stack : state) =
+            fun pushRax ({preg, loc=InRax} :: stack) =
                 let
                     val sp = stackPtr stack
                     val () = if sp >= !maxStack then maxStack := sp+1 else ()
@@ -686,70 +747,196 @@ struct
             in
                 (newState, code)
             end
-            
+
             (* Process the code until the end.  The code list is built up in reverse order. *)
             (* If we reach the end we haven't exited or reached a JumpLoop so we just return the
                final state. *)
             fun codeICode{icode=[], state: state, code, ...} = (state, code)
 
+                (* Destination of a forward jump.  If the state was Exited this can
+                   continue.
+                   We should have the label in the list.
+                   We need to merge the states associated with dropping through and the
+                   state associated with the branch.  We can only adjust the state on the
+                   "drop through" side so if we need to change the state on the branch
+                   side we have to create a new branch. *)
+            |   codeICode{icode=ForwardJumpLabel{label, result} :: rest, state, code, context as {forwardLabels, loopArgs}} =
+                let
+                    (* Find the label in the list.  It should be there and we can remove it. *)
+                    fun findAndRemoveLabel(label, (hd as (l, s)) :: tl) =
+                        if label = l
+                        then (s, tl)
+                        else
+                        let
+                            val (found, newTail) = findAndRemoveLabel(label, tl)
+                        in
+                            (found, hd::newTail)
+                        end
+                    |   findAndRemoveLabel _ = raise InternalError "findAndRemoveLabel: Not found"
+                    val (labelCondition, newLabels) = findAndRemoveLabel(label, forwardLabels)
+                in
+                    case (state, labelCondition) of
+                        (state, NONE) => (* We didn't actually take a branch.  Discard the label and continue. *)
+                            codeICode{icode=rest, state=state, code=code, context={forwardLabels=newLabels, loopArgs=loopArgs}}
+
+                    |   (Exited, SOME(labelState, labelCode)) =>
+                            (* There is no drop-through to consider because the preceding instruction
+                               was an unconditional jump or something similar.  We can just set the state
+                               and continue. *)
+                            codeICode{icode=rest, state=NormalState labelState, code=forwardJumpLabel labelCode @ code,
+                                      context={forwardLabels=newLabels, loopArgs=loopArgs}}
+
+                    |   (NormalState cstate, SOME(labelState, labelCode)) =>
+                        (* There was a drop-through.  Merge the states.  We can only actually change the
+                           drop-through state i.e. before the label.  If the state on the incoming branch
+                           needs to be changed we have to add an extra branch. *)
+                        let
+                            (* We should have the result register on both arms. *)
+                            fun removeResult s =
+                                case (s, result) of
+                                    (s, NONE) => s
+                                |   ({loc=InRax, preg} :: state, SOME resArg) =>
+                                        if preg = argToPReg resArg then state else raise InternalError "codeICode: ForwardJumpLabel"
+                                |   _ => raise InternalError "codeICode: ForwardJumpLabel"
+                                
+                            val dropThrough = removeResult cstate and labState = removeResult labelState
+                            (* After removing the top item the tails of the states will match up to the
+                               point they diverged.  The common part is the resulting state. *)
+                            fun matchStates([], _) = []
+                            |   matchStates(_, []) = []
+                            |   matchStates((hd as {loc=OnStack s1, preg=preg1})::l1, {loc=OnStack s2, preg=preg2}::l2) =
+                                    if preg1 <> preg2
+                                    then []
+                                    else if s1 <> s2 then raise InternalError "matchStates"
+                                    else hd :: matchStates(l1, l2)
+                            |   matchStates _ = raise InternalError "matchStates"
+                            val composite =
+                                List.rev(matchStates(List.rev dropThrough, List.rev labState))
+                            (* Currently the only thing we need to adjust is the stack pointer. *)
+                            val finalSp = stackPtr composite
+                            and labelSp = stackPtr labelState
+                            (* Temporarily assume we always have a result here. *)
+                            val (finalState, adjustSpOnDropThrough) =
+                                resetStack(cstate, composite, argToPReg(valOf result))
+                        in
+                            if labelSp = finalSp
+                            then (* We don't need to do anything to the incoming branch. *)
+                                codeICode{icode=rest, state=NormalState finalState, code=forwardJumpLabel labelCode @ adjustSpOnDropThrough @ code,
+                                          context={forwardLabels=newLabels, loopArgs=loopArgs}}
+                            else (* We're going to have to adjust the stack pointer on the incoming branch.
+                                    We can't actually do that so instead we have to branch and merge again. *)
+                            let
+                                val extraLabel = newLabel()
+                            in
+                                codeICode{
+                                    (* Put in an unconditional jump followed by the label we're currently trying to merge in.
+                                       Because it's following an unconditional jump the state will simply be set to the
+                                       label state.  When we merge in again we will be able to adjust the stack pointer and
+                                       it should all work. *)
+                                    icode=UnconditionalForwardJump{label=extraLabel} :: ForwardJumpLabel{label=label, result=result} ::
+                                          ForwardJumpLabel{label=extraLabel, result=result} :: rest,
+                                    state=NormalState finalState, code=adjustSpOnDropThrough @ code,
+                                    context=context (* Original context - we haven't fixed up the label yet. *)}
+                            end
+                        end
+                end
+
+               (* Unconditional jump with Exited state.  This can happen if we have e.g. made a tail recursive call or
+                   taken a JumpLoop.  Remove the label from the list and continue. *)
+            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=Exited, code, context={forwardLabels, loopArgs}} =
+                   codeICode{icode=rest, state=Exited, code=code,
+                                          context={forwardLabels=(label, NONE) :: forwardLabels, loopArgs=loopArgs}}
+                                          
+                (* Any other Exited conditions. Skip the instructions.  There are various situations where this
+                   can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
+                   until it eventually exits by calling a "stop" function. *)
+            |   codeICode{icode=_ :: rest, state=Exited, code, context} =
+                   codeICode{icode=rest, state=Exited, code=code, context=context}
+
+            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs}} =
+                let
+                    val (branchCode, lab) = uncondBranch()
+                in
+                    codeICode{icode=rest, state=Exited, code=branchCode @ code,
+                                          context={forwardLabels=(label, SOME(state, lab)) :: forwardLabels, loopArgs=loopArgs}}
+                end
+
+                (* Test the register and jump if the condition is false. *)
+            |   codeICode{icode=ConditionalForwardJump{testReg, label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs}} =
+                let
+                    val testR = argToPReg testReg
+                    (* The value on the top of the stack should be in rax and the value we want to test. *)
+                    val startState =
+                        case state of
+                            {preg, loc=InRax } :: bodyState =>
+                                if preg = testR then bodyState else raise InternalError "ConditionalForwardJump"
+                        |   _ => raise InternalError "ConditionalForwardJump"
+                    (* Evaluate the test. Branch if the value equals false. *)
+                    val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 (* False *)}
+                    val (condJump, branchLabel) = condBranch(JE, PredictNeutral)
+                in
+                    codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
+                                          context={forwardLabels=(label, SOME(startState, branchLabel)) :: forwardLabels, loopArgs=loopArgs}}
+                end
+
                 (* MoveArgument - this is used for loads, stores and moves.  *)
                 (* Create a new Preg containing the contents of another Preg.
                    We only ever want the top item to be in RAX so we push the top of the stack. *)
-            |   codeICode{icode=MoveArgument{source=PReg srcReg, dest=PReg destReg} :: rest, state, code, context} =
+            |   codeICode{icode=MoveArgument{source=PReg srcReg, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
                 let
                     val (pushedState, pushCode) = pushRax state
                     val load = loadSource(srcReg, eax, pushedState)
                 in
                     codeICode{
-                        icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                        icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                         code=load @ pushCode @ code, context=context}
                 end
 
-            |   codeICode{icode=MoveArgument{source=GeneralReg srcReg, dest=PReg destReg} :: rest, state: state, code, context} =
+            |   codeICode{icode=MoveArgument{source=GeneralReg srcReg, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
                 (* Move a specific register to the stack.  If it is anything but RAX we push it immediately. *)
                 let
                     val (pushedState, pushCode) = pushRax state
                 in
                     if srcReg = eax
                     then codeICode{
-                            icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                            icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                             code=pushCode @ code, context=context}
                     else
                     let
                         val sp = stackPtr pushedState
                     in
                         codeICode{
-                            icode=rest, state={preg=destReg, loc=OnStack sp} :: pushedState,
+                            icode=rest, state=NormalState({preg=destReg, loc=OnStack sp} :: pushedState),
                             code=PushR srcReg :: (pushCode @ code), context=context}
                     end
                 end
                 
                 (* Move a constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-            |   codeICode{icode=MoveArgument{source=AddressConstant srcValue, dest=PReg destReg} :: rest, state, code, context} =
+            |   codeICode{icode=MoveArgument{source=AddressConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
                 let
                     val (pushedState, pushCode) = pushRax state
                     (* The constant should be an address. *)
                     val _ = isShort srcValue andalso raise InternalError "AddressConstant: short"
                 in
                     codeICode{
-                        icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                        icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                         code=MoveLongConstR{source=srcValue, output=eax} :: (pushCode @ code),
                         context=context}
                 end
 
                 (* Move a short constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-            |   codeICode{icode=MoveArgument{source=IntegerConstant srcValue, dest=PReg destReg} :: rest, state, code, context} =
+            |   codeICode{icode=MoveArgument{source=IntegerConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
                 let
                     val (pushedState, pushCode) = pushRax state
                 in
                     codeICode{
-                        icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                        icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                         code=MoveConstR{source=srcValue, output=eax} :: (pushCode @ code),
                         context=context}
                 end
 
                 (* Load a value from a piece of memory, typically the offset in a tuple. *)
-            |   codeICode{icode=MoveArgument{ source=MemoryLocation{offset, base}, dest=PReg destReg} :: rest, state, code, context} =
+            |   codeICode{icode=MoveArgument{ source=MemoryLocation{offset, base}, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
                 let
                     val bReg = argToPReg base
                     (* Currently we always make a new preg for the base and that is
@@ -761,12 +948,12 @@ struct
                                 if preg = bReg then tail else raise InternalError "codeICode: MoveArgument/MemoryLocation"
                         |   _ => raise InternalError "codeICode: MoveArgument/MemoryLocation"
                 in
-                    codeICode{icode=rest, state={preg=destReg, loc=InRax} :: poppedState,
+                    codeICode{icode=rest, state=NormalState({preg=destReg, loc=InRax} :: poppedState),
                         code=loadMemory(eax, eax, offset) @ code, context=context}
                 end
 
                 (* Store a pseudo-register in a memory location. *)
-            |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base}} :: rest, state, code, context} =
+            |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base}} :: rest, state=NormalState state, code, context} =
                 let
                     val bReg = argToPReg base
                     (* We currently generate these so that the top of the state is the allocated
@@ -783,7 +970,7 @@ struct
                 in
                     codeICode{
                         (* We currently have the base in eax.  Leave it there because it may be used again. *)
-                        icode=rest, state={preg=bReg, loc=InRax} :: newState, code=store @ code, context=context}
+                        icode=rest, state=NormalState({preg=bReg, loc=InRax} :: newState), code=store @ code, context=context}
                 end
 
                 (* Other combinations of move aren't used at the moment. *)
@@ -792,25 +979,25 @@ struct
 
                 (* Load a value from the real stack.  Offset zero is the return address,
                    subsequent values are arguments that were pushed by the caller. *)
-            |   codeICode{icode=MoveStackArgToPreg{offset, dest} :: rest, state, code, context} =
+            |   codeICode{icode=MoveStackArgToPreg{offset, dest} :: rest, state=NormalState state, code, context} =
                 let
                     val destReg = argToPReg dest
                     val (pushedState, pushCode) = pushRax state
                     val load = loadStack(eax, (stackPtr pushedState + offset) * wordSize)
                 in
                     codeICode{
-                        icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                        icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                         code=load @ pushCode @ code, context=context}
                 end
                 
-            |   codeICode{icode=AllocateMemoryToPreg{ size, isMutable, dest} :: rest, state, code, context} =
+            |   codeICode{icode=AllocateMemoryToPreg{ size, isMutable, dest} :: rest, state=NormalState state, code, context} =
                 let
                     val destReg = argToPReg dest
                     val (pushedState, pushCode) = pushRax state
                     val alloc = allocateHeap(size, if isMutable then Address.F_mutable else 0w0, eax)
                 in
                     codeICode{
-                        icode=rest, state={preg=destReg, loc=InRax} :: pushedState,
+                        icode=rest, state=NormalState({preg=destReg, loc=InRax} :: pushedState),
                         code=alloc @ pushCode @ code, context=context}
                 end
 
@@ -820,40 +1007,8 @@ struct
             |   codeICode{icode=InitialisationComplete _ :: rest, state, code, context} =
                     codeICode{icode=rest, state=state, code=StoreInitialised :: code, context=context}
 
-                (* Conditional - test the test register and execute either the then- or else-part.
-                   We need to merge the states at the result. *)
-            |   codeICode{icode=Conditional{test, thenPt, elsePt, resultReg} :: rest, state, code, context} =
-                let
-                    val testReg = argToPReg test and resReg = argToPReg resultReg
-                    (* The value on the top of the stack should be in eax and the value we want to test. *)
-                    val bodyState =
-                        case state of
-                            {preg, loc=InRax } :: bodyState =>
-                                if preg = testReg then bodyState else raise InternalError "Conditional"
-                        |   _ => raise InternalError "Conditional"
-                    (* Evaluate the test.  See if it is zero and go to ELSE if it is.
-                       If non-zero execute the then-part and branch to the end.  If it
-                       is zero execute the else-part. N.B.  This is in reverse. *)
-                    val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 }
-                    val (condJump, startElse) = condBranch(JE, PredictNeutral)
-                    val (skipToEnd, endIf) = uncondBranch()
-                    val (thenState, thenCode) =
-                        codeICode{icode=thenPt, state=bodyState, code=condJump @ [testIt] @ code, context=context}
-                    (* We have to remove all the stack entries that have been pushed. *)
-                    val (_, resetAfterThen) = resetStack(thenState, bodyState, resReg)
-                    val (elseState, elseCode) =
-                        codeICode{
-                            icode=elsePt, state=bodyState,
-                            code=forwardJumpLabel startElse @ skipToEnd @ resetAfterThen @ thenCode, context=context}
-                    val (resultState, resetAfterElse) = resetStack(elseState, bodyState, resReg)
-                    val resCode =
-                        forwardJumpLabel endIf @ resetAfterElse @ elseCode
-                in
-                    codeICode{icode=rest, state=resultState, code=resCode, context=context}
-                end
-                
                 (* Function call. *)
-            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state, code, context} =
+            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state=NormalState state, code, context} =
                 let
                     val destReg = argToPReg dest
                     val (pushedState, pushCode) = pushRax state
@@ -889,15 +1044,14 @@ struct
                     val functionCode =
                         stackReset @ [CallFunction FullCall] @ doLoad @ pushCode @ code
                 in
-                    codeICode{icode=rest, state=finalState, code=functionCode, context=context}
+                    codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
                 end
 
                 (* Jump to a function.  The arguments have to be moved into the space currently used
                    by the arguments to this function.  That could result in values being overwritten
                    so we have to save them, especially the return address. *)
-            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=true} :: rest, state, code, context} =
+            |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true} :: rest, state=NormalState state, code, context} =
                 let
-                    val destReg = argToPReg dest
                     val (pushedState, pushCode) = pushRax state
                     val currentSp = stackPtr pushedState
 
@@ -924,13 +1078,11 @@ struct
                         JumpToFunction FullCall :: ResetStack argOffset ::
                             (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
                 in
-                    (* We don't really need to worry too much about the state since we've
-                       exited.  Add a dummy result just to keep everything neat. *)
-                    codeICode{icode=rest, state={preg=destReg, loc=InRax} :: pushedState, code=functionCode, context=context}
+                    codeICode{icode=rest, state=Exited, code=functionCode, context=context}
                 end
 
                 (* Start of a loop.  The loop body contains one or more tail jumps to the start. *)
-            |   codeICode{icode=StartLoop{arguments, loopCode} :: rest, state, code, context} =
+            |   codeICode{icode=StartLoop{arguments, loopCode} :: rest, state=NormalState state, code, context as {forwardLabels, ...}} =
                 let
                     (* The arguments have been evaluated to the stack.  Replace
                        the preg entries in the state with those of the loop variables. *)
@@ -945,17 +1097,16 @@ struct
                     val (startLoopCode, startLoop) = backJumpLabel()
                     val (loopState, loopBody) =
                         codeICode{
-                            icode=loopCode, state=bodyState, code=startLoopCode @ pushCode @ code,
-                            context={loopArgs=SOME(bodyState, startLoop)}}
+                            icode=loopCode, state=NormalState bodyState, code=startLoopCode @ pushCode @ code,
+                            context={loopArgs=SOME(bodyState, startLoop), forwardLabels=forwardLabels}}
                 in
                     codeICode{icode=rest, state=loopState, code=loopBody, context=context}
                 end
 
                 (* A loop tail jump.  The arguments have been evaluated to the stack. *)
-            |   codeICode{icode=JumpLoop{arguments, loopDest} :: nil, state, code,
-                          context={loopArgs=SOME(startState, startLoop)}} =
+            |   codeICode{icode=JumpLoop{arguments, ...} :: rest, state=NormalState state, code,
+                          context=context as {loopArgs=SOME(startState, startLoop), ...}} =
                 let
-                    val lDestReg = argToPReg loopDest
                     (* Move each argument from the source to the loop variable.  This isn't the same as
                        MoveArgument because the destination already exists. *)
                     fun moveArg{source, loopReg} =
@@ -971,32 +1122,27 @@ struct
                     val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] arguments
                     val resetCode = [ResetStack(stackPtr state - stackPtr startState)]
                 in
-                    (* We need to return a state here even though we haven't actually returned. *)
-                    ({preg=lDestReg, loc=InRax} :: startState, jumpBackwards startLoop @ resetCode @ storeAll @ code)
+                    codeICode{icode=rest, state=Exited,
+                              code=jumpBackwards startLoop @ resetCode @ storeAll @ code, context=context}
                 end
 
             |   codeICode{icode=JumpLoop _ :: _, ...} =
-                    raise InternalError "codeICode: JumpLoop out of loop or not final instruction"
+                    raise InternalError "codeICode: JumpLoop out of loop"
 
                 (* Raise an exception using the value in the "packet" register as the exception packet.
                    Since this exits we can ignore any further code and return the code and state. *)
-            |   codeICode{icode=RaiseExceptionPacket{packet, dummyResult} :: _, state, code, ...} =
+            |   codeICode{icode=RaiseExceptionPacket{packet} :: rest, state=NormalState state, code, context} =
                 let
-                    val pktReg = argToPReg packet and dRes = argToPReg dummyResult
+                    val pktReg = argToPReg packet
                     val load = loadSource(pktReg, eax, state)
-                    (* Although we don't use the final state we need to get it right for the checks. *)
-                    val resultState =
-                        case state of
-                            {loc=InRax, ...} :: t => t
-                        |   s => s
                 in
-                    ({loc=InRax, preg=dRes} :: resultState, RaiseException :: (load @ code))
+                    codeICode{icode=rest, state=Exited, code=RaiseException :: (load @ code), context=context}
                 end
 
                 (* Reserve a contiguous area of memory on the stack.  This is used to receive the
                    results of a tuple.  It may be set within the same function or the address
                    may be passed into another function to allow it to return multiple results. *)
-            |   codeICode{icode=ReserveContainer{size, address} :: rest, state, code, context} =
+            |   codeICode{icode=ReserveContainer{size, address} :: rest, state=NormalState state, code, context} =
                 let
                     val addrReg = argToPReg address
                     val (pushedState, pushCode) = pushRax state
@@ -1004,11 +1150,12 @@ struct
                     val pushAll = List.tabulate(size, fn _ => PushConst(tag 0))
                     val sp = stackPtr pushedState
                 in
-                    codeICode{icode=rest, state={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: pushedState,
+                    codeICode{icode=rest,
+                        state=NormalState({loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: pushedState),
                         code=MoveRR{source=esp, output=eax} :: (pushAll @ pushCode @ code), context=context}
                 end
                 
-            |   codeICode{icode=HandleException{ tohandle, handler, resultReg, saveHandle } :: rest, state, code, context} =
+            |   codeICode{icode=HandleException{ tohandle, handler, resultReg, saveHandle } :: rest, state=NormalState state, code, context} =
                 let
                     val resReg = argToPReg resultReg and sHandle = argToPReg saveHandle
                     val (pushedState, pushCode) = pushRax state
@@ -1025,10 +1172,11 @@ struct
                             LoadHandlerAddress{ handlerLab=labelRef, output=eax},
                             PushMem{base=ebp, offset=memRegHandlerRegister}
                         ]
-                    val startState = {preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: pushedState
+                    val startState = NormalState({preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: pushedState)
                     val (bodyState, bodyCode) =
                         codeICode{icode=tohandle, state=startState, code=setHandler @ pushCode @ code, context=context}
-                    val (_, resetAfterBody) = resetStack(bodyState, startState, resReg)
+                    (* TODO: What if the body exited?  E.g. Raised an exception. *)
+                    val (_, resetAfterBody) = resetStack(checkState bodyState, checkState startState, resReg)
                     (* Use ebx here to hold the old handler *)
                     val restoreHandle = [storeToHandler ebx, PopR ebx, ResetStack 1]
                     (* Jump round the handler code. *)
@@ -1044,17 +1192,20 @@ struct
                         ]
                     val (handleState, handleCode) =
                         codeICode{
-                            icode=handler, state=pushedState,
+                            icode=handler, state=NormalState pushedState,
                             code=startHandler @ skipHandler @ restoreHandle @ resetAfterBody @ bodyCode, context=context}
-                    (* We're merging the states at this point. *)
-                    val (resultState, resetAfterHandle) = resetStack(handleState, pushedState, resReg)
+                    (* Merge the states unless the handler has exited. *)
+                    val resultState = NormalState ({loc=InRax, preg=resReg}::pushedState)
+                    val resetAfterHandle =
+                        case handleState of
+                            Exited => [] | NormalState hState => #2(resetStack(hState, pushedState, resReg))
                     val resCode = forwardJumpLabel toExit @ resetAfterHandle @ handleCode
                 in
                     codeICode{icode=rest, state=resultState, code=resCode, context=context}
                 end
 
             |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max,
-                                             arbitrary, resultReg} :: rest, state, code, context} =
+                                             arbitrary, resultReg} :: rest, state=NormalState state, code, context} =
                 let
                     val tReg = argToPReg testReg and resReg = argToPReg resultReg
                     (* We should have the value to test at the top of the stack. *)
@@ -1086,17 +1237,19 @@ struct
                         val otherDefaults = genDefaults(min, caseLabels, cases)
                     
                         val (defaultState, defaultCode) =
-                            codeICode{icode=default, state=bodyState,
+                            codeICode{icode=default, state=NormalState bodyState,
                                         code=otherDefaults @ startDefault @ indexCaseInstr @ code, context=context}
 
-                        val (finalState, resetAfterDefault) =
-                            resetStack(defaultState, bodyState, resReg)
+                        val resetAfterDefault =
+                            case defaultState of
+                                Exited => []
+                            |   NormalState dState => #2(resetStack(dState, bodyState, resReg))
                     
                         val (branchCode, lab) = uncondBranch()
                     in
                         val defaultCode = branchCode @ resetAfterDefault @ defaultCode
                         val exitDefault = lab
-                        val finalState = finalState
+                        val finalState = {loc=InRax, preg=resReg} :: bodyState
                     end
 
                     (* Generate the cases. *)
@@ -1109,8 +1262,11 @@ struct
                             val startCode = forwardJumpLabel label @ incode
                             (* Generate this case. *)
                             val (expState, expCode) =
-                                codeICode{icode=caseExp, state=bodyState, code=startCode, context=context}
-                            val (_, resetAfterExp) = resetStack(expState, bodyState, resReg)
+                                codeICode{icode=caseExp, state=NormalState bodyState, code=startCode, context=context}
+                            val resetAfterExp =
+                                case expState of
+                                    Exited => []
+                                |   NormalState eState => #2(resetStack(eState, bodyState, resReg))
                         in
                             if null cps
                             then (*  Finished. *) resetAfterExp @ expCode
@@ -1127,24 +1283,88 @@ struct
 
                     val caseResult = genCases(min, caseLabels, cases, defaultCode)
                 in
-                    codeICode{icode=rest, state=finalState, code=forwardJumpLabel exitDefault @ caseResult, context=context}
+                    codeICode{icode=rest, state=NormalState finalState, code=forwardJumpLabel exitDefault @ caseResult, context=context}
                 end
 
                 (* Lock a mutable segment. *)
-            |   codeICode{icode=LockMutable{ addr } :: rest, state, code, context} =
+            |   codeICode{icode=LockMutable{ addr } :: rest, state=NormalState state, code, context} =
                 let
                     val (pushedState, pushCode) = pushRax state
                     val load = loadSource(argToPReg addr, eax, pushedState)
                     val lockCode = LockMutableSegment eax :: (load @ pushCode) @ code
                 in
-                    codeICode{icode=rest, state=pushedState, code=lockCode, context=context}
+                    codeICode{icode=rest, state=NormalState pushedState, code=lockCode, context=context}
+                end
+ 
+            (* Compile a conditional by branching.  This is really here to handle "andalso" and
+               "orelse" by testing the first condition, branching appropriately and then
+               testing the second.  *)
+(*             and branchICode((body, TestGeneral{testReg}), state, code, context, jumpOn) =
+                let
+                    val testR = argToPReg testReg
+                    val (bodyState, bodyCode) =
+                        codeICode{icode=body, state=state, code=code, context=context}
+                    (* The value on the top of the stack should be in eax and the value we want to test. *)
+                    val startState =
+                        case checkState bodyState of
+                            {preg, loc=InRax } :: bodyState =>
+                                if preg = testR then NormalState bodyState else raise InternalError "TestGeneral"
+                        |   _ => raise InternalError "TestGeneral"
+                    (* Evaluate the test. *)
+                    val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 }
+                    val (condJump, branchLabel) = condBranch(if jumpOn then JNE else JE, PredictNeutral)
+                in
+                    (condJump @ [testIt] @ bodyCode, [branchLabel], startState)
                 end
 
-            val (fnState, fnCode) = codeICode{icode=icode, state=[], code=[], context={loopArgs=NONE}}
-            val (_, resetCode) = resetStack(fnState, [], argToPReg resultTarget)
+            |   branchICode((body, TestConstant c), state, code, context, jumpOn) =
+                let
+                    val (bodyState, bodyCode) =
+                        codeICode{icode=body, state=state, code=code, context=context}
+                    (* If the constant is the condition we jump on put in an unconditional jump
+                       otherwise drop through. *)
+                    val (resultJump, resultLab) =
+                        if c = jumpOn
+                        then let val (c, l) = uncondBranch() in (c, [l]) end
+                        else ([], []) (* Drop through *)
+                in
+                    (resultJump @ bodyCode, resultLab, bodyState)
+                end
+
+                (* Conditional - this is generated from "andalso" and "orelse" but we deal with the
+                   general case here. *)
+           |   branchICode((body, TestConditional{test, thenPart, elsePart}),
+                    state, code, context, jumpOn) =
+                let
+                    (* We can't use resetStack because we don't have a result reg. *)
+                    fun stackReset(currState, oldState) =
+                    let
+                        val currentSp = stackPtr currState
+                        and oldSp = stackPtr oldState
+                    in
+                        if currentSp = oldSp then [] else [ResetStack(currentSp - oldSp)]
+                    end
+                    (* It's complicated getting the stack right here. *)
+                    val (testCode, testLabels, bodyState) =
+                        branchICode((body, test), state, code, context, false)
+                    val (thenCode, thenLabels, thenState) =
+                        branchICode(thenPart, state, code, context, jumpOn)
+                    val resetAfterThen = stackReset(thenState, bodyState)
+                    val (elseCode, elseLabels, elseState) =
+                        branchICode(elsePart, state, code, context, jumpOn)
+                in
+                    raise Bind
+                end*)
+
+            val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=NONE, forwardLabels=[]}}
+            val resetCode =
+                case fnState of
+                    NormalState s =>
+                        #2 (resetStack(s, [], argToPReg resultTarget)) @ [ReturnFromFunction currentStackArgs]
+                |   Exited => []
         in
             val ops =
-                List.rev fnCode @ resetCode @ [ReturnFromFunction currentStackArgs]
+                List.rev fnCode @ resetCode 
 
             val stackRequired = !maxStack
         end
