@@ -83,50 +83,6 @@ struct
 
     and jumpBackwards (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
 
-    and indexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive } =
-    let
-        val defaultLab as Labels{uses=defUses, ...} = mkLabel()
-        fun makeLab _ =
-        let
-            val lab as Labels{uses, ...} = mkLabel()
-        in
-            uses := 1;
-            lab
-        end
-        val indexLabels =
-            List.tabulate(Word.toInt(maxCase-minCase+0w1), makeLab)
-        val testCode =
-            if isExhaustive
-            then []
-            else
-            let
-                (* If this is an arbitrary precision int we need to check it's short
-                   and go to the default if it isn't. *)
-                val testTag =
-                    if isArbitrary
-                    then
-                    (
-                        defUses := 3;
-                        [TestTagR testReg,
-                         ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLab}]
-                    )
-                    else (defUses := 2; [])
-                (* Range checks. *)
-                val range1 =
-                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt minCase) },
-                     ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab}]
-                val range2 =
-                    [ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt maxCase) },
-                     ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab}]
-            in
-                testTag @ range1 @ range2
-            end
-        val code = testCode @ [IndexedCase{testReg=testReg, workReg=workReg, min=minCase, cases=indexLabels}]
-    in
-        (* Reverse the list.  TODO: Build it in reverse order to save having to do this. *)
-        (List.rev code, indexLabels, defaultLab)
-    end
-
     fun loadMemory(reg, base, offset) =
         [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=reg}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
@@ -202,9 +158,9 @@ struct
     |   ReserveContainer of { size: int, address: argument }
 
         (* Indexed case.  This could possibly be simplified. *)
-    |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: x86ICode list,
-                         cases: (x86ICode list * word) list, exhaustive: bool, min: word, max: word,
-                         arbitrary: bool, resultReg: argument}
+    |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: iLabel,
+                         cases: (iLabel * word) list, exhaustive: bool, min: word, max: word,
+                         arbitrary: bool }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: argument }
@@ -437,17 +393,66 @@ struct
                             in
                                 (false, min, max)
                             end
+
+                    (* Create labels for each of the cases.  Fill in any gaps with entries that
+                       will point to the default. *)
+                    fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
+                        if indexVal = caseValue
+                        then (newLabel(), SOME c, caseValue) :: extendCase(indexVal+0w1, cps)
+                        else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, cl)
+
+                    |   extendCase(indexVal, []) =
+                        (* We may not be at the end if this came from a CaseTag *)
+                            if indexVal > max
+                            then []
+                            else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, [])
+                    
+                    val fullCaseRange = extendCase(min, cases)
+
                     val testReg = newPReg() and workReg = newPReg()
                     val testCode = codeToICode(test, context, false, testReg)
                     (* Put in the default case.  Even when the case is exhaustive one entry is
                        always treated as a default and not included in the list of cases. *)
-                    val defaultCode = codeToICode(default, context, isTail, target)
-                    val codeCases =
-                        map (fn (c, w) => (codeToICode(c, context, isTail, target), w)) cases
+                    val defaultLabel = newLabel()
+
+                    (* Generate the code for each of the cases and the default.  We need to put an
+                       unconditional branch after each to skip the other cases.  *)
+                    fun codeCases ((startLabel, SOME c, _) :: otherCases) =
+                        let
+                            (* Put in the case with a jump to the end of the sequence. *)
+                            val exitLabel = newLabel()
+                            val codeThis =
+                                ForwardJumpLabel{label=startLabel, result=NONE} ::
+                                    codeToICode(c, context, isTail, target) @ [UnconditionalForwardJump{label=exitLabel}]
+                            val codeRest = codeCases otherCases
+                        in
+                            codeThis @ codeRest @ [ForwardJumpLabel{label=exitLabel, result=SOME target}]
+                        end
+
+                    |   codeCases((_, NONE, _) :: otherCases) = codeCases otherCases
+                            
+                    |   codeCases [] =
+                        let
+                            (* We need to add labels for all the gaps we filled and also for a "default" label for
+                               the indexed-case instruction itself. *)
+                            fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
+                            |   addDefault ((_, SOME _, _), l) = l
+                            val defLabels =
+                                List.foldl addDefault
+                                    [ForwardJumpLabel{label=defaultLabel, result=NONE}] fullCaseRange
+                        in
+                            (* Put in the default.  Because this is the last we don't need to
+                               jump round it. *)
+                             defLabels @ codeToICode(default, context, isTail, target)
+                        end
+                        
+                    val codedCases = codeCases fullCaseRange
+
+                    val codeLabels = map (fn (lab, _, value) => (lab, value)) fullCaseRange
                 in
-                    testCode @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultCode,
-                                            cases=codeCases, exhaustive=isExhaustive, min=min, max=max,
-                                            arbitrary=caseType = CaseInt, resultReg=target}]
+                    testCode @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultLabel,
+                                            cases=codeLabels, exhaustive=isExhaustive, min=min, max=max,
+                                            arbitrary=caseType = CaseInt}] @ codedCases
                 end
             
             |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, target) =
@@ -829,9 +834,16 @@ struct
                             (* Currently the only thing we need to adjust is the stack pointer. *)
                             val finalSp = stackPtr composite
                             and labelSp = stackPtr labelState
-                            (* Temporarily assume we always have a result here. *)
+
                             val (finalState, adjustSpOnDropThrough) =
-                                resetStack(cstate, composite, argToPReg(valOf result))
+                                case result of
+                                    NONE =>
+                                    let
+                                        val currentSp = stackPtr cstate and finalSp = stackPtr composite
+                                    in
+                                        (composite, if currentSp = finalSp then [] else [ResetStack(currentSp-finalSp)])
+                                    end
+                                |   SOME resReg => resetStack(cstate, composite, argToPReg resReg)
                         in
                             if labelSp = finalSp
                             then (* We don't need to do anything to the incoming branch. *)
@@ -1249,88 +1261,65 @@ struct
                         state=NormalState({loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: pushedState),
                         code=MoveRR{source=esp, output=eax} :: (pushAll @ pushCode @ code), context=context}
                 end
-                
 
-            |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max,
-                                             arbitrary, resultReg} :: rest, state=NormalState state, code, context} =
+            |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max, arbitrary} :: rest,
+                          state=NormalState state, code, context={loopArgs, handlers, forwardLabels}} =
                 let
-                    val tReg = argToPReg testReg and resReg = argToPReg resultReg
+                    val tReg = argToPReg testReg
                     (* We should have the value to test at the top of the stack. *)
-                    val bodyState =
+                    val startState =
                         case state of
-                            {preg, loc=InRax } :: bodyState =>
-                                if preg = tReg then bodyState else raise InternalError "IndexedCase"
+                            {preg, loc=InRax } :: startState =>
+                                if preg = tReg then startState else raise InternalError "IndexedCase"
                         |   _ => raise InternalError "IndexedCase"
-                    val (indexCaseInstr, caseLabels, defaultLabel) =
-                        indexedCase{testReg=eax, workReg=ebx, minCase=min, maxCase=max, 
-                                isArbitrary=arbitrary, isExhaustive=exhaustive}
 
-                    (* Put in the default case.  Even when the case is exhaustive one entry is
-                       always treated as a default and not included in the list of cases. *)
-                    local
-                        val startDefault = forwardJumpLabel defaultLabel
-                        (* Go down the list of cases and fix up any default labels to come here.
-                           Default entries are represented by "holes" in the case list. *)
-                        fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
-                            if indexVal = caseLabel
-                            then genDefaults(indexVal+0w1, labelList, cps)
-                            else genDefaults(indexVal+0w1, labelList, cl) @ forwardJumpLabel label
 
-                        |   genDefaults(indexVal, label :: labelList, []) =
-                                genDefaults(indexVal+0w1, labelList, []) @ forwardJumpLabel label
-
-                        |   genDefaults(_, [], _) = []
-                    
-                        val otherDefaults = genDefaults(min, caseLabels, cases)
-                    
-                        val (defaultState, defaultCode) =
-                            codeICode{icode=default, state=NormalState bodyState,
-                                        code=otherDefaults @ startDefault @ indexCaseInstr @ code, context=context}
-
-                        val resetAfterDefault =
-                            case defaultState of
-                                Exited => []
-                            |   NormalState dState => #2(resetStack(dState, bodyState, resReg))
-                    
-                        val (branchCode, lab) = uncondBranch()
+                    val testReg=eax and workReg=ebx
+                    val defaultLabel as Labels{uses=defUses, ...} = mkLabel()
+                    fun makeLab _ =
+                    let
+                        val lab as Labels{uses, ...} = mkLabel()
                     in
-                        val defaultCode = branchCode @ resetAfterDefault @ defaultCode
-                        val exitDefault = lab
-                        val finalState = {loc=InRax, preg=resReg} :: bodyState
+                        uses := 1;
+                        lab
                     end
-
-                    (* Generate the cases. *)
-                    fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps, incode) =
-                        if indexVal <> caseLabel
-                        then (* We have a hole.  Skip this item. *)
-                            genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps, incode)
-                        else (* The index value corresponds to a label. *)
+                    val caseLabels = List.map makeLab cases
+                    val testCode =
+                        if exhaustive
+                        then []
+                        else
                         let
-                            val startCode = forwardJumpLabel label @ incode
-                            (* Generate this case. *)
-                            val (expState, expCode) =
-                                codeICode{icode=caseExp, state=NormalState bodyState, code=startCode, context=context}
-                            val resetAfterExp =
-                                case expState of
-                                    Exited => []
-                                |   NormalState eState => #2(resetStack(eState, bodyState, resReg))
+                            (* If this is an arbitrary precision int we need to check it's short
+                               and go to the default if it isn't. *)
+                            val testTag =
+                                if arbitrary
+                                then
+                                (
+                                    defUses := 3;
+                                    [ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLabel},
+                                     TestTagR testReg]
+                                )
+                                else (defUses := 2; [])
+                            (* Range checks. *)
+                            val rangeChecks =
+                                [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLabel},
+                                 ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt max) },
+                                 ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLabel},
+                                 ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt min) }]
                         in
-                            if null cps
-                            then (*  Finished. *) resetAfterExp @ expCode
-                            else
-                            let
-                                val (branchCode, lab) = uncondBranch()
-                                val otherCases =
-                                    genCases(indexVal+0w1, labelList, cps, branchCode @ resetAfterExp @ expCode)
-                            in
-                                forwardJumpLabel lab @ otherCases
-                            end
+                            rangeChecks @ testTag 
                         end
-                    | genCases _ = raise InternalError "genCase - null case list"
+                    val indexCaseInstr = IndexedCase{testReg=testReg, workReg=workReg, min=min, cases=caseLabels} :: testCode
 
-                    val caseResult = genCases(min, caseLabels, cases, defaultCode)
+                    (* This behaves rather like an unconditional branch except that it can go to several places.
+                       The case labels and the default label have to be added to the label list. *)
+                    val labelsFromCase =
+                        (default, SOME(startState, defaultLabel)) ::
+                            ListPair.mapEq(fn ((ilab, _), clab) => (ilab, SOME(startState, clab))) (cases, caseLabels)
+                            @ forwardLabels
                 in
-                    codeICode{icode=rest, state=NormalState finalState, code=forwardJumpLabel exitDefault @ caseResult, context=context}
+                    codeICode{icode=rest, state=Exited, code=indexCaseInstr @ code,
+                            context={loopArgs=loopArgs, handlers=handlers, forwardLabels=labelsFromCase}}
                 end
 
                 (* Lock a mutable segment. *)
