@@ -82,17 +82,17 @@ struct
                     [MoveArgument{source=arg, dest=target}]
                 end
 
-            |   codeToICode(BICExtract(BICLoadLocal l, _(*lastRef*)), _, _, target) =
+            |   codeToICode(BICExtract(BICLoadLocal l), _, _, target) =
                     [MoveArgument{source=valOf(Array.sub(locToPregArray, l)), dest=target}]
 
-            |   codeToICode(BICExtract(BICLoadArgument a, _(*lastRef*)), _, _, target) =
+            |   codeToICode(BICExtract(BICLoadArgument a), _, _, target) =
                     if a < numArgRegs
                     then (* It was originally in a register.  It's now in a preg. *)
                         [MoveArgument{source=List.nth(argPRegs, a), dest=target}]
                     else (* Pushed before call. *)
                         [MoveStackArgToPreg{offset=List.length argTypes - a, dest=target}]
             
-            |   codeToICode(BICExtract(BICLoadClosure c, _(*lastRef*)), _, _, target) =
+            |   codeToICode(BICExtract(BICLoadClosure c), _, _, target) =
                 let
                     val () = if c >= List.length closure then raise InternalError "BICExtract: closure" else ()
                     val baseReg = newPReg()
@@ -106,7 +106,7 @@ struct
                     ]
                 end
 
-            |   codeToICode(BICExtract(BICLoadRecursive, _(*lastRef*)), _, _, target) =
+            |   codeToICode(BICExtract BICLoadRecursive, _, _, target) =
                 (
                     (* If the closure is empty we must use the constant.  We can't guarantee that
                        the caller will actually load the closure register if it knows the closure
@@ -170,7 +170,7 @@ struct
                     val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
                 in
                     (* Treat it as a tuple with the code as the first field. *)
-                    codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: closure), context, isTail, target)
+                    codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, target)
                 end
 
             |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, target) =
@@ -319,9 +319,6 @@ struct
 
             |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
                     raise InternalError "BICLoop without BICBeginLoop"
-
-            |   codeToICode(BICKillItems{expression, ...}, context, isTail, target) =
-                    codeToICode(expression, context, isTail, target)
 
             |   codeToICode(BICRaise exc, context, _, _) =
                 let
@@ -481,7 +478,7 @@ struct
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
-                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: closure, 0)
+                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
                         in
                             l @ setFields @ [LockMutable{addr=dest}]
                         end
@@ -593,6 +590,7 @@ struct
     structure Sharing =
     struct
         type backendIC = backendIC
+        and  bicLoadForm = bicLoadForm
         and argumentType = argumentType
     end
     
