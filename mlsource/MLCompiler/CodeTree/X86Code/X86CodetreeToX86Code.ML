@@ -170,8 +170,8 @@ struct
     
     |   UnconditionalForwardJump of { label: iLabel }
 
-        (* Jump if the register contains false. *)
-    |   ConditionalForwardJump of { testReg: argument, label: iLabel }
+        (* Compare and branch between two word values. *)
+    |   JumpOnWordComparison of { arg1: argument, arg2: argument, condition: branchOps, label: iLabel }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
@@ -183,6 +183,9 @@ struct
            restores the old handler.  As a special case it must ensure that rax is
            preserved because that contains the exception packet. *) 
     |   BeginHandler of { handleStart: iLabel }
+
+        (* Return from the function. *)
+    |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
 
 
     fun argToPReg(PReg n) = n | argToPReg _ = raise InternalError "argToPReg"
@@ -214,6 +217,11 @@ struct
             ListPair.foldrEq (fn (r, m, l) => MoveArgument{source=GeneralReg r, dest=m} :: l) [] (argRegsUsed, argPRegs)
         (* Number of arguments on the stack and not in registers. *)
         val currentStackArgs = Int.max(0, numFunctionArgs - List.length argRegs)
+        
+        (* The return instruction.  This can be added on to various tails but there is always
+           one at the end anyway. *)
+        val returnInstruction =
+            [ReturnResultFromFunction{resultReg=resultTarget, numStackArgs=currentStackArgs}]
 
         fun allocateHeap(size, flag, toReg) =
         let
@@ -336,26 +344,16 @@ struct
 
             |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, target) =
                 let
-                    val testReg = newPReg()
-                    val testCode = codeToICode(test, context, false, testReg)
+                    val startElse = newLabel() and skipElse = newLabel()
+                    val testCode = codeCondition(test, context, false, startElse)
                     (* Put the result in the target register. *)
                     val thenCode = codeToICode(thenPt, context, isTail, target)
                     val elseCode = codeToICode(elsePt, context, isTail, target)
-                    val thenJump = newLabel() and elseJump = newLabel()
                 in
-                    testCode @ [ConditionalForwardJump{ testReg=testReg, label=thenJump }] @
-                        thenCode @ [UnconditionalForwardJump{label=elseJump}, ForwardJumpLabel{label=thenJump, result=NONE}] @
-                        elseCode @ [ForwardJumpLabel{label=elseJump, result=SOME target}]
+                    testCode @
+                        thenCode @ [UnconditionalForwardJump{label=skipElse}, ForwardJumpLabel{label=startElse, result=NONE}] @
+                        elseCode @ [ForwardJumpLabel{label=skipElse, result=SOME target}]
                 end
-(*                let
-                    (* Generate the condition.  There is special code for this. *)
-                    val testCode = codeCondition(test, context)
-                    (* Put the result in the target register. *)
-                    val thenCode = codeToICode(thenPt, context, isTail, target)
-                    val elseCode = codeToICode(elsePt, context, isTail, target)
-                in
-                    [Conditional{test=testCode, thenPt=thenCode, elsePt=elseCode, resultReg=target}]
-                end*)
             
             |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, target) =
                 let
@@ -674,40 +672,70 @@ struct
                 in
                     List.foldl doBinding [] bindings
                 end
-(*
+
                 (* Code a branch condition.  This is really meant for andalso/orelse. *)
-                and codeCondition(BICConstnt(value, _), _) = ([], TestConstant(toShort value <> 0w0))
-                
-                |   codeCondition(BICNewenv(decs, exp), context) =
+                and codeCondition(BICConstnt(value, _), _, jumpOn, jumpLabel) =
+                    (* Constant - typically part of andalso/orelse.  Either an unconditional branch
+                       or an unconditional drop-through. *)
+                    if jumpOn = (toShort value <> 0w0)
+                    then [UnconditionalForwardJump{label=jumpLabel}]
+                    else []
+
+                |   codeCondition(BICNewenv(decs, exp), context, jumpOn, jumpLabel) =
+                        codeBindingsToICode(decs, context) @ codeCondition(exp, context, jumpOn, jumpLabel)
+
+                |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
                     let
-                        val bindCode = codeBindingsToICode(decs, context)
-                        val (expCode, expTest) = codeCondition(exp, context)
+                        val tagReg = newPReg()
+                        val testCode = codeToICode(test, context, false, tagReg)
                     in
-                        (bindCode @ expCode, expTest)
+                        testCode @
+                            [JumpOnWordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)),
+                                   condition=if jumpOn then JE else JNE, label=jumpLabel}]
                     end
 
-                |   codeCondition(BICCond (testPart, thenPart, elsePart), context) =
+                |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =
                     let
-                        val (testCode, testTest) = codeCondition(testPart, context)
-                        val (thenCode, thenTest) = codeCondition(thenPart, context)
-                        val (elseCode, elseTest) = codeCondition(elsePart, context)
+                        val notTest = newLabel() and isThen = newLabel()
+                        and notThen = newLabel() and notElse = newLabel()
+                        (* Test the condition and jump to the else-part if this is false. *)
+                        val testTest = codeCondition(testPart, context, false, notTest)
+                        (* Test the then-part and jump if the condition we want holds.
+                           We don't go to the final label yet. *)
+                        val testThen = codeCondition(thenPart, context, jumpOn, isThen)
+                        (* Test the else-part and jump on the inverse of the condition.
+                           The destination of this jump is going to be the drop-through
+                           case. *)
+                        val testElse = codeCondition(elsePart, context, not jumpOn, notElse)
                     in
-                        (testCode,
-                            TestConditional{ test=testTest, thenPart=(thenCode, thenTest), elsePart=(elseCode, elseTest) })
+                        (* Now put this together. *)
+                        testTest @ testThen @
+                            (* Branch round the else-part and put in a label for the start of the else *)
+                            [UnconditionalForwardJump{label=notThen}, ForwardJumpLabel {label=notTest, result=NONE}] @
+                            testElse @
+                            (* Add a label for the result of the then-part.  Because we branched
+                               on the inverse of the test in the else-part we now have both the
+                               conditions to take the branch.  Put in an unconditional branch
+                               to the final label. *)
+                            [ForwardJumpLabel {label=isThen, result=NONE}, UnconditionalForwardJump{label=jumpLabel},
+                             (* And now the labels for the condition where we don't want to branch and want to
+                                drop through. *)
+                             ForwardJumpLabel {label=notElse, result=NONE}, ForwardJumpLabel{label=notThen, result=NONE}]
                     end
-                    
-                    (* Other special cases are BICTagTest which should be a simple equality. *)
 
-                |   codeCondition(condition, context) =
+                    (* General case.  Load the value into a register and compare it with 1 (true) *)
+                |   codeCondition(condition, context, jumpOn, jumpLabel) =
                     let
                         val testReg = newPReg()
-                        val testCode = codeToICode(condition, context, false, testReg) 
+                        val testCode = codeToICode(condition, context, false, testReg)
                     in
-                        (testCode, TestGeneral{testReg=testReg})
-                    end *)
-
+                        testCode @
+                            [JumpOnWordComparison{arg1=testReg, arg2=IntegerConstant(tag 1),
+                                   condition=if jumpOn then JE else JNE, label=jumpLabel}]
+                    end
         in
-            val icode = pushClosureReg @ pushArgs @ codeToICode(body, {loopArgs=NONE}, true, resultTarget)
+            val icode = pushClosureReg @ pushArgs @
+                codeToICode(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
         end
         
         (* Second pass.  Currently this generates the code. *)
@@ -781,31 +809,34 @@ struct
                    side we have to create a new branch. *)
             |   codeICode{icode=ForwardJumpLabel{label, result} :: rest, state, code, context as {forwardLabels, loopArgs, handlers}} =
                 let
-            (* Find the label in the list.  It should be there and we can remove it. *)
-                    fun findAndRemoveLabel(label: iLabel, (hd as (l, s)) :: tl) =
+                    (* Find the label in the list.  Remove it if it's there.  It may not be if
+                       we never used it.  That could happen if we have a "drop-through" case in
+                       an andalso/orelse or if we didn't generate a jump because we raised an
+                       exception or made a tail-jump. *)
+                    fun findAndRemoveLabel(label: iLabel, (hd as (l, _, _)) :: tl) =
                         if label = l
-                        then (s, tl)
+                        then (SOME hd, tl)
                         else
                         let
                             val (found, newTail) = findAndRemoveLabel(label, tl)
                         in
                             (found, hd::newTail)
                         end
-                    |   findAndRemoveLabel _ = raise InternalError "findAndRemoveLabel: Not found"
+                    |   findAndRemoveLabel _ = (NONE, [])
                     val (labelCondition, newLabels) = findAndRemoveLabel(label, forwardLabels)
                 in
                     case (state, labelCondition) of
                         (state, NONE) => (* We didn't actually take a branch.  Discard the label and continue. *)
                             codeICode{icode=rest, state=state, code=code, context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
 
-                    |   (Exited, SOME(labelState, labelCode)) =>
+                    |   (Exited, SOME(_, labelState, labelCode)) =>
                             (* There is no drop-through to consider because the preceding instruction
                                was an unconditional jump or something similar.  We can just set the state
                                and continue. *)
                             codeICode{icode=rest, state=NormalState labelState, code=forwardJumpLabel labelCode @ code,
                                       context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
 
-                    |   (NormalState cstate, SOME(labelState, labelCode)) =>
+                    |   (NormalState cstate, SOME(_, labelState, labelCode)) =>
                         (* There was a drop-through.  Merge the states.  We can only actually change the
                            drop-through state i.e. before the label.  If the state on the incoming branch
                            needs to be changed we have to add an extra branch. *)
@@ -867,12 +898,6 @@ struct
                         end
                 end
 
-               (* Unconditional jump with Exited state.  This can happen if we have e.g. made a tail recursive call or
-                   taken a JumpLoop.  Add the label to the list and continue. *)
-            |   codeICode{icode=UnconditionalForwardJump{label} :: rest, state=Exited, code, context={forwardLabels, loopArgs, handlers}} =
-                   codeICode{icode=rest, state=Exited, code=code,
-                                          context={forwardLabels=(label, NONE) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
-
                 (* Start of a handler.  This is similar to a ForwardLabel and should only occur in an Exited state.
                    The handlers form a stack so the one we want should be on the top. *)
             |   codeICode{
@@ -918,13 +943,13 @@ struct
                     val (branchCode, lab) = uncondBranch()
                 in
                     codeICode{icode=rest, state=Exited, code=branchCode @ code,
-                                          context={forwardLabels=(label, SOME(state, lab)) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                                          context={forwardLabels=(label, state, lab) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
                 end
 
-                (* Test the register and jump if the condition is false. *)
-            |   codeICode{icode=ConditionalForwardJump{testReg, label} :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+                (* Word comparison.  Currently only between a pseudo-reg and a constant. *)
+            |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR, arg2=IntegerConstant testVal, condition, label} :: rest,
+                          state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
                 let
-                    val testR = argToPReg testReg
                     (* The value on the top of the stack should be in rax and the value we want to test. *)
                     val startState =
                         case state of
@@ -932,12 +957,15 @@ struct
                                 if preg = testR then bodyState else raise InternalError "ConditionalForwardJump"
                         |   _ => raise InternalError "ConditionalForwardJump"
                     (* Evaluate the test. Branch if the value equals false. *)
-                    val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 (* False *)}
-                    val (condJump, branchLabel) = condBranch(JE, PredictNeutral)
+                    val testIt = ArithRConst {opc=CMP, output=eax, source=testVal}
+                    val (condJump, branchLabel) = condBranch(condition, PredictNeutral)
                 in
                     codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
-                                          context={forwardLabels=(label, SOME(startState, branchLabel)) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                                          context={forwardLabels=(label, startState, branchLabel) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
                 end
+                
+           |    codeICode{icode=JumpOnWordComparison _ :: _, ...} =
+                    raise InternalError "codeICode: JumpOnWordComparison TODO"
 
                 (* Set up an exception handler. *)
             |   codeICode{icode=PushExceptionHandler{ handlerAddr, handleStart } :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
@@ -1314,8 +1342,8 @@ struct
                     (* This behaves rather like an unconditional branch except that it can go to several places.
                        The case labels and the default label have to be added to the label list. *)
                     val labelsFromCase =
-                        (default, SOME(startState, defaultLabel)) ::
-                            ListPair.mapEq(fn ((ilab, _), clab) => (ilab, SOME(startState, clab))) (cases, caseLabels)
+                        (default, startState, defaultLabel) ::
+                            ListPair.mapEq(fn ((ilab, _), clab) => (ilab, startState, clab)) (cases, caseLabels)
                             @ forwardLabels
                 in
                     codeICode{icode=rest, state=Exited, code=indexCaseInstr @ code,
@@ -1331,76 +1359,23 @@ struct
                 in
                     codeICode{icode=rest, state=NormalState pushedState, code=lockCode, context=context}
                 end
- 
-            (* Compile a conditional by branching.  This is really here to handle "andalso" and
-               "orelse" by testing the first condition, branching appropriately and then
-               testing the second.  *)
-(*             and branchICode((body, TestGeneral{testReg}), state, code, context, jumpOn) =
-                let
-                    val testR = argToPReg testReg
-                    val (bodyState, bodyCode) =
-                        codeICode{icode=body, state=state, code=code, context=context}
-                    (* The value on the top of the stack should be in eax and the value we want to test. *)
-                    val startState =
-                        case checkState bodyState of
-                            {preg, loc=InRax } :: bodyState =>
-                                if preg = testR then NormalState bodyState else raise InternalError "TestGeneral"
-                        |   _ => raise InternalError "TestGeneral"
-                    (* Evaluate the test. *)
-                    val testIt = ArithRConst {opc=CMP, output=eax, source= tag 0 }
-                    val (condJump, branchLabel) = condBranch(if jumpOn then JNE else JE, PredictNeutral)
-                in
-                    (condJump @ [testIt] @ bodyCode, [branchLabel], startState)
-                end
 
-            |   branchICode((body, TestConstant c), state, code, context, jumpOn) =
+           |    codeICode{icode=ReturnResultFromFunction{ resultReg, numStackArgs } :: rest, state=NormalState state, code, context} =
                 let
-                    val (bodyState, bodyCode) =
-                        codeICode{icode=body, state=state, code=code, context=context}
-                    (* If the constant is the condition we jump on put in an unconditional jump
-                       otherwise drop through. *)
-                    val (resultJump, resultLab) =
-                        if c = jumpOn
-                        then let val (c, l) = uncondBranch() in (c, [l]) end
-                        else ([], []) (* Drop through *)
+                    val resReg = argToPReg resultReg
+                    val (_, resetCode) = resetStack(state, [], resReg)
+                    val returnCode = ReturnFromFunction numStackArgs :: (resetCode @ code)
                 in
-                    (resultJump @ bodyCode, resultLab, bodyState)
+                    (* We may have more than one return point. *)
+                    codeICode{icode=rest, state=Exited, code=returnCode, context=context}
                 end
-
-                (* Conditional - this is generated from "andalso" and "orelse" but we deal with the
-                   general case here. *)
-           |   branchICode((body, TestConditional{test, thenPart, elsePart}),
-                    state, code, context, jumpOn) =
-                let
-                    (* We can't use resetStack because we don't have a result reg. *)
-                    fun stackReset(currState, oldState) =
-                    let
-                        val currentSp = stackPtr currState
-                        and oldSp = stackPtr oldState
-                    in
-                        if currentSp = oldSp then [] else [ResetStack(currentSp - oldSp)]
-                    end
-                    (* It's complicated getting the stack right here. *)
-                    val (testCode, testLabels, bodyState) =
-                        branchICode((body, test), state, code, context, false)
-                    val (thenCode, thenLabels, thenState) =
-                        branchICode(thenPart, state, code, context, jumpOn)
-                    val resetAfterThen = stackReset(thenState, bodyState)
-                    val (elseCode, elseLabels, elseState) =
-                        branchICode(elsePart, state, code, context, jumpOn)
-                in
-                    raise Bind
-                end*)
+                
 
             val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
-            val resetCode =
-                case fnState of
-                    NormalState s =>
-                        #2 (resetStack(s, [], argToPReg resultTarget)) @ [ReturnFromFunction currentStackArgs]
-                |   Exited => []
+            val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
         in
-            val ops =
-                List.rev fnCode @ resetCode 
+            (* Finally reverse the code. *)
+            val ops = List.rev fnCode 
 
             val stackRequired = !maxStack
         end
