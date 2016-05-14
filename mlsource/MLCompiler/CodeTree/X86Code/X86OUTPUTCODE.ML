@@ -3996,6 +3996,7 @@ SS-relative addressing modes:
         and  regSet         = RegSet.regSet
         and  label          = label
         and  labList        = labList
+        and  branchOps      = branchOps
     end
 
 end (* struct *) (* CODECONS *);

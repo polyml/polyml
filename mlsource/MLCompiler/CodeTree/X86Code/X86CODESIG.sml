@@ -222,5 +222,6 @@ sig
         and  regSet         = RegSet.regSet
         and  label          = label
         and  labList        = labList
+        and  branchOps      = branchOps
     end
 end;

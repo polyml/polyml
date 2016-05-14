@@ -15,29 +15,40 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure X86OutputCode =
-    X86OUTPUTCODE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
-    );
+local
 
-structure X86Optimise =
-    X86OPTIMISE(
-        structure X86CODE = X86OutputCode
-    );
+    structure X86OutputCode =
+        X86OUTPUTCODE(
+            structure DEBUG   = Debug
+            structure PRETTY  = Pretty
+        )
 
-structure X86ForeignCall =
-    X86FOREIGNCALL (
-        structure DEBUG         = Debug
-        structure X86CODE       = X86OutputCode
-        structure X86OPTIMISE   = X86Optimise
-    );
+    structure X86Optimise =
+        X86OPTIMISE(
+            structure X86CODE = X86OutputCode
+        )
 
-structure X86Code = 
-  X86CodetreeToX86Code (
-    structure BACKENDTREE   = BackendIntermediateCode
-    structure DEBUG         = Debug
-    structure X86CODE       = X86OutputCode
-    structure X86OPTIMISE   = X86Optimise
-    structure X86FOREIGN    = X86ForeignCall
-  );
+    structure X86ForeignCall =
+        X86FOREIGNCALL (
+            structure DEBUG         = Debug
+            structure X86CODE       = X86OutputCode
+            structure X86OPTIMISE   = X86Optimise
+        )
+
+    structure X86ICode =
+        X86ICodeToX86Code (
+            structure DEBUG         = Debug
+            structure X86CODE       = X86OutputCode
+            structure X86OPTIMISE   = X86Optimise
+        )
+in
+
+    structure X86Code = 
+        X86CodetreeToICode (
+            structure BACKENDTREE   = BackendIntermediateCode
+            structure DEBUG         = Debug
+            structure ICODE         = X86ICode
+            structure X86FOREIGN    = X86ForeignCall
+        )
+
+end;

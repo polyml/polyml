@@ -121,10 +121,12 @@
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CodeCons.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\CODEGEN_TABLESIG.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\ICodeSig.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml" />
-	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToX86Code.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FOREIGNCALL.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ICodeToX86Code.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />
 	<source name="mlsource\MLCompiler\CODETREESIG.ML" />
