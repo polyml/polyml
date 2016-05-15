@@ -44,6 +44,7 @@ sig
     and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
 
     datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
 
     datatype argument =
         PReg of int (* A pseudo-register - an abstract register. *)
@@ -118,6 +119,9 @@ sig
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
+    
+        (* Arithmetic or logical operation. *)
+    |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
     val codeICodeFunctionToX86: {icode: x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
             argRegsUsed: genReg list, hasFullClosure: bool, currentStackArgs: int,

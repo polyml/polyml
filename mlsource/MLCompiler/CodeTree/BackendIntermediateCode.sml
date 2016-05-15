@@ -20,6 +20,34 @@
 structure BackendIntermediateCode: BackendIntermediateCodeSig =
 struct
     open Address
+    
+    structure BuiltIns =
+    struct
+        datatype builtIn0Ops =
+            Built0PlaceHolder
+
+        and builtIn1Ops =
+            NotBoolean
+
+        and builtIn2Ops =
+            EqualBitwiseWord
+
+        and builtIn3Ops =
+            Built3PlaceHolder
+
+        and builtIn4Ops =
+            Built4PlaceHolder
+
+        and builtIn5Ops =
+            Built5PlaceHolder
+        
+        fun builtIn0Repr Built0PlaceHolder = "Built0PlaceHolder"
+        and builtIn1Repr NotBoolean = "NotBoolean"
+        and builtIn2Repr EqualBitwiseWord = "EqualBitwiseWord"
+        and builtIn3Repr Built3PlaceHolder = "Built3PlaceHolder"
+        and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
+        and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"
+    end
 
     datatype argumentType =
         GeneralType
@@ -42,7 +70,14 @@ struct
             resultType: argumentType
         }
 
-    |   BICBuiltIn of int * backendIC list (* Call an RTS/built-in function. *)
+        (* Built-in functions. *)
+    |   BICBuiltIn0 of {oper: BuiltIns.builtIn0Ops}
+    |   BICBuiltIn1 of {oper: BuiltIns.builtIn1Ops, arg1: backendIC}
+    |   BICBuiltIn2 of {oper: BuiltIns.builtIn2Ops, arg1: backendIC, arg2: backendIC}
+    |   BICBuiltIn3 of {oper: BuiltIns.builtIn3Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC}
+    |   BICBuiltIn4 of {oper: BuiltIns.builtIn4Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC}
+    |   BICBuiltIn5 of {oper: BuiltIns.builtIn5Ops, arg1: backendIC, arg2: backendIC, arg3: backendIC, arg4: backendIC, arg5: backendIC}
+
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -195,9 +230,34 @@ struct
                 )
             end
 
-        |   BICBuiltIn (function, arglist) =>
+        |   BICBuiltIn0 { oper } =>
                 PrettyBlock (3, false, [],
-                    [ PrettyString(rtsFunctionName function), PrettyBreak(1, 0), printList("", arglist, ",") ]
+                    [ PrettyString(BuiltIns.builtIn0Repr oper), PrettyBreak(1, 0), printList("", [], ",") ]
+                )
+
+        |   BICBuiltIn1 { oper, arg1 } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.builtIn1Repr oper), PrettyBreak(1, 0), printList("", [arg1], ",") ]
+                )
+
+        |   BICBuiltIn2 { oper, arg1, arg2 } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.builtIn2Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
+                )
+
+        |   BICBuiltIn3 { oper, arg1, arg2, arg3 } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.builtIn3Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3], ",") ]
+                )
+
+        |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.builtIn4Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3, arg4], ",") ]
+                )
+
+        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } =>
+                PrettyBlock (3, false, [],
+                    [ PrettyString(BuiltIns.builtIn5Repr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, arg3, arg4, arg5], ",") ]
                 )
 
         |   BICExtract (BICLoadLocal addr) =>
@@ -451,6 +511,12 @@ struct
         and  argumentType = argumentType
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
+        and  builtIn0Ops = BuiltIns.builtIn0Ops
+        and  builtIn1Ops = BuiltIns.builtIn1Ops
+        and  builtIn2Ops = BuiltIns.builtIn2Ops
+        and  builtIn3Ops = BuiltIns.builtIn3Ops
+        and  builtIn4Ops = BuiltIns.builtIn4Ops
+        and  builtIn5Ops = BuiltIns.builtIn5Ops
     end
 
 end;
