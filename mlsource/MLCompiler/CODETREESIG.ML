@@ -63,7 +63,6 @@ sig
     val mkTuple:            codetree list -> codetree
     val mkDatatype:         codetree list -> codetree
     val mkRaise:            codetree -> codetree
-    val mkNot:              codetree -> codetree
     val mkCor:              codetree * codetree -> codetree
     val mkCand:             codetree * codetree -> codetree
     val mkHandle:           codetree * codetree -> codetree
@@ -82,6 +81,9 @@ sig
     val mkMutualDecs:       (int * codetree) list -> codeBinding
     val mkNullDec:          codetree -> codeBinding
     val mkContainer:        int * int * codetree -> codeBinding
+    
+    val mkNot:              codetree -> codetree
+    val mkIsShort:          codetree -> codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 
@@ -105,6 +107,11 @@ sig
     and mkBuiltIn3: BuiltIns.builtIn3Ops * codetree * codetree * codetree -> codetree
     and mkBuiltIn4: BuiltIns.builtIn4Ops * codetree * codetree * codetree * codetree -> codetree
     and mkBuiltIn5: BuiltIns.builtIn5Ops * codetree * codetree * codetree * codetree * codetree -> codetree
+
+    val mkBuiltIn0Fn: BuiltIns.builtIn0Ops -> codetree
+    and mkBuiltIn1Fn: BuiltIns.builtIn1Ops -> codetree
+    and mkBuiltIn2Fn: BuiltIns.builtIn2Ops -> codetree
+    and mkBuiltIn3Fn: BuiltIns.builtIn3Ops -> codetree
 
     structure Foreign: FOREIGNCALLSIG
     structure Sharing:

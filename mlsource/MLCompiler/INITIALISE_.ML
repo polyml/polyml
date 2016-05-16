@@ -639,7 +639,7 @@ struct
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkBuiltIn(POLY_SYS_word_eq, [mkLoadClosure 0, mkLoadArgument 0]),
+                                        mkBuiltIn2(BuiltIns.EqualBitwiseWord, mkLoadClosure 0, mkLoadArgument 0),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
@@ -665,7 +665,7 @@ struct
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                                mkBuiltIn2(BuiltIns.EqualBitwiseWord, mkLoadLocal 0, mkLoadLocal 1),
                                 (* Equal - test the contents. *)
                                 mkEval(mkLoadLocal 2, [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
@@ -707,7 +707,7 @@ struct
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkBuiltIn(POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
+                            mkBuiltIn2(BuiltIns.EqualBitwiseWord, mkLoadLocal 0, mkLoadLocal 1),
                             (* Equal - test the contents. *)
                             mkEnv([
                                 (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by

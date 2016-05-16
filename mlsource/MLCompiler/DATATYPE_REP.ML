@@ -131,8 +131,7 @@ struct
                 (* Tag is first field.  It is always present and is always the tag so
                    we can use mkInd here rather than mkVarField. *)
 
-            fun testBoxed (v: codetree) = (* not (isShort v) *)
-                mkBuiltIn1(BuiltIns.NotBoolean, mkBuiltIn(POLY_SYS_is_short, [v]))
+            val testBoxed = mkNot o mkIsShort (* not (isShort v) *)
 
             (* get the tag from a TaggedBox or ConstForm *)
             fun loadTag (u: machineWord) : machineWord = 

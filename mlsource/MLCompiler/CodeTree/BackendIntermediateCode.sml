@@ -28,6 +28,7 @@ struct
 
         and builtIn1Ops =
             NotBoolean
+        |   IsTaggedValue
 
         and builtIn2Ops =
             EqualBitwiseWord
@@ -42,8 +43,12 @@ struct
             Built5PlaceHolder
         
         fun builtIn0Repr Built0PlaceHolder = "Built0PlaceHolder"
+
         and builtIn1Repr NotBoolean = "NotBoolean"
+        |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
+
         and builtIn2Repr EqualBitwiseWord = "EqualBitwiseWord"
+
         and builtIn3Repr Built3PlaceHolder = "Built3PlaceHolder"
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
         and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"
