@@ -22,10 +22,6 @@ infix  4  = <> > >= < <=
 infix  3  := o
 infix  0  before
 
-(* Types and values from the initial Bool structure. *)
-datatype bool = datatype Bool.bool
-val not = Bool.not;
-
 (* Set up the overloading first so we can use it in the rest of the
    prelude. Setting up overloads is messy because of the need to capture
    the inline code for the functions. *)
@@ -48,7 +44,7 @@ val not = Bool.not;
     local
         open RuntimeCalls
         type int = LargeInt.int
-        val isShort: int -> bool = RunCall.isShort
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
         val arbGeq: int*int->bool = RunCall.run_call2 POLY_SYS_int_geq
         val shortGeq: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_geq
@@ -72,7 +68,7 @@ val not = Bool.not;
     local
         open RuntimeCalls
         type int = LargeInt.int
-        val isShort: int -> bool = RunCall.isShort
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
         val arbLeq: int*int->bool = RunCall.run_call2 POLY_SYS_int_leq
         val shortLeq: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_leq
@@ -95,7 +91,7 @@ val not = Bool.not;
     local
         open RuntimeCalls
         type int = LargeInt.int
-        val isShort: int -> bool = RunCall.isShort
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
         val arbGtr: int*int->bool = RunCall.run_call2 POLY_SYS_int_gtr
         val shortGtr: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_gtr
@@ -118,7 +114,7 @@ val not = Bool.not;
     local
         open RuntimeCalls
         type int = LargeInt.int
-        val isShort: int -> bool = RunCall.isShort
+        val isShort: int -> bool = RunCall.run_call1 POLY_SYS_is_short
 
         val arbLss: int*int->bool = RunCall.run_call2 POLY_SYS_int_lss
         val shortLss: int*int->bool = RunCall.run_call2 POLY_SYS_fixed_lss
@@ -240,6 +236,7 @@ val not = Bool.not;
 
 (* A few useful functions which are in the top-level environment.
    Others are added later. *)
+val not: bool -> bool = RunCall.run_call1 RuntimeCalls.POLY_SYS_not_bool;
 
 local
     val System_setw: (* 'a ref*int*'a*) word*int*word ->unit  =
@@ -268,7 +265,7 @@ local
        the Char structure. *)
     open RuntimeCalls;
 
-    val isShortString   : string -> bool = RunCall.isShort
+    val isShortString   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
 
     fun convChar (s: string) : char =
     let

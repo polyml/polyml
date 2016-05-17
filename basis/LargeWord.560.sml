@@ -137,7 +137,7 @@ local
            it if necessary. *)
         val getFirstWord: LargeInt.int -> word =
             RunCall.run_call1 POLY_SYS_get_first_long_word
-        val isShortInt: LargeInt.int -> bool = RunCall.isShort
+        val isShortInt: LargeInt.int -> bool = RunCall.run_call1 POLY_SYS_is_short
     in
         (* We previously had a single RTS function to do this.  I've
            replaced that by this code.  Since most of the time we're
@@ -383,7 +383,7 @@ local
                     (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
 
                 fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
-                val isShortInt: LargeInt.int -> bool = RunCall.isShort
+                val isShortInt: LargeInt.int -> bool = RunCall.run_call1 POLY_SYS_is_short
             in
                 (* If it is short we just need to sign-extend it when storing it into
                    memory.  If it is long it's more complicated.  getFirstWord returns

@@ -35,6 +35,7 @@ use "mlsource/MLCompiler/DEBUGSIG.ML";
 use "mlsource/MLCompiler/MAKESIG.sml";
 use "mlsource/MLCompiler/MAKE_.ML";
 use "mlsource/MLCompiler/FOREIGNCALLSIG.sml";
+use "mlsource/MLCompiler/BUILTINS.sml";
 use "mlsource/MLCompiler/CODETREESIG.ML";
 use "mlsource/MLCompiler/STRUCT_VALS.ML";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCodeSig.sml";

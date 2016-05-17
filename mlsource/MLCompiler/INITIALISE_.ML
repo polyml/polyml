@@ -200,14 +200,18 @@ struct
         local
             val falseCons =
                 mkGconstr ("false", Bool,
-                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w1}, [], "false"), true, 2, declInBasis)
             val trueCons  =
                 mkGconstr ("true",  Bool,
-                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis);
+                    createNullaryConstructor(EnumForm{tag=0w1, maxTag=0w1}, [], "true"), true, 2, declInBasis)
+            val boolEnv = makeStructure(globalEnv, "Bool") (* Bool structure *)
+            val notFn =
+                mkGvar("not", Bool ->> Bool, mkBuiltIn1Fn BuiltIns.NotBoolean, declInBasis)
         in
-            val () = enterGlobalType  ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]));
-            val () = enterGlobalValue ("true",  trueCons);
-            val () = enterGlobalValue ("false", falseCons);
+            val () = #enterType boolEnv ("bool",  TypeConstrSet(boolConstr, [trueCons, falseCons]))
+            val () = #enterVal boolEnv ("true",  trueCons)
+            val () = #enterVal boolEnv ("false", falseCons)
+            val () = #enterVal boolEnv ("not", notFn)
         end;
         
         val () = enterGlobalType ("int", TypeConstrSet(if intIsArbitraryPrecision then intInfConstr else fixedIntConstr, []))
@@ -252,21 +256,23 @@ struct
         end
   
         local
-            val a = makeTV ();
-            val b = makeTV ();
-            val unsafeCastType = a ->> b;
+            (* unsafeCast.  Can be used to convert any value to any type. *)
+            val a = makeTV ()
+            val b = makeTV ()
 
-            val unsafeCastEntry : codetree =
-            let 
-                val name = "unsafeCast(1)";
-                val args  = 1;
-                val body  = mkLoadArgument 0  (* just the parameter *)
-            in
-                mkInlproc (body, args, name, [], 0)
-            end;
+            val unsafeCastEntry =
+                mkInlproc (mkLoadArgument 0  (* just the parameter *), 1, "unsafeCast(1)", [], 0)
         in
             val () =
-                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), unsafeCastType);
+                enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), a ->> b)
+        end
+
+        local
+            val a = makeTV()
+        in
+            (* isShort - test if a value is tagged rather than being an address. *)
+            val () =
+                enterRunCall ("isShort", makePolymorphic([a], mkBuiltIn1Fn BuiltIns.IsTaggedValue), a ->> Bool)
         end
 
         local
@@ -557,7 +563,7 @@ struct
         in
             val () = #enterType fixedIntEnv ("int", TypeConstrSet(fixedIntConstr, []))
         end
-
+        
         val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =

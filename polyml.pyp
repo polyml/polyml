@@ -99,6 +99,7 @@
 	<source name="basis\Word8Array.sml" />
 	<source name="basis\WordSignature.sml" />
 	<source name="mlsource\MLCompiler\Address.ML" />
+	<source name="mlsource\MLCompiler\BUILTINS.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\BaseCodeTree.sml" />
