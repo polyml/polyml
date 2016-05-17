@@ -273,6 +273,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         space->isMutable = flags & MTF_WRITEABLE ? true : false;
         space->noOverwrite = flags & MTF_NO_OVERWRITE ? true : false;
         space->byteOnly = flags & MTF_BYTES ? true : false;
+        space->isCode = flags & MTF_EXECUTABLE ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
         if (index >= nextIndex) nextIndex = index+1;
@@ -354,13 +355,14 @@ MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 
 
 // Create and initialise a new export space and add it to the table.
-PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv)
+PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv, bool code)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace;
         space->spaceType = ST_EXPORT;
         space->isMutable = mut;
         space->noOverwrite = noOv;
+        space->isCode = code;
         space->index = nextIndex++;
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);

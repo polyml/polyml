@@ -182,7 +182,8 @@ typedef struct _savedStateSegmentDescr
 #define SSF_WRITABLE    1               // The segment contains mutable data
 #define SSF_OVERWRITE   2               // The segment overwrites the data (mutable) in a parent.
 #define SSF_NOOVERWRITE 4               // The segment must not be further overwritten
-#define SSF_BYTES       8               // The segment containing only byte data
+#define SSF_BYTES       8               // The segment contains only byte data
+#define SSF_CODE        16              // The segment contains only code
 
 typedef struct _relocationEntry
 {
@@ -488,7 +489,7 @@ void SaveRequest::Perform()
                 if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
                 if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
             }
-            else
+            else if (space->isCode)
                 entry->mtFlags = MTF_EXECUTABLE;
         }
     }
@@ -508,7 +509,7 @@ void SaveRequest::Perform()
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
             if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
         }
-        else
+        else if (space->isCode)
             entry->mtFlags = MTF_EXECUTABLE;
     }
 
