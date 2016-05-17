@@ -22,7 +22,7 @@ local
        to be processed specially because the IDs don't have printer functions. *)
     fun exnPrint depth _ exn =
     let
-        val (exnId, exnName, exnArg, _) = unsafeCast exn
+        val (exnId, exnName, exnArg, _) = RunCall.unsafeCast exn
 
         (* This parenthesis code is used in various places and probably should be centralised. *)
         fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
@@ -48,11 +48,11 @@ local
         if RunCall.isShort exnId
         then
             case exn of
-                Conversion s => stringException(exnName, s)
+                RunCall.Conversion s => stringException(exnName, s)
             |   Fail s => stringException(exnName, s)
-            |   Foreign s => stringException(exnName, s)
-            |   Thread s => stringException(exnName, s)
-            |   XWindows s => stringException(exnName, s)
+            |   RunCall.Foreign s => stringException(exnName, s)
+            |   RunCall.Thread s => stringException(exnName, s)
+            |   RunCall.XWindows s => stringException(exnName, s)
             |   OS.SysErr param =>
                     parameterException("SysErr",
                         if depth <= 1 then PrettyString "..." else PolyML.prettyRepresentation(param, depth-1))
