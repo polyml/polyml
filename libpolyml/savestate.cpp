@@ -482,14 +482,15 @@ void SaveRequest::Perform()
             entry->mtAddr = space->bottom;
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
+            entry->mtFlags = 0;
             if (space->isMutable)
             {
-                entry->mtFlags = MTF_WRITEABLE;
+                entry->mtFlags |= MTF_WRITEABLE;
                 if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
                 if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
             }
-            else if (space->isCode)
-                entry->mtFlags = MTF_EXECUTABLE;
+            if (space->isCode)
+                entry->mtFlags |= MTF_EXECUTABLE;
         }
     }
     unsigned permanentEntries = memTableCount; // Remember where new entries start.
@@ -502,14 +503,15 @@ void SaveRequest::Perform()
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
+        entry->mtFlags = 0;
         if (space->isMutable)
         {
-            entry->mtFlags = MTF_WRITEABLE;
+            entry->mtFlags |= MTF_WRITEABLE;
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
             if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
         }
-        else if (space->isCode)
-            entry->mtFlags = MTF_EXECUTABLE;
+        if (space->isCode)
+            entry->mtFlags |= MTF_EXECUTABLE;
     }
 
     exports.memTableEntries = memTableCount;
