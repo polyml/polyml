@@ -503,6 +503,7 @@ bool MemMgr::DemoteImportSpaces()
                     space->fullGCLowerLimit = pSpace->bottom;
                 space->isMutable = pSpace->isMutable;
                 space->isOwnSpace = true;
+                space->isCode = pSpace->isCode;
                 if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                 {
                     if (debugOptions & DEBUG_MEMMGR)
