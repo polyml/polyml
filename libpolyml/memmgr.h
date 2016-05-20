@@ -343,6 +343,7 @@ public:
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);
+    bool AddCodeSpace(CodeSpace *space);
 
     POLYUNSIGNED reservedSpace;
     unsigned nextAllocator;

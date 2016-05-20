@@ -492,29 +492,52 @@ bool MemMgr::DemoteImportSpaces()
         else
         {
             try {
-                // Turn this into a local space.
+                // Turn this into a local space or a code space
                 // Remove this from the tree - AddLocalSpace will make an entry for the local version.
                 RemoveTree(pSpace);
-                LocalMemSpace *space = new LocalMemSpace;
-                space->top = pSpace->top;
-                // Space is allocated in local areas from the top down.  This area is full and
-                // all data is in the old generation.  The area can be recovered by a full GC.
-                space->bottom = space->upperAllocPtr = space->lowerAllocPtr =
-                    space->fullGCLowerLimit = pSpace->bottom;
-                space->isMutable = pSpace->isMutable;
-                space->isOwnSpace = true;
-                space->isCode = pSpace->isCode;
-                if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+
+                if (pSpace->isCode)
                 {
+                    CodeSpace *space = new CodeSpace;
+                    space->top = pSpace->top;
+                    // Space is allocated in local areas from the top down.  This area is full and
+                    // all data is in the old generation.  The area can be recovered by a full GC.
+                    space->bottom = pSpace->bottom;
+                    space->isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
+                    space->isOwnSpace = true;
+                    space->isCode = true;
+                    if (!AddCodeSpace(space))
+                    {
+                        if (debugOptions & DEBUG_MEMMGR)
+                            Log("MMGR: Unable to convert saved state space %p into code space\n", pSpace);
+                        return false;
+                    }
                     if (debugOptions & DEBUG_MEMMGR)
-                        Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
-                    return false;
+                        Log("MMGR: Converted saved state space %p into code space %p\n", pSpace, space);
                 }
-                if (debugOptions & DEBUG_MEMMGR)
-                    Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
-                            pSpace, pSpace->isMutable ? "im": "", space);
-                currentHeapSize += space->spaceSize();
-                globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
+                else
+                {
+                    LocalMemSpace *space = new LocalMemSpace;
+                    space->top = pSpace->top;
+                    // Space is allocated in local areas from the top down.  This area is full and
+                    // all data is in the old generation.  The area can be recovered by a full GC.
+                    space->bottom = space->upperAllocPtr = space->lowerAllocPtr =
+                        space->fullGCLowerLimit = pSpace->bottom;
+                    space->isMutable = pSpace->isMutable;
+                    space->isOwnSpace = true;
+                    space->isCode = false;
+                    if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                    {
+                        if (debugOptions & DEBUG_MEMMGR)
+                            Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
+                        return false;
+                    }
+                    if (debugOptions & DEBUG_MEMMGR)
+                        Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
+                                pSpace, pSpace->isMutable ? "im": "", space);
+                    currentHeapSize += space->spaceSize();
+                    globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
+                }
             }
             catch (std::bad_alloc&) {
                 if (debugOptions & DEBUG_MEMMGR)
@@ -656,28 +679,13 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
                 allocSpace->isMutable = true;
                 allocSpace->isCode = true;
                 allocSpace->isOwnSpace = true;
-                CodeSpace **table =
-                    (CodeSpace **)realloc(cSpaces, (ncSpaces+1) * sizeof(CodeSpace *));
-                if (table == 0)
+                if (! AddCodeSpace(allocSpace))
                 {
                     delete allocSpace;
                     allocSpace = 0;
                 }
-                else
-                {
-                    cSpaces = table;
-                    cSpaces[ncSpaces++] = allocSpace;
-                    if (debugOptions & DEBUG_MEMMGR)
-                        Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
-                    try {
-                        AddTree(allocSpace);
-                    }
-                    catch (std::bad_alloc&) {
-                        RemoveTree(allocSpace);
-                        delete allocSpace;
-                        allocSpace = 0;
-                    }
-                }
+                else if (debugOptions & DEBUG_MEMMGR)
+                    Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
             } catch (std::bad_alloc&)
             {
             }
@@ -697,6 +705,24 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
     if (allocSpace->topPointer != allocSpace->top)
         FillUnusedSpace(allocSpace->topPointer, allocSpace->top - allocSpace->topPointer);
     return result;
+}
+
+// Add a code space to the tables.  Used both for newly compiled code and also demoted saved spaces.
+bool MemMgr::AddCodeSpace(CodeSpace *space)
+{
+    CodeSpace **table =
+        (CodeSpace **)realloc(cSpaces, (ncSpaces+1) * sizeof(CodeSpace *));
+    if (table == 0) return false;
+    try {
+        AddTree(space);
+    }
+    catch (std::bad_alloc&) {
+        RemoveTree(space);
+        return false;
+    }
+    cSpaces = table;
+    cSpaces[ncSpaces++] = space;
+    return true;
 }
 
 // Check that we have sufficient space for an allocation to succeed.
