@@ -101,6 +101,7 @@ typedef char TCHAR;
 #include "osmem.h"
 #include "gc.h" // For FullGC.
 #include "timing.h"
+#include "check_objects.h"
 
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
@@ -525,6 +526,11 @@ void SaveRequest::Perform()
         fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
+    for (unsigned l = 0; l < gMem.ncSpaces; l++)
+    {
+        CodeSpace *space = gMem.cSpaces[l];
+        fixup.ScanAddressesInRegion(space->bottom, space->top);
+    }
     GCModules(&fixup);
 
     // Update the global memory space table.  Old segments at the same level
@@ -647,6 +653,8 @@ void SaveRequest::Perform()
     (void)AddHierarchyEntry(fileName, saveHeader.timeStamp);
 
     delete[](descrs);
+
+    CheckMemory();
 }
 
 Handle SaveState(TaskData *taskData, Handle args)
