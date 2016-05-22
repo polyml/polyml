@@ -65,7 +65,7 @@ struct
     |   FunctionCall of { regArgs: (argument * genReg) list, stackArgs: argument list, dest: argument, isTail: bool}
 
         (* Allocate a tuple or a function closure. *)
-    |   AllocateMemoryToPreg of { size: int, isMutable: bool, dest: argument}
+    |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -87,10 +87,9 @@ struct
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: argument }
 
-        (* Indexed case.  This could possibly be simplified. *)
+        (* Indexed case. *)
     |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: iLabel,
-                         cases: (iLabel * word) list, exhaustive: bool, min: word, max: word,
-                         arbitrary: bool }
+                         cases: (iLabel * word) list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: argument }
@@ -123,6 +122,12 @@ struct
         (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
     |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
 
+        (* Push a value to the stack.  Added during translation phase. *)
+    |   PushValue of { arg: argument }
+
+        (* Remove items from the stack.  Added during translation phase. *)
+    |   ResetStackPtr of { numWords: int }
+
     
     exception InternalError = Misc.InternalError
 
@@ -145,22 +150,11 @@ struct
         ([UncondBranch label], label)
     end
 
-    and backJumpLabel() =
-    let
-        val loopLabel = mkLabel()
-    in
-        ([JumpLabel loopLabel], loopLabel)
-    end
-
-    and forwardJumpLabel v = [JumpLabel v]
-
-    and jumpBackwards (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
-
     fun loadMemory(reg, base, offset) =
-        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=reg}]
+        [MoveArgument{source=MemoryLocation{base=RealRegister(GenReg base), offset=offset}, dest=RealRegister(GenReg reg)}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
     and storeMemory(reg, base, offset) =
-        [StoreRegToMemory{toStore=reg, address=BaseOffset{base=base, offset=offset, index=NoIndex}}]
+        [MoveArgument{source=RealRegister(GenReg reg), dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset}}]
 
     (* Allocate memory.  N.B. Instructions are in reverse order. *)
     fun allocStore{size, flags, output, preserve} =
@@ -179,29 +173,171 @@ struct
 
 
     fun argToPReg(PReg n) = n | argToPReg _ = raise InternalError "argToPReg"
+    
+    (*fun argToGenReg(RealRegister(GenReg r)) = r | argToGenReg _ = raise InternalError "argToGenReg"*)
 
 
     fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs= _, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
     let
+
         (* The profile object is a single mutable with the F_bytes bit set. *)
         val profileObject = toMachineWord (alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0))
+        (* Switch to indicate if we want to trace where live data has been allocated. *)
+        val addAllocatingFunction =
+            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
+        
+        fun asGenReg(RealRegister(GenReg r)) = r
+        |   asGenReg _ = raise InternalError "asGenReg"
+
+        (* Turn the icode into machine code.  Reverse the result when we get there. *)
+        fun codeGenICode([], code, _) = List.rev code
+
+        |   codeGenICode(
+                (* Register-register move. *)
+                MoveArgument{ source=RealRegister(GenReg sourceReg), dest=RealRegister(GenReg destReg)} :: rest, code, context) =
+                codeGenICode(rest, MoveRR { source=sourceReg, output=destReg } :: code, context)
+
+        |   codeGenICode(
+                (* Load from memory. *)
+                MoveArgument{
+                    source=MemoryLocation{offset, base=RealRegister(GenReg baseReg)},
+                    dest=RealRegister(GenReg destReg)} :: rest, code, context) =
+                codeGenICode(rest, LoadMemR{source=BaseOffset{base=baseReg, offset=offset, index=NoIndex}, output=destReg} :: code, context)
+
+                (* Store to memory *)
+        |   codeGenICode(
+                MoveArgument{
+                    source=RealRegister(GenReg sourceReg),
+                    dest=MemoryLocation{offset, base=RealRegister(GenReg baseReg)}} :: rest, code, context) =
+                codeGenICode(rest,
+                    StoreRegToMemory{toStore=sourceReg, address=BaseOffset{base=baseReg, offset=offset, index=NoIndex}} :: code, context)
+
+                (* Move a short constant to a register *)
+        |   codeGenICode(MoveArgument {source=IntegerConstant srcValue, dest=RealRegister(GenReg destReg)} :: rest, code, context) =
+                codeGenICode(rest, MoveConstR{source=srcValue, output=destReg} :: code, context)
+
+                (* Move a long constant to a register *)
+        |   codeGenICode(MoveArgument {source=AddressConstant srcValue, dest=RealRegister(GenReg destReg)} :: rest, code, context) =
+                codeGenICode(rest, MoveLongConstR{source=srcValue, output=destReg} :: code, context)
+
+        |   codeGenICode(MoveArgument _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO MoveArgument"
+
+        |   codeGenICode(FunctionCall {isTail=false, ...} :: rest, code, context) =
+                codeGenICode(rest, CallFunction FullCall :: code, context)
+
+        |   codeGenICode(FunctionCall {isTail=true, ...} :: rest, code, context) =
+                codeGenICode(rest, JumpToFunction FullCall :: code, context)
+
+        |   codeGenICode(AllocateMemoryOperation { size, isMutable, dest} :: rest, code, context) =
+            let
+                val toReg = asGenReg dest
+                val flag = if isMutable then Address.F_mutable else 0w0
+
+                val allocCode =
+                    (* If we need to add the profile object *)
+                    if addAllocatingFunction
+                    then
+                        allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=[]} @
+                            [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
+                    else allocStore {size=size, flags=flag, output=toReg, preserve=[]}
+            in
+                codeGenICode(rest, List.rev allocCode @ code, context)
+            end
+
+        |   codeGenICode(InitialisationComplete _ :: rest, code, context) =
+                codeGenICode(rest, StoreInitialised :: code, context)
+
+        |   codeGenICode(StartLoop _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO StartLoop"
+
+        |   codeGenICode(EndLoop _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO EndLoop"
+
+        |   codeGenICode(JumpLoop {loopLabel, ...} :: rest, code, context as {loopArgs=(_, startLoop as Labels{uses, ...}, lab) :: _, ...}) =
+            let
+                val _ = loopLabel = lab orelse raise InternalError "codeICode: JumpLoop - mismatched labels"
+                val () = uses := !uses+1
+            in
+                codeGenICode(rest, UncondBranch startLoop :: code, context)
+            end
+
+        |   codeGenICode(JumpLoop _ :: _, _, _) = raise InternalError "codeICode: JumpLoop out of loop"
+ 
+        |   codeGenICode(RaiseExceptionPacket _ :: rest, code, context) =
+                codeGenICode(rest, RaiseException :: code, context)
+
+        |   codeGenICode(IndexedCaseOperation { testReg, workReg, default, cases, startValue} :: rest, code, context) =
+                raise InternalError "codeGenICode: TODO IndexedCaseOperation"
+(*            let
+                val rReg = asGenReg testReg and wReg = asGenReg workReg
+            in
+                codeGenICode(rest, IndexedCase{testReg=rReg, workReg=wReg, min=startValue, cases=caseLabels} :: code, context)
+            end*)
+
+        |   codeGenICode(LockMutable { addr } :: rest, code, context) =
+                codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code, context)
+
+        |   codeGenICode(ForwardJumpLabel _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO ForwardJumpLabel"
+
+        |   codeGenICode(UnconditionalForwardJump _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO UnconditionalForwardJump"
+
+        |   codeGenICode(JumpOnWordComparison _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO JumpOnWordComparison"
+
+        |   codeGenICode(PushExceptionHandler _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO PushExceptionHandler"
+
+        |   codeGenICode(PopExceptionHandler _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO PopExceptionHandler"
+ 
+        |   codeGenICode(BeginHandler _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO BeginHandler"
+
+        |   codeGenICode(ReturnResultFromFunction { numStackArgs, ... } :: rest, code, context) =
+                codeGenICode(rest, ReturnFromFunction numStackArgs :: code, context)
+
+        |   codeGenICode(
+                ArithmeticFunction{
+                    oper, resultReg=RealRegister(GenReg resReg), operand1=RealRegister(GenReg op1Reg), operand2=IntegerConstant op2Value
+                } :: rest, code, context) =
+            let
+                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+            in
+                codeGenICode(rest, ArithRConst { opc=oper, output=resReg, source=op2Value } :: code, context)
+            end
+
+        |   codeGenICode(ArithmeticFunction _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO ArithmeticFunction"
+
+        |   codeGenICode(JumpOnTag _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO JumpOnTag"
+
+        |   codeGenICode(PushValue { arg = RealRegister(GenReg r) } :: rest, code, context) =
+                codeGenICode(rest, PushR r :: code, context)
+
+        |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code, context) =
+                codeGenICode(rest, PushConst v :: code, context)
+
+        |   codeGenICode(PushValue _ :: _, _, _) =
+                raise InternalError "codeGenICode: TODO PushValue"
+
+        |   codeGenICode(ResetStackPtr {numWords} :: rest, code, context) =
+                codeGenICode(rest, ResetStack numWords :: code, context)
+
+            (* MoveStackArgToPreg should have been removed by earlier passes. *)
+        |   codeGenICode(MoveStackArgToPreg _ :: _, _, _) =
+                raise InternalError "codeGenICode: MoveStackArgToPreg"
+
+            (* ReserveContainer should have been removed by earlier passes. *)
+        |   codeGenICode(ReserveContainer _ :: _, _, _) =
+                raise InternalError "codeGenICode: ReserveContainer"
 
         (* We may need to create additional labels. *)
         val labelCounter = ref maxLabels
         fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
-
-        local
-            val addAllocatingFunction =
-                DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
-        in
-            fun allocateHeap(size, flag, toReg) =
-            (* If we need to add the profile object *)
-            if addAllocatingFunction
-            then
-                allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=[]} @
-                    [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
-            else allocStore {size=size, flags=flag, output=toReg, preserve=[]}
-        end
 
         val maxStack = ref 0 (* High-water mark *)
 
@@ -210,6 +346,8 @@ struct
         datatype state = NormalState of { valueStack : {preg: int, loc: pregLoc} list } | Exited
         
         val initialState = {valueStack=[]} (* Initial and final state. *)
+
+        val raxAsArg = RealRegister(GenReg eax)
 
         (* Return the location on the real stack immediately above the top item. *)
         local
@@ -229,7 +367,8 @@ struct
     
         fun loadSource(source, dest, state) =
             case findEntry (source, state) of
-                InRax => if dest = eax then [] else [MoveRR { source=eax, output=dest }]
+                InRax =>
+                    if dest = eax then [] else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest)}]
             |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
 
         (* If the top of the stack is in RAX push it otherwise do nothing. *)
@@ -239,7 +378,7 @@ struct
                 val () = if sp >= !maxStack then maxStack := sp+1 else ()
             in
                 (* Return the updated state with the value pushed. *)
-                ({valueStack={preg=preg, loc=OnStack sp} :: stack}, [PushR eax])
+                ({valueStack={preg=preg, loc=OnStack sp} :: stack}, [PushValue{arg=raxAsArg}])
             end
         |   pushRax stack = (stack, [])
 
@@ -267,7 +406,7 @@ struct
             and oldSp = stackPtr oldState
             val newState = addRaxToState(oldState, target)
             val code =
-                if currentSp = oldSp then [] else [ResetStack(currentSp - oldSp)]
+                if currentSp = oldSp then [] else [ResetStackPtr{numWords=currentSp - oldSp}]
         in
             (newState, code)
         end
@@ -310,7 +449,7 @@ struct
                         (* There is no drop-through to consider because the preceding instruction
                            was an unconditional jump or something similar.  We can just set the state
                            and continue. *)
-                        codeICode{icode=rest, state=NormalState labelState, code=forwardJumpLabel labelCode @ code,
+                        codeICode{icode=rest, state=NormalState labelState, code=JumpLabel labelCode :: code,
                                   context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
 
                 |   (NormalState cstate, SOME(_, labelState, labelCode)) =>
@@ -348,14 +487,19 @@ struct
                                 let
                                     val currentSp = stackPtr cstate and finalSp = stackPtr composite
                                 in
-                                    (composite, if currentSp = finalSp then [] else [ResetStack(currentSp-finalSp)])
+                                    (composite, if currentSp = finalSp then [] else [ResetStackPtr{numWords=currentSp-finalSp}])
                                 end
                             |   SOME resReg => resetStack(cstate, composite, argToPReg resReg)
                     in
                         if labelSp = finalSp
                         then (* We don't need to do anything to the incoming branch. *)
-                            codeICode{icode=rest, state=NormalState finalState, code=forwardJumpLabel labelCode @ adjustSpOnDropThrough @ code,
-                                      context={forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}}
+                        let
+                            val newContext = {forwardLabels=newLabels, loopArgs=loopArgs, handlers=handlers}
+                        in
+                            codeICode{icode=rest, state=NormalState finalState,
+                                      code=JumpLabel labelCode :: codeGenICode(adjustSpOnDropThrough, [], newContext) @ code,
+                                      context=newContext}
+                        end
                         else (* We're going to have to adjust the stack pointer on the incoming branch.
                                 We can't actually do that so instead we have to branch and merge again. *)
                         let
@@ -368,7 +512,7 @@ struct
                                    it should all work. *)
                                 icode=UnconditionalForwardJump{label=extraLabel} :: ForwardJumpLabel{label=label, result=result} ::
                                       ForwardJumpLabel{label=extraLabel, result=result} :: rest,
-                                state=NormalState finalState, code=adjustSpOnDropThrough @ code,
+                                state=NormalState finalState, code=codeGenICode(adjustSpOnDropThrough, [], context) @ code,
                                 context=context (* Original context - we haven't fixed up the label yet. *)}
                         end
                     end
@@ -497,9 +641,10 @@ struct
                         PushMem{base=ebp, offset=memRegHandlerRegister}
                     ]
                 val startState = {valueStack={preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: #valueStack pushedState}
+                val newContext = {forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}
             in
-                codeICode{icode=rest, state=NormalState startState, code=setHandler @ pushCode @ code,
-                                      context={forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}}
+                codeICode{icode=rest, state=NormalState startState,
+                          code=setHandler @ codeGenICode(pushCode, [], newContext) @ code, context=newContext}
             end
 
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised. *)
@@ -523,7 +668,7 @@ struct
                 (* The result state is after the handler has been popped. *)
                 val resultState = addRaxToState({valueStack=tl(#valueStack handlerStartState)}, resReg)
             in
-                codeICode{icode=rest, state=NormalState resultState, code=restoreHandle @ resetCode @ code, context=context}
+                codeICode{icode=rest, state=NormalState resultState, code=restoreHandle @ codeGenICode(resetCode, [], context) @ code, context=context}
             end
 
             (* MoveArgument - this is used for loads, stores and moves.  *)
@@ -536,7 +681,7 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=load @ pushCode @ code, context=context}
+                    code=codeGenICode(load @ pushCode, [], context) @ code, context=context}
             end
 
         |   codeICode{icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg destReg} :: rest, state=NormalState state, code, context} =
@@ -547,19 +692,19 @@ struct
                 if srcReg = eax
                 then codeICode{
                         icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                        code=pushCode @ code, context=context}
+                        code=codeGenICode(pushCode, [], context) @ code, context=context}
                 else
                 let
                     val sp = stackPtr pushedState
                 in
                     codeICode{
                         icode=rest, state=NormalState({valueStack={preg=destReg, loc=OnStack sp} :: #valueStack pushedState}),
-                        code=PushR srcReg :: (pushCode @ code), context=context}
+                        code=codeGenICode(PushValue{arg=RealRegister(GenReg srcReg)} :: pushCode, [], context) @ code, context=context}
                 end
             end
             
             (* Move a constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source=AddressConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as AddressConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 (* The constant should be an address. *)
@@ -567,18 +712,18 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=MoveLongConstR{source=srcValue, output=eax} :: (pushCode @ code),
+                    code=codeGenICode(MoveArgument{source=source, dest=raxAsArg} :: pushCode, [], context) @ code,
                     context=context}
             end
 
             (* Move a short constant to a preg.  First push anything in RAX then load the constant into RAX. *)
-        |   codeICode{icode=MoveArgument{source=IntegerConstant srcValue, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=MoveArgument{source as IntegerConstant _, dest=PReg destReg} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=MoveConstR{source=srcValue, output=eax} :: (pushCode @ code),
+                    code=codeGenICode(MoveArgument{source=source, dest=raxAsArg} :: pushCode, [], context) @ code,
                     context=context}
             end
 
@@ -592,7 +737,7 @@ struct
                 val poppedState = checkTopInRax(state, bReg)
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(poppedState, destReg)),
-                    code=loadMemory(eax, eax, offset) @ code, context=context}
+                    code=codeGenICode([MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg}, dest=raxAsArg}], [], context) @ code, context=context}
             end
 
             (* Store a pseudo-register in a memory location. *)
@@ -609,11 +754,11 @@ struct
                             else raise InternalError "MoveArgument to MemoryLocation"
                     |   _ => raise InternalError "MoveArgument to MemoryLocation"
                 (* Pop the value to store into ebx and store it in the tuple. *)
-                val store = storeMemory(ebx, eax, offset) @ [PopR ebx]
+                val store = storeMemory(ebx, eax, offset) @ (ResetStackPtr{numWords=1} :: loadMemory(ebx, esp, 0))
             in
                 codeICode{
                     (* We currently have the base in eax.  Leave it there because it may be used again. *)
-                    icode=rest, state=NormalState(addRaxToState(newState, bReg)), code=store @ code, context=context}
+                    icode=rest, state=NormalState(addRaxToState(newState, bReg)), code=codeGenICode(store, [], context) @ code, context=context}
             end
 
             (* Other combinations of move aren't used at the moment. *)
@@ -630,25 +775,24 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=load @ pushCode @ code, context=context}
+                    code=codeGenICode(load @ pushCode, [], context) @ code, context=context}
             end
             
-        |   codeICode{icode=AllocateMemoryToPreg{ size, isMutable, dest} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryOperation{ size, isMutable, dest} :: rest, state=NormalState state, code, context} =
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
-                val alloc = allocateHeap(size, if isMutable then Address.F_mutable else 0w0, eax)
             in
                 codeICode{
                     icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=alloc @ pushCode @ code, context=context}
+                    code=codeGenICode(AllocateMemoryOperation{ size=size, isMutable=isMutable, dest=raxAsArg} :: pushCode, [], context) @ code, context=context}
             end
 
             (* Marks the end of setting the fields of a tuple.  This is used in the next
                level to avoid reordering a new allocation until a previously allocated
                section of memory has been fully initialised. *)
-        |   codeICode{icode=InitialisationComplete _ :: rest, state, code, context} =
-                codeICode{icode=rest, state=state, code=StoreInitialised :: code, context=context}
+        |   codeICode{icode=(instr as InitialisationComplete _) :: rest, state, code, context} =
+                codeICode{icode=rest, state=state, code=codeGenICode([instr], [], context) @ code, context=context}
 
             (* Function call. *)
         |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state=NormalState state, code, context} =
@@ -685,7 +829,7 @@ struct
                 (* Add the result value in Rax to the state *)
                 val (finalState, stackReset) = resetStack(addRaxToState({valueStack=returnState}, destReg), poppedState, destReg)
                 val functionCode =
-                    stackReset @ [CallFunction FullCall] @ doLoad @ pushCode @ code
+                    codeGenICode(stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg}] @ doLoad @ pushCode, [], context) @ code
             in
                 codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
             end
@@ -716,10 +860,9 @@ struct
                         copyArgs(n-1, rl) @ storeMemory(esi, esp, (argOffset+n)*wordSize) @ loadSource(argToPReg r, esi, pushedState)
                 val moveArgs = copyArgs(numArgsToMove, stackArgs)
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
-
                 val functionCode =
-                    JumpToFunction FullCall :: ResetStack argOffset ::
-                        (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
+                        (codeGenICode(FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg} ::
+                                      ResetStackPtr {numWords=argOffset} :: (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode), [], context) @ code)
             in
                 codeICode{icode=rest, state=Exited, code=functionCode, context=context}
             end
@@ -738,15 +881,16 @@ struct
                 val newHead = ListPair.mapEq repSourceWithDest (List.rev arguments, headList)
                 val tailList = List.drop(#valueStack pushedState, numArgs)
                 val bodyState = {valueStack=newHead @ tailList}
-                val (startLoopCode, startLoop) = backJumpLabel()
+                val startLoop = mkLabel()
+                val newContext = {loopArgs=(bodyState, startLoop, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}
             in
-                codeICode{icode=rest, state=NormalState bodyState, code=startLoopCode @ pushCode @ code,
-                          context={loopArgs=(bodyState, startLoop, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}}
+                codeICode{icode=rest, state=NormalState bodyState, code=JumpLabel startLoop :: codeGenICode(pushCode, [], newContext) @ code,
+                          context=newContext}
             end
 
             (* A loop tail jump.  The arguments have been evaluated to the stack. *)
-        |   codeICode{icode=JumpLoop{arguments, loopLabel} :: rest, state=NormalState state, code,
-                      context=context as {loopArgs=(startState, startLoop, lab) :: _, ...}} =
+        |   codeICode{icode=(JumpLoop{arguments, loopLabel}) :: rest, state=NormalState state, code,
+                      context=context as {loopArgs=(startState, _, lab) :: _, ...}} =
             let
                 val _ = loopLabel = lab orelse raise InternalError "codeICode: JumpLoop - mismatched labels"
                 (* Move each argument from the source to the loop variable.  This isn't the same as
@@ -762,10 +906,10 @@ struct
                     store @ load
                 end
                 val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] arguments
-                val resetCode = [ResetStack(stackPtr state - stackPtr startState)]
+                val instrs =
+                    JumpLoop{arguments=[], loopLabel=loopLabel} :: ResetStackPtr{numWords=stackPtr state - stackPtr startState} :: storeAll
             in
-                codeICode{icode=rest, state=Exited,
-                          code=jumpBackwards startLoop @ resetCode @ storeAll @ code, context=context}
+                codeICode{icode=rest, state=Exited, code=codeGenICode(instrs, [], context) @ code, context=context}
             end
 
         |   codeICode{icode=JumpLoop _ :: _, ...} =
@@ -778,7 +922,7 @@ struct
                 val pktReg = argToPReg packet
                 val load = loadSource(pktReg, eax, state)
             in
-                codeICode{icode=rest, state=Exited, code=RaiseException :: (load @ code), context=context}
+                codeICode{icode=rest, state=Exited, code=codeGenICode(RaiseExceptionPacket {packet=raxAsArg } :: load, [], context) @ code, context=context}
             end
 
             (* Reserve a contiguous area of memory on the stack.  This is used to receive the
@@ -789,15 +933,15 @@ struct
                 val addrReg = argToPReg address
                 val (pushedState, pushCode) = pushRax state
                 (* The memory must be cleared in case we have a GC. *)
-                val pushAll = List.tabulate(size, fn _ => PushConst(tag 0))
+                val pushAll = List.tabulate(size, fn _ => PushValue{arg=IntegerConstant(tag 0)})
                 val sp = stackPtr pushedState
             in
                 codeICode{icode=rest,
                     state=NormalState({valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState}),
-                    code=MoveRR{source=esp, output=eax} :: (pushAll @ pushCode @ code), context=context}
+                    code=codeGenICode(MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg} :: (pushAll @ pushCode), [], context) @ code, context=context}
             end
 
-        |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, exhaustive, min, max, arbitrary} :: rest,
+        |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, default, cases, startValue} :: rest,
                       state=NormalState state, code, context={loopArgs, handlers, forwardLabels}} =
             let
                 val tReg = argToPReg testReg
@@ -805,7 +949,7 @@ struct
                 val startState = checkTopInRax(state, tReg)
 
                 val testReg=eax and workReg=ebx
-                val defaultLabel as Labels{uses=defUses, ...} = mkLabel()
+                val defaultLabel = mkLabel()
                 fun makeLab _ =
                 let
                     val lab as Labels{uses, ...} = mkLabel()
@@ -814,32 +958,9 @@ struct
                     lab
                 end
                 val caseLabels = List.map makeLab cases
-                val testCode =
-                    if exhaustive
-                    then []
-                    else
-                    let
-                        (* If this is an arbitrary precision int we need to check it's short
-                           and go to the default if it isn't. *)
-                        val testTag =
-                            if arbitrary
-                            then
-                            (
-                                defUses := 3;
-                                [ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLabel},
-                                 TestTagR testReg]
-                            )
-                            else (defUses := 2; [])
-                        (* Range checks. *)
-                        val rangeChecks =
-                            [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLabel},
-                             ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt max) },
-                             ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLabel},
-                             ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toLargeInt min) }]
-                    in
-                        rangeChecks @ testTag 
-                    end
-                val indexCaseInstr = IndexedCase{testReg=testReg, workReg=workReg, min=min, cases=caseLabels} :: testCode
+                val testCode = []
+                    
+                val indexCaseInstr = IndexedCase{testReg=testReg, workReg=workReg, min=startValue, cases=caseLabels} :: testCode
 
                 (* This behaves rather like an unconditional branch except that it can go to several places.
                    The case labels and the default label have to be added to the label list. *)
@@ -857,32 +978,38 @@ struct
             let
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(argToPReg addr, eax, pushedState)
-                val lockCode = LockMutableSegment eax :: (load @ pushCode) @ code
+                val lockCode = LockMutable {addr=raxAsArg} :: (load @ pushCode)
             in
-                codeICode{icode=rest, state=NormalState pushedState, code=lockCode, context=context}
+                codeICode{icode=rest, state=NormalState pushedState, code=codeGenICode(lockCode, [], context) @ code, context=context}
             end
 
        |    codeICode{icode=ReturnResultFromFunction{ resultReg, numStackArgs } :: rest, state=NormalState state, code, context} =
             let
                 val resReg = argToPReg resultReg
                 val (_, resetCode) = resetStack(state, initialState, resReg)
-                val returnCode = ReturnFromFunction numStackArgs :: (resetCode @ code)
+                val returnCode = ReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs } :: resetCode
             in
                 (* We may have more than one return point so we can't just stop here. *)
-                codeICode{icode=rest, state=Exited, code=returnCode, context=context}
+                codeICode{icode=rest, state=Exited, code=codeGenICode(returnCode, [], context) @ code, context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1, operand2 } :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg oper1Reg, operand2 as IntegerConstant _ } :: rest,
+                      state=NormalState state, code, context} =
             let
                 val resReg = argToPReg resultReg
-                and oper1Reg = argToPReg operand1
-                val op2Value = case operand2 of IntegerConstant v => v | _ => raise InternalError "TODO: ArithmeticFunction"
                 val topState = checkTopInRax(state, oper1Reg)
                 val resultState = addRaxToState(topState, resReg)
-                val resCode = ArithRConst { opc=oper, output=eax, source=op2Value } :: code
+                val resCode = [ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2 }]
             in
-                codeICode{icode=rest, state=NormalState resultState, code=resCode, context=context}
+                codeICode{icode=rest, state=NormalState resultState, code=codeGenICode(resCode, [], context) @ code, context=context}
             end
+
+        |   codeICode{icode=ArithmeticFunction _ :: _, ...} =
+                raise InternalError "TODO: ArithmeticFunction"
+
+            (* These should not occur here.  They are only added during this phase. *)
+        |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
+        |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
 
         val (fnState, fnCode) = codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
         val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
@@ -915,7 +1042,7 @@ struct
             val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
         in
             [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
-            skipCheck @ pushThenPop saveRegs @ forwardJumpLabel skipCheckLab
+            skipCheck @ pushThenPop saveRegs @ [JumpLabel skipCheckLab]
         end
         val preludeCode =
             if stackRequired >= minStackCheck

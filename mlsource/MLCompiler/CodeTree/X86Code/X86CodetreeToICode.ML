@@ -262,6 +262,33 @@ struct
                 (* Put in the default case.  Even when the case is exhaustive one entry is
                    always treated as a default and not included in the list of cases. *)
                 val defaultLabel = newLabel()
+                
+                (* Unless this is exhaustive we need to add some range checks.  These all
+                   jump to the default case. *)
+                val (rangeChecks, extraDefaults) =
+                    if isExhaustive
+                    then ([], [])
+                    else
+                    let
+                        val (testTag, tagDefault) =
+                            let
+                                val defLab = newLabel()
+                                val tReg = newPReg()
+                            in
+                                ([MoveArgument {source=testReg, dest=tReg}, JumpOnTag{arg=tReg, onShort=false, label=defLab}], [defLab])
+                            end
+                        val defLab1 = newLabel() and defLab2 = newLabel()
+                        val tReg1 = newPReg() and tReg2 = newPReg()
+                        val testCode =
+                            [
+                                MoveArgument {source=testReg, dest=tReg1},
+                                JumpOnWordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), condition=JA, label=defLab1},
+                                MoveArgument {source=testReg, dest=tReg2},
+                                JumpOnWordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), condition=JB, label=defLab2}
+                            ]
+                    in
+                        (testTag @ testCode, defLab1 :: defLab2 :: tagDefault)
+                    end
 
                 (* Generate the code for each of the cases and the default.  We need to put an
                    unconditional branch after each to skip the other cases.  *)
@@ -282,12 +309,12 @@ struct
                 |   codeCases [] =
                     let
                         (* We need to add labels for all the gaps we filled and also for a "default" label for
-                           the indexed-case instruction itself. *)
+                           the indexed-case instruction itself as well as any range checks. *)
                         fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
                         |   addDefault ((_, SOME _, _), l) = l
-                        val defLabels =
-                            List.foldl addDefault
-                                [ForwardJumpLabel{label=defaultLabel, result=NONE}] fullCaseRange
+                        fun asForward l = ForwardJumpLabel{label=l, result=NONE}
+                        val dLabs = map asForward (defaultLabel :: extraDefaults)
+                        val defLabels = List.foldl addDefault dLabs fullCaseRange
                     in
                         (* Put in the default.  Because this is the last we don't need to
                            jump round it. *)
@@ -298,9 +325,8 @@ struct
 
                 val codeLabels = map (fn (lab, _, value) => (lab, value)) fullCaseRange
             in
-                testCode @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultLabel,
-                                        cases=codeLabels, exhaustive=isExhaustive, min=min, max=max,
-                                        arbitrary=caseType = CaseInt}] @ codedCases
+                testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultLabel,
+                                        cases=codeLabels, startValue=min}] @ codedCases
             end
         
         |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, target) =
@@ -367,7 +393,7 @@ struct
         |   codeToICode(BICTuple fields, context, _, target) =
             let
                 fun loadFields([], n) =
-                        [AllocateMemoryToPreg{size=n, isMutable=false, dest=target}]
+                        [AllocateMemoryOperation{size=n, isMutable=false, dest=target}]
                 |   loadFields(f :: rest, n) =
                     let
                         val fReg = newPReg()
@@ -455,7 +481,7 @@ struct
                         val sizeClosure = List.length closure + 1
                         fun clear n =
                             if n = sizeClosure
-                            then [AllocateMemoryToPreg{size=sizeClosure, isMutable=true, dest=dest}]
+                            then [AllocateMemoryOperation{size=sizeClosure, isMutable=true, dest=dest}]
                             else
                             let
                                 val d = newPReg()
