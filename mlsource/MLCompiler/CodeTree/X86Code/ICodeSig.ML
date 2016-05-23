@@ -91,8 +91,7 @@ sig
     |   ReserveContainer of { size: int, address: argument }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: iLabel,
-                         cases: (iLabel * word) list, startValue: word }
+    |   IndexedCaseOperation of { testReg: argument, workReg: argument, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: argument }
@@ -109,12 +108,12 @@ sig
     |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument }
+    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument, workReg: argument }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  As a special case it must ensure that rax is
            preserved because that contains the exception packet. *) 
-    |   BeginHandler of { handleStart: iLabel }
+    |   BeginHandler of { handleStart: iLabel, workReg: argument }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
@@ -131,10 +130,8 @@ sig
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
-    val codeICodeFunctionToX86: {icode: x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
-            argRegsUsed: genReg list, hasFullClosure: bool, currentStackArgs: int,
-            debugSwitches: Universal.universal list } -> address
-
+    val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
+            functionName: string, debugSwitches: Universal.universal list } -> address
 
     structure Sharing:
     sig

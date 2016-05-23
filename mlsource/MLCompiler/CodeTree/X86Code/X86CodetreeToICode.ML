@@ -20,6 +20,9 @@ functor X86CodetreeToICode(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
     structure X86FOREIGN: FOREIGNCALLSIG
+    structure ICODETRANSFORM: X86ICODETRANSFORMSIG
+
+    sharing ICODE.Sharing = ICODETRANSFORM.Sharing
 ): GENCODESIG =
 struct
     open BACKENDTREE
@@ -259,9 +262,6 @@ struct
 
                 val testReg = newPReg() and workReg = newPReg()
                 val testCode = codeToICode(test, context, false, testReg)
-                (* Put in the default case.  Even when the case is exhaustive one entry is
-                   always treated as a default and not included in the list of cases. *)
-                val defaultLabel = newLabel()
                 
                 (* Unless this is exhaustive we need to add some range checks.  These all
                    jump to the default case. *)
@@ -313,7 +313,7 @@ struct
                         fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
                         |   addDefault ((_, SOME _, _), l) = l
                         fun asForward l = ForwardJumpLabel{label=l, result=NONE}
-                        val dLabs = map asForward (defaultLabel :: extraDefaults)
+                        val dLabs = map asForward extraDefaults
                         val defLabels = List.foldl addDefault dLabs fullCaseRange
                     in
                         (* Put in the default.  Because this is the last we don't need to
@@ -323,9 +323,9 @@ struct
                     
                 val codedCases = codeCases fullCaseRange
 
-                val codeLabels = map (fn (lab, _, value) => (lab, value)) fullCaseRange
+                val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
             in
-                testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg, default=defaultLabel,
+                testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
                                         cases=codeLabels, startValue=min}] @ codedCases
             end
         
@@ -385,9 +385,11 @@ struct
                 val handlerLab = newLabel()
                 val skipHandler = newLabel()
             in
-                [PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab}] @ expCode @
-                [PopExceptionHandler{handlerAddr=saveHandle, resultReg=target}, UnconditionalForwardJump{label=skipHandler},
-                 BeginHandler{handleStart=handlerLab}] @ handleCode @ [ForwardJumpLabel{label=skipHandler, result=SOME target}]
+                PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
+                [PopExceptionHandler{handlerAddr=saveHandle, resultReg=target, workReg=newPReg()},
+                 UnconditionalForwardJump{label=skipHandler},
+                 BeginHandler{handleStart=handlerLab, workReg=newPReg()}] @
+                 handleCode @ [ForwardJumpLabel{label=skipHandler, result=SOME target}]
             end
         
         |   codeToICode(BICTuple fields, context, _, target) =
@@ -659,6 +661,8 @@ struct
 
             val icode = pushClosureReg @ pushArgs @
                 codeToICode(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
+      
+        open ICODETRANSFORM
     in
         codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
