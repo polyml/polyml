@@ -52,10 +52,14 @@ struct
         val maxStack = ref 0 (* High-water mark *)
 
         datatype pregLoc = InRax | OnStack of int
-
-        datatype state = NormalState of { valueStack : {preg: int, loc: pregLoc} list } | Exited
         
-        val initialState = {valueStack=[]} (* Initial and final state. *)
+        (* The state of the condition codes. *)
+        datatype ccState = CCIndeterminate | CCState of ccRef * (branchOps->branchOps)
+
+        datatype state = NormalState of normalState | Exited
+        withtype normalState = { valueStack : {preg: int, loc: pregLoc} list, ccState: ccState }
+        
+        val initialState:normalState = {valueStack=[], ccState=CCIndeterminate} (* Initial and final state. *)
 
         val raxAsArg = RealRegister(GenReg eax)
 
@@ -65,14 +69,14 @@ struct
             |   stackP ({loc=OnStack sp, ...} :: _) = sp+1
             |   stackP (_ :: stack) = stackP stack
         in
-            fun stackPtr{valueStack} = stackP valueStack
+            fun stackPtr({valueStack, ...}: normalState) = stackP valueStack
         end
 
         local
             fun findE (_, []) = raise InternalError "findEntry: not found"
             |   findE (reg, {preg, loc} :: rest) = if reg = preg then loc else findE(reg, rest)
         in
-            fun findEntry(reg, {valueStack}) = findE(reg, valueStack)
+            fun findEntry(reg, {valueStack, ...}) = findE(reg, valueStack)
         end
     
         fun loadSource(source, dest, state) =
@@ -82,25 +86,28 @@ struct
             |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
 
         (* If the top of the stack is in RAX push it otherwise do nothing. *)
-        fun pushRax (state as {valueStack={preg, loc=InRax} :: stack }) =
+        fun pushRax (state as {valueStack={preg, loc=InRax} :: stack, ccState }) =
             let
                 val sp = stackPtr state
                 val () = if sp >= !maxStack then maxStack := sp+1 else ()
             in
-                (* Return the updated state with the value pushed. *)
-                ({valueStack={preg=preg, loc=OnStack sp} :: stack}, [PushValue{arg=raxAsArg}])
+                (* Return the updated state with the value pushed.  Pushing does not affect condition codes. *)
+                ({valueStack={preg=preg, loc=OnStack sp} :: stack, ccState=ccState}, [PushValue{arg=raxAsArg}])
             end
         |   pushRax stack = (stack, [])
 
         (* Add a pseudo-register containing rax to the top of the stack. *)
-        fun addRaxToState({valueStack}, destReg) = {valueStack={preg=destReg, loc=InRax} :: valueStack}
+        fun addRaxToState({valueStack, ccState}, destReg) =
+            {valueStack={preg=destReg, loc=InRax} :: valueStack, ccState=ccState}
 
         (* Check that the top of the stack is the required pseudo-register and the value is in Rax.
            Returns the state with this item popped. *)
-        fun checkTopInRax({valueStack={preg, loc=InRax } :: resultState}, checkReg) =
-            if preg = checkReg then {valueStack=resultState} else raise InternalError "checkTopInRax"
+        fun checkTopInRax({valueStack={preg, loc=InRax } :: resultState, ccState}, checkReg) =
+            if preg = checkReg then {valueStack=resultState, ccState=ccState} else raise InternalError "checkTopInRax"
         |   checkTopInRax _ = raise InternalError "checkTopInRax"
         
+        fun clearCC({valueStack, ...}:normalState): normalState = {valueStack=valueStack, ccState=CCIndeterminate}
+
         (* Reset the stack to value in the original state except that
            the target register should be moved into the result state. *)
         fun resetStack(state, oldState, target) =
@@ -110,7 +117,7 @@ struct
             (* Check that the top of the old state is not in a register. *)
             val () =
                 case oldState of
-                    {valueStack={loc=InRax, ...} :: _} => raise InternalError "resetStack"
+                    {valueStack={loc=InRax, ...} :: _, ...} => raise InternalError "resetStack"
                 |   _ => ()
             val currentSp = stackPtr state
             and oldSp = stackPtr oldState
@@ -118,7 +125,8 @@ struct
             val code =
                 if currentSp = oldSp then [] else [ResetStackPtr{numWords=currentSp - oldSp}]
         in
-            (newState, code)
+            (* Currently ResetStackPtr uses arithmetic operations that affect the condition codes. *)
+            (clearCC newState, code)
         end
 
         (* Process the code until the end.  The code list is built up in reverse order. *)
@@ -186,7 +194,8 @@ struct
                                 else hd :: matchStates(l1, l2)
 
                         val composite =
-                            {valueStack=List.rev(matchStates(List.rev (#valueStack dropThrough), List.rev (#valueStack labState)))}
+                            {valueStack=List.rev(matchStates(List.rev (#valueStack dropThrough), List.rev (#valueStack labState))),
+                             ccState=CCIndeterminate}
                         (* Currently the only thing we need to adjust is the stack pointer. *)
                         val finalSp = stackPtr composite
                         and labelSp = stackPtr labelState
@@ -261,37 +270,52 @@ struct
                codeICode{icode=rest, state=Exited, code=code, context=context}
 
         |   codeICode{icode=(instr as UnconditionalForwardJump{label}) :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
-            let
-                (*val (branchCode, lab) = uncondBranch()*)
-            in
                 codeICode{icode=rest, state=Exited, code=instr :: code,
                                       context={forwardLabels=(label, state) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+
+        |   codeICode{icode=ConditionalForwardJump{ccRef, condition, label} :: rest,
+                      state as NormalState labelState, code, context={forwardLabels, loopArgs, handlers}} =
+            let
+                (* Get the condition code.  It should be the state we set but we may have to change the
+                   test if that wasn't the original. *)
+                val testCondition =
+                    case labelState of
+                        {ccState=CCState(currentRef, condOp), ...} =>
+                            if currentRef = ccRef then condOp condition
+                            else raise InternalError "codeICode: condition ref incorrect"
+                    |   _ => raise InternalError "codeICode: condition ref unset"
+            in
+                codeICode{icode=rest, state=state, code=ConditionalForwardJump{ ccRef=ccRef, condition=testCondition, label=label } :: code,
+                                      context={forwardLabels=(label, labelState) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
             end
 
             (* Word comparison. *)
-        |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR, arg2=(c as IntegerConstant _), condition, label} :: rest,
-                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+        |   codeICode{icode=WordComparison{arg1=PReg testR, arg2=(c as IntegerConstant _), ccRef} :: rest,
+                      state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, testR)
+                (* The resulting state contains the condition we want to test. *)
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
             in
-                codeICode{icode=rest, state=NormalState startState, code=JumpOnWordComparison{ arg1=raxAsArg, arg2=c, condition=condition, label=label } :: code,
-                                      context={forwardLabels=(label, startState) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                codeICode{icode=rest, state=NormalState checkState,
+                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code, context=context}
             end
 
-        |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR, arg2=(c as AddressConstant _), condition, label} :: rest,
-                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+        |   codeICode{icode=WordComparison{arg1=PReg testR, arg2=(c as AddressConstant _), ccRef} :: rest,
+                      state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, testR)
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
             in
-                codeICode{icode=rest, state=NormalState startState,
-                          code=JumpOnWordComparison{ arg1=raxAsArg, arg2=c, condition=condition, label=label } :: code,
-                          context={forwardLabels=(label, startState) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                codeICode{icode=rest, state=NormalState checkState,
+                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code,
+                          context=context}
             end
 
-        |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR1, arg2=PReg testR2, condition, label} :: rest,
-                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+        |   codeICode{icode=WordComparison{arg1=PReg testR1, arg2=PReg testR2, ccRef} :: rest,
+                      state=NormalState state, code, context=context} =
             let
                 (* The second argument should be on the top of the stack and in rax. *)
                 val startState = checkTopInRax(state, testR2)
@@ -299,39 +323,39 @@ struct
                     case findEntry (testR1, state) of
                         OnStack s => s
                     |   _ => raise InternalError "codeICode: JumpOnWordComparison"
-                (* Change the test so that the first argument is in a register. *)
-                val revcond =
-                    case condition of
-                        JA  => JB
-                    |   JNA => JNA
-                    |   JB  => JA
-                    |   JNB => JNA
-                    |   JL  => JG
-                    |   JLE => JGE
-                    |   JG  => JL
-                    |   JGE => JLE
-                    |   t   => t
+                (* We want the first argument in the register so that means the condition codes
+                   we will test are reversed.. *)
+                fun revCond JA  = JB
+                |   revCond JNA = JNA
+                |   revCond JB  = JA
+                |   revCond JNB = JNA
+                |   revCond JL  = JG
+                |   revCond JLE = JGE
+                |   revCond JG  = JL
+                |   revCond JGE = JLE
+                |   revCond t   = t
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, revCond)}
             in
-                codeICode{icode=rest, state=NormalState startState,
-                          code=JumpOnWordComparison{
+                codeICode{icode=rest, state=NormalState checkState,
+                          code=WordComparison{
                                 arg1=raxAsArg,
                                 arg2=MemoryLocation{offset=(stackPtr state - secondArg - 1) * wordSize, base=RealRegister(GenReg esp)},
-                                condition=revcond, label=label} :: code,
-                          context={forwardLabels=(label, startState) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                                ccRef=ccRef} :: code,
+                          context=context}
             end
             
-        |   codeICode{icode=JumpOnWordComparison _ :: _, ...} =
+        |   codeICode{icode=WordComparison _ :: _, ...} =
                 raise InternalError "codeICode: JumpOnWordComparison TODO"
 
-        |   codeICode{icode=JumpOnTag{arg, onShort, label} :: rest,
-                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+        |   codeICode{icode=TestTagBit{arg, ccRef} :: rest, state=NormalState state, code, context} =
             let
                 val argReg = argToPReg arg
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
                 val startState = checkTopInRax(state, argReg)
+                val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i)}
             in
-                codeICode{icode=rest, state=NormalState startState, code=JumpOnTag{arg=raxAsArg, onShort=onShort, label=label} :: code,
-                          context={forwardLabels=(label, startState) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+                codeICode{icode=rest, state=NormalState checkState,
+                          code=TestTagBit{arg=raxAsArg, ccRef=ccRef} :: code, context=context}
             end
 
             (* Set up an exception handler. *)
@@ -341,7 +365,8 @@ struct
                 val (pushedState, pushCode) = pushRax state
                 val sp = stackPtr pushedState
                 val thisHandler = (handleStart, pushedState)
-                val startState = {valueStack={preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: #valueStack pushedState}
+                val startState =
+                    {valueStack={preg=sHandle, loc=OnStack(sp+1) (* Two words *)} :: #valueStack pushedState, ccState=CCIndeterminate}
                 val newContext = {forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}
             in
                 codeICode{icode=rest, state=NormalState startState,
@@ -357,11 +382,11 @@ struct
                 fun popState [] = raise InternalError "codeICode: PopExceptionHandler - not found"
                 |   popState (hState as ({preg, ...} :: tail)) =
                         if preg = handleAddr then hState else popState tail
-                val handlerStartState = {valueStack=popState(#valueStack state)}
+                val handlerStartState = {valueStack=popState(#valueStack state), ccState=CCIndeterminate}
                 (* Reset to just above the handler. *)
                 val (_, resetCode) = resetStack(state, handlerStartState, resReg)
                 (* The result state is after the handler has been popped. *)
-                val resultState = addRaxToState({valueStack=tl(#valueStack handlerStartState)}, resReg)
+                val resultState = addRaxToState({valueStack=tl(#valueStack handlerStartState), ccState=CCIndeterminate}, resReg)
                 val workReg = RealRegister(GenReg ebx) (* Must be different from the return register. *)
             in
                 codeICode{icode=rest, state=NormalState resultState,
@@ -396,7 +421,8 @@ struct
                     val sp = stackPtr pushedState
                 in
                     codeICode{
-                        icode=rest, state=NormalState({valueStack={preg=destReg, loc=OnStack sp} :: #valueStack pushedState}),
+                        icode=rest,
+                        state=NormalState({valueStack={preg=destReg, loc=OnStack sp} :: #valueStack pushedState, ccState= #ccState pushedState}),
                         code=PushValue{arg=RealRegister(GenReg srcReg)} :: (pushCode @ code), context=context}
                 end
             end
@@ -448,7 +474,7 @@ struct
                     case #valueStack state of
                         {preg=tReg, loc=InRax} :: {preg=nReg, loc=OnStack _} :: state =>
                             if tReg = bReg andalso nReg = srcReg
-                            then {valueStack=state}
+                            then {valueStack=state, ccState= CCIndeterminate (* For the moment *)}
                             else raise InternalError "MoveArgument to MemoryLocation"
                     |   _ => raise InternalError "MoveArgument to MemoryLocation"
                 (* Pop the value to store into ebx and store it in the tuple. *)
@@ -523,9 +549,10 @@ struct
                 val returnState = List.drop(#valueStack pushedState, numStackArgs)
                 (* We haven't actually checked that the entries we're dropping really
                    are the register args. *)
-                val poppedState = {valueStack=List.drop(returnState, List.length regArgs)}
+                val poppedState = {valueStack=List.drop(returnState, List.length regArgs), ccState= CCIndeterminate}
                 (* Add the result value in Rax to the state *)
-                val (finalState, stackReset) = resetStack(addRaxToState({valueStack=returnState}, destReg), poppedState, destReg)
+                val (finalState, stackReset) =
+                    resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate}, destReg), poppedState, destReg)
                 val functionCode =
                     stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg}] @ doLoad @ pushCode @ code
             in
@@ -578,7 +605,8 @@ struct
                      if argToPReg source = preg then {preg=argToPReg loopReg, loc=loc} else raise InternalError "codeICode: StartLoop"
                 val newHead = ListPair.mapEq repSourceWithDest (List.rev arguments, headList)
                 val tailList = List.drop(#valueStack pushedState, numArgs)
-                val bodyState = {valueStack=newHead @ tailList}
+                (* The CCstate is indeterminate because we may have looped. *)
+                val bodyState = {valueStack=newHead @ tailList, ccState= CCIndeterminate}
                 val newContext = {loopArgs=(bodyState, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}
             in
                 codeICode{icode=rest, state=NormalState bodyState, code=instr :: pushCode @ code,
@@ -634,7 +662,9 @@ struct
                 val sp = stackPtr pushedState
             in
                 codeICode{icode=rest,
-                    state=NormalState({valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState}),
+                    state=NormalState(
+                            {valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState,
+                             ccState=CCIndeterminate}),
                     code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg} :: (pushAll @ pushCode) @ code, context=context}
             end
 

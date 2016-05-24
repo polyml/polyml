@@ -51,6 +51,8 @@ struct
     |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
 
     datatype iLabel = ILabel of int
+    (* The reference to a condition code. *)
+    and ccRef = CcRef of int
 
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
@@ -98,8 +100,11 @@ struct
     
     |   UnconditionalForwardJump of { label: iLabel }
 
-        (* Compare and branch between two word values. *)
-    |   JumpOnWordComparison of { arg1: argument, arg2: argument, condition: branchOps, label: iLabel }
+        (* Conditional branch. *)
+    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
+
+        (* Compare two word values. *)
+    |   WordComparison of { arg1: argument, arg2: argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
@@ -118,8 +123,8 @@ struct
         (* Arithmetic or logical operation. *)
     |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
-        (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
-    |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
+        (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
+    |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
     |   PushValue of { arg: argument }
@@ -278,22 +283,19 @@ struct
         |   codeGenICode(UnconditionalForwardJump {label} :: rest, code) =
                 codeGenICode(rest, UncondBranch(findLabelRef label) :: code)
 
-        |   codeGenICode(JumpOnWordComparison {arg1 as RealRegister _, arg2=IntegerConstant testVal, condition, label} :: rest, code) =
-                codeGenICode(rest,
-                    ConditionalBranch{test=condition, predict=PredictNeutral, label=findLabelRef label} ::
-                    ArithRConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
+        |   codeGenICode(ConditionalForwardJump {condition, label, ...} :: rest, code) =
+                codeGenICode(rest, ConditionalBranch{test=condition, predict=PredictNeutral, label=findLabelRef label} :: code)
 
-        |   codeGenICode(JumpOnWordComparison {arg1 as RealRegister _, arg2=AddressConstant testVal, condition, label} :: rest, code) =
-                codeGenICode(rest,
-                    ConditionalBranch{test=condition, predict=PredictNeutral, label=findLabelRef label} ::
-                    ArithRLongConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
+        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=IntegerConstant testVal, ...} :: rest, code) =
+                codeGenICode(rest, ArithRConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
 
-        |   codeGenICode(JumpOnWordComparison {arg1 as RealRegister _, arg2=MemoryLocation{offset, base}, condition, label} :: rest, code) =
-                codeGenICode(rest,
-                    ConditionalBranch{test=condition, predict=PredictNeutral, label=findLabelRef label} ::
-                    ArithRMem {opc=CMP, output=asGenReg arg1, offset=offset, base=asGenReg base} :: code)
+        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=AddressConstant testVal, ...} :: rest, code) =
+                codeGenICode(rest, ArithRLongConst {opc=CMP, output=asGenReg arg1, source=testVal} :: code)
 
-        |   codeGenICode(JumpOnWordComparison _ :: _, _) =
+        |   codeGenICode(WordComparison {arg1 as RealRegister _, arg2=MemoryLocation{offset, base}, ...} :: rest, code) =
+                codeGenICode(rest, ArithRMem {opc=CMP, output=asGenReg arg1, offset=offset, base=asGenReg base} :: code)
+
+        |   codeGenICode(WordComparison _ :: _, _) =
                 raise InternalError "codeGenICode: TODO JumpOnWordComparison"
 
         |   codeGenICode(PushExceptionHandler { handlerAddr, handleStart=ILabel hStart, ... } :: rest, code) =
@@ -363,10 +365,8 @@ struct
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
                 raise InternalError "codeGenICode: TODO ArithmeticFunction"
 
-        |   codeGenICode(JumpOnTag {arg, onShort, label} :: rest, code) =
-                codeGenICode(rest,
-                    ConditionalBranch{test=if onShort then JNE else JE, predict=PredictNeutral, label=findLabelRef label} ::
-                    TestTagR(asGenReg arg) :: code)
+        |   codeGenICode(TestTagBit {arg, ...} :: rest, code) =
+                codeGenICode(rest, TestTagR(asGenReg arg) :: code)
 
         |   codeGenICode(PushValue { arg = RealRegister(GenReg r) } :: rest, code) =
                 codeGenICode(rest, PushR r :: code)

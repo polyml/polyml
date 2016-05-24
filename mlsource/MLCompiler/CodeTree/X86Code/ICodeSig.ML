@@ -54,6 +54,9 @@ sig
     |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
 
     datatype iLabel = ILabel of int
+    
+    (* The reference to a condition code. *)
+    datatype ccRef = CcRef of int
 
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
@@ -101,8 +104,11 @@ sig
     
     |   UnconditionalForwardJump of { label: iLabel }
 
-        (* Compare and branch between two word values. *)
-    |   JumpOnWordComparison of { arg1: argument, arg2: argument, condition: branchOps, label: iLabel }
+        (* Conditional branch. *)
+    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
+
+        (* Compare two word values. *)
+    |   WordComparison of { arg1: argument, arg2: argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
@@ -121,8 +127,8 @@ sig
         (* Arithmetic or logical operation. *)
     |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
-        (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
-    |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
+        (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
+    |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
     |   PushValue of { arg: argument }

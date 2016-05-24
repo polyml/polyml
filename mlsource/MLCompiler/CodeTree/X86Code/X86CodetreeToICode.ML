@@ -47,6 +47,8 @@ struct
         val locToPregArray = Array.array(localCount, NONE: argument option)
         val labelCounter = ref 0
         fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
+        val ccRefCounter = ref 0
+        fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
         val numFunctionArgs = List.length argTypes
         val argRegsUsed =
@@ -272,19 +274,26 @@ struct
                     let
                         val (testTag, tagDefault) =
                             let
-                                val defLab = newLabel()
-                                val tReg = newPReg()
+                                val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
                             in
-                                ([MoveArgument {source=testReg, dest=tReg}, JumpOnTag{arg=tReg, onShort=false, label=defLab}], [defLab])
+                                ([
+                                    MoveArgument {source=testReg, dest=tReg},
+                                    TestTagBit{arg=tReg, ccRef=ccRef},
+                                    (* Jump if the value is long. *)
+                                    ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab}
+                                 ], [defLab])
                             end
                         val defLab1 = newLabel() and defLab2 = newLabel()
                         val tReg1 = newPReg() and tReg2 = newPReg()
+                        val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                         val testCode =
                             [
                                 MoveArgument {source=testReg, dest=tReg1},
-                                JumpOnWordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), condition=JA, label=defLab1},
+                                WordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1},
+                                ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1},
                                 MoveArgument {source=testReg, dest=tReg2},
-                                JumpOnWordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), condition=JB, label=defLab2}
+                                WordComparison{arg1=tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2},
+                                ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2}
                             ]
                     in
                         (testTag @ testCode, defLab1 :: defLab2 :: tagDefault)
@@ -552,12 +561,15 @@ struct
                     codeBindingsToICode(decs, context) @ codeCondition(exp, context, jumpOn, jumpLabel)
 
             |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
+                (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
+                   tag bit of a word. *)
                 let
-                    val tagReg = newPReg()
+                    val tagReg = newPReg() and ccRef = newCCRef()
                     val testCode = codeToICode(test, context, false, tagReg)
                 in
                     testCode @
-                        [JumpOnWordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)),
+                        [WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef,
                                condition=if jumpOn then JE else JNE, label=jumpLabel}]
                 end
 
@@ -567,11 +579,13 @@ struct
 
             |   codeCondition(BICBuiltIn1{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
                 let
-                    val testReg = newPReg()
+                    val testReg = newPReg() and ccRef = newCCRef()
                     val testCode = codeToICode(arg1, context, false, testReg)
+                    (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
                 in
                     testCode @
-                        [JumpOnTag{arg=testReg, onShort=jumpOn, label=jumpLabel}]
+                        [TestTagBit{arg=testReg, ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel}]
                 end
 
                 (* Word equality.  This is used both for simple equality on words and
@@ -579,37 +593,40 @@ struct
             |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1, arg2=BICConstnt(arg2Value, _)},
                         context, jumpOn, jumpLabel) =
                 let
-                    val testReg = newPReg()
+                    val testReg = newPReg() and ccRef = newCCRef()
                     val testCode = codeToICode(arg1, context, false, testReg)
                     val arg2Arg = constantAsArgument arg2Value
                 in
                     testCode @
-                        [JumpOnWordComparison{arg1=testReg, arg2=arg2Arg,
+                        [WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef,
                                condition=if jumpOn then JE else JNE, label=jumpLabel}]
                 end
 
             |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1=BICConstnt(arg1Value, _), arg2},
                         context, jumpOn, jumpLabel) =
                 let
-                    val testReg = newPReg()
+                    val testReg = newPReg() and ccRef = newCCRef()
                     val testCode = codeToICode(arg2, context, false, testReg)
                     val arg1Arg = constantAsArgument arg1Value
                 in
                     testCode @
-                        [JumpOnWordComparison{arg1=testReg, arg2=arg1Arg,
+                        [WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef,
                                condition=if jumpOn then JE else JNE, label=jumpLabel}]
                 end
 
             |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1, arg2},
                         context, jumpOn, jumpLabel) =
                 let
-                    val arg1Reg = newPReg() and arg2Reg = newPReg()
+                    val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
                     val testCode =
                         codeToICode(arg1, context, false, arg1Reg) @
                         codeToICode(arg2, context, false, arg2Reg)
                 in
                     testCode @
-                        [JumpOnWordComparison{arg1=arg1Reg, arg2=arg2Reg,
+                        [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef,
                                condition=if jumpOn then JE else JNE, label=jumpLabel}]
                 end
 
@@ -645,11 +662,12 @@ struct
                 (* General case.  Load the value into a register and compare it with 1 (true) *)
             |   codeCondition(condition, context, jumpOn, jumpLabel) =
                 let
-                    val testReg = newPReg()
+                    val testReg = newPReg() and ccRef = newCCRef()
                     val testCode = codeToICode(condition, context, false, testReg)
                 in
                     testCode @
-                        [JumpOnWordComparison{arg1=testReg, arg2=IntegerConstant(tag 1),
+                        [WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
+                         ConditionalForwardJump{ccRef=ccRef,
                                condition=if jumpOn then JE else JNE, label=jumpLabel}]
                 end
 
