@@ -653,7 +653,7 @@ struct
                    pointer equality and not attempt to create equality functions for
                    the argument.  It may not be an equality type. *)
                 if isPointerEqType iden
-                then mkBuiltIn2Fn BuiltIns.EqualBitwiseWord
+                then equalWordFn
                 else
                 let
                     open TypeValue
@@ -839,7 +839,7 @@ struct
                all the enum constructors.  I've now extended this to all cases where
                there is more than one constructor.  The idea is to speed up equality
                between identical data structures. *)
-            val eqCode = mkCor(mkBuiltIn2(BuiltIns.EqualBitwiseWord, arg1, arg2), processConstrs vConstrs)
+            val eqCode = mkCor(mkEqualWord(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
@@ -928,8 +928,7 @@ struct
 *)
 
         local
-            fun eqStr (arg, str) =
-                mkBuiltIn2(BuiltIns.EqualBitwiseWord, arg, mkConst(toMachineWord str))
+            fun eqStr (arg, str) = mkEqualWord(arg, mkConst(toMachineWord str))
 
             val isNotNull = mkNot o mkIsShort
 

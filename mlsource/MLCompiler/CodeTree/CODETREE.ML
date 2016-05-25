@@ -427,9 +427,14 @@ struct
 
     local
         open BuiltIns
+        (* Word equality.  The value of isSigned doesn't matter. *)
+        val eqWord = WordComparison{test=TestEqual, isSigned=false}
     in
         fun mkNot arg = BuiltIn1{oper=NotBoolean, arg1=arg}
         and mkIsShort arg = BuiltIn1{oper=IsTaggedValue, arg1=arg}
+        and mkEqualWord (arg1, arg2) =
+            BuiltIn2{oper=eqWord, arg1=arg1, arg2=arg2}
+        val equalWordFn = mkBuiltIn2Fn eqWord
     end
 
     fun identityFunction (name : string) : codetree = 

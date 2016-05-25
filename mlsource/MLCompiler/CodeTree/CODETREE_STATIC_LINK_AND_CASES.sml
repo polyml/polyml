@@ -593,7 +593,9 @@ struct
                                             mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
                                                    [test, BICConstnt(toMachineWord t, [])])
                                     |   CaseWord =>
-                                            BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1=test, arg2=BICConstnt(toMachineWord t, [])}
+                                            BICBuiltIn2{
+                                                oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
+                                                arg1=test, arg2=BICConstnt(toMachineWord t, [])}
                                     |   CaseTag maxTag => BICTagTest { test=test, tag=t, maxTag=maxTag }
                             in
                                 BICCond(test, c, reconvert rest)

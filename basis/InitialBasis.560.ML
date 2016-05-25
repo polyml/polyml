@@ -335,3 +335,13 @@ in
     val () = addPrettyPrinter print_list
     val () = addPrettyPrinter print_int
 end;
+
+(* Add these in.  They are defined in Initialise in 5.6.1 but not in 5.6.0 *)
+structure Word =
+struct
+    type word = word
+end
+and LargeWord =
+struct
+    type word = Bootstrap.word
+end;

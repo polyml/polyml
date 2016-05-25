@@ -78,6 +78,35 @@ struct
             then IntegerConstant(tag(Word.toLargeIntX(toShort value)))
             else AddressConstant value
 
+        (* Create the branch condition from the test, isSigned and jumpOn values.
+           (In)equality tests are the same for signed and unsigned values. *)
+        local
+            open BuiltIns
+        in
+            fun testAsBranch(TestEqual,         _,      true)       = JE
+            |   testAsBranch(TestEqual,         _,      false)      = JNE
+            |   testAsBranch(TestNotEqual,      _,      true)       = JNE
+            |   testAsBranch(TestNotEqual,      _,      false)      = JE
+                (* Signed tests *)
+            |   testAsBranch(TestLess,          true,   true)       = JL
+            |   testAsBranch(TestLess,          true,   false)      = JGE
+            |   testAsBranch(TestLessEqual,     true,   true)       = JLE
+            |   testAsBranch(TestLessEqual,     true,   false)      = JG
+            |   testAsBranch(TestGreater,       true,   true)       = JG
+            |   testAsBranch(TestGreater,       true,   false)      = JLE
+            |   testAsBranch(TestGreaterEqual,  true,   true)       = JGE
+            |   testAsBranch(TestGreaterEqual,  true,   false)      = JL
+                (* Unsigned tests *)
+            |   testAsBranch(TestLess,          false,  true)       = JB
+            |   testAsBranch(TestLess,          false,  false)      = JNB
+            |   testAsBranch(TestLessEqual,     false,  true)       = JNA
+            |   testAsBranch(TestLessEqual,     false,  false)      = JA
+            |   testAsBranch(TestGreater,       false,  true)       = JA
+            |   testAsBranch(TestGreater,       false,  false)      = JNA
+            |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
+            |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
+        end
+
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
         fun codeToICode(BICNewenv (bindings, exp), context, isTail, target) =
@@ -164,8 +193,14 @@ struct
         |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
 
-        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, ...}, context, isTail, target) =
+        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
+                raise InternalError "TODO: BICBuiltIn2: FixedPrecisionArith"
+
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
+                raise InternalError "TODO: BICBuiltIn2: WordArith"
 
         |   codeToICode(BICBuiltIn3 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn3"
@@ -549,136 +584,136 @@ struct
                 List.foldl doBinding [] bindings
             end
 
-            (* Code a branch condition.  This is really meant for andalso/orelse. *)
-            and codeCondition(BICConstnt(value, _), _, jumpOn, jumpLabel) =
-                (* Constant - typically part of andalso/orelse.  Either an unconditional branch
-                   or an unconditional drop-through. *)
-                if jumpOn = (toShort value <> 0w0)
-                then [UnconditionalForwardJump{label=jumpLabel}]
-                else []
+        (* Code a branch condition.  This is really meant for andalso/orelse. *)
+        and codeCondition(BICConstnt(value, _), _, jumpOn, jumpLabel) =
+            (* Constant - typically part of andalso/orelse.  Either an unconditional branch
+               or an unconditional drop-through. *)
+            if jumpOn = (toShort value <> 0w0)
+            then [UnconditionalForwardJump{label=jumpLabel}]
+            else []
 
-            |   codeCondition(BICNewenv(decs, exp), context, jumpOn, jumpLabel) =
-                    codeBindingsToICode(decs, context) @ codeCondition(exp, context, jumpOn, jumpLabel)
+        |   codeCondition(BICNewenv(decs, exp), context, jumpOn, jumpLabel) =
+                codeBindingsToICode(decs, context) @ codeCondition(exp, context, jumpOn, jumpLabel)
 
-            |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
-                (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
-                   tag bit of a word. *)
-                let
-                    val tagReg = newPReg() and ccRef = newCCRef()
-                    val testCode = codeToICode(test, context, false, tagReg)
-                in
-                    testCode @
-                        [WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef,
-                               condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                end
+        |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
+            (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
+               tag bit of a word. *)
+            let
+                val tagReg = newPReg() and ccRef = newCCRef()
+                val testCode = codeToICode(test, context, false, tagReg)
+            in
+                testCode @
+                    [WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
+            end
 
-            |   codeCondition(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel) =
-                    (* If we have a "not" we can just invert the jump condition. *)
-                    codeCondition(arg1, context, not jumpOn, jumpLabel)
+        |   codeCondition(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel) =
+                (* If we have a "not" we can just invert the jump condition. *)
+                codeCondition(arg1, context, not jumpOn, jumpLabel)
 
-            |   codeCondition(BICBuiltIn1{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
-                let
-                    val testReg = newPReg() and ccRef = newCCRef()
-                    val testCode = codeToICode(arg1, context, false, testReg)
-                    (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
-                in
-                    testCode @
-                        [TestTagBit{arg=testReg, ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel}]
-                end
+        |   codeCondition(BICBuiltIn1{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
+            let
+                val testReg = newPReg() and ccRef = newCCRef()
+                val testCode = codeToICode(arg1, context, false, testReg)
+                (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
+            in
+                testCode @
+                    [TestTagBit{arg=testReg, ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel}]
+            end
 
-                (* Word equality.  This is used both for simple equality on words and
-                   also for general pointer equality. The argument could be a long or short value. *)
-            |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1, arg2=BICConstnt(arg2Value, _)},
-                        context, jumpOn, jumpLabel) =
-                let
-                    val testReg = newPReg() and ccRef = newCCRef()
-                    val testCode = codeToICode(arg1, context, false, testReg)
-                    val arg2Arg = constantAsArgument arg2Value
-                in
-                    testCode @
-                        [WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef,
-                               condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                end
+            (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
+               is perfectly possible that the argument could be an address. *)
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
+                    context, jumpOn, jumpLabel) =
+            let
+                val testReg = newPReg() and ccRef = newCCRef()
+                val testCode = codeToICode(arg1, context, false, testReg)
+                val arg2Arg = constantAsArgument arg2Value
+            in
+                testCode @
+                    [WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+            end
 
-            |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1=BICConstnt(arg1Value, _), arg2},
-                        context, jumpOn, jumpLabel) =
-                let
-                    val testReg = newPReg() and ccRef = newCCRef()
-                    val testCode = codeToICode(arg2, context, false, testReg)
-                    val arg1Arg = constantAsArgument arg1Value
-                in
-                    testCode @
-                        [WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef,
-                               condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                end
+(*        |   codeCondition(BICBuiltIn2{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val testReg = newPReg() and ccRef = newCCRef()
+                val testCode = codeToICode(arg2, context, false, testReg)
+                val arg1Arg = constantAsArgument arg1Value
+            in
+                testCode @
+                    [WordComparison{arg1=arg1Arg, arg2=testReg, ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+            end*)
 
-            |   codeCondition(BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, arg1, arg2},
-                        context, jumpOn, jumpLabel) =
-                let
-                    val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
-                    val testCode =
-                        codeToICode(arg1, context, false, arg1Reg) @
-                        codeToICode(arg2, context, false, arg2Reg)
-                in
-                    testCode @
-                        [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef,
-                               condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                end
+        |   codeCondition(BICBuiltIn2{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
+                val testCode =
+                    codeToICode(arg1, context, false, arg1Reg) @
+                    codeToICode(arg2, context, false, arg2Reg)
+            in
+                testCode @
+                    [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
+            end
 
-            |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =
-                let
-                    val notTest = newLabel() and isThen = newLabel()
-                    and notThen = newLabel() and notElse = newLabel()
-                    (* Test the condition and jump to the else-part if this is false. *)
-                    val testTest = codeCondition(testPart, context, false, notTest)
-                    (* Test the then-part and jump if the condition we want holds.
-                       We don't go to the final label yet. *)
-                    val testThen = codeCondition(thenPart, context, jumpOn, isThen)
-                    (* Test the else-part and jump on the inverse of the condition.
-                       The destination of this jump is going to be the drop-through
-                       case. *)
-                    val testElse = codeCondition(elsePart, context, not jumpOn, notElse)
-                in
-                    (* Now put this together. *)
-                    testTest @ testThen @
-                        (* Branch round the else-part and put in a label for the start of the else *)
-                        [UnconditionalForwardJump{label=notThen}, ForwardJumpLabel {label=notTest, result=NONE}] @
-                        testElse @
-                        (* Add a label for the result of the then-part.  Because we branched
-                           on the inverse of the test in the else-part we now have both the
-                           conditions to take the branch.  Put in an unconditional branch
-                           to the final label. *)
-                        [ForwardJumpLabel {label=isThen, result=NONE}, UnconditionalForwardJump{label=jumpLabel},
-                         (* And now the labels for the condition where we don't want to branch and want to
-                            drop through. *)
-                         ForwardJumpLabel {label=notElse, result=NONE}, ForwardJumpLabel{label=notThen, result=NONE}]
-                end
+        |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =
+            let
+                val notTest = newLabel() and isThen = newLabel()
+                and notThen = newLabel() and notElse = newLabel()
+                (* Test the condition and jump to the else-part if this is false. *)
+                val testTest = codeCondition(testPart, context, false, notTest)
+                (* Test the then-part and jump if the condition we want holds.
+                   We don't go to the final label yet. *)
+                val testThen = codeCondition(thenPart, context, jumpOn, isThen)
+                (* Test the else-part and jump on the inverse of the condition.
+                   The destination of this jump is going to be the drop-through
+                   case. *)
+                val testElse = codeCondition(elsePart, context, not jumpOn, notElse)
+            in
+                (* Now put this together. *)
+                testTest @ testThen @
+                    (* Branch round the else-part and put in a label for the start of the else *)
+                    [UnconditionalForwardJump{label=notThen}, ForwardJumpLabel {label=notTest, result=NONE}] @
+                    testElse @
+                    (* Add a label for the result of the then-part.  Because we branched
+                       on the inverse of the test in the else-part we now have both the
+                       conditions to take the branch.  Put in an unconditional branch
+                       to the final label. *)
+                    [ForwardJumpLabel {label=isThen, result=NONE}, UnconditionalForwardJump{label=jumpLabel},
+                     (* And now the labels for the condition where we don't want to branch and want to
+                        drop through. *)
+                     ForwardJumpLabel {label=notElse, result=NONE}, ForwardJumpLabel{label=notThen, result=NONE}]
+            end
 
-                (* General case.  Load the value into a register and compare it with 1 (true) *)
-            |   codeCondition(condition, context, jumpOn, jumpLabel) =
-                let
-                    val testReg = newPReg() and ccRef = newCCRef()
-                    val testCode = codeToICode(condition, context, false, testReg)
-                in
-                    testCode @
-                        [WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
-                         ConditionalForwardJump{ccRef=ccRef,
-                               condition=if jumpOn then JE else JNE, label=jumpLabel}]
-                end
+            (* General case.  Load the value into a register and compare it with 1 (true) *)
+        |   codeCondition(condition, context, jumpOn, jumpLabel) =
+            let
+                val testReg = newPReg() and ccRef = newCCRef()
+                val testCode = codeToICode(condition, context, false, testReg)
+            in
+                testCode @
+                    [WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
+                     ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
+            end
 
-            (* Some operations that deliver boolean results are better coded as
-               if condition then true else false *)
-            and codeAsConditional(instr, context, isTail, target) =
-                codeToICode(
-                    BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
+        (* Some operations that deliver boolean results are better coded as
+           if condition then true else false *)
+        and codeAsConditional(instr, context, isTail, target) =
+            codeToICode(
+                BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
 
-            val icode = pushClosureReg @ pushArgs @
-                codeToICode(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
+        val icode = pushClosureReg @ pushArgs @
+            codeToICode(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
       
         open ICODETRANSFORM
     in

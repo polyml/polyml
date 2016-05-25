@@ -326,7 +326,7 @@ struct
                 (* We want the first argument in the register so that means the condition codes
                    we will test are reversed.. *)
                 fun revCond JA  = JB
-                |   revCond JNA = JNA
+                |   revCond JNA = JNB
                 |   revCond JB  = JA
                 |   revCond JNB = JNA
                 |   revCond JL  = JG
