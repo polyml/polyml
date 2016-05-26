@@ -272,14 +272,14 @@ struct
 
         type thread = Word.word ref (* Actually this is a multi-word mutable object. *)
         (* Equality is pointer equality. *)
-        val equal : thread*thread->bool = RunCall.pointerEq
+        val equal : thread*thread->bool = RunCall.run_call2 POLY_SYS_word_eq
         (* Return our own thread object. *)
         val self: unit->thread = RunCall.run_call0 POLY_SYS_thread_self
         
         fun getLocal (t: 'a Universal.tag) : 'a option =
         let
             val root: Universal.universal ref list =
-                RunCall.loadWord(self(), threadIdThreadLocal)
+                RunCall.run_call2 POLY_SYS_load_word(self(), threadIdThreadLocal)
 
             fun doFind [] = NONE
               | doFind ((ref v)::r) =
@@ -294,7 +294,7 @@ struct
         let
             (* See if we already have this in the list. *)
             val root: Universal.universal ref list =
-                RunCall.loadWord(self(), threadIdThreadLocal)
+                RunCall.run_call2 POLY_SYS_load_word(self(), threadIdThreadLocal)
 
             fun doFind [] =
                     (* Not in the list - Add it. *)
@@ -317,17 +317,23 @@ struct
             fun testInterrupt() =
                 (* If there is a pending request the word in the thread object
                    will be non-zero. *)
-                if RunCall.loadWord(self(), threadIdIntRequest) <> 0
+                if RunCall.run_call2 POLY_SYS_load_word(self(), threadIdIntRequest) <> 0
                 then doCall(11, ())
                 else ()
         end
 
         local
             fun getAttrWord (me: thread) : Word.word =
-                RunCall.loadWord(me, threadIdFlags)
+                RunCall.run_call2 POLY_SYS_load_word(me, threadIdFlags)
+
+            (* Just for the moment we check the length of the thread ID to be
+               sure we have the appropriate fields present. *)
+            val System_length: thread -> word = RunCall.run_call1 POLY_SYS_get_length
 
             fun getStackSizeAsInt (me: thread) : int =
-                RunCall.loadWord(me, threadIdStackSize)
+                if System_length me <= threadIdStackSize
+                then 0
+                else RunCall.run_call2 POLY_SYS_load_word(me, threadIdStackSize)
 
             and getStackSize me : int option =
                 case getStackSizeAsInt me of
@@ -688,7 +694,7 @@ struct
            them.  We don't want to get an asynchronous interrupt while we are
            actually locking or unlocking the mutex but if we have to block to do
            IO then we should allow an interrupt at that point. *)
-        val oldAttrs: Word.word = RunCall.loadWord(self(), 0w1)
+        val oldAttrs: Word.word = RunCall.run_call2 POLY_SYS_load_word(self(), 1)
         val () =
             if andb(oldAttrs, 0w6) = 0w0 (* Already deferred? *)
             then ()
