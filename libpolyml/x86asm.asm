@@ -200,17 +200,10 @@ INCL         TEXTEQU <inc>
 
 ELSE
 #include "config.h"
-#if defined __MINGW64__
-#  if defined POLY_LINKAGE_PREFIX
+#if defined POLY_LINKAGE_PREFIX
 #    define EXTNAME(x) POLY_LINKAGE_PREFIX ## x
-#  else
-#    define EXTNAME(x) x
-#  endif    
-;# External names in older versions of FreeBSD have a leading underscore.
-#elif ! defined(__ELF__)
-#define EXTNAME(x)  _##x
 #else
-#define EXTNAME(x)  x
+#    define EXTNAME(x) x
 #endif
 
 IFNDEF HOSTARCHITECTURE_X86_64
