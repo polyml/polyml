@@ -332,8 +332,9 @@ struct
     end
 
     infix 7 quot rem
-    val op quot: int * int -> int = RunCall.run_call2 POLY_SYS_adiv
-    and op rem:  int * int -> int = RunCall.run_call2 POLY_SYS_amod
+    (* TODO: Handle the short precision cases. *)
+    val op quot: int * int -> int = RunCall.rtsCallFull2 "PolyDivideArbitrary"
+    and op rem:  int * int -> int = RunCall.rtsCallFull2 "PolyRemainderArbitrary"
 
     fun x mod y =
     let
