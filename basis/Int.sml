@@ -416,6 +416,30 @@ struct
         val smallestInt = fromLarge(~ maxIntP1)
         val minInt = SOME smallestInt
     end
+
+    fun scan radix rdr src =
+        case LargeInt.scan radix rdr src of
+            NONE => NONE
+        |   SOME(i, c) => SOME(fromLarge i, c)
+
+    (* Converter to int values. This replaces the basic conversion
+       function for ints installed in the bootstrap process. In
+       particular this converter can handle hexadecimal. *)
+    local
+        fun convInt s =
+        let
+            val radix =
+                if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
+                   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
+                then StringCvt.HEX else StringCvt.DEC
+        in
+            case StringCvt.scanString (scan radix) s of
+                NONE => raise RunCall.Conversion "Invalid integer constant"
+              | SOME res => res
+        end
+    in
+        val () = RunCall.addOverload convInt "convInt"
+    end 
     
     (* Can now open FixedInt. *)
     open FixedInt
@@ -471,33 +495,9 @@ struct
         else (* i > 0 *) j > 0
 
     fun fmt r n = LargeInt.fmt r (toLarge n)
-    
-    fun scan radix rdr src =
-        case LargeInt.scan radix rdr src of
-            NONE => NONE
-        |   SOME(i, c) => SOME(fromLarge i, c)
 
     val fromString = StringCvt.scanString (scan StringCvt.DEC)
     and toString = LargeInt.toString o toLarge
-
-    (* Converter to int values. This replaces the basic conversion
-       function for ints installed in the bootstrap process. In
-       particular this converter can handle hexadecimal. *)
-    local
-        fun convInt s =
-        let
-            val radix =
-                if String.size s >= 3 andalso String.substring(s, 0, 2) = "0x"
-                   orelse String.size s >= 4 andalso String.substring(s, 0, 3) = "~0x"
-                then StringCvt.HEX else StringCvt.DEC
-        in
-            case StringCvt.scanString (scan radix) s of
-                NONE => raise RunCall.Conversion "Invalid integer constant"
-              | SOME res => res
-        end
-    in
-        val () = RunCall.addOverload convInt "convInt"
-    end 
     
     (* These are overloaded functions and are treated specially. *)
 (*    val ~ : int->int = ~
