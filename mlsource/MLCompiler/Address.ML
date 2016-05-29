@@ -301,7 +301,6 @@ struct
             (POLY_SYS_XWindows,"POLY_SYS_XWindows"),
             (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_bytes_per_word,"POLY_SYS_bytes_per_word"),
-            (POLY_SYS_offset_address,"POLY_SYS_offset_address"),
             (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
             (POLY_SYS_string_length,"POLY_SYS_string_length"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),

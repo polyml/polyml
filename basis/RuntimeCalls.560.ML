@@ -147,7 +147,6 @@ struct
   val POLY_SYS_XWindows            = 209  (* MJC 27/09/90 *)
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_bytes_per_word      = 214  (* added 30/3/95 (DCJM) *)
-  val POLY_SYS_offset_address      = 215
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_not_bool            = 218
   val POLY_SYS_fixed_geq           = 219
