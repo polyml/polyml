@@ -200,8 +200,8 @@ INCL         TEXTEQU <inc>
 
 ELSE
 #include "config.h"
-#if defined POLY_LINKAGE_PREFIX
-#    define EXTNAME(x) POLY_LINKAGE_PREFIX ## x
+#if defined SYMBOLS_REQUIRE_UNDERSCORE
+#    define EXTNAME(x) _ ## x
 #else
 #    define EXTNAME(x) x
 #endif

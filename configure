@@ -17848,7 +17848,7 @@ $as_echo "$lt_cv_sys_symbol_underscore" >&6; }
 
 if test x$sys_symbol_underscore = xyes; then
 
-$as_echo "#define POLY_LINKAGE_PREFIX _" >>confdefs.h
+$as_echo "#define SYMBOLS_REQUIRE_UNDERSCORE 1" >>confdefs.h
 
 fi
 
@@ -21811,6 +21811,12 @@ $as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
                 polyarch=interpret
             fi
             ;;
+      sparc64*)
+
+$as_echo "#define HOSTARCHITECTURE_SPARC64 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
       sparc*)
 
 $as_echo "#define HOSTARCHITECTURE_SPARC 1" >>confdefs.h
@@ -21838,6 +21844,12 @@ $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
       aarch64*)
 
 $as_echo "#define HOSTARCHITECTURE_AARCH64 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      hppa*)
+
+$as_echo "#define HOSTARCHITECTURE_HPPA 1" >>confdefs.h
 
             polyarch=interpret
             ;;
@@ -21874,6 +21886,12 @@ $as_echo "#define HOSTARCHITECTURE_S390X 1" >>confdefs.h
       s390*)
 
 $as_echo "#define HOSTARCHITECTURE_S390 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      sh*)
+
+$as_echo "#define HOSTARCHITECTURE_SH 1" >>confdefs.h
 
             polyarch=interpret
             ;;
