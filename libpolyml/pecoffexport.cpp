@@ -370,10 +370,8 @@ void PECOFFExport::exportStore(void)
     }
     // This is the only "real" symbol.
     // Add an underscore prefix if required.
-#ifdef POLY_LINKAGE_PREFIX
-#define PLTOSTRING1(x) #x
-#define PLTOSTRING(x) PLTOSTRING1(x)
-    writeSymbol(PLTOSTRING(POLY_LINKAGE_PREFIX) "poly_exports", 0, memTableEntries+1, true);
+#ifdef SYMBOLS_REQUIRE_UNDERSCORE
+    writeSymbol("_poly_exports", 0, memTableEntries+1, true);
 #else
     writeSymbol("poly_exports", 0, memTableEntries+1, true);
 #endif
