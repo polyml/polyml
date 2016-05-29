@@ -1623,44 +1623,27 @@ SS-relative addressing modes:
     (* Call a function. *)
     fun callFunction (Recursive, cvec as Code {ic, ... }) =
         (
-            (* Call back to the start of the current function. *)
-            doPending (cvec, maxInstrSize + 3); 
-            align (0w1, cvec);
-
             genop (CALL_32, NONE, cvec);  (* 1 byte  *)
             gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
         )
      
     |   callFunction (FullCall, cvec) =
         (
-            (* Make sure anything pending is done first. *)
-            doPending (cvec, maxInstrSize+3); 
-            (* Ensure the return address is aligned on
-               a word + 2 byte boundary.  *)
-            align (0w0, cvec);
-
             genop (Group5, NONE, cvec);
             genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
         )
 
     |   callFunction (ConstantCode w, cvec) =
         (
-            (* Make sure anything pending is done first. *)
-            doPending (cvec, maxInstrSize+3); 
             if isX64
             then
             (
-                align (0w0, cvec);
                 genop (Group5, NONE, cvec);
                 genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
                 addConstToVec (WVal w, ConstArea 0, cvec)
             )
             else
 	 	    (
-		        (* Ensure the return address is aligned on
-		           a word + 2 byte boundary.  *)
-		        align (0w1, cvec);
-
 		        genop (CALL_32, NONE, cvec);
 			    addConstToVec (WVal w, InlineRelative, cvec)
 		    )
@@ -1674,22 +1657,11 @@ SS-relative addressing modes:
         in
             genop  (MOVL_32_64_R rc, SOME {w=true, r=false, b=rx, x=false}, cvec);
             addConstToVec (WVal w, InlineAbsolute, cvec);
-            doPending (cvec, maxInstrSize+3); 
-	        (* Ensure the return address is aligned on
-	            a word + 2 byte boundary.  *)
-	        align (0w0, cvec);
             genop (Group5, NONE, cvec);
             genmodrm(Based0, 0w2 (* call *), rc, cvec)
         end
         else
         (
-	        (* Make sure anything pending is done first. *)
-	        doPending (cvec, maxInstrSize+3); 
-
-	        (* Ensure the return address is aligned on
-	           a word + 2 byte boundary.  *)
-	        align (0w0, cvec);
-
 		    genop (Group5, NONE, cvec);
 		    genmodrm(Based0, 0w2 (* call *), 0w5 (* Immediate address. *), cvec);
 		    addConstToVec (WVal w, InlineAbsolute, cvec)
@@ -2904,19 +2876,10 @@ SS-relative addressing modes:
             (
                 checkSources[eax];
                 (* Load the current handler into ebx.  Any register will do since we
-                   don't preserve registers across exceptions.
-                   Call, rather than jump to, the exception code so that we have
-                   the address of the caller if we need to produce an exception
-                   trace. *)
+                   don't preserve registers across exceptions. *)
                 genLoad(LargeInt.fromInt memRegHandlerRegister, ebp, ebx, code);
-                doPending (code, maxInstrSize+3);
-                (* Since we're calling we put the "return address" on a word+2 byte
-                  boundary.  This is never actually used as a return address but
-                  it's probably best to make sure it's properly aligned.  It probably
-                  simplifies exception tracing which is the reason it's there. *)
-                align (0w3, code);
                 genop(Group5, NONE, code);
-                genmodrm (Based0, 0w2 (* call *), #1 (getReg ebx), code);
+                genmodrm (Based0, 0w4 (* jmp *), #1 (getReg ebx), code);
                 cgOp remainder
             )
 
@@ -3030,13 +2993,7 @@ SS-relative addressing modes:
                 val Code{exited, ic, branchCheck, codeVec, ...} = code
             in
                 (* Make sure anything pending is done first. *)
-                (* 15 comes from maximum instruction size + up to 3 nops. *)
-                doPending (code, maxInstrSize+3); 
-    
-                (* Ensure the return address is aligned onto a word + 2 byte
-                   boundary.   Keep this for the moment. *)
-                align (0w2, code);
-    
+                doPending (code, maxInstrSize);
                 exited := false;
                 branchCheck := !ic;
                 (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
