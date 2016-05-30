@@ -48,8 +48,7 @@ struct
        be reordered). *)
 
     local
-        val doCall: int*machineWord -> Word.word
-            = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific
+        val doCall: int*machineWord -> Word.word = Compat560.polySpecificGeneral
     in
         (* The RTS has a table of properties for RTS functions.  The 103 call
            returns these Or-ed into the register mask. *)

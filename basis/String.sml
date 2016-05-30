@@ -198,7 +198,7 @@ local
         val str: char ->string = charAsString
     
         val maxSize: int =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
+            Compat560.processEnvGeneral (101, ())
                     
         val alloc = allocString
     

@@ -114,13 +114,13 @@ struct
           
         val MemMove: string*word*string*word*word -> unit = 
             RunCall.run_call5 POLY_SYS_move_bytes
-        val maxString = 
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env (101, ())
+        val callProcessEnv = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
+        val maxString = callProcessEnv (101, ())
         val charAsVec: char->string = RunCall.unsafeCast
     in
         (* Get the maximum allocation size.  This is the maximum value that can
            fit in the length field of a segment. *)
-        val maxAllocation = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env(100, ())
+        val maxAllocation = callProcessEnv (100, ())
 
         (* This is always a short non-negative integer so can be cast as word or int. *)
         val sizeAsWord: string -> word = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
