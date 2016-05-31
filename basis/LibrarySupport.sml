@@ -21,7 +21,7 @@
 structure MachineConstants =
 struct
     val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ();
-    val wordSize : word = RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ();
+    val wordSize : word = RunCall.bytesPerWord
 end;
 
 structure LibrarySupport :>
@@ -105,9 +105,6 @@ struct
 
         val System_lock: string -> unit =
             RunCall.run_call1 POLY_SYS_lockseg;
-
-        val System_loadb: string*word->char =
-            RunCall.run_call2 POLY_SYS_load_byte;
 
         val SetLengthWord: string * word -> unit =
             RunCall.run_call2 POLY_SYS_set_string_length
@@ -199,7 +196,7 @@ struct
             if i = 0w0 andalso l = baseLen then s
             else if l = 0w0 then "" (* Empty string. *)
             else if l = 0w1 (* Result is a single character string (and s isn't). *)
-            then charAsVec(System_loadb(s, i + wordSize))
+            then charAsVec(RunCall.loadByte(s, i + wordSize))
             else
                 let
                     (* Multiple character string. *)

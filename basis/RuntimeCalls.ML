@@ -27,8 +27,6 @@ struct
   val POLY_SYS_alloc_store         = 11
   val POLY_SYS_alloc_uninit        = 12
   val POLY_SYS_raisex              = 14
-  val POLY_SYS_get_length          = 15
-  val POLY_SYS_get_flags           = 17
   val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
   val POLY_SYS_teststrgtr          = 26
   val POLY_SYS_teststrlss          = 27
@@ -114,11 +112,10 @@ struct
   val POLY_SYS_move_bytes_overlap  = 199
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
-  val POLY_SYS_bytes_per_word      = 214  (* added 30/3/95 (DCJM) *)
+  (*val POLY_SYS_bytes_per_word      = 214*)  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_string_length       = 223
   val POLY_SYS_touch_final         = 228
-  val POLY_SYS_load_byte_immut     = 235
   val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_plus_word           = 239  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_minus_word          = 240  (* Reinstated DCJM 9/10/99 *)
@@ -128,7 +125,6 @@ struct
   val POLY_SYS_xor_word            = 244
   val POLY_SYS_shift_left_word     = 245
   val POLY_SYS_mod_word            = 246  (* Reinstated DCJM 9/10/99 *)
-  val POLY_SYS_load_byte           = 252
   val POLY_SYS_assign_byte         = 254
   val POLY_SYS_assign_word         = 255
 

@@ -115,8 +115,7 @@ struct
       fun littleEndian () : bool = not (RunCall.run_call0 (! bigEndian) ())
   end;
 
-  val wordLength : unit->int =
-        RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word;
+  val wordLength = RunCall.bytesPerWord
  
   val MAXINTARGS = (* 31 *) 126;
 
@@ -542,7 +541,7 @@ struct
   (* create and initialise a code segment *)
   fun codeCreate (name : string, parameters) : code = 
   let
-    val words : int = codesize div wordLength();
+    val words : int = codesize div wordLength
     val printStream = PRETTY.getSimplePrinter parameters;
   in
     Code
@@ -566,11 +565,11 @@ struct
   fun setLong (value : int, Addr a : addrs, seg : cseg) : unit =
   let
     fun putBytes(value, a, seg, i) =
-    if i = wordLength() then ()
+    if i = wordLength then ()
     else
         (
         csegSet(seg,
-            Word.fromInt(if littleEndian() then a+i else a+wordLength()-i-1),
+            Word.fromInt(if littleEndian() then a+i else a+wordLength-i-1),
             Word8.fromInt(value mod 256));
         putBytes(value div 256, a, seg, i+1)
         )
@@ -1143,7 +1142,7 @@ struct
         val constAddr : addrs =
            if usePortableConstantOffset
            then constStartAddrs
-           else constStartAddrs addrPlus (wordLength() * (constNum+4));
+           else constStartAddrs addrPlus (wordLength * (constNum+4));
           
         (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
         val newOffset : int = constAddr addrMinus (fixupAddr addrPlus 2);
@@ -1494,13 +1493,13 @@ struct
      can't use loadWord. *)
   fun loadConstCount (a : address, offset : int) : int =
   let
-    val byteOffset : int = wordLength() * offset;
+    val byteOffset : int = wordLength * offset
     fun loadBytes (i: int) (acc: int) : int =
-        if i = wordLength() then acc
+        if i = wordLength then acc
         else
         let
             val addr: int =
-                if littleEndian() then byteOffset + wordLength() - i - 1
+                if littleEndian() then byteOffset + wordLength - i - 1
                 else byteOffset + i;
             val b = loadByte (a, Word.fromInt addr);
             val acc' = acc*256 + Word8.toInt b
@@ -1594,7 +1593,7 @@ struct
     val () = printConst(h, printStream);
     val () = printStream "\n";
   in
-    printConstants (addr + wordLength(), t, printStream)
+    printConstants (addr + wordLength, t, printStream)
   end;
 
   (* set the num'th constant in cvec to be value *)
@@ -1604,7 +1603,7 @@ struct
     (* The +2 in the next instruction is because ic is always the byte count of
        the word after the marker word.  We need to skip over the function name
        and the profile count. *)
-    val constAddr = (getAddr (!(ic cvec))) div wordLength() + num + 2;
+    val constAddr = (getAddr (!(ic cvec))) div wordLength + num + 2;
   in
     csegPutWord (seg, Word.fromInt constAddr, value)
   end;
@@ -1618,18 +1617,18 @@ struct
     *)
     (* Now round up to 8 byte boundary.  This makes porting to a 64 bit
        machine much simpler. DCJM 22/9/00. *)
-    val alignTo = if wordLength() < 8 then 8 else wordLength();
+    val alignTo = if wordLength < 8 then 8 else wordLength;
     val () = 
        while (getAddr (! (ic cvec)) mod alignTo) <> 0 do
           genByte (opcode_down opcode_pad, cvec);
 
     (* This also aligns ic onto a fullword boundary. *)
     val endIC    = !(ic cvec); (* Remember end *)
-    val () = genBytes (0, wordLength(), cvec); (* Marker *)
+    val () = genBytes (0, wordLength, cvec); (* Marker *)
 
     (* +4 for code size, profile count, function name and constants count *)
     val numOfConst = !(numOfConsts cvec);
-    val endOfCode : int = getAddr (! (ic cvec)) div wordLength();
+    val endOfCode : int = getAddr (! (ic cvec)) div wordLength;
     val segSize   : int = endOfCode + numOfConst + 4;
 
     (* fix-up all the constant loads (or indirections) *)
@@ -1644,7 +1643,7 @@ struct
 
     (* Byte offset of start of code. *)
     local
-      val byteEndOfCode = endOfCode * wordLength();
+      val byteEndOfCode = endOfCode * wordLength;
       val addr = mkAddr byteEndOfCode;
     in
       val () = setLong (byteEndOfCode, addr, seg); 
@@ -1653,14 +1652,14 @@ struct
     (* Put in the number of constants. This must go in before
        we actually put in any constants. *)
     local
-      val addr = mkAddr ((segSize - 1) * wordLength());
+      val addr = mkAddr ((segSize - 1) * wordLength);
     in
       val () = setLong (numOfConst + 1, addr, seg) 
     end;
     
     (* Next the profile count. *)
     local
-      val addr = mkAddr ((endOfCode + 1) * wordLength());
+      val addr = mkAddr ((endOfCode + 1) * wordLength);
     in
       val () = setLong (0, addr, seg) 
     end;
@@ -1699,7 +1698,7 @@ struct
          name of code segment
     *)
     val constants : const list = ! (constVec cvec);
-    val () = printConstants (getAddr endIC + 4*wordLength(), constants, printStream);
+    val () = printConstants (getAddr endIC + 4*wordLength, constants, printStream);
       in
          printStream"\n"
       end
