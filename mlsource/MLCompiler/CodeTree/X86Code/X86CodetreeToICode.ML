@@ -683,9 +683,43 @@ struct
         
         |   codeToICode(BICContainer size , _, _, target) = [ReserveContainer{size=size, address=target}]
 
-            (* Copy the source tuple into the container.
-               TODO: If the tuple is BICTuple we should copy the individual fields
-               and never create the heap tuple. *)
+            (* Copy the source tuple into the container.  If the source is a BICTuple we simply copy
+               the fields.  That saves creating the tuple at compile time. *)
+        |   codeToICode(BICSetContainer{container, tuple=BICTuple cl, filter}, context, _, target) =
+            let
+                val containerTarget = newPReg()
+                val codeContainer = codeToICode(container, context, false, containerTarget)
+                (* In theory it's possible that the tuple could contain fields that are not
+                   used but nevertheless need to be evaluated for their side-effects.
+                   Create all the fields and push to the stack. *)
+                val pregs = map (fn _ => newPReg()) cl
+                val codeFields =
+                    ListPair.foldlEq(fn (c, r, l) => l @ codeToICode(c, context, false, r)) [] (cl, pregs)
+                
+                val filterLength = BoolVector.length filter
+
+                fun copyContainer([], _, _) = []
+                |   copyContainer(srcReg :: otherRegs, sourceWord, destWord) =
+                    if sourceWord < filterLength andalso BoolVector.sub(filter, sourceWord)
+                    then
+                    let
+                        (* This is a little more complicated than we really need because the code for
+                           MoveArgument from MemoryLocation and to MemoryLocation assume the arguments are in
+                           specific locations on the stack. *)
+                        val destCopy = newPReg() and srcCopy = newPReg()
+                        val copySrc = MoveArgument{source=srcReg, dest=srcCopy, kind=WordToWord}
+                        val destCode = MoveArgument{source=containerTarget, dest=destCopy, kind=WordToWord}
+                        val storeCode = MoveArgument{source=srcCopy, dest=wordOffsetAddress(destWord, destCopy), kind=WordToWord}
+                    in
+                        copySrc :: destCode :: storeCode :: copyContainer(otherRegs, sourceWord+1, destWord+1)
+                    end
+                    else copyContainer(otherRegs, sourceWord+1, destWord)
+            in
+                (* Add a dummy result in here to keep everything neat. *)
+                codeContainer @ codeFields @ copyContainer(pregs, 0, 0) @
+                    [MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+            end
+
         |   codeToICode(BICSetContainer{container, tuple, filter}, context, _, target) =
             let
                 val containerTarget = newPReg() and tupleTarget = newPReg()
