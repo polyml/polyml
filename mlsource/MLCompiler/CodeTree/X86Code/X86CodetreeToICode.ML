@@ -172,19 +172,65 @@ struct
                 codeToICode(base, context, false, baseR) @
                     [MoveArgument{source=wordOffsetAddress(offset, baseR), dest=target, kind=WordToWord}]
             end
-        
+
         |   codeToICode(BICEval {function, argList, ...}, context, isTail, target) =
             let
                 val numArgs = List.length argList
                 (* Create pregs for the closure and each argument. *)
                 val clPReg = newPReg()
                 val argPRegs = List.map (fn _ => newPReg()) argList
+                (* If we have a constant closure we can go directly to the entry point.
+                   If the closure is a single word we don't need to load the closure register. *)
+                val (functionCode, closureEntry, callKind) =
+                    case function of
+                        BICConstnt(addr, _) =>
+                        let
+                            val addrAsAddr = toAddress addr
+                            (* If this is a closure we're still compiling or if it's an address
+                               of an io function (at the moment) we can't get the code address.
+                               However if this is directly recursive we can use the recursive
+                               convention. *)
+                            val isRecursive =
+                                case closureOpt of
+                                    SOME a => wordEq(toMachineWord a, addr)
+                                |   NONE => false
+                        in
+                            if isRecursive
+                            then ([], [], Recursive)
+                            else if flags addrAsAddr <> Address.F_words orelse isIoAddress addrAsAddr
+                            then ([MoveArgument{source=AddressConstant addr, dest=clPReg, kind=WordToWord}],
+                                      [(clPReg, edx)], FullCall)
+                            else
+                            let
+                            
+                                val addrLength = length addrAsAddr
+                                val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
+                                val codeAddr = loadWord(addrAsAddr, 0w0)
+                                val _ = isCode (toAddress codeAddr) orelse raise InternalError "BICEval address not code"
+                            in
+                                if addrLength = 0w1
+                                then ([], [], ConstantCode codeAddr)
+                                else ([MoveArgument{source=AddressConstant addr, dest=clPReg, kind=WordToWord}],
+                                      [(clPReg, edx)], ConstantCode codeAddr)
+                            end
+                        end
+
+                    |   BICExtract BICLoadRecursive =>
+                        (
+                            (* If the closure is empty we don't need to load rdx *)
+                            case closure of
+                                [] => ([], [], Recursive)
+                            |   _ => ([MoveArgument {source=closureRegAddr, dest=clPReg, kind=WordToWord}], [(clPReg, edx)], Recursive)
+                        )
+
+                    |   function => (* General case. *)
+                            (codeToICode(function, context, false, clPReg), [(clPReg, edx)], FullCall)
                 val codeArgs =
                     ListPair.foldlEq(fn (arg, pr, l) => l @ codeToICode(arg, context, false, pr)) []
-                        (function :: List.map #1 argList, clPReg :: argPRegs)
-                (* Load the closure and the argument registers.  This returns the
+                        (List.map #1 argList, argPRegs)
+                (* Load the argument registers.  This returns the
                    shorter of the actual arguments and those in registers. *)
-                val regArgs = ListPair.zip (clPReg::argPRegs, edx :: argRegs)
+                val regArgs = ListPair.zip (argPRegs, argRegs)
                 (* The stack arguments are the later arguments in the list i.e. those
                    most recently pushed to the stack. *)
                 val stackArgs =
@@ -192,7 +238,8 @@ struct
                     then List.drop(argPRegs, List.length argRegs)
                     else []
             in
-                codeArgs @ [FunctionCall{regArgs=regArgs, stackArgs=stackArgs, dest=target, isTail=isTail}]
+                functionCode @ codeArgs @
+                   [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}]
             end
 
         |   codeToICode(BICBuiltIn0 _, _, _, _) =

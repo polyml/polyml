@@ -568,7 +568,8 @@ struct
                 codeICode{icode=rest, state=state, code=instr :: code, context=context}
 
             (* Function call. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false, callKind} :: rest,
+                      state=NormalState state, code, context} =
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
@@ -603,7 +604,8 @@ struct
                 val (finalState, stackReset) =
                     resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate}, destReg), poppedState, destReg)
                 val functionCode =
-                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg}] @ doLoad @ pushCode @ code
+                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind}] @
+                        doLoad @ pushCode @ code
             in
                 codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
             end
@@ -611,7 +613,7 @@ struct
             (* Jump to a function.  The arguments have to be moved into the space currently used
                by the arguments to this function.  That could result in values being overwritten
                so we have to save them, especially the return address. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true, callKind} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val currentSp = stackPtr pushedState
@@ -635,7 +637,7 @@ struct
                 val moveArgs = copyArgs(numArgsToMove, stackArgs)
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
                 val functionCode =
-                        FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg} ::
+                        FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
                                       ResetStackPtr {numWords=argOffset} :: (storeReturn @ moveArgs @ loadReturn @ doLoad @ pushCode @ code)
             in
                 codeICode{icode=rest, state=Exited, code=functionCode, context=context}

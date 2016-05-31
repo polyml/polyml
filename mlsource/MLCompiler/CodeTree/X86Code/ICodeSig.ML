@@ -47,6 +47,12 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
+    datatype callKinds =
+        Recursive
+    |   ConstantCode of machineWord
+    |   FullCall
+    |   DirectReg of genReg
+
     datatype argument =
         PReg of int (* A pseudo-register - an abstract register. *)
     |   RealRegister of reg (* A real register. *)
@@ -76,10 +82,13 @@ sig
 
     |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
-        (* Call or jump to a function.  Currently the closure is loaded into edx/rdx as one of the
-           regArgs. The result is stored in the destination register.  If isTail is true this is tail-recursive
-           and should be a jump. *)
-    |   FunctionCall of { regArgs: (argument * genReg) list, stackArgs: argument list, dest: argument, isTail: bool}
+        (* Call or jump to a function.  If the code address is a constant it is passed here.
+           Otherwise the address is obtained by indirecting through rdx which has been loaded
+           as one of the argument registers.  The result is stored in the destination register.
+           If isTail is true this is tail-recursive and should be a jump. *)
+    |   FunctionCall of
+            { callKind: callKinds, regArgs: (argument * genReg) list,
+              stackArgs: argument list, dest: argument, isTail: bool}
 
         (* Allocate a tuple or a function closure. *)
     |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
