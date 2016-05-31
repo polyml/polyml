@@ -282,8 +282,6 @@ struct
             (POLY_SYS_string_length,"POLY_SYS_string_length"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final"),
             (POLY_SYS_mul_word,"POLY_SYS_mul_word"),
-            (POLY_SYS_plus_word,"POLY_SYS_plus_word"),
-            (POLY_SYS_minus_word,"POLY_SYS_minus_word"),
             (POLY_SYS_div_word,"POLY_SYS_div_word"),
             (POLY_SYS_or_word,"POLY_SYS_or_word"),
             (POLY_SYS_and_word,"POLY_SYS_and_word"),

@@ -52,7 +52,6 @@ struct
   val POLY_SYS_andb_longword       = 79
   val POLY_SYS_orb_longword        = 80
   val POLY_SYS_xorb_longword       = 81
-  (*val POLY_SYS_kill_self           = 84*)
   val POLY_SYS_shift_left_longword         = 85
   val POLY_SYS_shift_right_longword        = 86
   val POLY_SYS_shift_right_arith_longword  = 87
@@ -112,13 +111,10 @@ struct
   val POLY_SYS_move_bytes_overlap  = 199
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)
   val POLY_SYS_is_big_endian       = 213  (* added 30/3/95 (DCJM) *)
-  (*val POLY_SYS_bytes_per_word      = 214*)  (* added 30/3/95 (DCJM) *)
   val POLY_SYS_shift_right_word    = 216
   val POLY_SYS_string_length       = 223
   val POLY_SYS_touch_final         = 228
   val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
-  val POLY_SYS_plus_word           = 239  (* Reinstated DCJM 9/10/99 *)
-  val POLY_SYS_minus_word          = 240  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_div_word            = 241  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_or_word             = 242
   val POLY_SYS_and_word            = 243
