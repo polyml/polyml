@@ -35,7 +35,7 @@ sig
     |   ArithRem
 
     datatype builtIn0Ops =
-        Built0PlaceHolder
+        CurrentThreadId
 
     and builtIn1Ops =
         NotBoolean (* true => false; false => true - XOR *)

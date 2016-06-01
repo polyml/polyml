@@ -39,7 +39,7 @@ struct
         |   ArithRem
 
         datatype builtIn0Ops =
-            Built0PlaceHolder
+            CurrentThreadId
 
         and builtIn1Ops =
             NotBoolean
@@ -64,7 +64,7 @@ struct
         and builtIn5Ops =
             Built5PlaceHolder
         
-        fun builtIn0Repr Built0PlaceHolder = "Built0PlaceHolder"
+        fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
 
         and builtIn1Repr NotBoolean = "NotBoolean"
         |   builtIn1Repr IsTaggedValue = "IsTaggedValue"

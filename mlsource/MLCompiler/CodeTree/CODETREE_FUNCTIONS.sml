@@ -107,7 +107,7 @@ struct
         |   codeProps (BuiltIn0{oper}) =
             (
                 case oper of
-                    BuiltIns.Built0PlaceHolder => 0w0
+                    BuiltIns.CurrentThreadId => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
             )
 
         |   codeProps (BuiltIn1{oper, arg1}) =

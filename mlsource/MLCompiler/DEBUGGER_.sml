@@ -85,7 +85,7 @@ struct
            if we hit a break-point and run the interactive debugger with PolyML.Compiler.debug true. *)
         fun wrap (f:'a -> unit) (x: 'a) : unit =
         let
-            val threadId: address = RunCall.run_call0 POLY_SYS_thread_self ()
+            val threadId: address = RunCall.unsafeCast(Thread.Thread.self())
             val stack = loadWord(threadId, 0w5)
             and static = loadWord(threadId, 0w6)
             and dynamic = loadWord(threadId, 0w7)
@@ -246,7 +246,7 @@ struct
     fun updateState (level, mkAddr) (decs, debugEnv: debuggerStatus as {staticEnv, dynEnv, ...}) =
     let
         open ADDRESS RuntimeCalls
-        val threadId = multipleUses(mkBuiltIn(POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+        val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
         fun assignItem(offset, value) =
             mkNullDec(mkBuiltIn3(BuiltIns.StoreWord, #load threadId level, offset, value))
         val newDecs =
@@ -381,7 +381,7 @@ struct
         open ADDRESS RuntimeCalls
         val setLocation =
             mkBuiltIn3(BuiltIns.StoreWord,
-                mkBuiltIn(POLY_SYS_thread_self, []), threadIdCurrentLocation, mkConst(toMachineWord location))
+                mkBuiltIn0 BuiltIns.CurrentThreadId, threadIdCurrentLocation, mkConst(toMachineWord location))
     in
         ([mkNullDec setLocation], {staticEnv=staticEnv, dynEnv=dynEnv, lastLoc=location})
     end
@@ -409,7 +409,7 @@ struct
             (* All the "on" functions take this as an argument. *)
             val onArgs = [mkConst(toMachineWord(functionName, location))]
 
-            val threadId = multipleUses(mkBuiltIn(POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+            val threadId = multipleUses(mkBuiltIn0 BuiltIns.CurrentThreadId, fn () => mkAddr 1, level)
             fun loadIdEntry offset =
                 multipleUses(mkBuiltIn2(BuiltIns.LoadWord{isImmutable=false}, #load threadId level, offset), fn () => mkAddr 1, level)
             val currStatic = loadIdEntry threadIdCurrentStatic

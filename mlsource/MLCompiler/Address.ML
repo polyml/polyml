@@ -210,7 +210,6 @@ struct
             (POLY_SYS_atomic_reset,"POLY_SYS_atomic_reset"),
             (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
             (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
-            (POLY_SYS_thread_self,"POLY_SYS_thread_self"),
             (POLY_SYS_plus_longword,"POLY_SYS_plus_longword"),
             (POLY_SYS_minus_longword,"POLY_SYS_minus_longword"),
             (POLY_SYS_mul_longword,"POLY_SYS_mul_longword"),

@@ -47,6 +47,8 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
+    val argThreadSelf: int (* Copied from X86CodeSgig *)
+
     datatype callKinds =
         Recursive
     |   ConstantCode of machineWord
@@ -54,7 +56,7 @@ sig
     |   DirectReg of genReg
 
     datatype argument =
-        PReg of int (* A pseudo-register - an abstract register. *)
+        PReg of int (* A pseudo-register - an abstract register.  These can contain addresses and be pushed to the stack. *)
     |   RealRegister of reg (* A real register. *)
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)

@@ -43,7 +43,6 @@ struct
   val POLY_SYS_atomic_reset        = 69 (* DCJM 18/9/12 *)
   val POLY_SYS_atomic_incr         = 70 (* DCJM 12/3/07 *)
   val POLY_SYS_atomic_decr         = 71 (* DCJM 12/3/07 *)
-  val POLY_SYS_thread_self         = 72 (* DCJM 12/3/07 *)
   val POLY_SYS_plus_longword       = 74
   val POLY_SYS_minus_longword      = 75
   val POLY_SYS_mul_longword        = 76

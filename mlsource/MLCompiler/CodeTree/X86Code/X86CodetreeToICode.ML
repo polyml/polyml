@@ -242,8 +242,23 @@ struct
                    [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}]
             end
 
-        |   codeToICode(BICBuiltIn0 _, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn0"
+        |   codeToICode(BICBuiltIn0{oper=BuiltIns.CurrentThreadId}, context, _, target) =
+            (* Get the ID of the current thread. *)
+            let
+                val argReg = newPReg() (* Should this be an untagged register? *)
+                (* This is a duplicate of code in X86FOREIGNCALL. *)
+                val memRegArgumentPtr =
+                    case Compat560.polySpecificGeneral (108, 0) of
+                        1 => (*X64Unix*) ~48
+                    |   2 => (*X64Win*) 16
+                    |   _ => (*X86_32*) 8
+            in
+                [MoveArgument{
+                    source=MemoryLocation{offset=memRegArgumentPtr, base=RealRegister(GenReg ebp), index=NoMemIndex},
+                    dest=argReg, kind=WordToWord},
+                 MoveArgument{
+                    source=MemoryLocation{offset=argThreadSelf, base=argReg, index=NoMemIndex}, dest=target, kind=WordToWord}]
+            end
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, _, target) =
             let

@@ -28,7 +28,7 @@ sig
     
     structure Thread:
     sig
-        type thread;
+        eqtype thread
         
         (* Thread attributes - This may be extended. *)
         datatype threadAttribute =
@@ -67,7 +67,7 @@ sig
         (* isActive: Test if a thread is still running or has terminated. *)
         val isActive: thread -> bool
         
-        (* Test whether thread ids are the same. *)
+        (* Test whether thread ids are the same.  No longer needed if this is an eqtype. *)
         val equal: thread * thread -> bool
         (* Get my own ID. *)
         val self: unit -> thread
@@ -192,7 +192,11 @@ struct
     
     structure Thread =
     struct
-        
+        open Thread (* Created in INITIALISE with thread type and self function. *)
+
+        (* Equality is pointer equality. *)
+        val equal : thread*thread->bool = op =
+
         datatype threadAttribute =
             EnableBroadcastInterrupt of bool
         |   InterruptState of interruptState
@@ -270,12 +274,6 @@ struct
         and threadIdIntRequest  = 0w3
         and threadIdStackSize   = 0w4
 
-        type thread = Word.word ref (* Actually this is a multi-word mutable object. *)
-        (* Equality is pointer equality. *)
-        val equal : thread*thread->bool = RunCall.pointerEq
-        (* Return our own thread object. *)
-        val self: unit->thread = RunCall.run_call0 POLY_SYS_thread_self
-        
         fun getLocal (t: 'a Universal.tag) : 'a option =
         let
             val root: Universal.universal ref list =

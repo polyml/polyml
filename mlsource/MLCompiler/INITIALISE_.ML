@@ -715,6 +715,30 @@ struct
         end
 
         local
+            val threadEnv = makeStructure(globalEnv, "Thread")
+
+            open TypeValue
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+            val code =
+                createTypeValue{
+                    eqCode=equalWordFn,
+                    printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                    boxedCode=boxedAlways,
+                    sizeCode=singleWord
+                }
+            (* Thread.thread type.  This is an equality type with pointer equality. *)
+            val threadConstr= 
+                makeTypeConstructor (
+                    "thread", makeFreeId(0, Global (genCode(code, [], 0) ()), true, basisDescription "thread"),
+                    [DeclaredAt inBasis])
+            val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
+            val selfFunction = mkGvar ("self", Unit ->> threadType, mkBuiltIn0Fn BuiltIns.CurrentThreadId, declInBasis)
+        in
+            val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
+            val () = #enterVal threadEnv ("self", selfFunction)
+        end
+
+        local
             fun addVal (name : string, value : 'a, typ : types) : unit =
                 enterBootstrap (name, mkConst (toMachineWord value), typ)
       

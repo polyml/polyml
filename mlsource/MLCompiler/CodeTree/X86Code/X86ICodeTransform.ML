@@ -464,10 +464,9 @@ struct
 
             (* Load a value from a piece of memory, typically the offset in a tuple. *)
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation{offset, base, index=NoMemIndex}, dest=PReg destReg, kind} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base=PReg bReg, index=NoMemIndex}, dest=PReg destReg, kind} :: rest,
                 state=NormalState state, code, context} =
             let
-                val bReg = argToPReg base
                 (* Currently we always make a new preg for the base and that is
                    on the top of the state.  We can just remove it and replace it
                    with the result. *)
@@ -475,6 +474,18 @@ struct
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(poppedState, destReg)),
                     code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: code, context=context}
+            end
+
+        |   codeICode{
+                icode=MoveArgument{ source=MemoryLocation{offset, base as RealRegister _, index=NoMemIndex}, dest=PReg destReg, kind} :: rest,
+                state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+            in
+                (* We also generate loads from offsets in ebp. *)
+                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=base, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: pushCode @ code,
+                    context=context}
             end
 
         |   codeICode{
