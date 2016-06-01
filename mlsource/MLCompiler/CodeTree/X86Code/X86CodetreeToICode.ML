@@ -477,8 +477,50 @@ struct
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: WordArith"
 
-        |   codeToICode(BICBuiltIn3 _, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn3"
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, target) =
+            let
+                val baseReg = newPReg() and valueReg = newPReg()
+                (* Fixed offset.  *)
+                val offset = Word.toInt(toShort value)
+            in
+                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg3, context, false, valueReg) @
+                    [MoveArgument {source=valueReg, dest=wordOffsetAddress(offset, baseReg), kind=WordToWord},
+                     (* Unit result *)
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+            end
+
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2, arg3}, context, _, target) =
+            let
+                val baseReg = newPReg() and indexReg = newPReg() and valueReg = newPReg()
+                (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
+                   index factor and offset.  *)
+                val destination =
+                    if isX64
+                    then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
+                    else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
+            in
+                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
+                    codeToICode(arg3, context, false, valueReg) @
+                    [MoveArgument {source=valueReg, dest=destination, kind=WordToWord},
+                     (* Unit result *)
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+            end
+
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreByte, arg1, arg2, arg3}, context, _, target) =
+            let
+                (* We have to untag both the index and the value to store. *)
+                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newPReg()
+                and valueReg = newPReg() and valueReg1 = newPReg()
+                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+            in
+                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
+                    codeToICode(arg3, context, false, valueReg) @
+                    [ShiftOperation{shift=SHR, resultReg=indexReg1, operand=indexReg, shiftAmount=IntegerConstant 1, ccRef=ccRef1 },
+                     ShiftOperation{shift=SHR, resultReg=valueReg1, operand=valueReg, shiftAmount=IntegerConstant 1, ccRef=ccRef2 },
+                     MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 indexReg1}, kind=ByteToByte},
+                     (* Unit result *)
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+            end
 
         |   codeToICode(BICBuiltIn4 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn4"
@@ -713,19 +755,24 @@ struct
         
         |   codeToICode(BICTuple fields, context, _, target) =
             let
+                (* We want the result address to be on the top of the stack when we've
+                   finished.  Allocate the memory to a new register and copy it over to
+                   the target when we've finished. *)
+                val memAddr = newPReg()
                 fun loadFields([], n) =
-                        [AllocateMemoryOperation{size=n, isMutable=false, dest=target}]
+                        [AllocateMemoryOperation{size=n, isMutable=false, dest=memAddr}]
                 |   loadFields(f :: rest, n) =
                     let
-                        val fReg = newPReg()
-                        val code = codeToICode(f, context, false, fReg)
+                        val sourceReg = newPReg()
+                        val code = codeToICode(f, context, false, sourceReg)
                         val restAndAlloc = loadFields(rest, n+1)
-                        val storeValue = [MoveArgument{ source=fReg, dest=wordOffsetAddress(n, target), kind=WordToWord}]
+                        val storeValue = [MoveArgument{ source=sourceReg, dest=wordOffsetAddress(n, memAddr), kind=WordToWord}]
                     in
                         code @ restAndAlloc @ storeValue
                     end
             in
-                loadFields(fields, 0) @ [InitialisationComplete{dest=target}]
+                loadFields(fields, 0) @
+                    [InitialisationComplete{dest=memAddr}, MoveArgument{source=memAddr, dest=target, kind=WordToWord}]
             end
         
         |   codeToICode(BICContainer size , _, _, target) = [ReserveContainer{size=size, address=target}]
@@ -749,17 +796,9 @@ struct
                 |   copyContainer(srcReg :: otherRegs, sourceWord, destWord) =
                     if sourceWord < filterLength andalso BoolVector.sub(filter, sourceWord)
                     then
-                    let
-                        (* This is a little more complicated than we really need because the code for
-                           MoveArgument from MemoryLocation and to MemoryLocation assume the arguments are in
-                           specific locations on the stack. *)
-                        val destCopy = newPReg() and srcCopy = newPReg()
-                        val copySrc = MoveArgument{source=srcReg, dest=srcCopy, kind=WordToWord}
-                        val destCode = MoveArgument{source=containerTarget, dest=destCopy, kind=WordToWord}
-                        val storeCode = MoveArgument{source=srcCopy, dest=wordOffsetAddress(destWord, destCopy), kind=WordToWord}
-                    in
-                        copySrc :: destCode :: storeCode :: copyContainer(otherRegs, sourceWord+1, destWord+1)
-                    end
+                        MoveArgument{source=srcReg, dest=wordOffsetAddress(destWord, containerTarget), kind=WordToWord} ::
+                            copyContainer(otherRegs, sourceWord+1, destWord+1)
+
                     else copyContainer(otherRegs, sourceWord+1, destWord)
             in
                 (* Add a dummy result in here to keep everything neat. *)
@@ -781,16 +820,14 @@ struct
                     else if BoolVector.sub(filter, sourceWord)
                     then
                     let
-                        (* This is a little more complicated than we really need because the code for
-                           MoveArgument from MemoryLocation and to MemoryLocation assume the arguments are in
-                           specific locations on the stack. *)
-                        val srcCopy = newPReg() and loadReg = newPReg() and destCopy = newPReg()
+                        (* Currently the next stage assumes that the source address of a load will always be
+                           at the top of the stack. *)
+                        val srcCopy = newPReg() and loadReg = newPReg()
                         val srcCode = MoveArgument{source=tupleTarget, dest=srcCopy, kind=WordToWord}
                         val load = MoveArgument{source=wordOffsetAddress(sourceWord, srcCopy), dest=loadReg, kind=WordToWord}
-                        val destCode = MoveArgument{source=containerTarget, dest=destCopy, kind=WordToWord}
-                        val storeCode = MoveArgument{source=loadReg, dest=wordOffsetAddress(destWord, destCopy), kind=WordToWord}
+                        val storeCode = MoveArgument{source=loadReg, dest=wordOffsetAddress(destWord, containerTarget), kind=WordToWord}
                     in
-                        srcCode :: load :: destCode :: storeCode :: copyContainer(sourceWord+1, destWord+1)
+                        srcCode :: load  :: storeCode :: copyContainer(sourceWord+1, destWord+1)
                     end
                     else copyContainer(sourceWord+1, destWord)
             in

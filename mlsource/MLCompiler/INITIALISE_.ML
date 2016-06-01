@@ -299,6 +299,12 @@ struct
                compilers for 32-bit and 64-bit.  N.B. The byte order is not a constant since we
                only have a single pre-built compiler for little-endian and big-endian interpreted code. *)
             val () = enterRunCall ("bytesPerWord", mkConst(toMachineWord wordSize), Word)
+            (* Store a word *)
+            val () = enterRunCall ("storeWord",
+                    makePolymorphic([a, b], mkBuiltIn3Fn StoreWord), mkProductType[a, Word, b] ->> Unit)
+            (* Store a byte *)
+            val () = enterRunCall ("storeByte",
+                    makePolymorphic([a, b], mkBuiltIn3Fn StoreByte), mkProductType[a, Word, b] ->> Unit)
         end
 
         local

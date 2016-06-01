@@ -122,7 +122,6 @@ struct
   val POLY_SYS_shift_left_word     = 245
   val POLY_SYS_mod_word            = 246  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_assign_byte         = 254
-  val POLY_SYS_assign_word         = 255
 
   (* val POLY_SYS_vecsize = 256 *)
 

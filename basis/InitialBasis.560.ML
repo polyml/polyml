@@ -354,9 +354,11 @@ struct
 
     fun loadWord(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word(a, i)
     and loadWordFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word_immut(a, i)
+    and storeWord(a: 'a, i: word, b: 'b): unit = run_call3 RuntimeCalls.POLY_SYS_assign_word(a, i, b)
  
     fun loadByte(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte(a, i)
     and loadByteFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte_immut(a, i)
+    and storeByte(a: 'a, i: word, b: 'b): unit = run_call3 RuntimeCalls.POLY_SYS_assign_byte(a, i, b)
    
     fun memoryCellLength(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_length a
     and memoryCellFlags(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_flags a

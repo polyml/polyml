@@ -508,30 +508,59 @@ struct
         |   codeICode{icode=MoveArgument{ source=PReg srcReg, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
                       state=NormalState state, code, context} =
             let
-                val bReg = argToPReg base
-                (* We currently generate these so that the top of the state is the allocated
-                   memory and the next item to store is immediately below it. *)
-                val newState =
-                    case #valueStack state of
-                        {preg=tReg, loc=InRax} :: {preg=nReg, loc=OnStack _} :: state =>
-                            if tReg = bReg andalso nReg = srcReg
-                            then {valueStack=state, ccState= CCIndeterminate (* For the moment *)}
-                            else raise InternalError "MoveArgument to MemoryLocation"
-                    |   _ => raise InternalError "MoveArgument to MemoryLocation"
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val valueOnStack =
+                    case findEntry (srcReg, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadValueToEbx = loadStack(ebx, (stackPtr pushedState - valueOnStack -1) * wordSize)
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
                 (* Pop the value to store into ebx and store it in the tuple. *)
                 val store =
-                    MoveArgument{
+                    [MoveArgument{
                         source=RealRegister(GenReg ebx),
-                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind} ::
-                    ResetStackPtr{numWords=1} :: loadMemory(ebx, esp, 0)
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
             in
                 codeICode{
-                    (* We currently have the base in eax.  Leave it there because it may be used again. *)
-                    icode=rest, state=NormalState(addRaxToState(newState, bReg)), code=store @ code, context=context}
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ loadValueToEbx @ pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=MoveArgument{ source=PReg _, dest=MemoryLocation _, kind=_} :: _, ...} =
-                raise InternalError "TODO: codeICode MemoryLocation index destination"
+        |   codeICode{icode=MoveArgument{ source=PReg valueReg, dest=MemoryLocation {offset, base, index}, kind} :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* The top of the stack should be the value to store.  That will be in rax.
+                   We load the base address into rcx and the index into rbx. *)
+                val startState = checkTopInRax(state, valueReg)
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1(PReg r) => (r, MemIndex1 rbxAsArg)
+                    |   MemIndex2(PReg r) => (r, MemIndex2 rbxAsArg)
+                    |   MemIndex4(PReg r) => (r, MemIndex4 rbxAsArg)
+                    |   MemIndex8(PReg r) => (r, MemIndex8 rbxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex"
+                val indexOnStack =
+                    case findEntry (iReg, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val baseOnStack =
+                    case findEntry (argToPReg base, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val rcxAsArg = RealRegister(GenReg ecx)
+            in
+                codeICode{icode=rest, state=NormalState startState,
+                    code =
+                        MoveArgument{source=raxAsArg, dest=MemoryLocation {offset=offset, base=rcxAsArg, index=indexed}, kind=kind} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rcxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - indexOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
+                        code,
+                    context=context}
+            end
 
             (* Other combinations of move aren't used at the moment. *)
         |   codeICode{icode=MoveArgument _ :: _, ...} =

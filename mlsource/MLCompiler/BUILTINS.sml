@@ -60,7 +60,8 @@ sig
     |   LoadByte of { isImmutable: bool }
 
     and builtIn3Ops =
-        Built3PlaceHolder
+        StoreWord
+    |   StoreByte
 
     and builtIn4Ops =
         Built4PlaceHolder

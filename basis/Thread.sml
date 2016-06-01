@@ -298,7 +298,7 @@ struct
 
             fun doFind [] =
                     (* Not in the list - Add it. *)
-                    RunCall.run_call3 POLY_SYS_assign_word
+                    RunCall.storeWord
                         (self(), threadIdThreadLocal,
                          ref (Universal.tagInject t newVal) :: root)
               | doFind (v::r) =
@@ -349,7 +349,7 @@ struct
                 val (newValue, mask) = attrsToWord attrs
                 val stack = newStackSize(attrs, getStackSizeAsInt me)
             in
-                RunCall.run_call3 POLY_SYS_assign_word (self(), threadIdFlags,
+                RunCall.storeWord (self(), threadIdFlags,
                     Word.orb(newValue, Word.andb(Word.notb mask, oldValues)));
                 if stack = getStackSizeAsInt me
                 then () else Compat560.threadGeneral (15, stack);
@@ -373,7 +373,7 @@ struct
                interrupt handling bits. *)
             fun getInterruptState(): interruptState = getIstateBits(getAttrWord(self()))
             and setInterruptState(s: interruptState): unit =
-                RunCall.run_call3 POLY_SYS_assign_word (self(), threadIdFlags,
+                RunCall.storeWord (self(), threadIdFlags,
                     Word.orb(setIstateBits s, Word.andb(Word.notb 0w6, getAttrWord(self()))))
 
             local
@@ -692,11 +692,11 @@ struct
         val () =
             if andb(oldAttrs, 0w6) = 0w0 (* Already deferred? *)
             then ()
-            else RunCall.run_call3 POLY_SYS_assign_word (self(), 1,
+            else RunCall.storeWord (self(), 0w1,
                     orb(andb(notb 0w6, oldAttrs), 0w4))
         fun restoreAttrs() =
         (
-            RunCall.run_call3 POLY_SYS_assign_word (self(), 1, oldAttrs);
+            RunCall.storeWord (self(), 0w1, oldAttrs);
             if andb(oldAttrs, 0w4) = 0w4 then testInterrupt() else ()
         )
         val () = lock m

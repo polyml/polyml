@@ -55,7 +55,8 @@ struct
         |   LoadByte of { isImmutable: bool }
 
         and builtIn3Ops =
-            Built3PlaceHolder
+            StoreWord
+        |   StoreByte
 
         and builtIn4Ops =
             Built4PlaceHolder
@@ -92,8 +93,9 @@ struct
         |   arithRepr ArithQuot         = "Quot"
         |   arithRepr ArithRem          = "Rem"
 
+        and builtIn3Repr StoreWord = "StoreWord"
+        |   builtIn3Repr StoreByte = "StoreByte"
 
-        and builtIn3Repr Built3PlaceHolder = "Built3PlaceHolder"
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
         and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"
     end

@@ -22,7 +22,6 @@ local
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
     val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
-    val System_setw: word * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
@@ -38,7 +37,7 @@ local
     fun unsafeSub(v: 'a array, i: int): 'a = RunCall.loadWord(arrayAsWord v, intAsWord i)
 
     and unsafeUpdate(v: 'a array, i: int, new: 'a): unit =
-        System_setw (arrayAsWord v, intAsWord i, RunCall.unsafeCast new);
+        RunCall.storeWord (arrayAsWord v, intAsWord i, RunCall.unsafeCast new);
 
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
@@ -94,7 +93,7 @@ struct
     fun update (vec: 'a array, i: int, new: 'a) : unit =
         if not (LibrarySupport.isShortInt i) orelse intAsWord i >= RunCall.memoryCellLength vec
         then raise General.Subscript
-        else System_setw (arrayAsWord vec, intAsWord i, RunCall.unsafeCast new);
+        else RunCall.storeWord (arrayAsWord vec, intAsWord i, RunCall.unsafeCast new);
 
     (* Create an array from a list. *)
     fun fromList (l : 'a list) : 'a array =

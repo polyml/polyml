@@ -147,7 +147,8 @@ struct
             let
                 val operProps =
                     case oper of
-                        BuiltIns.Built3PlaceHolder => 0w0
+                        BuiltIns.StoreWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
+                    |   BuiltIns.StoreByte => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3
             end
