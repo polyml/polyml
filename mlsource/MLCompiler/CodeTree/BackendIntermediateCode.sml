@@ -45,7 +45,8 @@ struct
             NotBoolean
         |   IsTaggedValue
         |   MemoryCellLength
-        |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
+        |   MemoryCellFlags
+        |   ClearMutableFlag
 
         and builtIn2Ops =
             WordComparison of { test: testConditions, isSigned: bool }
@@ -70,6 +71,7 @@ struct
         |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
         |   builtIn1Repr MemoryCellLength = "MemoryCellLength"
         |   builtIn1Repr MemoryCellFlags = "MemoryCellFlags"
+        |   builtIn1Repr ClearMutableFlag = "ClearMutableFlag"
 
         and builtIn2Repr (WordComparison{test, isSigned}) =
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")

@@ -121,7 +121,6 @@ struct
 
     local
         open LibrarySupport
-        val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
         val quotRem: int*int -> int*int = RunCall.run_call2C2 POLY_SYS_quotrem
 
         (* Int.toChars turned out to be a major allocation hot-spot in some Isabelle
@@ -204,7 +203,7 @@ struct
             let
                 val (result, _) = toCharGroup(abs i, 0w0)
             in
-                System_lock result;
+                RunCall.clearMutableBit result;
                 result
             end
         end

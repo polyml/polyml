@@ -305,6 +305,9 @@ struct
             (* Store a byte *)
             val () = enterRunCall ("storeByte",
                     makePolymorphic([a, b], mkBuiltIn3Fn StoreByte), mkProductType[a, Word, b] ->> Unit)
+            (* Lock a mutable cell. *)
+            val () = enterRunCall ("clearMutableBit",
+                    makePolymorphic([a], mkBuiltIn1Fn ClearMutableFlag), a ->> Unit)
         end
 
         local

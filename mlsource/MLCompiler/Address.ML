@@ -135,6 +135,10 @@ struct
     and loadWord:   address * Word.word -> machineWord  = RunCall.loadWord
     and assignByte: address * Word.word * Word8.word -> unit = RunCall.storeByte
     and assignWord: address * Word.word * machineWord -> unit = RunCall.storeWord
+    and lock:       address -> unit = RunCall.clearMutableBit
+    and wordSize:   int = Word.toInt RunCall.bytesPerWord
+    and length:     address -> Word.word = RunCall.memoryCellLength
+    and flags:      address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
 
     val maxAllocation: word = Compat560.processEnvGeneral (100, ())
 
@@ -143,15 +147,6 @@ struct
         if len >= maxAllocation
         then raise Size
         else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
-  
-  val lock:   address -> unit =
-    RunCall.run_call1 POLY_SYS_lockseg
-
-  val wordSize: int = Word.toInt RunCall.bytesPerWord
-
-  val length: address -> Word.word = RunCall.memoryCellLength
-  and flags:  address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
-
 
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
@@ -196,7 +191,6 @@ struct
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
             (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
             (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_lockseg,"POLY_SYS_lockseg"),
             (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
             (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
             (POLY_SYS_eq_longword,"POLY_SYS_eq_longword"),

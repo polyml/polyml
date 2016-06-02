@@ -364,6 +364,8 @@ struct
     and memoryCellFlags(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_flags a
     
     val bytesPerWord: word = run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
+    
+    fun clearMutableBit(a: 'a): unit = run_call1 RuntimeCalls.POLY_SYS_lockseg a
 end;
 
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)

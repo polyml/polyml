@@ -32,7 +32,6 @@ struct
   val POLY_SYS_teststrlss          = 27
   val POLY_SYS_teststrgeq          = 28
   val POLY_SYS_teststrleq          = 29
-  val POLY_SYS_lockseg             = 47
   val POLY_SYS_emptystring         = 48
   val POLY_SYS_nullvector          = 49
   val POLY_SYS_eq_longword         = 53

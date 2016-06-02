@@ -297,6 +297,15 @@ struct
                  TagValue{ source=argReg1, dest=target }]
             end
 
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, target) =
+            let
+                val addrReg = newPReg()
+            in
+                codeToICode(arg1, context, false, addrReg) @
+                    [LockMutable{addr=addrReg}, (* Unit result *)
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+            end
+
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
 

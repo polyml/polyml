@@ -189,8 +189,6 @@ local
 in
     structure BoolVector: MONO_VECTOR =
     struct
-        val System_lock: Bootstrap.byteVector -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-
         type vector = vector
         type elem = bool
         val maxLen = maxLen
@@ -207,7 +205,7 @@ in
         let
             val (length, vec) = fromList' l
         in
-            System_lock vec;
+            RunCall.clearMutableBit vec;
             Vector(length, vec)
         end
     
@@ -215,7 +213,7 @@ in
         let
             val (length, vec) = tabulate' (length, f)
         in
-            System_lock vec;
+            RunCall.clearMutableBit vec;
             Vector(length, vec)
         end
             
@@ -242,7 +240,7 @@ in
                     end
             in
                 copy 0w0 len;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 Vector(len, new_vec)
             end*)
 
@@ -269,7 +267,7 @@ in
                     end
             in
                 copy 0w0 len;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 Vector(len, new_vec)
             end
 
@@ -307,7 +305,7 @@ in
                     else RunCall.storeByte(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
             in
                 copy_list l 0 0w0;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 Vector(total_len, new_vec)
             end
         end

@@ -27,7 +27,6 @@ local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open LibrarySupport
 
-    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
     val MemMove: string*word*string*word*word -> unit = RunCall.run_call5 POLY_SYS_move_bytes
 
     (* Redefine these as functions on the abstract type. *)
@@ -92,7 +91,7 @@ local
                 if b_length = 0w1
                 then RunCall.storeByte (vec, wordSize+a_length, singleCharStringAsChar b)
                 else bcopy(b, vec, wordSize, wordSize+a_length, b_length);
-                System_lock vec;
+                RunCall.clearMutableBit vec;
                 vec
             end
         end (* op ^ *)
@@ -241,7 +240,7 @@ local
                         end
                 in
                 copy (wordSize, L);
-                System_lock vec;
+                RunCall.clearMutableBit vec;
                 vec
                 end
             end (* concat *)
@@ -281,7 +280,7 @@ local
                         )
                 in
                     copy (wordSize, L);
-                    System_lock dest; (* reset mutable flag *)
+                    RunCall.clearMutableBit dest; (* reset mutable flag *)
                     dest
                 end
             end
@@ -443,7 +442,7 @@ local
                 else (RunCall.storeByte(vec, i+wordSize, f(wordAsInt i)); init(i+0w1))
         in
             init 0w0;
-            System_lock vec;
+            RunCall.clearMutableBit vec;
             vec
         end
 
@@ -478,7 +477,7 @@ local
                     else (RunCall.storeByte(new_vec, i, f(RunCall.loadByteFromImmutable(vec, i))); domap(i+0w1))
             in
                 domap wordSize;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
         end
@@ -552,7 +551,7 @@ local
                 if len = 0w1
                 then RunCall.storeByte(str, extra + wordSize, stringToCh s)
                 else mem_move(s, wordSize, str, extra + wordSize, len);
-                System_lock str;
+                RunCall.clearMutableBit str;
                 str
             end
         end
@@ -581,7 +580,7 @@ local
                 then RunCall.storeByte(str, wordSize, stringToCh s)
                 else mem_move(s, wordSize, str, wordSize, len);
                 setCh len;
-                System_lock str;
+                RunCall.clearMutableBit str;
                 str
             end
         end
@@ -838,7 +837,7 @@ in
                           domap(j+0w1))
             in
                 domap 0w0;
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
         end
@@ -1018,7 +1017,7 @@ in
                         end
                     in
                         copyToOut 0w0 wordSize;
-                        System_lock newVec;
+                        RunCall.clearMutableBit newVec;
                         newVec
                     end
                 end
@@ -1212,7 +1211,7 @@ in
                 val new_vec = allocString len
             in
                 System_move_bytesA(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 new_vec
             end
     
@@ -1654,7 +1653,7 @@ in
                     val new_vec = allocString len
                 in
                     System_move_bytesA(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
-                    System_lock new_vec;
+                    RunCall.clearMutableBit new_vec;
                     new_vec
                 end
             end

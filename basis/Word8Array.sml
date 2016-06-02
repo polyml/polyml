@@ -33,7 +33,6 @@ local
     type vector = LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
-    val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
     val System_move_str:
@@ -214,7 +213,7 @@ in
                 val new_vec = allocString len
             in
                 System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
-                System_lock new_vec;
+                RunCall.clearMutableBit new_vec;
                 w8vectorFromString new_vec
             end
     
@@ -384,7 +383,7 @@ in
                     val new_vec = allocString len
                 in
                     System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
-                    System_lock new_vec;
+                    RunCall.clearMutableBit new_vec;
                     w8vectorFromString new_vec
                 end
             end

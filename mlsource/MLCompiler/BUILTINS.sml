@@ -42,6 +42,7 @@ sig
     |   IsTaggedValue (* Test the tag bit. *)
     |   MemoryCellLength (* Return the length of a memory cell (heap object) *)
     |   MemoryCellFlags (* Return the flags byte of a memory cell (heap object) *)
+    |   ClearMutableFlag (* Remove the mutable flag from the flags byte *)
 
     and builtIn2Ops =
         (* Compare two words and return the result.  This is used for both

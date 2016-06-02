@@ -120,6 +120,7 @@ struct
                     |   MemoryCellLength => applicative
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
+                    |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
             in
                 operProps andb codeProps arg1
             end
