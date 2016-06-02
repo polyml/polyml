@@ -31,9 +31,6 @@ local
 
     val wordSize : word = LibrarySupport.wordSize;
 
-    val System_setbV: Bootstrap.byteVector * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
-    val System_setbA: Bootstrap.byteArray * word * word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
-
     (* Casts between int and word. *)
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
@@ -76,7 +73,6 @@ local
        Array.fromList and Vector.fromList. *)
     fun fromList' (l : bool list) =
         let
-            val System_setb = RunCall.run_call3 POLY_SYS_assign_byte
             val length = List.length l
             (* Make a array initialised to zero. *)
             val vec = alloc length
@@ -84,7 +80,7 @@ local
             (* Accumulate the list elements into bytes and store
                them in the vector. *)
             fun init (byteno, acc, bit, []) =
-                if bit = 0w1 then () else System_setb(vec, byteno, acc)
+                if bit = 0w1 then () else RunCall.storeByte(vec, byteno, acc)
               | init (byteno, acc, bit, a :: b) =
                 let
                     val byte = if a then bit orb acc else acc
@@ -92,7 +88,7 @@ local
                     if bit = 0wx80
                     then
                         (
-                        System_setb(vec, byteno, byte);
+                        RunCall.storeByte(vec, byteno, byte);
                         init(byteno+0w1, 0w0, 0w1, b)
                         )
                     else init(byteno, byte, bit << 0w1, b)
@@ -104,7 +100,6 @@ local
 
     fun tabulate' (length: int, f : int->bool) =
     let
-        val System_setb = RunCall.run_call3 POLY_SYS_assign_byte
         val vec =
             if length >= 0 then alloc length else raise General.Size;
 
@@ -116,13 +111,13 @@ local
             val byte = if f i then bit orb acc else acc
         in
             if bit = 0wx80
-            then ( System_setb(vec, byteNo, byte) ; init (i+1) (byteNo+0w1) 0w1 0w0 )
+            then ( RunCall.storeByte(vec, byteNo, byte) ; init (i+1) (byteNo+0w1) 0w1 0w0 )
             else init (i+1) byteNo (bit << 0w1) byte
         end
         else if acc = 0w0
         then ()
         else (* Put in the last byte. *)
-            System_setb(vec, byteNo, acc)
+            RunCall.storeByte(vec, byteNo, acc)
     in
         init 0 0w0 0w1 0w0;
         (length, vec)
@@ -159,7 +154,7 @@ local
                 val newbyte = last orb (RunCall.loadByteFromImmutable(src, byte) << dest_bit)
             in
                 (* Store the low-order 8 bits into the destination. *)
-                System_setbV(dest, dest_byte+byte, newbyte);
+                RunCall.storeByte(dest, dest_byte+byte, newbyte);
                 (* Shift the accumulator down by 8 bits and get ready for
                    the next byte. *)
                 do_move (newbyte >> 0w8) (byte+0w1) (len-8)
@@ -178,7 +173,7 @@ local
                 then
                     (
                     (* Store the low-order 8 bits into the destination. *)
-                    System_setbV(dest, dest_byte+byte, newbyte);
+                    RunCall.storeByte(dest, dest_byte+byte, newbyte);
                     (* Shift the accumulator down by 8 bits and get ready for
                        the next byte. *)
                     do_move (newbyte >> 0w8) (byte+0w1) (len-8)
@@ -242,7 +237,7 @@ in
                             if l >= 8 then mapbyte byte 0w1 0w0 0wx100
                             else mapbyte byte 0w1 0w0 (0w1 << Word.fromInt l)
                     in
-                        System_setb(new_vec, b, res);
+                        RunCall.storeByte(new_vec, b, res);
                         copy (b+0w1) (l-8)
                     end
             in
@@ -269,7 +264,7 @@ in
                             if l >= 8 then mapbyte byte 0w1 0w0 0wx100 l
                             else mapbyte byte 0w1 0w0 (0w1 << Word.fromInt l) l
                     in
-                        System_setbV(new_vec, b, res);
+                        RunCall.storeByte(new_vec, b, res);
                         copy (b+0w1) (l-8)
                     end
             in
@@ -309,7 +304,7 @@ in
                  |  copy_list [] dest_off bits =
                     (* At the end of the lists store any extra in the last byte. *)
                     if bits = 0w0 then ()
-                    else System_setbV(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
+                    else RunCall.storeByte(new_vec, intAsWord(Int.quot(dest_off, 8)), bits)
             in
                 copy_list l 0 0w0;
                 System_lock new_vec;
@@ -379,7 +374,7 @@ in
                 if new then byte orb mask
                 else byte andb (notb mask)
         in
-            System_setbA(v, byteOffsetW, newByte)
+            RunCall.storeByte(v, byteOffsetW, newByte)
         end
 
         fun array (len, ini) =
@@ -395,7 +390,7 @@ in
                could give the wrong answer. *)
             fun setTrue i b =
                 if len <= i then ()
-                else (System_setbA(vec, b, 0wxff); setTrue (i+8) (b+0w1))
+                else (RunCall.storeByte(vec, b, 0wxff); setTrue (i+8) (b+0w1))
         in
             if ini then setTrue 0 0w0 else ();
             Array(len, vec)

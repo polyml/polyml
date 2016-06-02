@@ -55,8 +55,12 @@ sig
     |   FullCall
     |   DirectReg of genReg
 
+    datatype pregKind =
+        PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
+    |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
+
     datatype argument =
-        PReg of int (* A pseudo-register - an abstract register.  These can contain addresses and be pushed to the stack. *)
+        PReg of int * pregKind (* A pseudo-register - an abstract register. *)
     |   RealRegister of reg (* A real register. *)
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
@@ -158,6 +162,12 @@ sig
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
+
+        (* Tag a value by shifting and setting the tag bit. *)
+    |   TagValue of { source: argument, dest: argument }
+
+        (* Shift a value to remove the tag bit. *)
+    |   UntagValue of { source: argument, dest: argument, isSigned: bool }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)

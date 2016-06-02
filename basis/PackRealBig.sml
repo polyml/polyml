@@ -39,8 +39,6 @@ local
     val System_locks: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 
     local
-        val System_setb: address * word * Word8.word -> unit =
-                RunCall.run_call3 POLY_SYS_assign_byte;
         val System_move_bytes: address*word*address*word*word->unit =
                 RunCall.run_call5 POLY_SYS_move_bytes
 
@@ -51,7 +49,7 @@ local
             if length = 0w0 then ()
             else
             (
-                System_setb(dest, destOff+length-0w1, RunCall.loadByte(src, srcOff));
+                RunCall.storeByte(dest, destOff+length-0w1, RunCall.loadByte(src, srcOff));
                 swapOrder(src, srcOff+0w1, dest, destOff, length-0w1)
             )
     in

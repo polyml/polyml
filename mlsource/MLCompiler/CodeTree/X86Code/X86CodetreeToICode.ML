@@ -43,7 +43,8 @@ struct
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
         val pregCounter = ref 0
-        fun newPReg() = PReg(!pregCounter) before pregCounter := !pregCounter + 1
+        fun newPReg() = PReg(!pregCounter, PRegGeneral) before pregCounter := !pregCounter + 1
+        fun newUReg() = PReg(!pregCounter, PRegUntagged) before pregCounter := !pregCounter + 1
         val locToPregArray = Array.array(localCount, NONE: argument option)
         val labelCounter = ref 0
         fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
@@ -242,7 +243,7 @@ struct
                    [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}]
             end
 
-        |   codeToICode(BICBuiltIn0{oper=BuiltIns.CurrentThreadId}, context, _, target) =
+        |   codeToICode(BICBuiltIn0{oper=BuiltIns.CurrentThreadId}, _, _, target) =
             (* Get the ID of the current thread. *)
             let
                 val argReg = newPReg() (* Should this be an untagged register? *)
@@ -289,11 +290,11 @@ struct
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, target) =
             let
-                val addrReg = newPReg() and argReg1 = newPReg()
+                val addrReg = newPReg() and argReg1 = newUReg()
             in
                 codeToICode(arg1, context, false, addrReg) @
                 [MoveArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=ByteToWordZeroExtend},
-                 LoadEffectiveAddress{ base=NONE, offset=1, index=MemIndex2 argReg1, dest=target }]
+                 TagValue{ source=argReg1, dest=target }]
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
@@ -465,28 +466,28 @@ struct
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
             let
                 (* Constant offset - this is much less common than for LoadWord. *)
-                val baseReg = newPReg() and argReg1 = newPReg()
+                val baseReg = newPReg() and untaggedResReg = newUReg()
                 (* The offset should always be positive. *)
                 val offset = Word.toInt(toShort value)
             in
                 codeToICode(arg1, context, false, baseReg) @
                     [MoveArgument {
                         source=MemoryLocation{offset= offset, base=baseReg, index=NoMemIndex},
-                        dest=argReg1, kind=ByteToWordZeroExtend},
-                     LoadEffectiveAddress{ base=NONE, offset=1, index=MemIndex2 argReg1, dest=target }]
+                        dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}]
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2}, context, _, target) =
             let
                 (* Variable offset.  Because the index is directly added to the address we have to
                    untag it.  *)
-                val baseReg = newPReg() and indexReg = newPReg() and argReg1 = newPReg() and argReg2 = newPReg()
-                val ccRef = newCCRef()
+                val baseReg = newPReg() and indexReg = newPReg() and untaggedIndex = newUReg()
+                val untaggedResReg = newUReg()
             in
                 codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
-                    [ShiftOperation{shift=SHR, resultReg=argReg1, operand=indexReg, shiftAmount=IntegerConstant 1, ccRef=ccRef },
-                     MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 argReg1}, dest=argReg2, kind=ByteToWordZeroExtend},
-                     LoadEffectiveAddress{ base=NONE, offset=1, index=MemIndex2 argReg2, dest=target }]
+                    [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
+                     MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
+                     TagValue {source=untaggedResReg, dest=target}]
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
@@ -524,14 +525,13 @@ struct
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreByte, arg1, arg2, arg3}, context, _, target) =
             let
                 (* We have to untag both the index and the value to store. *)
-                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newPReg()
-                and valueReg = newPReg() and valueReg1 = newPReg()
-                val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
+                and valueReg = newPReg() and valueReg1 = newUReg()
             in
                 codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
                     codeToICode(arg3, context, false, valueReg) @
-                    [ShiftOperation{shift=SHR, resultReg=indexReg1, operand=indexReg, shiftAmount=IntegerConstant 1, ccRef=ccRef1 },
-                     ShiftOperation{shift=SHR, resultReg=valueReg1, operand=valueReg, shiftAmount=IntegerConstant 1, ccRef=ccRef2 },
+                    [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
+                     UntagValue{dest=indexReg1, source=indexReg, isSigned=false },
                      MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 indexReg1}, kind=ByteToByte},
                      (* Unit result *)
                      MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]

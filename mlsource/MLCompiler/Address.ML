@@ -131,13 +131,10 @@ struct
       "Byte" functions is in bytes.
   *)
   
-    val loadByte:   (address * Word.word) -> Word8.word = RunCall.loadByte
-    and loadWord:   (address * Word.word) -> machineWord  = RunCall.loadWord
-
-  val assignByte: (address * Word.word * Word8.word) -> unit =
-    RunCall.run_call3 POLY_SYS_assign_byte
-  
-    val assignWord: (address * Word.word * machineWord)  -> unit = RunCall.storeWord
+    val loadByte:   address * Word.word -> Word8.word = RunCall.loadByte
+    and loadWord:   address * Word.word -> machineWord  = RunCall.loadWord
+    and assignByte: address * Word.word * Word8.word -> unit = RunCall.storeByte
+    and assignWord: address * Word.word * machineWord -> unit = RunCall.storeWord
 
     val maxAllocation: word = Compat560.processEnvGeneral (100, ())
 
@@ -284,8 +281,7 @@ struct
             (POLY_SYS_and_word,"POLY_SYS_and_word"),
             (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
             (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
-            (POLY_SYS_mod_word,"POLY_SYS_mod_word"),
-            (POLY_SYS_assign_byte,"POLY_SYS_assign_byte")
+            (POLY_SYS_mod_word,"POLY_SYS_mod_word")
             ]
 
         val rtsNames =
