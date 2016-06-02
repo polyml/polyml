@@ -597,6 +597,46 @@ struct
                     code=store @ loadBaseToEax @ loadValueToEbx @ pushCode @ code, context=context}
             end
 
+            (* Store a constant in memory. *)
+        |   codeICode{icode=MoveArgument{ source=AddressConstant value, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
+                val store =
+                    [MoveArgument{
+                        source=AddressConstant value,
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
+            in
+                codeICode{
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
+            (* Store a constant in memory. *)
+        |   codeICode{icode=MoveArgument{ source=IntegerConstant value, dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val (pushedState, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
+                val store =
+                    [MoveArgument{
+                        source=IntegerConstant value,
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
+            in
+                codeICode{
+                    icode=rest, state=NormalState pushedState,
+                    code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
         |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegGeneral), dest=MemoryLocation {offset, base, index}, kind} :: rest,
                 state=NormalState state, code, context} =
             let

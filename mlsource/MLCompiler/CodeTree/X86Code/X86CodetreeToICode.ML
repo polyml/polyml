@@ -787,10 +787,39 @@ struct
                         [AllocateMemoryOperation{size=n, isMutable=false, dest=memAddr}]
                 |   loadFields(f :: rest, n) =
                     let
-                        val sourceReg = newPReg()
-                        val code = codeToICode(f, context, false, sourceReg)
+                        fun isValidConstant value =
+                            if not isX64
+                            then true
+                            else if not (isShort value)
+                            then false
+                            else
+                            let
+                                val v = Word.toLargeIntX(toShort value)
+                            in
+                                ~0x80000000 <= v andalso v < 0x80000000
+                            end
+
+                        val (source, code) =
+                            case f of
+                                BICConstnt(value, _) =>
+                                    (* We can store a constant directly if it will fit in 32-bits.  That
+                                       excludes addresses on 64-bit. *)
+                                    if isValidConstant value
+                                    then (constantAsArgument value, [])
+                                    else
+                                    let
+                                        val sourceReg = newPReg()
+                                    in
+                                        (sourceReg, codeToICode(f, context, false, sourceReg))
+                                    end
+                            |   f =>
+                                    let
+                                        val sourceReg = newPReg()
+                                    in
+                                        (sourceReg, codeToICode(f, context, false, sourceReg))
+                                    end
                         val restAndAlloc = loadFields(rest, n+1)
-                        val storeValue = [MoveArgument{ source=sourceReg, dest=wordOffsetAddress(n, memAddr), kind=WordToWord}]
+                        val storeValue = [MoveArgument{ source=source, dest=wordOffsetAddress(n, memAddr), kind=WordToWord}]
                     in
                         code @ restAndAlloc @ storeValue
                     end
