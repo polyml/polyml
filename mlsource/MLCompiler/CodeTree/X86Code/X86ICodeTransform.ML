@@ -699,41 +699,34 @@ struct
             let
                 val destReg = argToPReg dest
                 val (pushedState, pushCode) = pushRax state
-                (* We should find the stack arguments occupy the immediately preceding
-                   entries on the stack.  If not we've got a problem. *)
-                val numStackArgs = List.length stackArgs
-                val currentSp = stackPtr pushedState
+                (* In an earlier version we assumed that the values were actually pushed to
+                   the stack in sequence.  That's no longer true. Explicitly push the
+                   stack arguments. *)
+                local
+                    fun pushAllArgs ([], state, code) = (state, code)
+                    |   pushAllArgs (arg::args, state as {valueStack, ccState, untaggedRegs}, code) =
+                        let
+                            val argReg = argToPReg arg
+                            val load = loadSource(argReg, eax, state)
+                            val sp = stackPtr state
+                            val newState =
+                                {valueStack={preg=0, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
+                        in
+                            pushAllArgs(args, newState, PushValue{arg=raxAsArg} :: load @ code)
+                        end
+                in
+                    val (afterArgs, argCode) = pushAllArgs (stackArgs, pushedState, [])
+                end
 
-                fun checkStackArg ([], _) = ()
-                |   checkStackArg (sa::args, num) =
-                    let
-                        val e = findEntry(argToPReg sa, pushedState)
-                    in
-                        case e of
-                            InRax => raise InternalError "checkStackArg"
-                        |   OnStack s => if s = num then () else raise InternalError "checkStackArg";
-                        checkStackArg(args, num+1)
-                    end
-                val () = checkStackArg(stackArgs, currentSp-numStackArgs)
-                
                 (* Move the register arguments into the correct real registers. *)
-                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(argToPReg pr, gr, pushedState)) [] regArgs
-                
+                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(argToPReg pr, gr, afterArgs)) [] regArgs
                 (* After the call the stack arguments will have been removed by the caller. *)
-                (* We can just drop the stack args from the state.  We've checked them already.
-                   Actually, we haven't checked that they were immediately preceding on this state list. *)
-                val returnState = List.drop(#valueStack pushedState, numStackArgs)
-                (* We haven't actually checked that the entries we're dropping really
-                   are the register args. *)
-                val poppedState = {valueStack=List.drop(returnState, List.length regArgs), ccState= CCIndeterminate, untaggedRegs=[]}
-                (* Add the result value in Rax to the state *)
-                val (finalState, stackReset) =
-                    resetStack(addRaxToState({valueStack=returnState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg), poppedState, destReg)
+                val returnState = addRaxToState({valueStack= #valueStack pushedState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg)
                 val functionCode =
-                    stackReset @ [FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind}] @
-                        doLoad @ pushCode @ code
+                    FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
+                        doLoad @ argCode @ pushCode @ code
             in
-                codeICode{icode=rest, state=NormalState finalState, code=functionCode, context=context}
+                codeICode{icode=rest, state=NormalState returnState, code=functionCode, context=context}
             end
 
             (* Jump to a function.  The arguments have to be moved into the space currently used
