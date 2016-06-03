@@ -124,58 +124,106 @@ struct
         fun wordOffsetAddress(offset, baseReg) =
             MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex}
 
+        (* This controls what codeAsArgument returns.  Different instructions have different
+           requirements.  If an option is set to false the value is instead loaded into a
+           new preg.  "const32s" means that it will fit into 32-bits.  Any constant
+           satisfies that on X86/32 but on the X86/64 we don't allow addresses because
+           we can't be sure whether they will fit or not. *)
+        type allowedArgument =
+            { anyConstant: bool, const32s: bool, memAddr: bool, existingPreg: bool }
+        val allowAny: allowedArgument =
+            { anyConstant=true, const32s=true, memAddr=true, existingPreg=true }
+        and allowInMemMove = (* We can move a 32-bit constant into memory but not a long constant. *)
+            { anyConstant=false, const32s=true, memAddr=false, existingPreg=true }
+
+        datatype destination =
+            SpecificPReg of argument
+(*        |   NoResult
+        |   Allowed of allowedArgument*)
+        
+        fun asTarget(SpecificPReg preg) = preg
+
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
-        fun codeToICode(BICNewenv (bindings, exp), context, isTail, target) =
-            codeBindingsToICode(bindings, context) @ codeToICode(exp, context, isTail, target)
+        fun codeToICodeTarget(instr, context, isTail, target) =
+        let
+            val (code, _) = codeToICode(instr, context, isTail, SpecificPReg target)
+        in
+            code
+        end
+
+        and codeToICode(BICNewenv (bindings, exp), context, isTail, target) =
+            let
+                val codeBindings = codeBindingsToICode(bindings, context)
+                val (codeExp, result) = codeToICode(exp, context, isTail, target)
+            in
+                (codeBindings @ codeExp, result)
+            end
             
-        |   codeToICode(BICConstnt(value, _), _, _, target) =
-                [MoveArgument{source=constantAsArgument value, dest=target, kind=WordToWord}]
+        |   codeToICode(BICConstnt(value, _), _, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                ([MoveArgument{source=constantAsArgument value, dest=target, kind=WordToWord}], target)
+            end
 
-        |   codeToICode(BICExtract(BICLoadLocal l), _, _, target) =
-                [MoveArgument{source=valOf(Array.sub(locToPregArray, l)), dest=target, kind=WordToWord}]
+        |   codeToICode(BICExtract(BICLoadLocal l), _, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                ([MoveArgument{source=valOf(Array.sub(locToPregArray, l)), dest=target, kind=WordToWord}], target)
+            end
 
-        |   codeToICode(BICExtract(BICLoadArgument a), _, _, target) =
+        |   codeToICode(BICExtract(BICLoadArgument a), _, _, destination) =
+            let
+                val target = asTarget destination
+            in
                 if a < numArgRegs
                 then (* It was originally in a register.  It's now in a preg. *)
-                    [MoveArgument{source=List.nth(argPRegs, a), dest=target, kind=WordToWord}]
+                    ([MoveArgument{source=List.nth(argPRegs, a), dest=target, kind=WordToWord}], target)
                 else (* Pushed before call. *)
-                    [MoveStackArgToPreg{offset=List.length argTypes - a, dest=target}]
+                    ([MoveStackArgToPreg{offset=List.length argTypes - a, dest=target}], target)
+            end
         
-        |   codeToICode(BICExtract(BICLoadClosure c), _, _, target) =
+        |   codeToICode(BICExtract(BICLoadClosure c), _, _, destination) =
             let
+                val target = asTarget destination
                 val () = if c >= List.length closure then raise InternalError "BICExtract: closure" else ()
                 val baseReg = newPReg()
                 (* N.B.  We need to add one to the closure entry because zero is the code address. *)
             in
                 (* We could just use the closureRegAddr as the base but the code-generation
                    for MoveArgument with MemoryLocation as the source assumes that the base is on the top of the stack. *)
-                [
+                ([
                     MoveArgument {source=closureRegAddr, dest=baseReg, kind=WordToWord},
                     MoveArgument {source=wordOffsetAddress(c+1, baseReg), dest=target, kind=WordToWord}
-                ]
+                ], target)
             end
 
-        |   codeToICode(BICExtract BICLoadRecursive, _, _, target) =
-            (
+        |   codeToICode(BICExtract BICLoadRecursive, _, _, destination) =
+            let
+                val target = asTarget destination
+            in
                 (* If the closure is empty we must use the constant.  We can't guarantee that
                    the caller will actually load the closure register if it knows the closure
                    is empty. *)
                 case closure of
-                    [] => [MoveArgument{source=AddressConstant(toMachineWord(valOf closureOpt)), dest=target, kind=WordToWord}]
-                |   _ => [MoveArgument {source=closureRegAddr, dest=target, kind=WordToWord}]
-            )
+                    [] => ([MoveArgument{source=AddressConstant(toMachineWord(valOf closureOpt)), dest=target, kind=WordToWord}], target)
+                |   _ => ([MoveArgument {source=closureRegAddr, dest=target, kind=WordToWord}], target)
+            end
         
-        |   codeToICode(BICField{base, offset}, context, _, target) =
+        |   codeToICode(BICField{base, offset}, context, _, destination) =
             let
+                val target = asTarget destination
                 val baseR = newPReg()
             in
-                codeToICode(base, context, false, baseR) @
-                    [MoveArgument{source=wordOffsetAddress(offset, baseR), dest=target, kind=WordToWord}]
+                (codeToICodeTarget(base, context, false, baseR) @
+                    [MoveArgument{source=wordOffsetAddress(offset, baseR), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICEval {function, argList, ...}, context, isTail, target) =
+        |   codeToICode(BICEval {function, argList, ...}, context, isTail, destination) =
             let
+                val target = asTarget destination
                 val numArgs = List.length argList
                 (* Create pregs for the closure and each argument. *)
                 val clPReg = newPReg()
@@ -225,9 +273,9 @@ struct
                         )
 
                     |   function => (* General case. *)
-                            (codeToICode(function, context, false, clPReg), [(clPReg, edx)], FullCall)
+                            (codeToICodeTarget(function, context, false, clPReg), [(clPReg, edx)], FullCall)
                 val codeArgs =
-                    ListPair.foldlEq(fn (arg, pr, l) => l @ codeToICode(arg, context, false, pr)) []
+                    ListPair.foldlEq(fn (arg, pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
                         (List.map #1 argList, argPRegs)
                 (* Load the argument registers.  This returns the
                    shorter of the actual arguments and those in registers. *)
@@ -239,13 +287,14 @@ struct
                     then List.drop(argPRegs, List.length argRegs)
                     else []
             in
-                functionCode @ codeArgs @
-                   [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}]
+                (functionCode @ codeArgs @
+                   [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}], target)
             end
 
-        |   codeToICode(BICBuiltIn0{oper=BuiltIns.CurrentThreadId}, _, _, target) =
+        |   codeToICode(BICBuiltIn0{oper=BuiltIns.CurrentThreadId}, _, _, destination) =
             (* Get the ID of the current thread. *)
             let
+                val target = asTarget destination
                 val argReg = newPReg() (* Should this be an untagged register? *)
                 (* This is a duplicate of code in X86FOREIGNCALL. *)
                 val memRegArgumentPtr =
@@ -254,26 +303,28 @@ struct
                     |   2 => (*X64Win*) 16
                     |   _ => (*X86_32*) 8
             in
-                [MoveArgument{
+                ([MoveArgument{
                     source=MemoryLocation{offset=memRegArgumentPtr, base=RealRegister(GenReg ebp), index=NoMemIndex},
                     dest=argReg, kind=WordToWord},
                  MoveArgument{
-                    source=MemoryLocation{offset=argThreadSelf, base=argReg, index=NoMemIndex}, dest=target, kind=WordToWord}]
+                    source=MemoryLocation{offset=argThreadSelf, base=argReg, index=NoMemIndex}, dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, _, target) =
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
             let
+                val target = asTarget destination
                 val tReg = newPReg() and ccRef = newCCRef()
             in
-                codeToICode(arg1, context, false, tReg) @
-                    [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef}]
+                (codeToICodeTarget(arg1, context, false, tReg) @
+                    [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef}], target)
             end
 
-        |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, target) =
-                codeAsConditional(instr, context, isTail, target)
+        |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
 
-        |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1}, context, _, target) =
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination) =
             let
+                val target = asTarget destination
                 val addrReg = newPReg() and argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
                 and ccRef1 = newCCRef() and ccRef2 = newCCRef() and ccRef3 = newCCRef()
                 (* Get the length of a memory cell (heap object).  We need to mask out the
@@ -281,36 +332,39 @@ struct
                    64-bit which won't fit in an inline constant.  Since we have to shift it
                    anyway we might as well do this by shifts. *)
             in
-                codeToICode(arg1, context, false, addrReg) @
+                (codeToICodeTarget(arg1, context, false, addrReg) @
                 [MoveArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=WordToWord},
                  ShiftOperation{shift=SHL, resultReg=argReg2, operand=argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 },
                  ShiftOperation{shift=SHR, resultReg=argReg3, operand=argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 },
-                 ArithmeticFunction{oper=OR, resultReg=target, operand1=argReg3, operand2=IntegerConstant 1, ccRef=ccRef3}]
+                 ArithmeticFunction{oper=OR, resultReg=target, operand1=argReg3, operand2=IntegerConstant 1, ccRef=ccRef3}], target)
             end
 
-        |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, target) =
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
             let
+                val target = asTarget destination
                 val addrReg = newPReg() and argReg1 = newUReg()
             in
-                codeToICode(arg1, context, false, addrReg) @
+                (codeToICodeTarget(arg1, context, false, addrReg) @
                 [MoveArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=ByteToWordZeroExtend},
-                 TagValue{ source=argReg1, dest=target }]
+                 TagValue{ source=argReg1, dest=target }], target)
             end
 
-        |   codeToICode(BICBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, target) =
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
             let
+                val target = asTarget destination
                 val addrReg = newPReg()
             in
-                codeToICode(arg1, context, false, addrReg) @
+                (codeToICodeTarget(arg1, context, false, addrReg) @
                     [LockMutable{addr=addrReg}, (* Unit result *)
-                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, target) =
-                codeAsConditional(instr, context, isTail, target)
+        |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand.
                    This should always be a tagged value if the type is correct.  However it's possible for it not to
@@ -322,13 +376,14 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg1, context, false, aReg1) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target)
+                    checkOverflow (ccRef, target), target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg2 = newPReg() and ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
@@ -336,27 +391,29 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg2, context, false, aReg2) @
+                (codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target)
+                    checkOverflow (ccRef, target), target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg() and ccRef = newCCRef()
             in
-                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
                     (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
                        the argument if one of the arguments is already untagged or if we have a constant argument. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target)
+                    checkOverflow (ccRef, target), target)
             end
 
             (* Subtraction.  We can handle the special case of the second argument being a constant but not the first. *)
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
@@ -364,28 +421,30 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg1, context, false, aReg1) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @
                     [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
-                    checkOverflow (ccRef, target)
+                    checkOverflow (ccRef, target), target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
                 val ccRef = newCCRef()
             in
-                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=ccRef}] @
                     checkOverflow (ccRef, target) @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.FixedPrecisionArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: FixedPrecisionArith"
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand.  We shouldn't ever have
                    a long value here but because it might happen we check. *)
@@ -394,12 +453,13 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg1, context, false, aReg1) @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}]
+                (codeToICodeTarget(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg2 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
@@ -407,22 +467,24 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg2, context, false, aReg2) @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}]
+                (codeToICodeTarget(arg2, context, false, aReg2) @
+                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
             in
-                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=newCCRef()}]
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
@@ -430,23 +492,25 @@ struct
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
             in
-                codeToICode(arg1, context, false, aReg1) @
-                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}]
+                (codeToICodeTarget(arg1, context, false, aReg1) @
+                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
             in
-                codeToICode(arg1, context, false, aReg1) @ codeToICode(arg2, context, false, aReg2) @
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 (* Constant offset.  This is very common since it's used for refs. *)
                 (* TODO: We could also handle the case where the case where the base address is a constant
                    as a special case. *)
@@ -454,12 +518,13 @@ struct
                 (* The offset should always be positive.  Loading the length word is a separate function. *)
                 val offset = Word.toInt(toShort value)
             in
-                codeToICode(arg1, context, false, baseReg) @
-                    [MoveArgument {source=wordOffsetAddress(offset, baseReg), dest=target, kind=WordToWord}]
+                (codeToICodeTarget(arg1, context, false, baseReg) @
+                    [MoveArgument {source=wordOffsetAddress(offset, baseReg), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadWord _, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
                    index factor and offset.  *)
                 val baseReg = newPReg() and indexReg = newPReg()
@@ -468,54 +533,58 @@ struct
                     then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
                     else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
             in
-                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
-                     [MoveArgument {source=source, dest=target, kind=WordToWord}]
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                     [MoveArgument {source=source, dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2=BICConstnt(value, _)}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
+                val target = asTarget destination
                 (* Constant offset - this is much less common than for LoadWord. *)
                 val baseReg = newPReg() and untaggedResReg = newUReg()
                 (* The offset should always be positive. *)
                 val offset = Word.toInt(toShort value)
             in
-                codeToICode(arg1, context, false, baseReg) @
+                (codeToICodeTarget(arg1, context, false, baseReg) @
                     [MoveArgument {
                         source=MemoryLocation{offset= offset, base=baseReg, index=NoMemIndex},
                         dest=untaggedResReg, kind=ByteToWordZeroExtend},
-                     TagValue {source=untaggedResReg, dest=target}]
+                     TagValue {source=untaggedResReg, dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2}, context, _, target) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LoadByte _, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
                 (* Variable offset.  Because the index is directly added to the address we have to
                    untag it.  *)
                 val baseReg = newPReg() and indexReg = newPReg() and untaggedIndex = newUReg()
                 val untaggedResReg = newUReg()
             in
-                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
                     [UntagValue{source=indexReg, dest=untaggedIndex, isSigned=false},
                      MoveArgument {source=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 untaggedIndex}, dest=untaggedResReg, kind=ByteToWordZeroExtend},
-                     TagValue {source=untaggedResReg, dest=target}]
+                     TagValue {source=untaggedResReg, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordArith _, ...}, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn2: WordArith"
 
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, target) =
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let
+                val target = asTarget destination
                 val baseReg = newPReg() and valueReg = newPReg()
                 (* Fixed offset.  *)
                 val offset = Word.toInt(toShort value)
             in
-                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg3, context, false, valueReg) @
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg3, context, false, valueReg) @
                     [MoveArgument {source=valueReg, dest=wordOffsetAddress(offset, baseReg), kind=WordToWord},
                      (* Unit result *)
-                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2, arg3}, context, _, target) =
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2, arg3}, context, _, destination) =
             let
+                val target = asTarget destination
                 val baseReg = newPReg() and indexReg = newPReg() and valueReg = newPReg()
                 (* Variable offset.  We don't have to untag the index.  Instead we can adjust the
                    index factor and offset.  *)
@@ -524,26 +593,27 @@ struct
                     then MemoryLocation{base=baseReg, offset= ~4, index= MemIndex4 indexReg}
                     else MemoryLocation{base=baseReg, offset= ~2, index= MemIndex2 indexReg}
             in
-                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
-                    codeToICode(arg3, context, false, valueReg) @
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                    codeToICodeTarget(arg3, context, false, valueReg) @
                     [MoveArgument {source=valueReg, dest=destination, kind=WordToWord},
                      (* Unit result *)
-                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreByte, arg1, arg2, arg3}, context, _, target) =
+        |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreByte, arg1, arg2, arg3}, context, _, destination) =
             let
+                val target = asTarget destination
                 (* We have to untag both the index and the value to store. *)
                 val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
                 and valueReg = newPReg() and valueReg1 = newUReg()
             in
-                codeToICode(arg1, context, false, baseReg) @ codeToICode(arg2, context, false, indexReg) @
-                    codeToICode(arg3, context, false, valueReg) @
+                (codeToICodeTarget(arg1, context, false, baseReg) @ codeToICodeTarget(arg2, context, false, indexReg) @
+                    codeToICodeTarget(arg3, context, false, valueReg) @
                     [UntagValue{dest=valueReg1, source=valueReg, isSigned=false },
                      UntagValue{dest=indexReg1, source=indexReg, isSigned=false },
                      MoveArgument {source=valueReg1, dest=MemoryLocation{base=baseReg, offset=0, index=MemIndex1 indexReg1}, kind=ByteToByte},
                      (* Unit result *)
-                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                     MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
         |   codeToICode(BICBuiltIn4 _, _, _, _) =
@@ -552,42 +622,45 @@ struct
         |   codeToICode(BICBuiltIn5 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn5"
 
-        |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, target) =
+        |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let
+                val target = asTarget destination
                 val closure = Address.alloc(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
                 val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
                 open Address
             in
                 assignWord(closure, 0w0, toMachineWord codeAddr);
                 lock closure;
-                [MoveArgument{source=AddressConstant(toMachineWord closure), dest=target, kind=WordToWord}]
+                ([MoveArgument{source=AddressConstant(toMachineWord closure), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICLambda(lambda as { closure, ...}), context, isTail, target) =
+        |   codeToICode(BICLambda(lambda as { closure, ...}), context, isTail, destination) =
             (* Non-empty closure.  Ignore stack closure option at the moment. *)
             let
                 val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
             in
                 (* Treat it as a tuple with the code as the first field. *)
-                codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, target)
+                codeToICode(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, destination)
             end
 
-        |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, target) =
+        |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, destination) =
             let
+                val target = asTarget destination
                 val startElse = newLabel() and skipElse = newLabel()
                 val testCode = codeCondition(test, context, false, startElse)
                 (* Put the result in the target register. *)
-                val thenCode = codeToICode(thenPt, context, isTail, target)
-                val elseCode = codeToICode(elsePt, context, isTail, target)
+                val thenCode = codeToICodeTarget(thenPt, context, isTail, target)
+                val elseCode = codeToICodeTarget(elsePt, context, isTail, target)
             in
-                testCode @
+                (testCode @
                     thenCode @ [UnconditionalForwardJump{label=skipElse}, ForwardJumpLabel{label=startElse, result=NONE}] @
-                    elseCode @ [ForwardJumpLabel{label=skipElse, result=SOME target}]
+                    elseCode @ [ForwardJumpLabel{label=skipElse, result=SOME target}], target)
             end
         
-        |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, target) =
+        |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, destination) =
             let
+                val target = asTarget destination
                 (* Sort the cases into ascending order.  It's possible that we may have
                    duplicates if this came from an if-then-else construction so we
                    need to retain the ordering for items with the same case label. *)
@@ -639,7 +712,7 @@ struct
                 val fullCaseRange = extendCase(min, cases)
 
                 val testReg = newPReg() and workReg = newPReg()
-                val testCode = codeToICode(test, context, false, testReg)
+                val testCode = codeToICodeTarget(test, context, false, testReg)
                 
                 (* Unless this is exhaustive we need to add some range checks.  These all
                    jump to the default case. *)
@@ -683,7 +756,7 @@ struct
                         val exitLabel = newLabel()
                         val codeThis =
                             ForwardJumpLabel{label=startLabel, result=NONE} ::
-                                codeToICode(c, context, isTail, target) @ [UnconditionalForwardJump{label=exitLabel}]
+                                codeToICodeTarget(c, context, isTail, target) @ [UnconditionalForwardJump{label=exitLabel}]
                         val codeRest = codeCases otherCases
                     in
                         codeThis @ codeRest @ [ForwardJumpLabel{label=exitLabel, result=SOME target}]
@@ -703,82 +776,91 @@ struct
                     in
                         (* Put in the default.  Because this is the last we don't need to
                            jump round it. *)
-                         defLabels @ codeToICode(default, context, isTail, target)
+                         defLabels @ codeToICodeTarget(default, context, isTail, target)
                     end
                     
                 val codedCases = codeCases fullCaseRange
 
                 val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
             in
-                testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
-                                        cases=codeLabels, startValue=min}] @ codedCases
+                (testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
+                                        cases=codeLabels, startValue=min}] @ codedCases, target)
             end
         
-        |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, target) =
+        |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, destination) =
             let
+                val target = asTarget destination
                 (* First evaluate the initial values for the arguments to new pregs.
                    These are only used for the initial values. *)
                 val argPRegs = map(fn _ => newPReg()) arguments
                 val codeArgs =
-                    ListPair.foldlEq(fn (({value, ...}, _), pr, l) => l @ codeToICode(value, context, false, pr)) []
+                    ListPair.foldlEq(fn (({value, ...}, _), pr, l) => l @ codeToICodeTarget(value, context, false, pr)) []
                         (arguments, argPRegs)
                 (* Create loop arguments.  These are associated with the loop variables. *)
                 fun makeLoopReg ({addr, ...}, _) =
                     let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
                 val loopRegs = map makeLoopReg arguments
                 val loopLabel = newLabel()
-                val loopBody = codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel) }, isTail, target)
+                val loopBody = codeToICodeTarget(loop, {loopArgs=SOME (loopRegs, loopLabel) }, isTail, target)
                 val args = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
             in
-                codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}]
+                (codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], target)
             end
         
-        |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel), ...}, _, _) =
+        |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel), ...}, _, destination) =
             let
+                val target = asTarget destination
                 (* Registers to receive the evaluated arguments.  We can't put the
                    values into the loop variables yet because the values could depend
                    on the current values of the loop variables. *)
                 val argPRegs = map(fn _ => newPReg()) args
                 val codeArgs =
-                    ListPair.foldlEq(fn ((arg, _), pr, l) => l @ codeToICode(arg, context, false, pr)) []
+                    ListPair.foldlEq(fn ((arg, _), pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
                         (args, argPRegs)
                 val jumpArgs = ListPair.mapEq(fn (s, l) => {source=s, loopReg=l}) (argPRegs, loopRegs)
             in
-                codeArgs @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}]
+                (codeArgs @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}], target)
             end
 
         |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
                 raise InternalError "BICLoop without BICBeginLoop"
 
-        |   codeToICode(BICRaise exc, context, _, _) =
+        |   codeToICode(BICRaise exc, context, _, destination) =
             let
+                val target = asTarget destination
                 val excReg = newPReg()
             in
-                codeToICode(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}]
+                (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}], target)
             end
         
-        |   codeToICode(BICLdexc, _, _, target) = (* The argument is in eax. *)
-                [MoveArgument{source=RealRegister(GenReg eax), dest=target, kind=WordToWord}]
-        
-        |   codeToICode(BICHandle {exp, handler}, context, isTail, target) =
+        |   codeToICode(BICLdexc, _, _, destination) = (* The argument is in eax. *)
             let
+                val target = asTarget destination
+            in
+                ([MoveArgument{source=RealRegister(GenReg eax), dest=target, kind=WordToWord}], target)
+            end
+        
+        |   codeToICode(BICHandle {exp, handler}, context, isTail, destination) =
+            let
+                val target = asTarget destination
                 (* The expression cannot be treated as a tail because the handler has
                    to be removed after *)
-                val expCode = codeToICode(exp, context, false (* Not tail *), target)
-                val handleCode = codeToICode(handler, context, isTail, target)
+                val expCode = codeToICodeTarget(exp, context, false (* Not tail *), target)
+                val handleCode = codeToICodeTarget(handler, context, isTail, target)
                 val saveHandle = newPReg()
                 val handlerLab = newLabel()
                 val skipHandler = newLabel()
             in
-                PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
+                (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
                 [PopExceptionHandler{handlerAddr=saveHandle, resultReg=target, workReg=newPReg()},
                  UnconditionalForwardJump{label=skipHandler},
                  BeginHandler{handleStart=handlerLab, workReg=newPReg()}] @
-                 handleCode @ [ForwardJumpLabel{label=skipHandler, result=SOME target}]
+                 handleCode @ [ForwardJumpLabel{label=skipHandler, result=SOME target}], target)
             end
         
-        |   codeToICode(BICTuple fields, context, _, target) =
+        |   codeToICode(BICTuple fields, context, _, destination) =
             let
+                val target = asTarget destination
                 (* We want the result address to be on the top of the stack when we've
                    finished.  Allocate the memory to a new register and copy it over to
                    the target when we've finished. *)
@@ -787,62 +869,44 @@ struct
                         [AllocateMemoryOperation{size=n, isMutable=false, dest=memAddr}]
                 |   loadFields(f :: rest, n) =
                     let
-                        fun isValidConstant value =
-                            if not isX64
-                            then true
-                            else if not (isShort value)
-                            then false
-                            else
-                            let
-                                val v = Word.toLargeIntX(toShort value)
-                            in
-                                ~0x80000000 <= v andalso v < 0x80000000
-                            end
-
-                        val (source, code) =
-                            case f of
-                                BICConstnt(value, _) =>
-                                    (* We can store a constant directly if it will fit in 32-bits.  That
-                                       excludes addresses on 64-bit. *)
-                                    if isValidConstant value
-                                    then (constantAsArgument value, [])
-                                    else
-                                    let
-                                        val sourceReg = newPReg()
-                                    in
-                                        (sourceReg, codeToICode(f, context, false, sourceReg))
-                                    end
-                            |   f =>
-                                    let
-                                        val sourceReg = newPReg()
-                                    in
-                                        (sourceReg, codeToICode(f, context, false, sourceReg))
-                                    end
+                        val (source, code) = codeAsArgument(f, allowInMemMove, context)
                         val restAndAlloc = loadFields(rest, n+1)
                         val storeValue = [MoveArgument{ source=source, dest=wordOffsetAddress(n, memAddr), kind=WordToWord}]
                     in
                         code @ restAndAlloc @ storeValue
                     end
             in
-                loadFields(fields, 0) @
-                    [InitialisationComplete{dest=memAddr}, MoveArgument{source=memAddr, dest=target, kind=WordToWord}]
+                (loadFields(fields, 0) @
+                    [InitialisationComplete{dest=memAddr}, MoveArgument{source=memAddr, dest=target, kind=WordToWord}], target)
             end
         
-        |   codeToICode(BICContainer size , _, _, target) = [ReserveContainer{size=size, address=target}]
+        |   codeToICode(BICContainer size , _, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                ([ReserveContainer{size=size, address=target}], target)
+            end
 
             (* Copy the source tuple into the container.  If the source is a BICTuple we simply copy
                the fields.  That saves creating the tuple at compile time. *)
-        |   codeToICode(BICSetContainer{container, tuple=BICTuple cl, filter}, context, _, target) =
+        |   codeToICode(BICSetContainer{container, tuple=BICTuple cl, filter}, context, _, destination) =
             let
+                val target = asTarget destination
                 val containerTarget = newPReg()
-                val codeContainer = codeToICode(container, context, false, containerTarget)
+                val codeContainer = codeToICodeTarget(container, context, false, containerTarget)
                 (* In theory it's possible that the tuple could contain fields that are not
                    used but nevertheless need to be evaluated for their side-effects.
                    Create all the fields and push to the stack. *)
-                val pregs = map (fn _ => newPReg()) cl
-                val codeFields =
-                    ListPair.foldlEq(fn (c, r, l) => l @ codeToICode(c, context, false, r)) [] (cl, pregs)
-                
+                fun codeAll [] = ([], [])
+                |   codeAll(arg::args) =
+                    let
+                        val (r, c) = codeAsArgument(arg, allowInMemMove, context)
+                        val (regs, code) = codeAll args
+                    in
+                        (r::regs, c @ code)
+                    end
+                val (pregs, codeFields) = codeAll cl
+
                 val filterLength = BoolVector.length filter
 
                 fun copyContainer([], _, _) = []
@@ -855,15 +919,16 @@ struct
                     else copyContainer(otherRegs, sourceWord+1, destWord)
             in
                 (* Add a dummy result in here to keep everything neat. *)
-                codeContainer @ codeFields @ copyContainer(pregs, 0, 0) @
-                    [MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                (codeContainer @ codeFields @ copyContainer(pregs, 0, 0) @
+                    [MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(BICSetContainer{container, tuple, filter}, context, _, target) =
+        |   codeToICode(BICSetContainer{container, tuple, filter}, context, _, destination) =
             let
+                val target = asTarget destination
                 val containerTarget = newPReg() and tupleTarget = newPReg()
-                val codeContainer = codeToICode(container, context, false, containerTarget)
-                and codeTuple = codeToICode(tuple, context, false, tupleTarget)
+                val codeContainer = codeToICodeTarget(container, context, false, containerTarget)
+                and codeTuple = codeToICodeTarget(tuple, context, false, tupleTarget)
                 
                 val filterLength = BoolVector.length filter
 
@@ -885,13 +950,13 @@ struct
                     else copyContainer(sourceWord+1, destWord)
             in
                 (* Add a dummy result in here to keep everything neat. *)
-                codeContainer @ codeTuple @ copyContainer(0, 0) @
-                    [MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}]
+                (codeContainer @ codeTuple @ copyContainer(0, 0) @
+                    [MoveArgument{source=IntegerConstant(tag 0), dest=target, kind=WordToWord}], target)
             end
 
-        |   codeToICode(instr as BICTagTest _, context, isTail, target) =
+        |   codeToICode(instr as BICTagTest _, context, isTail, destination) =
                 (* Better handled as a conditional *)
-                codeAsConditional(instr, context, isTail, target)
+                codeAsConditional(instr, context, isTail, destination)
 
         (* Process a list of bindings. *)
         and codeBindingsToICode(bindings, context) =
@@ -899,7 +964,7 @@ struct
             fun doBinding(BICDeclar{value, addr, ...}, l) =
                 let
                     val dest = newPReg()
-                    val code = codeToICode(value, context, false, dest)
+                    val code = codeToICodeTarget(value, context, false, dest)
                     val () = Array.update(locToPregArray, addr, SOME dest)
                 in
                     l @ code
@@ -909,7 +974,7 @@ struct
                 (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
                 let
                     val dest = newPReg()
-                    val code = codeToICode(BICLambda lambda, context, false, dest)
+                    val code = codeToICodeTarget(BICLambda lambda, context, false, dest)
                     val () = Array.update(locToPregArray, addr, SOME dest)
                 in
                     l @ code
@@ -955,7 +1020,7 @@ struct
                         |   loadFields(f :: rest, n) =
                             let
                                 val fReg = newPReg()
-                                val code = codeToICode(f, context, false, fReg)
+                                val code = codeToICodeTarget(f, context, false, fReg)
                                 val restAndAlloc = loadFields(rest, n+1)
                                 val storeValue =
                                     [MoveArgument{ source=fReg, dest=wordOffsetAddress(n, dstCopy), kind=WordToWord }]
@@ -979,7 +1044,7 @@ struct
                 let
                     val dest = newPReg()
                 in
-                    l @ codeToICode(exp, context, false, dest) (* And discard result. *)
+                    l @ codeToICodeTarget(exp, context, false, dest) (* And discard result. *)
                 end
             in
                 List.foldl doBinding [] bindings
@@ -1001,7 +1066,7 @@ struct
                tag bit of a word. *)
             let
                 val tagReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICode(test, context, false, tagReg)
+                val testCode = codeToICodeTarget(test, context, false, tagReg)
             in
                 testCode @
                     [WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
@@ -1016,7 +1081,7 @@ struct
         |   codeCondition(BICBuiltIn1{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
             let
                 val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICode(arg1, context, false, testReg)
+                val testCode = codeToICodeTarget(arg1, context, false, testReg)
                 (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
             in
                 testCode @
@@ -1030,7 +1095,7 @@ struct
                     context, jumpOn, jumpLabel) =
             let
                 val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICode(arg1, context, false, testReg)
+                val testCode = codeToICodeTarget(arg1, context, false, testReg)
                 val arg2Arg = constantAsArgument arg2Value
             in
                 testCode @
@@ -1043,7 +1108,7 @@ struct
                     context, jumpOn, jumpLabel) =
             let
                 val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICode(arg2, context, false, testReg)
+                val testCode = codeToICodeTarget(arg2, context, false, testReg)
                 val arg1Arg = constantAsArgument arg1Value
             in
                 testCode @
@@ -1057,8 +1122,8 @@ struct
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
                 val testCode =
-                    codeToICode(arg1, context, false, arg1Reg) @
-                    codeToICode(arg2, context, false, arg2Reg)
+                    codeToICodeTarget(arg1, context, false, arg1Reg) @
+                    codeToICodeTarget(arg2, context, false, arg2Reg)
             in
                 testCode @
                     [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
@@ -1099,7 +1164,7 @@ struct
         |   codeCondition(condition, context, jumpOn, jumpLabel) =
             let
                 val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICode(condition, context, false, testReg)
+                val testCode = codeToICodeTarget(condition, context, false, testReg)
             in
                 testCode @
                     [WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
@@ -1113,8 +1178,55 @@ struct
             codeToICode(
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
 
+        (* Code a value, returning a constant or an existing preg if possible.  The
+           aim is to avoid too much duplication. *)
+        and codeAsArgument(instr, allowable: allowedArgument, context) =
+        let
+            fun generalCase instr =
+            let
+                val target = newPReg()
+            in
+                (target, codeToICodeTarget(instr, context, false, target))
+            end
+        in
+            case (instr, allowable, closure) of
+                (BICConstnt(value, _), { anyConstant=true, ...}, _) => (constantAsArgument value, [])
+
+            |   (BICConstnt(value, _), { const32s=true, ...}, _) =>
+                let
+                    fun is32Bits w =
+                    let
+                        val v = tag(Word.toLargeIntX w)
+                    in
+                        ~0x80000000 <= v andalso v < 0x80000000
+                    end
+                in
+                    if not isX64 orelse (isShort value andalso is32Bits(toShort value))
+                    then (constantAsArgument value, [])
+                    else generalCase instr
+                end
+
+            |   (BICExtract(BICLoadLocal l), {existingPreg=true, ...}, _) =>
+                    (valOf(Array.sub(locToPregArray, l)), [])
+
+            |   (instr as BICExtract(BICLoadArgument a), {existingPreg=true, ...}, _) =>
+                    if a < numArgRegs
+                    then (* It was originally in a register. *) (List.nth(argPRegs, a), [])
+                    else (* Pushed before call. *) generalCase instr
+
+            |   (BICExtract BICLoadRecursive, {anyConstant=true, ...}, []) =>
+                    (* Recursive reference to empty closure.  This is an address constant. *)
+                    (AddressConstant(toMachineWord(valOf closureOpt)), [])
+
+            |   (BICExtract BICLoadRecursive, {existingPreg=true, ...}, _ :: _) =>
+                    (* Recursive reference to non-empty closure. *)
+                    (closureRegAddr, [])
+
+            |   (instr, _, _) => generalCase instr
+        end
+
         val icode = pushClosureReg @ pushArgs @
-            codeToICode(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
+            codeToICodeTarget(body, {loopArgs=NONE}, true, resultTarget) @ returnInstruction
       
         open ICODETRANSFORM
     in
