@@ -483,19 +483,20 @@ struct
                 icode=MoveArgument{ source=MemoryLocation{offset, base=PReg(bReg, PRegGeneral), index=NoMemIndex}, dest=PReg(destReg, dType), kind} :: rest,
                 state=NormalState state, code, context} =
             let
-                (* Currently we always make a new preg for the base and that is
-                   on the top of the state.  We can just remove it and replace it
-                   with the result. *)
-                val startState = checkTopInRax(state, bReg)
+                (* This previously replaced the top.  Pushing the previous value is safer but means
+                   values accumulate on the stack. *)
+                val (pushedState, pushCode) = pushRax state
+                val load = loadSource(bReg, eax, pushedState)
                 val (resultState, resultReg) =
                     case dType of
-                        PRegGeneral => (addRaxToState(startState, destReg), raxAsArg)
+                        PRegGeneral => (addRaxToState(pushedState, destReg), raxAsArg)
                     |   PRegUntagged =>
-                            ({valueStack= #valueStack startState, ccState= #ccState startState,
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
                                 untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
             in
                 codeICode{icode=rest, state=NormalState resultState,
-                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: code, context=context}
+                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: 
+                        load @ pushCode @ code, context=context}
             end
 
         |   codeICode{
