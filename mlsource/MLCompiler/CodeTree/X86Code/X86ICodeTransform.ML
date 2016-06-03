@@ -91,10 +91,19 @@ struct
                 else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
         |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
     )
+
     |   loadSource(src as AddressConstant _, dest, _) =
             [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
     |   loadSource(src as IntegerConstant _, dest, _) =
             [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
+
+    |   loadSource(MemoryLocation{ base, offset, index=NoMemIndex }, dest, state) =
+            (* Use the destination register as a base address. *)
+            MoveArgument {
+                source=MemoryLocation {base=RealRegister(GenReg dest), offset=offset, index=NoMemIndex },
+                dest=RealRegister(GenReg dest), kind=WordToWord} ::
+                    loadSource(base, dest, state)
+
     |   loadSource _ = raise InternalError "loadSource"
    
     fun clearCC({valueStack, untaggedRegs, ...}:normalState): normalState =

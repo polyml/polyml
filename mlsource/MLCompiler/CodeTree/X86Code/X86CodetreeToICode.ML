@@ -285,9 +285,12 @@ struct
 
                     |   function => (* General case. *)
                             (codeToICodeTarget(function, context, false, clPReg), [(clPReg, edx)], FullCall)
-                (* Optimise arguments.  We have to be careful with tail-recursive functions so limit this to
-                   constants for the moment. *)
-                val allowDefer = Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=false }
+                (* Optimise arguments.  We have to be careful with tail-recursive functions because they
+                   need to save any stack arguments that could be overwritten.  This is complicated
+                   because we overwrite the stack before loading the register arguments.  In some
+                   circumstances it could be safe but for the moment leave it. *)
+                val allowDefer =
+                    Allowed {anyConstant=true, const32s=true, memAddr=not isTail, existingPreg=not isTail }
                 fun loadArgs [] = ([], [])
                 |   loadArgs((arg, _)::args) =
                     let
