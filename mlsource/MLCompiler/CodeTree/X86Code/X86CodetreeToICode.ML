@@ -152,7 +152,7 @@ struct
         
         |   moveIfNotAllowed(dest as Allowed{const32s=true, ...}, code, arg as IntegerConstant value) =
             (* This is allowed if the value is within 32-bits *)
-                if not isX64 orelse ~0x80000000 <= value andalso value < 0x80000000
+                if is32bit value
                 then (code, arg)
                 else moveToTarget(dest, code, arg)
 
@@ -239,7 +239,6 @@ struct
                 val numArgs = List.length argList
                 (* Create pregs for the closure and each argument. *)
                 val clPReg = newPReg()
-                val argPRegs = List.map (fn _ => newPReg()) argList
                 (* If we have a constant closure we can go directly to the entry point.
                    If the closure is a single word we don't need to load the closure register. *)
                 val (functionCode, closureEntry, callKind) =
@@ -286,9 +285,18 @@ struct
 
                     |   function => (* General case. *)
                             (codeToICodeTarget(function, context, false, clPReg), [(clPReg, edx)], FullCall)
-                val codeArgs =
-                    ListPair.foldlEq(fn (arg, pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
-                        (List.map #1 argList, argPRegs)
+                (* Optimise arguments.  We have to be careful with tail-recursive functions so limit this to
+                   constants for the moment. *)
+                val allowDefer = Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=false }
+                fun loadArgs [] = ([], [])
+                |   loadArgs((arg, _)::args) =
+                    let
+                        val (c, r) = codeToICode(arg, context, false, allowDefer)
+                        val (regs, code) = loadArgs args
+                    in
+                        (r::regs, c @ code)
+                    end
+                val (argPRegs, codeArgs) = loadArgs argList
                 (* Load the argument registers.  This returns the
                    shorter of the actual arguments and those in registers. *)
                 val regArgs = ListPair.zip (argPRegs, argRegs)
