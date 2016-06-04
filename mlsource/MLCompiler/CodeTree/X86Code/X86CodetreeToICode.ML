@@ -381,6 +381,16 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.StringLengthWord, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val addrReg = newPReg() and argReg1 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, addrReg) @
+                [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=WordToWord},
+                 TagValue{ source=argReg1, dest=target }], target)
+            end
+
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
 

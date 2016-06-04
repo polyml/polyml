@@ -763,6 +763,8 @@ struct
                     fun pushAllArgs ([], state, code) = (state, code)
                     |   pushAllArgs (arg::args, state as {valueStack, ccState, untaggedRegs}, code) =
                         let
+                            (* TODO: We can push constants and memory addresses directly without loading
+                               them into a register. *)
                             val load = loadSource(arg, eax, state)
                             val sp = stackPtr state
                             val newState =
