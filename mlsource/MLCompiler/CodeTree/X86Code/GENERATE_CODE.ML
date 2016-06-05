@@ -1481,6 +1481,9 @@ struct
                 genTest(code, jumpOn)
             end
 
+        |   BICBuiltIn (function, argList) =>
+                genTest(BICEval{function=BICConstnt(ioOp function, []), argList=map (fn c => (c, GeneralType)) argList, resultType=GeneralType}, jumpOn)
+
         |   BICEval {function = BICConstnt(oper, _), argList = args, ...} =>
             (* May be an interface operation which can be put in line. *)
             let
