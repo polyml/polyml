@@ -694,6 +694,18 @@ struct
                      TagValue {source=untaggedResReg, dest=target}], target)
             end
 
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.SetStringLengthWord, arg1, arg2}, context, _, destination) =
+            let
+                val addrReg = newPReg() and lengthReg = newPReg()
+                val untagLength = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, addrReg) @ codeToICodeTarget(arg2, context, false, lengthReg) @
+                        [UntagValue{source=lengthReg, dest=untagLength, isSigned=false},
+                         MoveArgument {source=untagLength, dest=MemoryLocation{base=addrReg, offset=0, index=NoMemIndex}, kind=WordToWord}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let
                 val baseReg = newPReg() and valueReg = newPReg()

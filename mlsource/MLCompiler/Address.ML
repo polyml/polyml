@@ -240,7 +240,6 @@ struct
             (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
             (POLY_SYS_stdin,"POLY_SYS_stdin"),
             (POLY_SYS_stdout,"POLY_SYS_stdout"),
-            (POLY_SYS_set_string_length,"POLY_SYS_set_string_length"),
             (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
             (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
             (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),

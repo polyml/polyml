@@ -592,6 +592,32 @@ struct
             end
 
             (* Store a pseudo-register in a memory location. *)
+        |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegUntagged), dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val (pushedState as { valueStack, ccState, untaggedRegs}, pushCode) = pushRax state
+                val baseOnStack = 
+                    case findEntry (argToPReg base, pushedState) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: MoveArgument"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val loadBaseToEax = loadStack(eax, (stackPtr pushedState - baseOnStack -1) * wordSize)
+                val store =
+                    [MoveArgument{
+                        source=realVReg,
+                        dest=MemoryLocation{base=RealRegister(GenReg eax), offset=offset, index=NoMemIndex}, kind=kind}]
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
+            (* Store an untagged register in a memory location.  This is currently used to store the string
+               length word. *)
         |   codeICode{icode=MoveArgument{ source=PReg(srcReg, PRegGeneral), dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
                       state=NormalState state, code, context} =
             let

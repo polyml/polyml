@@ -81,7 +81,6 @@ struct
   val POLY_SYS_fixed_to_real       = 142
   val POLY_SYS_stdin               = 148
   val POLY_SYS_stdout              = 149
-  val POLY_SYS_set_string_length   = 151  (* DCJM 28/2/01 *)
   val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_cmem_load_8         = 160
