@@ -621,8 +621,8 @@ struct
             val () = enterBinaryOp("+",     ArithAdd)
             val () = enterBinaryOp("-",     ArithSub)
             val () = enterBinaryOp("*",     ArithMult)
-            (*val () = enterBinaryOp("quot",  ArithQuot)
-            val () = enterBinaryOp("rem",   ArithRem)*)
+            val () = enterBinaryOp("quot",  ArithQuot)
+            val () = enterBinaryOp("rem",   ArithRem)
         end
 
         local

@@ -44,6 +44,7 @@ struct
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
     and rcxAsArg = RealRegister(GenReg ecx) and rsiAsArg = RealRegister(GenReg esi)
+    and rdxAsArg = RealRegister(GenReg edx)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -110,9 +111,11 @@ struct
         {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=untaggedRegs}
 
     (* After we use an untagged value remove it from the state.  We only have
-       a few registers and only use at most two untagged values before tagging them. *)
-    fun removeAfterTag({valueStack, untaggedRegs, ccState}, reg) =
-        {valueStack=valueStack, ccState=ccState, untaggedRegs=List.filter(fn {ureg, ...} => ureg <> reg) untaggedRegs}
+       a few registers and only use at most two untagged values before tagging them.
+       For now, if we tag a value we clear the untagged set.  Division returns two
+       tagged values but only one is actually used. *)
+    fun removeAfterTag({valueStack, ccState, ...}, _) =
+        {valueStack=valueStack, ccState=ccState, untaggedRegs=[]}
 
     fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs= _, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
     let
@@ -1139,6 +1142,34 @@ struct
                 codeICode{icode=rest, state=NormalState resultState,
                     code=Multiplication{ resultReg=RealRegister realOp1Reg, operand1=RealRegister realOp1Reg,
                                          operand2=RealRegister realOp2Reg, ccRef=ccRef} :: code, context=context}
+            end
+
+        |   codeICode{icode=Division { isSigned, dividend, divisor, quotient, remainder } :: rest,
+                      state=NormalState state, code, context} =
+            let
+                val dividendReg = argToUReg dividend and divisorReg = argToUReg divisor
+                val ({ untaggedRegs, valueStack, ...}, pushCode) = pushRax state (* We need RAX. *)
+                val realDividend =
+                    case List.find (fn {ureg, ...} => ureg = dividendReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Division"
+                val realDivisor =
+                    case List.find (fn {ureg, ...} => ureg = divisorReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Division"
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate,
+                        untaggedRegs =[{ureg=argToUReg quotient, reg=GenReg eax}, {ureg=argToUReg remainder, reg=GenReg edx}]}
+                (* The untagging code puts the first value into ecx and the second into edx.  We
+                   have to move them. *)
+                val _ = realDividend = GenReg ecx orelse raise InternalError "codeICode: dividend"
+                val _ = realDivisor = GenReg edx orelse raise InternalError "codeICode: divisor"
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        Division{ isSigned=isSigned, dividend=raxAsArg, divisor=rcxAsArg, quotient=raxAsArg, remainder=rdxAsArg} ::
+                        MoveArgument { source=RealRegister realDivisor, dest=rcxAsArg, kind=WordToWord } ::
+                        MoveArgument { source=RealRegister realDividend, dest=raxAsArg, kind=WordToWord } :: pushCode @ code, context=context}
             end
 
             (* These should not occur here.  They are only added during this phase. *)
