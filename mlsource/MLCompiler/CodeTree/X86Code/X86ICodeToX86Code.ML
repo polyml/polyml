@@ -174,6 +174,13 @@ struct
     |   Division of { isSigned: bool, dividend: argument, divisor: argument,
                       quotient: argument, remainder: argument }
 
+        (* Atomic exchange and addition.   This is executed with a lock prefix and is used
+           for atomic increment and decrement for mutexes.
+           Before the operation the source contains an increment.  After the operation
+           the source contains the old value of the destination and the destination
+           has been updated with its old value added to the increment. *)
+    |   AtomicExchangeAndAdd of { destAddr: argument, source: argument }
+
     
     exception InternalError = Misc.InternalError
 
@@ -521,6 +528,13 @@ struct
                     else ArithRR{ opc=XOR, output=edx, source=edx }
             in
                 codeGenICode(rest, Group3Ops (divisorReg, if isSigned then IDIV else DIV) :: setRDX :: code)
+            end
+
+        |   codeGenICode(AtomicExchangeAndAdd{ destAddr, source } :: rest, code) =
+            let
+                val baseReg = asGenReg destAddr and outReg = asGenReg source
+            in
+                codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)

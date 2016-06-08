@@ -38,7 +38,7 @@ struct
     fun tag c = 2 * c + 1
   
     (* shift a short constant, but don't set tag bit *)
-    fun semitag c = 2 * c;
+    fun semitag c = 2 * c
 
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
@@ -389,6 +389,42 @@ struct
                 (codeToICodeTarget(arg1, context, false, addrReg) @
                 [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=WordToWord},
                  TagValue{ source=argReg1, dest=target }], target)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val addrReg = newPReg() and incrReg = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, addrReg) @
+                 [MoveArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=WordToWord},
+                  AtomicExchangeAndAdd{ destAddr=addrReg, source=incrReg },
+                  (* We want the result to be the new value but we've returned the old value. *)
+                  ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val addrReg = newPReg() and incrReg = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, addrReg) @
+                 [MoveArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=WordToWord},
+                  AtomicExchangeAndAdd{ destAddr=addrReg, source=incrReg },
+                  ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], target)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.AtomicReset, arg1}, context, _, destination) =
+            let
+                (* This is needed only for the interpreted version where we have a single real
+                   mutex to interlock atomic increment and decrement.  We have to use the same
+                   mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
+                   the hardware guarantees that an assignment of a word will be atomic. *)
+                val addrReg = newPReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, addrReg) @ [LockMutable{addr=addrReg}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =

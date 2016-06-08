@@ -757,9 +757,15 @@ struct
                     [DeclaredAt inBasis])
             val threadType = mkTypeConstruction ("thread", threadConstr, [], []);
             val selfFunction = mkGvar ("self", Unit ->> threadType, mkBuiltIn0Fn BuiltIns.CurrentThreadId, declInBasis)
+            val atIncrFunction = mkGvar("atomicIncr", Ref Word ->> Word, mkBuiltIn1Fn BuiltIns.AtomicIncrement, declInBasis)
+            val atDecrFunction = mkGvar("atomicDecr", Ref Word ->> Word, mkBuiltIn1Fn BuiltIns.AtomicDecrement, declInBasis)
+            val atResetFunction = mkGvar("atomicReset", Ref Word ->> Unit, mkBuiltIn1Fn BuiltIns.AtomicReset, declInBasis)
         in
             val () = #enterType threadEnv ("thread", TypeConstrSet(threadConstr, []))
             val () = #enterVal threadEnv ("self", selfFunction)
+            val () = #enterVal threadEnv ("atomicIncr", atIncrFunction)
+            val () = #enterVal threadEnv ("atomicDecr", atDecrFunction)
+            val () = #enterVal threadEnv ("atomicReset", atResetFunction)
         end
 
         local
