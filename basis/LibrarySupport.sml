@@ -53,6 +53,7 @@ sig
     val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
     val noOverwriteRef: 'a -> 'a ref
+    val emptyVector: word
 end
 =
 struct
@@ -214,6 +215,15 @@ struct
            works properly across SaveState.loadState calls. *)
         fun noOverwriteRef (a: 'a) : 'a ref =
             RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
+    end
+    
+    local
+        val System_alloc: word*word*word->word  =
+            RunCall.run_call3 POLY_SYS_alloc_store
+    in
+        (* Create an empty vector.  This is used wherever we want an empty vector.
+           It can't be 'a vector which is what we want because of the value restriction. *)
+        val emptyVector: word = System_alloc(0w0, 0w0, 0w0)
     end
 end;
 

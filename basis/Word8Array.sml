@@ -38,8 +38,7 @@ local
     val System_move_str:
         vector*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
     val System_isShort   : vector -> bool = RunCall.isShort
-    val emptyVec: vector = (* This is represented by a null string not a null vector. *)
-        RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_emptystring;
+    val emptyVec: vector = w8vectorFromString "" (* This is represented by a null string not a null vector. *)
 
     val maxLen = CharVector.maxLen
 

@@ -191,8 +191,6 @@ struct
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
             (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
             (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
-            (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
             (POLY_SYS_eq_longword,"POLY_SYS_eq_longword"),
             (POLY_SYS_geq_longword,"POLY_SYS_geq_longword"),
             (POLY_SYS_leq_longword,"POLY_SYS_leq_longword"),
@@ -235,8 +233,6 @@ struct
             (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
             (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
             (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
-            (POLY_SYS_stdin,"POLY_SYS_stdin"),
-            (POLY_SYS_stdout,"POLY_SYS_stdout"),
             (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
             (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
             (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),
@@ -254,7 +250,6 @@ struct
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_stderr,"POLY_SYS_stderr"),
             (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final")
             ]

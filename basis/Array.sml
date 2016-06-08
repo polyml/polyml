@@ -22,7 +22,6 @@ local
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
     val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
-    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
     val System_move_words_overlap:
@@ -46,7 +45,7 @@ local
        into an immutable object and changes the equality function from pointer
        equality to value equality. *)
     fun makeVector(v: 'a array, start, length): 'a vector =
-        if length = 0 then RunCall.unsafeCast System_zero (* Special case for zero *)
+        if length = 0 then RunCall.unsafeCast LibrarySupport.emptyVector (* Special case for zero *)
         else (* The size must have already been checked. *)
         let
             (* Make a vector initialised to zero. *)

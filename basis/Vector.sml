@@ -25,7 +25,6 @@ local
     (* It would be simpler to be able to define these as functions
        to or from 'a vector but that gives error messages about free
        type variables. *)
-    val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
 
@@ -43,7 +42,7 @@ local
     
     fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWord (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =
-        RunCall.storeWord (vecAsWord v, intAsWord i, RunCall.unsafeCast new);
+        RunCall.storeWord (vecAsWord v, intAsWord i, RunCall.unsafeCast new)
 in
 
 structure Vector: VECTOR =
@@ -79,7 +78,7 @@ struct
  
     (* Create a vector from a list.  We have to treat an empty list specially
        because we don't allow zero sized heap objects. *)
-    fun fromList [] : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+    fun fromList [] : 'a vector = wordAsVec LibrarySupport.emptyVector (* Must not try to lock it. *)
       | fromList (l : 'a list) : 'a vector =
         let
         val length = listLength l;
@@ -102,7 +101,7 @@ struct
         wordAsVec vec
     end
         
-    fun tabulate (0, _) : 'a vector = wordAsVec System_zero (* Must not try to lock it. *)
+    fun tabulate (0, _) : 'a vector = wordAsVec LibrarySupport.emptyVector (* Must not try to lock it. *)
      |  tabulate (length: int , f : int->'a): 'a vector =
     let
         val vec =
@@ -118,7 +117,7 @@ struct
     end
     
 
-    fun concat [] = wordAsVec System_zero
+    fun concat [] = wordAsVec LibrarySupport.emptyVector
      |  concat [v] = v (* Handle special cases to reduce copying. *)
      |  concat l =
     let
@@ -128,7 +127,7 @@ struct
     
         val total_len = total l 0
     in
-        if total_len = 0 then wordAsVec System_zero
+        if total_len = 0 then wordAsVec LibrarySupport.emptyVector
         else if total_len >= maxLen then raise General.Size
         else
         let
@@ -156,7 +155,7 @@ struct
     let
         val len = length vec
     in
-        if len = 0 then wordAsVec System_zero
+        if len = 0 then wordAsVec LibrarySupport.emptyVector
         else
         let
             (* Allocate a new vector. *)
@@ -177,7 +176,7 @@ struct
     let
         val len = length vec
     in
-        if len = 0 then wordAsVec System_zero
+        if len = 0 then wordAsVec LibrarySupport.emptyVector
         else
         let
             (* Allocate a new vector. *)
@@ -287,7 +286,7 @@ struct
         else raise General.Subscript
     
     fun vector(Slice{vector, start, length}) =
-        if length = 0 then wordAsVec System_zero (* Special case for zero *)
+        if length = 0 then wordAsVec LibrarySupport.emptyVector (* Special case for zero *)
         else
         let
             (* Make a vector initialised to zero. *)
@@ -308,7 +307,7 @@ struct
             SOME(unsafeSub(vector, start), Slice{vector=vector, start=start+1, length=length-1})
             
 
-    fun concat [] = wordAsVec System_zero
+    fun concat [] = wordAsVec LibrarySupport.emptyVector
      |  concat l =
     let
         (* Calculate the total length *)
@@ -317,7 +316,7 @@ struct
     
         val total_len = total l 0
     in
-        if total_len = 0 then wordAsVec System_zero
+        if total_len = 0 then wordAsVec LibrarySupport.emptyVector
         else
         let
             (* Allocate a new vector. *)
@@ -337,7 +336,7 @@ struct
     end
     
     fun map (f: 'a->'b) (Slice{vector:'a Vector.vector, start, length}): 'b Vector.vector =
-        if length = 0 then wordAsVec System_zero
+        if length = 0 then wordAsVec LibrarySupport.emptyVector
         else
         let
             (* Allocate a new vector. *)
@@ -354,7 +353,7 @@ struct
         end
 
     fun mapi (f: int*'a->'b) (Slice{vector:'a Vector.vector, start, length}): 'b Vector.vector =
-        if length = 0 then wordAsVec System_zero
+        if length = 0 then wordAsVec LibrarySupport.emptyVector
         else
         let
             (* Allocate a new vector. *)
