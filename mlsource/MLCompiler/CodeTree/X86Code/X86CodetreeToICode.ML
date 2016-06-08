@@ -737,8 +737,24 @@ struct
                      ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordShift _, arg1, arg2}, context, _, destination) =
-                raise InternalError "BuiltIns.WordShift"
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
+                (* N.B.  X86 shifts of greater than the word length mask the higher bits.  That isn't what ML wants
+                   but that is dealt with at a higher level *)
+            let
+                open BuiltIns
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val aReg1Untagged = newUReg() and aReg2Untagged = newUReg() and resRegUntagged = newUReg()
+                val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
+            in
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 (* There are better ways of doing this but it will do for the moment.  We don't need to
+                    remove the tag for right shifts provided we OR in a tag afterwards. *)
+                 [UntagValue{source=aReg1, dest=aReg1Untagged, isSigned=shift=ShiftRightArithmetic},
+                  UntagValue{source=aReg2, dest=aReg2Untagged, isSigned=false},
+                  ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=aReg1Untagged, shiftAmount=aReg2Untagged, ccRef=newCCRef() },
+                  TagValue{source=resRegUntagged, dest=target}], target)
+            end
 
         |   codeToICode(BICBuiltIn3 {oper=BuiltIns.StoreWord, arg1, arg2=BICConstnt(value, _), arg3}, context, _, destination) =
             let

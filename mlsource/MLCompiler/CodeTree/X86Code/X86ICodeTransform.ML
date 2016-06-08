@@ -1028,8 +1028,8 @@ struct
                 val {valueStack, untaggedRegs, ...} = pushedState
                 val spareReg =
                     case untaggedRegs of
-                        [] => ecx
-                    |   [_] => edx
+                        [] => edx
+                    |   [_] => ecx
                     |   _ => raise InternalError "codeICode: ArithmeticFunction"
                 val resReg = RealRegister(GenReg spareReg)
                 val loadCode = loadSource(operand1, spareReg, pushedState)
@@ -1116,8 +1116,8 @@ struct
                 val {valueStack, untaggedRegs, ...} = pushedState
                 val spareReg =
                     case untaggedRegs of
-                        [] => ecx
-                    |   [_] => edx
+                        [] => edx
+                    |   [_] => ecx
                     |   _ => raise InternalError "codeICode: UntagValue"
                 val resReg = RealRegister(GenReg spareReg)
                 val loadCode = loadSource(source, spareReg, pushedState)
@@ -1160,6 +1160,28 @@ struct
                 codeICode{icode=rest, state=NormalState checkState,
                     code=ShiftOperation { shift=shift, resultReg=raxAsArg, operand=raxAsArg, shiftAmount=shiftAmount, ccRef=ccRef } :: code,
                     context=context}
+            end
+
+        |   codeICode{icode=ShiftOperation {shift, resultReg, operand=PReg(operReg, PRegUntagged), shiftAmount=PReg(shiftReg, PRegUntagged), ccRef } :: rest,
+                      state=NormalState ({untaggedRegs, valueStack, ...}), code, context} =
+            let
+                (* Shift by a variable.  This should be in rcx which is where we want it. *)
+                val resReg = argToUReg resultReg
+                val realOperReg =
+                    case List.find (fn {ureg, ...} => ureg = operReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ShiftOperation"
+                val realShiftReg =
+                    case List.find (fn {ureg, ...} => ureg = shiftReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ShiftOperation"
+                val _ = realShiftReg = GenReg ecx orelse raise InternalError "ShiftOperation: not ecx"
+                val resultState =
+                    {valueStack=valueStack, ccState=CCState(ccRef, fn i=>i), untaggedRegs =[{ureg=resReg, reg=realOperReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=ShiftOperation{ shift=shift, resultReg=RealRegister realOperReg, operand=RealRegister realOperReg,
+                                         shiftAmount=RealRegister realShiftReg, ccRef=ccRef} :: code, context=context}
             end
 
         |   codeICode{icode=ShiftOperation _ :: _, ...} =
@@ -1205,15 +1227,14 @@ struct
                 val resultState =
                     {valueStack=valueStack, ccState=CCIndeterminate,
                         untaggedRegs =[{ureg=argToUReg quotient, reg=GenReg eax}, {ureg=argToUReg remainder, reg=GenReg edx}]}
-                (* The untagging code puts the first value into ecx and the second into edx.  We
-                   have to move them. *)
-                val _ = realDividend = GenReg ecx orelse raise InternalError "codeICode: dividend"
-                val _ = realDivisor = GenReg edx orelse raise InternalError "codeICode: divisor"
+                (* The untagging code puts the first value into edx and the second into ecx.  We
+                   have to move the dividend into edx. *)
+                val _ = realDividend = GenReg edx orelse raise InternalError "codeICode: dividend"
+                val _ = realDivisor = GenReg ecx orelse raise InternalError "codeICode: divisor"
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=
                         Division{ isSigned=isSigned, dividend=raxAsArg, divisor=rcxAsArg, quotient=raxAsArg, remainder=rdxAsArg} ::
-                        MoveArgument { source=RealRegister realDivisor, dest=rcxAsArg, kind=WordToWord } ::
                         MoveArgument { source=RealRegister realDividend, dest=raxAsArg, kind=WordToWord } :: pushCode @ code, context=context}
             end
 

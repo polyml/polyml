@@ -645,6 +645,8 @@ struct
                 enterBinary(name, WordArith oper, binaryType)
             and enterBinaryLogical(name, oper) =
                 enterBinary(name, WordLogical oper, binaryType)
+            and enterBinaryShift(name, oper) =
+                enterBinary(name, WordShift oper, binaryType)
         in
             val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
             val () = enterComparison("<",   TestLess)
@@ -659,6 +661,9 @@ struct
             val () = enterBinaryLogical("orb",  LogicalOr)
             val () = enterBinaryLogical("andb", LogicalAnd)
             val () = enterBinaryLogical("xorb", LogicalXor)
+            val () = enterBinaryShift("<<", ShiftLeft)
+            val () = enterBinaryShift(">>", ShiftRightLogical)
+            val () = enterBinaryShift("~>>", ShiftRightArithmetic)
         end
 
         local
