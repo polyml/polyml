@@ -33,12 +33,8 @@ local
     val intAsWord: int -> word = RunCall.unsafeCast
     and wordAsInt: word -> int = RunCall.unsafeCast
 
-    local
-        val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store
-    in
-        (* All the arrays are initially created containing zeros and then initialised. *)
-        fun alloc len = System_alloc(len, 0wx40, 0w0)
-    end
+    (* All the arrays are initially created containing zeros and then initialised. *)
+    fun alloc len = RunCall.allocateWordMemory(Word.fromInt len, 0wx40, 0w0)
     
     fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.loadWord (vecAsWord v, intAsWord i)
     and unsafeUpdate(v: 'a vector, i: int, new: 'a): unit =

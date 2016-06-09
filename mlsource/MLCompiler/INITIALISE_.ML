@@ -314,7 +314,7 @@ struct
                     makePolymorphic([a], mkBuiltIn2Fn AllocateByteMemory), Word ** Word ->> a)
             (* Allocate a word cell. *)
             val () = enterRunCall ("allocateWordMemory",
-                    makePolymorphic([a, b], mkBuiltIn2Fn AllocateByteMemory), mkProductType[Word, Word, a] ->> b)
+                    makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
         end
 
         local

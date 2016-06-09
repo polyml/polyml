@@ -24,7 +24,6 @@
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
-  val POLY_SYS_alloc_store         = 11
   val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
   val POLY_SYS_teststrgtr          = 26
   val POLY_SYS_teststrlss          = 27

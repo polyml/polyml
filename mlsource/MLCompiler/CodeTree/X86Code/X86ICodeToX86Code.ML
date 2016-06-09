@@ -195,7 +195,14 @@ struct
     fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters, functionName, debugSwitches} =
     let
         (* The profile object is a single mutable with the F_bytes bit set. *)
-        val profileObject = toMachineWord (alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0))
+        local
+            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
+            fun clear 0w0 = ()
+            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
+            val () = clear(Word.fromInt wordSize)
+        in
+            val profileObject = toMachineWord v
+        end
         (* Switch to indicate if we want to trace where live data has been allocated. *)
         val addAllocatingFunction =
             DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
@@ -334,12 +341,12 @@ struct
                 codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser=NONE} :: rest, code) =
+        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser} :: rest, code) =
             let
                 val sReg = asGenReg size and fReg = asGenReg flags and dReg = asGenReg dest
                 val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
                             orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
-                
+
                 val allocCode =
                 [
                     (* Store in the top byte *)
@@ -360,14 +367,27 @@ struct
                     then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
                     else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
                 ]
+                
+                (* Initialiser *)
+                val initCode =
+                    case initialiser of
+                        NONE => [] (* Byte segments are not initialised - Should we clear last word? Length could be zero. *)
+                    |   SOME init =>
+                        let
+                            (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
+                            val iReg = asGenReg init
+                            val _ = sReg = ecx orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
+                            val _ = iReg = eax orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
+                        in
+                            [
+                                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
+                                RepeatOperation STOSL,
+                                (* Move the base address to edi.  It will be updated by the move. *)
+                                MoveRR { source=dReg, output=edi }
+                            ]
+                        end
             in
-                codeGenICode(rest, allocCode @ code)
-            end
-
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser} :: rest, code) =
-            let
-            in
-                raise InternalError "TODO AllocateMemoryOperation"
+                codeGenICode(rest, initCode @ allocCode @ code)
             end
 
         |   codeGenICode(InitialisationComplete _ :: rest, code) =

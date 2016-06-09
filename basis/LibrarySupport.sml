@@ -208,17 +208,11 @@ struct
            overwritten when a saved state further down the hierarchy is loaded. 
            This is also used for imperative streams, really only so that stdIn
            works properly across SaveState.loadState calls. *)
-        fun noOverwriteRef (a: 'a) : 'a ref =
-            RunCall.run_call3 POLY_SYS_alloc_store(0w1, 0wx48, a)
+        fun noOverwriteRef (a: 'a) : 'a ref = RunCall.allocateWordMemory(0w1, 0wx48, a)
     end
-    
-    local
-        val System_alloc: word*word*word->word  =
-            RunCall.run_call3 POLY_SYS_alloc_store
-    in
-        (* Create an empty vector.  This is used wherever we want an empty vector.
-           It can't be 'a vector which is what we want because of the value restriction. *)
-        val emptyVector: word = System_alloc(0w0, 0w0, 0w0)
-    end
+
+    (* Create an empty vector.  This is used wherever we want an empty vector.
+       It can't be 'a vector which is what we want because of the value restriction. *)
+    val emptyVector: word = RunCall.allocateWordMemory(0w0, 0w0, 0w0)
 end;
 

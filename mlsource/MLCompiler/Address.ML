@@ -42,7 +42,8 @@ sig
     val assignByte: (address * Word.word * Word8.word) -> unit
     val assignWord: (address * Word.word * machineWord)  -> unit
 
-    val alloc:  (short * Word8.word * machineWord) -> address
+    val allocWordData: (short * Word8.word * machineWord) -> address
+
     val maxAllocation: word
 
     val lock:   address -> unit
@@ -142,11 +143,11 @@ struct
 
     val maxAllocation: word = Compat560.processEnvGeneral (100, ())
 
-    fun alloc(len: word, flags: Word8.word, initial: machineWord): address =
+    fun allocWordData(len: word, flags: Word8.word, initial: machineWord): address =
         (* Check that the size is within the acceptable range. *)
         if len >= maxAllocation
         then raise Size
-        else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
+        else RunCall.allocateWordMemory(len, Word.fromLargeWord(Word8.toLargeWord flags), initial)
 
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
@@ -183,7 +184,6 @@ struct
     local
         val rtsTable =
             [
-            (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
             (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
             (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),

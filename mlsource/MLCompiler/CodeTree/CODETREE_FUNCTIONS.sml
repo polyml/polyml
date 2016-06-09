@@ -225,7 +225,7 @@ struct
         |   makeVal (Tuple {fields, ...}) =
             let
                 val tupleSize = List.length fields
-                val vec : address = alloc (Word.fromInt tupleSize, F_mutable_words, word0)
+                val vec : address = allocWordData(Word.fromInt tupleSize, F_mutable_words, word0)
                 val fieldCode = map makeVal fields
       
                 fun copyToVec ([], _) = []

@@ -820,10 +820,23 @@ struct
                     code= moveToRAX @ allocMem @ loadSize @ code, context=context}
             end
 
-        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=SOME init} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=SOME init} :: rest,
+                      state=NormalState state, code, context} =
             let
+                (* Allocate memory and initialise.  This is needed for word segments.  We want to use
+                   rep stosl/q to initialise the store so that requires the size to be in rcx, the
+                   initialiser to be in rax and rdi to be available as a work register. *)
+                val destReg = argToPReg dest and initReg = argToPReg init
+                val startState = checkTopInRax(state, initReg) (* Should be in eax. *)
+                val loadSize = loadSource(size, ecx, startState)
+                val loadFlags = loadSource(flags, ebx, startState)
+                val allocMem = [AllocateMemoryVariable{size=rcxAsArg, flags=rbxAsArg, dest=rdxAsArg, initialiser=SOME raxAsArg}]
+                val moveToRAX = [MoveArgument{source=rdxAsArg, dest=raxAsArg, kind=WordToWord}]
+                val resultState = clearCC(addRaxToState(startState, destReg))
             in
-                raise InternalError "TODO AllocateMemoryOperation"
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code= moveToRAX @ allocMem @ loadFlags @ loadSize @ code, context=context}
             end
 
             (* Marks the end of setting the fields of a tuple.  This is used in the next

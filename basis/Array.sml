@@ -21,7 +21,6 @@ local
     open RuntimeCalls
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
-    val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
     val System_move_words_overlap:
@@ -49,7 +48,7 @@ local
         else (* The size must have already been checked. *)
         let
             (* Make a vector initialised to zero. *)
-            val new_vec = System_alloc(length, 0wx40, 0w0)
+            val new_vec = RunCall.allocateWordMemory(Word.fromInt length, 0wx40, 0w0)
         in
             System_move_words(RunCall.unsafeCast v, start, new_vec, 0, length);
             RunCall.clearMutableBit new_vec;
@@ -67,7 +66,7 @@ struct
     fun alloc len =
         let
             val () = if len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len, 0wx40, 0w0)
+            val vec = RunCall.allocateWordMemory(Word.fromInt len, 0wx40, 0w0)
         in
             RunCall.unsafeCast vec
         end
@@ -75,7 +74,7 @@ struct
     fun array(len, a) =
         let
             val () = if len < 0 orelse len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len, 0wx40, RunCall.unsafeCast a)
+            val vec = RunCall.allocateWordMemory(Word.fromInt len, 0wx40, RunCall.unsafeCast a)
         in
             RunCall.unsafeCast vec
         end
