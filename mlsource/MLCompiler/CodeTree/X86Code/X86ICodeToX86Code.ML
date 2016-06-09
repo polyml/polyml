@@ -83,8 +83,14 @@ struct
             { callKind: callKinds, regArgs: (argument * genReg) list,
               stackArgs: argument list, dest: argument, isTail: bool}
 
-        (* Allocate a tuple or a function closure. *)
-    |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
+        (* Allocate a fixed sized piece of memory.  The size is the number of words
+           required.  This sets the length word including the flags bits. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: argument}
+
+        (* Allocate a piece of memory whose size is not known at compile-time.  The size
+           argument is the number of words.  If the initialiser is provided
+           each word of the new memory is set to the value. *)
+    |   AllocateMemoryVariable of { size: argument, flags: argument, dest: argument, initialiser: argument option }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -298,10 +304,9 @@ struct
         |   codeGenICode(FunctionCall {isTail=true, callKind, ...} :: rest, code) =
                 codeGenICode(rest, JumpToFunction callKind :: code)
 
-        |   codeGenICode(AllocateMemoryOperation { size, isMutable, dest} :: rest, code) =
+        |   codeGenICode(AllocateMemoryOperation { size, flags, dest} :: rest, code) =
             let
                 val toReg = asGenReg dest
-                val flag = if isMutable then Address.F_mutable else 0w0
 
                 (* Allocate memory.  N.B. Instructions are in reverse order. *)
                 fun allocStore{size, flags, output, preserve} =
@@ -322,11 +327,47 @@ struct
                     (* If we need to add the profile object *)
                     if addAllocatingFunction
                     then
-                        allocStore {size=size+1, flags=Word8.orb(flag, Address.F_profile), output=toReg, preserve=[]} @
+                        allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=[]} @
                             [StoreLongConstToMemory{ toStore=profileObject, address=BaseOffset{base=toReg, offset=size*wordSize, index=NoIndex}}]
-                    else allocStore {size=size, flags=flag, output=toReg, preserve=[]}
+                    else allocStore {size=size, flags=flags, output=toReg, preserve=[]}
             in
                 codeGenICode(rest, allocCode @ code)
+            end
+
+        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser=NONE} :: rest, code) =
+            let
+                val sReg = asGenReg size and fReg = asGenReg flags and dReg = asGenReg dest
+                val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
+                            orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
+                
+                val allocCode =
+                [
+                    (* Store in the top byte *)
+                    StoreByteRegToMemory { toStore=fReg, address=BaseOffset{base=dReg, offset= ~1, index=NoIndex}},
+                    (* Untag the flags. *)
+                    ShiftConstant{ shiftType=SHR, output=fReg, shift=0w1},
+                    (* Store it as the length field. *)
+                    StoreRegToMemory{toStore=sReg,
+                        address=BaseOffset{base=dReg, offset= ~wordSize, index=NoIndex}},
+                    (* Untag the length *)
+                    ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
+                    (* Allocate the memory *)
+                    AllocStoreVariable{ output=dReg, saveRegs=[]},
+                    (* Compute the number of bytes into dReg. The length in sReg is the number
+                       of words as a tagged value so we need to multiply it, add wordSize to
+                       include one word for the header then subtract the, multiplied, tag. *)
+                    if wordSize = 4
+                    then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
+                    else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
+                ]
+            in
+                codeGenICode(rest, allocCode @ code)
+            end
+
+        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser} :: rest, code) =
+            let
+            in
+                raise InternalError "TODO AllocateMemoryOperation"
             end
 
         |   codeGenICode(InitialisationComplete _ :: rest, code) =

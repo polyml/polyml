@@ -105,11 +105,7 @@ struct
     open MachineConstants;
 
     local
-        val F_mutable_bytes : word = 0wx41;
-
-        val System_alloc: word*word*word->string  =
-            RunCall.run_call3 POLY_SYS_alloc_store
-
+        val F_mutable_bytes : word = 0wx41
         (* This is put in by Initialise and filtered out later. *)
         val SetLengthWord: string * word -> unit = String.setLengthWord
           
@@ -144,12 +140,8 @@ struct
 
         fun allocBytes bytes : address =
         let
-            val System_alloc_array: word*word*word->address  =
-                RunCall.run_call3 POLY_SYS_alloc_store
             val words : word =
-                if bytes = 0w0
-                then 0w1 (* Zero-sized objects are not allowed. *)
-                else if bytes > maxString
+                if bytes > maxString
                 (* The maximum string size is slightly smaller than the
                    maximum array size because strings have a length word.
                    That means that System_alloc will not raise Size if "bytes"
@@ -158,8 +150,15 @@ struct
                    for String/Word8Vector so we need to check here. *) 
                 then raise Size
                 else (bytes + wordSize - 0w1) div wordSize
+            val mem = RunCall.allocateByteMemory(words, F_mutable_bytes)
+            (* Zero any extra bytes we've needed for rounding to a number of words. *)
+            val full = words * wordSize
+            fun clearExtra i =
+                if i = full then ()
+                else (RunCall.storeByte(mem, i, 0w0); clearExtra(i+0w1))
+            val _ = clearExtra bytes
         in
-            System_alloc_array(words, F_mutable_bytes, 0w0)
+            mem
         end
 
         (* Allocate store for the string and set the first word to contain
@@ -169,19 +168,15 @@ struct
                 (* The space is the number of characters plus space for the length word
                    plus rounding. *)
                 val words : word = (charsW + 0w2 * wordSize - 0w1) div wordSize
-                val () = if words >= maxAllocation then raise Size else ()
-                (* We are relying on the allocator initialising the store
-                   since we only copy as many bytes as we have in the string,
-                   possibly leaving bytes in the last word unset.  Generally that
-                   wouldn't be a problem, since we will use the string length word
-                   to find out how many real characters there are, except in the
-                   case of the structure equality function.  It uses the
-                   segment length word and compares the whole of each word
-                   so we must ensure that two equal strings are equal in every
-                   WORD including any unused bytes at the end.
-                   It might be faster if we didn't want to initialise every
-                   byte to simply zero the last word of the segment. *)
-                val vec = System_alloc(words, F_mutable_bytes, 0w0)
+                val vec = RunCall.allocateByteMemory(words, F_mutable_bytes)
+                (* Zero any extra bytes we've needed for rounding to a number of words.
+                   This isn't essential but ensures that RTS sharing passes will
+                   merge strings that are otherwise the same. *)
+                val full = words * wordSize
+                fun clearExtra i =
+                    if i = full then ()
+                    else (RunCall.storeByte(vec, i, 0w0); clearExtra(i+0w1))
+                val _ = clearExtra (charsW+wordSize)
             in
                 (* Set the length word.  Since this is untagged we can't simply
                    use assign_word.*)
@@ -214,7 +209,7 @@ struct
            This is also used for imperative streams, really only so that stdIn
            works properly across SaveState.loadState calls. *)
         fun noOverwriteRef (a: 'a) : 'a ref =
-            RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
+            RunCall.run_call3 POLY_SYS_alloc_store(0w1, 0wx48, a)
     end
     
     local
