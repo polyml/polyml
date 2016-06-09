@@ -185,7 +185,6 @@ struct
             [
             (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
             (POLY_SYS_alloc_uninit,"POLY_SYS_alloc_uninit"),
-            (POLY_SYS_raisex,"POLY_SYS_raisex"),
             (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
             (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
             (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
