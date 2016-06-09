@@ -20,7 +20,7 @@
    we want them to be compiled in as constants. *)
 structure MachineConstants =
 struct
-    val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ();
+    val bigEndian : bool = Compat560.isBigEndian ()
     val wordSize : word = RunCall.bytesPerWord
 end;
 

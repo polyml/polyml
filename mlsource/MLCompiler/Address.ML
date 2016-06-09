@@ -249,7 +249,6 @@ struct
             (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
             (POLY_SYS_move_words,"POLY_SYS_move_words"),
             (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
             (POLY_SYS_touch_final, "POLY_SYS_touch_final")
             ]
 

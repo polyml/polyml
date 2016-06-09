@@ -405,4 +405,6 @@ struct
 
     fun realGeneral(code: int, arg:'a):'b =
         RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_Dispatch (code, arg)
+
+    val isBigEndian: unit -> bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian
 end;
