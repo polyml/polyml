@@ -589,9 +589,9 @@ struct
                             let
                                 val test =
                                     case caseType of
-                                        CaseInt =>
-                                            mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
-                                                   [test, BICConstnt(toMachineWord t, [])])
+                                        CaseInt => raise InternalError "reconvertCase"
+                                            (*mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
+                                                   [test, BICConstnt(toMachineWord t, [])])*)
                                     |   CaseWord =>
                                             BICBuiltIn2{
                                                 oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
