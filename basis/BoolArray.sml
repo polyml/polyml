@@ -376,7 +376,7 @@ in
             (* Set the bytes to all zeros or all ones.  Generally this will set
                more bits than we need but that doesn't matter. *)
             val initByte = if ini then 0wxff else 0wx00
-            val bytes = (Word.fromInt len + (bitsPerWord - 0w1)) >> 0w3
+            val bytes = (Word.fromInt len + 0w7) >> 0w3
             (* TODO: This should be set by a built-in. *)
             fun setBytes b =
                 if b >= bytes then ()
