@@ -208,7 +208,6 @@ struct
             (POLY_SYS_longword_to_tagged,"POLY_SYS_longword_to_tagged"),
             (POLY_SYS_signed_to_longword,"POLY_SYS_signed_to_longword"),
             (POLY_SYS_unsigned_to_longword,"POLY_SYS_unsigned_to_longword"),
-            (POLY_SYS_quotrem,"POLY_SYS_quotrem"),
             (POLY_SYS_xora,"POLY_SYS_xora"),
             (POLY_SYS_equala,"POLY_SYS_equala"),
             (POLY_SYS_ora,"POLY_SYS_ora"),

@@ -454,8 +454,9 @@ struct
                 outerLambda
             end
 
-            (* Versions that return the results in a container i.e. a tuple on the stack.
-               Currently this is only used for quotrem. *)
+            (* This is a general function that calls an RTS function with a set of arguments
+               whose last argument is a container.  This is only used for quotRem so
+               it is only made available through LargeInt.callQuotRem. *)
             fun makeRunCallTupledWithContainer (width:int, containerWidth, callN) : codetree =
             let 
                 val name =
@@ -527,9 +528,9 @@ struct
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
-                val rtsCallFull3C2Entry =
-                    makePolymorphic([a, b, c, d, e], makeRunCallTupledWithContainer(3, 2, toMachineWord(makeFullCall 4)))
-                val rtsCall3C2Type = String ->> TYPETREE.mkProductType [a,b,c] ->> TYPETREE.mkProductType [d,e]
+                val rtsCallFull2C2Entry =
+                    makePolymorphic([a, b, c, d], makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3)))
+                val rtsCall2C2Type = String ->> TYPETREE.mkProductType [a,b] ->> TYPETREE.mkProductType [c,d]
                 val rtsCallF_FType = String ->> Real ->> Real
             end
         in
@@ -542,8 +543,8 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
-            val () = enterRunCall ("rtsCallFull3C2", rtsCallFull3C2Entry, rtsCall3C2Type)
             val () = enterRunCall ("rtsCallFastF_F", rtsCallFastF_FEntry, rtsCallF_FType)
+            val quotRemCall = makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3))
         end
 
         local
@@ -596,8 +597,11 @@ struct
            overloaded functions are extracted from them. *)
         local
             val largeIntEnv = makeStructure(globalEnv, "LargeInt")
+            val callQuotRemType = String ->> intInfType ** intInfType ->> intInfType ** intInfType
+            val callQuotRem = mkGvar ("callQuotRem", callQuotRemType, quotRemCall, declInBasis)
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+            val () = #enterVal largeIntEnv ("callQuotRem", callQuotRem)
         end
 
         local
