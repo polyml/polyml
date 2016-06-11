@@ -1317,6 +1317,7 @@ struct
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code=
+                        InitialisationComplete{dest=raxAsArg} ::
                         MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
                         AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
             end

@@ -441,15 +441,11 @@ struct
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
             let
-                (* TODO: Introduce a new ICode entry so that the next stage can optimise
-                   longword operations. *)
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
-                    [AllocateMemoryOperation{size=1, flags=0wx1 (* Byte data *), dest=addrReg},
-                     UntagValue{source=argReg1, dest=untagArg, isSigned=true},
-                     MoveArgument{ source=untagArg, dest=wordOffsetAddress(0, addrReg), kind=WordToWord},
-                     InitialisationComplete{dest=addrReg}]
+                    [UntagValue{source=argReg1, dest=untagArg, isSigned=true},
+                     BoxLargeWord{ source=untagArg, dest=addrReg}]
             in
                 moveIfNotAllowed(destination, code, addrReg)
             end
@@ -459,10 +455,8 @@ struct
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
-                    [AllocateMemoryOperation{size=1, flags=0wx1 (* Byte data *), dest=addrReg},
-                     UntagValue{source=argReg1, dest=untagArg, isSigned=false},
-                     MoveArgument{ source=untagArg, dest=wordOffsetAddress(0, addrReg), kind=WordToWord},
-                     InitialisationComplete{dest=addrReg}]
+                    [UntagValue{source=argReg1, dest=untagArg, isSigned=false},
+                     BoxLargeWord{ source=untagArg, dest=addrReg}]
             in
                 moveIfNotAllowed(destination, code, addrReg)
             end
