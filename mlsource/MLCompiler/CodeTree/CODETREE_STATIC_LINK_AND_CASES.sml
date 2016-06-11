@@ -41,9 +41,6 @@ struct
 
     exception InternalError = Misc.InternalError
 
-
-    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-
     open BACKENDTREE.CodeTags
 
     (* Property tag to indicate which arguments to a function are functions
@@ -52,13 +49,6 @@ struct
 
     fun staticLinkAndCases (pt, localAddressCount) =
     let
-        fun mkEval (ct, clist)   =
-        BICEval {
-            function = ct,
-            argList = List.map(fn c => (c, GeneralType)) clist,
-            resultType=GeneralType
-        }
-
         fun copyCode (pt, nonLocals, recursive, localCount, localAddresses, argClosure) =
         let
             (* "closuresForLocals" is a flag indicating that if the declaration
