@@ -132,9 +132,6 @@ struct
 
     |   simpGeneral context (Eval {function, argList, resultType}) =
             SOME(specialToGeneral(simpFunctionCall(function, argList, resultType, context)))
-(*
-    |   simpGeneral context (BuiltIn(function, argList)) =
-            SOME(specialToGeneral(simpBuiltIn(function, argList, context)))*)
 
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
@@ -250,6 +247,24 @@ struct
         (
             reprocess := true;
             SOME(Constnt(toMachineWord(String.size(RunCall.unsafeCast v)), []))
+        )
+
+    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=LongWordToTagged, arg1=Constnt(v, _)}) =
+        (
+            reprocess := true;
+            SOME(Constnt(toMachineWord(Word.fromLargeWord(RunCall.unsafeCast v)), []))
+        )
+
+    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=SignedToLongWord, arg1=Constnt(v, _)}) =
+        (
+            reprocess := true;
+            SOME(Constnt(toMachineWord(Word.toLargeWordX(RunCall.unsafeCast v)), []))
+        )
+
+    |   simpGeneral {reprocess, ...} (BuiltIn1{oper=UnsignedToLongWord, arg1=Constnt(v, _)}) =
+        (
+            reprocess := true;
+            SOME(Constnt(toMachineWord(Word.toLargeWord(RunCall.unsafeCast v)), []))
         )
 
     |   simpGeneral {reprocess, ...} (BuiltIn2{oper=WordComparison{test, isSigned}, arg1=Constnt(v1, _), arg2=Constnt(v2, _)}) =

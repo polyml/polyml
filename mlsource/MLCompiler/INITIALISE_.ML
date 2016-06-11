@@ -528,9 +528,6 @@ struct
                 val rtsCall3Type = String ->> TYPETREE.mkProductType [a,b,c] ->> d
                 val rtsCallFast4Entry = makePolymorphic([a, b, c, d, e], makeRtsCall(4, makeFastCall))
                 val rtsCall4Type = String ->> TYPETREE.mkProductType [a,b,c,d] ->> e
-                val rtsCallFull2C2Entry =
-                    makePolymorphic([a, b, c, d], makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3)))
-                val rtsCall2C2Type = String ->> TYPETREE.mkProductType [a,b] ->> TYPETREE.mkProductType [c,d]
                 val rtsCallF_FType = String ->> Real ->> Real
             end
         in
@@ -637,47 +634,6 @@ struct
         end
 
         local
-            val wordStructEnv = makeStructure(globalEnv, "Word")
-            open BuiltIns
-
-            fun enterBinary(name, oper, typ) =
-            let
-                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
-            in
-                #enterVal wordStructEnv (name, value)
-            end
-            
-            val compareType = Word ** Word ->> Bool
-            and binaryType  = Word ** Word ->> Word
-
-            fun enterComparison(name, test) =
-                enterBinary(name, WordComparison{test=test, isSigned=false}, compareType)
-            and enterBinaryOp(name, oper) =
-                enterBinary(name, WordArith oper, binaryType)
-            and enterBinaryLogical(name, oper) =
-                enterBinary(name, WordLogical oper, binaryType)
-            and enterBinaryShift(name, oper) =
-                enterBinary(name, WordShift oper, binaryType)
-        in
-            val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
-            val () = enterComparison("<",   TestLess)
-            val () = enterComparison("<=",  TestLessEqual)
-            val () = enterComparison(">",   TestGreater)
-            val () = enterComparison(">=",  TestGreaterEqual)
-            val () = enterBinaryOp("+",     ArithAdd)
-            val () = enterBinaryOp("-",     ArithSub)
-            val () = enterBinaryOp("*",     ArithMult)
-            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
-            val () = enterBinaryOp("mod",   ArithRem)
-            val () = enterBinaryLogical("orb",  LogicalOr)
-            val () = enterBinaryLogical("andb", LogicalAnd)
-            val () = enterBinaryLogical("xorb", LogicalXor)
-            val () = enterBinaryShift("<<", ShiftLeft)
-            val () = enterBinaryShift(">>", ShiftRightLogical)
-            val () = enterBinaryShift("~>>", ShiftRightArithmetic)
-        end
-
-        local
             val largeWordEnv = makeStructure(globalEnv, "LargeWord")
             fun monoTypePrinter _ = PRETTY.PrettyString "?"
 
@@ -699,6 +655,55 @@ struct
                     makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
         in
             val () = #enterType largeWordEnv ("word", TypeConstrSet(largeWordType, []))
+            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
+        end
+
+        local
+            val wordStructEnv = makeStructure(globalEnv, "Word")
+            open BuiltIns
+
+            fun enterBinary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkBuiltIn2Fn oper, declInBasis)
+            in
+                #enterVal wordStructEnv (name, value)
+            end
+            
+            val compareType = Word ** Word ->> Bool
+            and binaryType  = Word ** Word ->> Word
+
+            fun enterComparison(name, test) =
+                enterBinary(name, WordComparison{test=test, isSigned=false}, compareType)
+            and enterBinaryOp(name, oper) =
+                enterBinary(name, WordArith oper, binaryType)
+            and enterBinaryLogical(name, oper) =
+                enterBinary(name, WordLogical oper, binaryType)
+            and enterBinaryShift(name, oper) =
+                enterBinary(name, WordShift oper, binaryType)
+                
+            val toLargeWordFn = mkGvar ("toLargeWord", Word ->> LargeWord, mkBuiltIn1Fn UnsignedToLongWord, declInBasis)
+            and toLargeWordXFn = mkGvar ("toLargeWordX", Word ->> LargeWord, mkBuiltIn1Fn SignedToLongWord, declInBasis)
+            and fromLargeWordFn = mkGvar ("fromLargeWord", LargeWord ->> Word, mkBuiltIn1Fn LongWordToTagged, declInBasis)
+        in
+            val () = #enterType wordStructEnv ("word", TypeConstrSet(wordConstr, []))
+            val () = enterComparison("<",   TestLess)
+            val () = enterComparison("<=",  TestLessEqual)
+            val () = enterComparison(">",   TestGreater)
+            val () = enterComparison(">=",  TestGreaterEqual)
+            val () = enterBinaryOp("+",     ArithAdd)
+            val () = enterBinaryOp("-",     ArithSub)
+            val () = enterBinaryOp("*",     ArithMult)
+            val () = enterBinaryOp("div",   ArithQuot) (* Word.div and Word.mod are Quot and Rem. *)
+            val () = enterBinaryOp("mod",   ArithRem)
+            val () = enterBinaryLogical("orb",  LogicalOr)
+            val () = enterBinaryLogical("andb", LogicalAnd)
+            val () = enterBinaryLogical("xorb", LogicalXor)
+            val () = enterBinaryShift("<<", ShiftLeft)
+            val () = enterBinaryShift(">>", ShiftRightLogical)
+            val () = enterBinaryShift("~>>", ShiftRightArithmetic)
+            val () = #enterVal wordStructEnv ("toLargeWord", toLargeWordFn)
+            val () = #enterVal wordStructEnv ("toLargeWordX", toLargeWordXFn)
+            val () = #enterVal wordStructEnv ("fromLargeWord", fromLargeWordFn)
         end
  
         local

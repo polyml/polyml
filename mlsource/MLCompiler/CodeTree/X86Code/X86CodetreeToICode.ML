@@ -427,6 +427,46 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination) =
+            let (* This is exactly the same as StringLengthWord at the moment.
+                   TODO: introduce a new ICode entry so that the next stage can optimise
+                   longword operations. *)
+                val target = asTarget destination
+                val addrReg = newPReg() and argReg1 = newUReg()
+            in
+                (codeToICodeTarget(arg1, context, false, addrReg) @
+                [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=WordToWord},
+                 TagValue{ source=argReg1, dest=target }], target)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
+            let
+                (* TODO: Introduce a new ICode entry so that the next stage can optimise
+                   longword operations. *)
+                val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, argReg1) @
+                    [AllocateMemoryOperation{size=1, flags=0wx1 (* Byte data *), dest=addrReg},
+                     UntagValue{source=argReg1, dest=untagArg, isSigned=true},
+                     MoveArgument{ source=untagArg, dest=wordOffsetAddress(0, addrReg), kind=WordToWord},
+                     InitialisationComplete{dest=addrReg}]
+            in
+                moveIfNotAllowed(destination, code, addrReg)
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination) =
+            let
+                val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
+                val code =
+                    codeToICodeTarget(arg1, context, false, argReg1) @
+                    [AllocateMemoryOperation{size=1, flags=0wx1 (* Byte data *), dest=addrReg},
+                     UntagValue{source=argReg1, dest=untagArg, isSigned=false},
+                     MoveArgument{ source=untagArg, dest=wordOffsetAddress(0, addrReg), kind=WordToWord},
+                     InitialisationComplete{dest=addrReg}]
+            in
+                moveIfNotAllowed(destination, code, addrReg)
+            end
+
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
 
