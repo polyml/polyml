@@ -50,7 +50,6 @@ struct
   val POLY_SYS_real_to_int         = 134
   val POLY_SYS_int_to_real         = 135
   val POLY_SYS_fixed_to_real       = 142
-  val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_cmem_load_8         = 160
   val POLY_SYS_cmem_load_16        = 161

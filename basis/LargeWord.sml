@@ -126,29 +126,30 @@ local
                     read_number src
         end (* scanWord *)
 
-    (* Conversion from integer may involve extracting the low-order word
+    (* Conversion from arbitrary precision integer may involve extracting the low-order word
        from a long-integer representation.  *)
     local
-        (* Load the first word of a long form arbitrary precision
-           number which is always little-endian, tag it and negate
-           it if necessary. *)
-        val getFirstWord: LargeInt.int -> word =
-            RunCall.run_call1 POLY_SYS_get_first_long_word
+        val getLowOrderWord: LargeInt.int -> LargeWord.word =
+            RunCall.rtsCallFull1 "PolyGetLowOrderAsLargeWord"
         val isShortInt: LargeInt.int -> bool = RunCall.isShort
     in
-        (* We previously had a single RTS function to do this.  I've
-           replaced that by this code.  Since most of the time we're
-           going to be converting short integers this will avoid
-           making an RTS call.  getFirstWord can be implemented in
-           the code-generator fairly easily on little-endian machines
-           but it's too difficult to do it on the Sparc. *)
         fun wordFromLargeInt (i: LargeInt.int): word =
             if isShortInt i
             then RunCall.unsafeCast i
-            else getFirstWord i
+            else Word.fromLargeWord(getLowOrderWord i)
+            
+        and largeWordFromLargeInt (i: LargeInt.int): LargeWord.word =
+            if isShortInt i
+            then Word.toLargeX(RunCall.unsafeCast i)
+            else getLowOrderWord i
     end
-    
-    val wordFromInt: int -> word = RunCall.unsafeCast
+
+    (* We have to use the full conversion if int is arbitrary precision.  If int is
+       fixed precision this will be optimised away. *)
+    fun wordFromInt(i: int): word =
+        if Bootstrap.intIsArbitraryPrecision
+        then wordFromLargeInt(LargeInt.fromInt i)
+        else RunCall.unsafeCast i
 
     (* The maximum word is the largest tagged value.  The maximum large-word is
        the largest value that will fit in a machine word. *)
@@ -236,13 +237,12 @@ in
         and toLargeWordX x = x
         and fromLargeWord x = x
         val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
+        val fromLargeInt = largeWordFromLargeInt
 
         local
             val shortToWord: LargeInt.int -> largeword = Word.toLargeWordX o RunCall.unsafeCast
-            val getFirstWord: LargeInt.int -> Word.word = RunCall.run_call1 POLY_SYS_get_first_long_word
             val longToInt: largeword -> LargeInt.int = RunCall.unsafeCast o Word.fromLargeWord
             val zero: largeword = shortToWord 0
-            val andbInt : LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.run_call2 POLY_SYS_anda
 
             infix << orb andb
 
@@ -254,26 +254,9 @@ in
             end
 
             fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
-            val isShortInt: LargeInt.int -> bool = RunCall.isShort
         in
-            (* If it is short we just need to sign-extend it when storing it into
-               memory.  If it is long it's more complicated.  getFirstWord returns
-               the tagged value, possibly negated, but loses the high-order bit.
-               That has to be put back. *)
-            fun fromLargeInt x = 
-                if isShortInt x
-                then shortToWord x
-                else
-                let
-                    val lo = Word.toLargeWord(getFirstWord x)
-                in
-                    (* TODO: Testing this bit will currently require an RTS call *)
-                    if andbInt(x, largeWordTopBit) = 0
-                    then lo
-                    else topBitAsLargeWord orb lo
-                end
 
-            and toLargeInt x =
+            fun toLargeInt x =
             let
                 val asInt: LargeInt.int = longToInt x
                 open LargeInt (* <, + and - are all LargeInt ops. *)
@@ -296,10 +279,23 @@ in
 
         fun ~ x = zero - x
         fun notb x = xorb(maxLargeWordAsLargeWord, x)
-        
-        val fromInt = fromLargeInt o LargeInt.fromInt
-        and toInt = LargeInt.toInt o toLargeInt
-        and toIntX = LargeInt.toInt o toLargeIntX
+
+        (* If int is fixed precision an int is the same size as a word and will always fit within a
+           large-word value. *)
+        fun fromInt(i: int): word =
+            if Bootstrap.intIsArbitraryPrecision
+            then fromLargeInt(LargeInt.fromInt i)
+            else Word.toLargeWord(Word.fromInt i)
+
+        and toInt(w: word): int =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt(toLargeInt w)
+            else Word.toInt(Word.fromLargeWord w)
+            
+        and toIntX(w: word): int =
+            if Bootstrap.intIsArbitraryPrecision
+            then LargeInt.toInt(toLargeIntX w)
+            else Word.toIntX(Word.fromLargeWord w)
 
         fun scan radix getc src =
             case scanWord radix getc src of

@@ -210,7 +210,6 @@ struct
             (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
             (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
             (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
-            (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
             (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
             (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),
             (POLY_SYS_cmem_load_16, "POLY_SYS_cmem_load_16"),
