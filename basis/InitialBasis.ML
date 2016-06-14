@@ -188,6 +188,31 @@ and () = RunCall.addOverload Word.div  "div"
 and () = RunCall.addOverload Word.mod  "mod";
 (* N.B.  abs is not overloaded on word *)
 
+structure LargeWord =
+struct
+    open LargeWord
+
+    local
+        infix 8 << >> ~>> (* The shift operations are not infixed in the global basis. *)
+        (* As with Word.word shifts we have to check that the shift does not exceed the
+           word length.  N.B.  The shift amount is always a Word.word value. *)
+        val maxBits = Word.*(RunCall.bytesPerWord, 0w8) (* One bit more than Word.word. *)
+        val zero = Word.toLargeWord 0w0
+    in
+        val op << = fn (a, b) => if Word.>=(b, maxBits) then zero else a << b
+        val op >> = fn (a, b) => if Word.>=(b, maxBits) then zero else a >> b
+        val op ~>> = fn (a, b) => a ~>> (if Word.>(b, maxBits) then maxBits else b)
+    end
+
+    local
+        val zero = Word.toLargeWord 0w0
+    in
+        fun x div y = if x = zero then raise RunCall.Div else LargeWord.div(x, y)
+        and x mod y = if x = zero then raise RunCall.Div else LargeWord.mod(x, y)
+    end
+end;
+
+
 structure Char =
 struct
     open Char

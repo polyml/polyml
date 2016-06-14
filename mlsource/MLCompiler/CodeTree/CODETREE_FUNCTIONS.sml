@@ -150,6 +150,11 @@ struct
                     |   WordShift _ => applicative
                     |   AllocateByteMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
                             (* Allocation returns a different value on each call. *)
+                    |   LargeWordComparison _ => applicative
+                    |   LargeWordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
+                    |   LargeWordLogical _ => applicative
+                    |   LargeWordShift _ => applicative
+
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

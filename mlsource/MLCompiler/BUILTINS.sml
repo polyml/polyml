@@ -83,6 +83,11 @@ sig
             needed.  The second argument is the "flags" byte which must include F_bytes and F_mutable.
             The new cell is not initialised. *)
     |   AllocateByteMemory
+        (* Operations on LargeWords.  These are 32/64 bit values that are "boxed". *)
+    |   LargeWordComparison of testConditions
+    |   LargeWordArith of arithmeticOperations
+    |   LargeWordLogical of logicalOperations
+    |   LargeWordShift of shiftOperations
 
     and builtIn3Ops =
         StoreWord

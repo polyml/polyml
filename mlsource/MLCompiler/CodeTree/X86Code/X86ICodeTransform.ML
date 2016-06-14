@@ -404,6 +404,31 @@ struct
                           code=WordComparison{arg1=raxAsArg, arg2=wordOffsetAddress(stackPtr state - secondArg - 1, esp), ccRef=ccRef} :: code,
                           context=context}
             end
+
+        |   codeICode{
+                icode=WordComparison{
+                    arg1 as MemoryLocation{index=NoMemIndex, ...},
+                    arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}, ccRef} :: rest,
+                state=NormalState state, code, context=context} =
+                (* This is used for LargeWord comparisons. *)
+            let
+                val startState as {untaggedRegs, valueStack, ...} = checkTopInRax(state, argToPReg bReg2)
+                (* We use an untagged register temporarily. *)
+                val newReg =
+                    case untaggedRegs of
+                        [] => edx
+                    |   [_] => ecx
+                    |   _ => raise InternalError "newUreg"
+                val loadArg1 = loadSource(arg1, newReg, startState)
+                val resultState = {valueStack= valueStack, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            WordComparison{arg1=RealRegister(GenReg newReg),
+                                           arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef} ::
+                                loadArg1 @ code,
+                          context=context}
+            end
             
         |   codeICode{icode=WordComparison _ :: _, ...} =
                 raise InternalError "codeICode: JumpOnWordComparison TODO"
@@ -1150,6 +1175,28 @@ struct
                     context=context}
             end
 
+        |   codeICode{
+                icode=ArithmeticFunction{ oper, resultReg,
+                    operand1 as MemoryLocation{index=NoMemIndex, ...},
+                    operand2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}, ccRef } :: rest,
+                state=NormalState state, code, context} =
+                (* This is used for LargeWord operations. *)
+            let
+                val startState = checkTopInRax(state, argToPReg bReg2)
+                (* Load the first argument into an untagged register and use it as the result. *)
+                val (resultState, resultReg) = newUreg(argToUReg resultReg, startState)
+                val resReg = case resultReg of RealRegister(GenReg r) => r | _ => raise Match
+                val loadArg1 = loadSource(operand1, resReg, startState)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        ArithmeticFunction {
+                            oper=oper, resultReg=resultReg, operand1=resultReg,
+                            operand2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef } ::
+                        loadArg1 @ code,
+                    context=context}
+            end
+
         |   codeICode{icode=ArithmeticFunction _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform ArithmeticFunction"
 
@@ -1239,8 +1286,56 @@ struct
                                          shiftAmount=RealRegister realShiftReg, ccRef=ccRef} :: code, context=context}
             end
 
+        |   codeICode{
+                icode=ShiftOperation {shift, resultReg,
+                    operand as MemoryLocation{index=NoMemIndex, ...},
+                    shiftAmount=PReg(shiftReg, PRegUntagged), ccRef } :: rest,
+                state=NormalState (state as {untaggedRegs, valueStack, ...}), code, context} =
+            let
+                (* Shift by a variable.  This is used for LargeWord shifts.  The argument is boxed rather than untagged
+                   so we will have loaded the shift amount, which is tagged, into edx.  *)
+                val resReg = argToUReg resultReg
+                val realShiftReg =
+                    case List.find (fn {ureg, ...} => ureg = shiftReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: ShiftOperation"
+                val _ = realShiftReg = GenReg edx orelse raise InternalError "ShiftOperation: it is ecx"
+                (* Move the shift amount into ecx then load the value to be shifted into edx. *)
+                val loadCode = loadSource(operand, edx, state)
+                val resultState =
+                    {valueStack=valueStack, ccState=CCState(ccRef, fn i=>i), untaggedRegs =[{ureg=resReg, reg=GenReg edx}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=ShiftOperation{ shift=shift, resultReg=rdxAsArg, operand=rdxAsArg,
+                                         shiftAmount=rcxAsArg, ccRef=ccRef} ::
+                         loadCode @
+                         (MoveArgument{source=rdxAsArg, dest=rcxAsArg, kind=WordToWord} :: code), context=context}
+            end
+
         |   codeICode{icode=ShiftOperation _ :: _, ...} =
                 raise InternalError "TODO: CodeTransform ShiftOperation"
+
+        |   codeICode{
+                icode=Multiplication { resultReg,
+                    operand1 as MemoryLocation{index=NoMemIndex, ...},
+                    operand2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}, ccRef } :: rest,
+                state=NormalState state, code, context} =
+                (* This is used for LargeWord multiplication.  We can do it in the same way as
+                   arithmetic and logical operations. *)
+            let
+                val startState = checkTopInRax(state, argToPReg bReg2)
+                (* Load the first argument into an untagged register and use it as the result. *)
+                val (resultState, resultReg) = newUreg(argToUReg resultReg, startState)
+                val resReg = case resultReg of RealRegister(GenReg r) => r | _ => raise Match
+                val loadArg1 = loadSource(operand1, resReg, startState)
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        Multiplication { resultReg=resultReg, operand1=resultReg,
+                            operand2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef } ::
+                        loadArg1 @ code,
+                    context=context}
+            end
 
         |   codeICode{icode=Multiplication { resultReg, operand1, operand2, ccRef } :: rest,
                       state=NormalState ({untaggedRegs, valueStack, ...}), code, context} =
@@ -1266,6 +1361,26 @@ struct
                                          operand2=RealRegister realOp2Reg, ccRef=ccRef} :: code, context=context}
             end
 
+        |   codeICode{
+                icode=Division { isSigned,
+                        dividend as MemoryLocation{index=NoMemIndex, ...},
+                        divisor as MemoryLocation{index=NoMemIndex, ...}, quotient, remainder } :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* We need the dividend in Rax so we can't use it as the base reg for the divisor. *)
+                val (pushState, pushCode) = pushRax state (* We need RAX. *)
+                val loadDivisor = loadSource(divisor, ecx, pushState)
+                val loadDividend = loadSource(dividend, eax, pushState)
+                val resultState =
+                    {valueStack= #valueStack pushState, ccState=CCIndeterminate,
+                        untaggedRegs =[{ureg=argToUReg quotient, reg=GenReg eax}, {ureg=argToUReg remainder, reg=GenReg edx}]}
+             in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        Division{ isSigned=isSigned, dividend=raxAsArg, divisor=rcxAsArg, quotient=raxAsArg, remainder=rdxAsArg} ::
+                        loadDividend @ loadDivisor @ pushCode @ code, context=context}
+            end
+
         |   codeICode{icode=Division { isSigned, dividend, divisor, quotient, remainder } :: rest,
                       state=NormalState state, code, context} =
             let
@@ -1283,7 +1398,7 @@ struct
                     {valueStack=valueStack, ccState=CCIndeterminate,
                         untaggedRegs =[{ureg=argToUReg quotient, reg=GenReg eax}, {ureg=argToUReg remainder, reg=GenReg edx}]}
                 (* The untagging code puts the first value into edx and the second into ecx.  We
-                   have to move the dividend into edx. *)
+                   have to move the dividend into eax. *)
                 val _ = realDividend = GenReg edx orelse raise InternalError "codeICode: dividend"
                 val _ = realDivisor = GenReg ecx orelse raise InternalError "codeICode: divisor"
             in
@@ -1310,7 +1425,25 @@ struct
                 (* Allocate a one word cell and store the untagged value into it. *)
                 val destReg = argToPReg dest
                 val srcReg = getUreg(argToUReg source, state)
-                val (pushedState, pushCode) = pushRax state
+                val realSource =
+                    case srcReg of RealRegister(GenReg r) => r | _ => raise InternalError "BoxLargeWord"
+                val (newSrcReg, pushedState, pushCode) =
+                    if realSource = eax
+                    then
+                    let
+                        (* If the value we want to store is in eax i.e. the quotient, we
+                           must move it to another register before the allocation. *)
+                        val pushCode =
+                            [MoveArgument{ source=srcReg, dest=rcxAsArg, kind=WordToWord}]
+                    in
+                        (rcxAsArg, state, pushCode)
+                    end
+                    else
+                    let
+                        val (pushedState, pushCode) = pushRax state
+                    in
+                        (srcReg, pushedState, pushCode)
+                    end
                 val resultState =
                     removeAfterTag(clearCC(addRaxToState(pushedState, destReg)) (* Affects CC *), srcReg)
             in
@@ -1318,7 +1451,7 @@ struct
                     icode=rest, state=NormalState resultState,
                     code=
                         InitialisationComplete{dest=raxAsArg} ::
-                        MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
+                        MoveArgument{ source=newSrcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
                         AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
             end
 

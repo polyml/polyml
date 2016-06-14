@@ -75,6 +75,10 @@ struct
         |   WordLogical of logicalOperations
         |   WordShift of shiftOperations
         |   AllocateByteMemory
+        |   LargeWordComparison of testConditions
+        |   LargeWordArith of arithmeticOperations
+        |   LargeWordLogical of logicalOperations
+        |   LargeWordShift of shiftOperations
 
         and builtIn3Ops =
             StoreWord
@@ -114,6 +118,10 @@ struct
         |   builtIn2Repr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
         |   builtIn2Repr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
         |   builtIn2Repr AllocateByteMemory = "AllocateByteMemory"
+        |   builtIn2Repr (LargeWordComparison test) = "Test" ^ (testRepr test) ^ "LargeWord"
+        |   builtIn2Repr (LargeWordArith arithOp) =  (arithRepr arithOp) ^ "LargeWord"
+        |   builtIn2Repr (LargeWordLogical logOp) =  (logicRepr logOp) ^ "LargeWord"
+        |   builtIn2Repr (LargeWordShift shiftOp) =  (shiftRepr shiftOp) ^ "LargeWord"
         
         and testRepr TestEqual          = "Equal"
         |   testRepr TestNotEqual       = "NotEqual"

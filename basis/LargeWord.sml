@@ -227,6 +227,7 @@ in
        are always "boxed" i.e. held in a one word piece of memory with the "byte" bit set. *)
     structure LargeWord:> WORD where type word = largeword =
     struct
+        open LargeWord (* Add in the built-ins. *)
         type word = largeword
         val wordSize = largeWordSize
 
@@ -235,15 +236,6 @@ in
         and toLargeWordX x = x
         and fromLargeWord x = x
         val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
-
-        (* Logical operations.  Declare these first so they can be used in fromInt etc but
-           leave the arithmetic operations until later. *)
-        val orb : word*word->word = RunCall.run_call2 POLY_SYS_orb_longword
-        and andb : word*word->word = RunCall.run_call2 POLY_SYS_andb_longword
-        and xorb : word*word->word = RunCall.run_call2 POLY_SYS_xorb_longword
-        and op >> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_longword
-        and op << : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_left_longword
-        and op ~>> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_longword
 
         local
             val shortToWord: LargeInt.int -> largeword = Word.toLargeWordX o RunCall.unsafeCast
@@ -254,8 +246,12 @@ in
 
             infix << orb andb
 
-            val topBitAsLargeWord: largeword =
-                (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
+            local
+                open Int
+            in
+                val topBitAsLargeWord: largeword =
+                    (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
+            end
 
             fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
             val isShortInt: LargeInt.int -> bool = RunCall.isShort
@@ -280,6 +276,7 @@ in
             and toLargeInt x =
             let
                 val asInt: LargeInt.int = longToInt x
+                open LargeInt (* <, + and - are all LargeInt ops. *)
             in
                 (if asInt < 0 then maxWordP1 + asInt else asInt) +
                 (if topBitClear x then 0 else largeWordTopBit)
@@ -287,6 +284,7 @@ in
             and toLargeIntX x =
             let
                 val asInt: LargeInt.int = longToInt x
+                open LargeInt
             in
                 (if asInt < 0 then maxWordP1 + asInt else asInt) -
                 (if topBitClear x then 0 else largeWordTopBit)
@@ -295,6 +293,9 @@ in
             val zero = zero
             val maxLargeWordAsLargeWord = fromLargeInt maxLargeWord
         end
+
+        fun ~ x = zero - x
+        fun notb x = xorb(maxLargeWordAsLargeWord, x)
         
         val fromInt = fromLargeInt o LargeInt.fromInt
         and toInt = LargeInt.toInt o toLargeInt
@@ -304,31 +305,11 @@ in
             case scanWord radix getc src of
                 NONE => NONE
             |   SOME(res, src') =>
-                    if res > maxLargeWord then raise General.Overflow
+                    if LargeInt.>(res, maxLargeWord) then raise General.Overflow
                     else SOME(fromLargeInt res, src')
 
         val fromString = StringCvt.scanString (scan StringCvt.HEX)
 
-        val op + : word*word->word = RunCall.run_call2 POLY_SYS_plus_longword
-        and op - : word*word->word = RunCall.run_call2 POLY_SYS_minus_longword
-        and op * : word*word->word = RunCall.run_call2 POLY_SYS_mul_longword
-        
-        local
-            val d: word*word->word = RunCall.run_call2 POLY_SYS_div_longword
-            and m: word*word->word = RunCall.run_call2 POLY_SYS_mod_longword
-        in
-            fun x div y = if x = zero then raise Div else d(x, y)
-            and x mod y = if x = zero then raise Div else m(x, y)
-        end
-
-        fun ~ x = zero - x
-        fun notb x = xorb(maxLargeWordAsLargeWord, x)
-
-        val op > : word*word->bool = RunCall.run_call2 POLY_SYS_gt_longword
-        and op < : word*word->bool = RunCall.run_call2 POLY_SYS_lt_longword
-        and op >= : word*word->bool = RunCall.run_call2 POLY_SYS_geq_longword
-        and op <= : word*word->bool = RunCall.run_call2 POLY_SYS_leq_longword
-    
         fun compare (i, j) =
             if i < j then General.LESS
             else if i > j then General.GREATER else General.EQUAL

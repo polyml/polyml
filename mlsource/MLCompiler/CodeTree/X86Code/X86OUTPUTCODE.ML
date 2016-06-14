@@ -668,22 +668,6 @@ struct
     |   shiftTypeRepr SHR = "Shift Right Logical"
     |   shiftTypeRepr SAR = "Shift Right Arithemetic"
 
-    datatype group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
-    
-    fun group3OpsToWord NOT  = 0w2: Word8.word
-    |   group3OpsToWord NEG  = 0w3
-    |   group3OpsToWord MUL  = 0w4
-    |   group3OpsToWord IMUL = 0w5
-    |   group3OpsToWord DIV  = 0w6
-    |   group3OpsToWord IDIV = 0w7
-
-    fun group3OpsRepr NOT  = "NOT"
-    |   group3OpsRepr NEG  = "NEG"
-    |   group3OpsRepr MUL  = "MUL"
-    |   group3OpsRepr IMUL = "IMUL"
-    |   group3OpsRepr DIV  = "DIV"
-    |   group3OpsRepr IDIV = "IDIV"
-
     datatype repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     
     fun repOpsToWord CMPSB = 0wxa6: Word8.word
@@ -805,7 +789,7 @@ struct
     |   FPESC of Word8.word
     |   REP (* Rep prefix *)
     |   MOVZX (* Needs escape code. *)
-    |   IMULRR (* Needs escape code. *)
+    |   IMUL (* Needs escape code. *)
     |   SSE2Load (* movsd with register destination - needs escape sequence. *)
     |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
@@ -845,7 +829,7 @@ struct
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
     |   opToInt REP           = 0wxf3
     |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
-    |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
+    |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
     |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
@@ -1237,7 +1221,7 @@ SS-relative addressing modes:
     (* A few instructions require an escape. *)
     fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(IMULRR, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(SSE2Load, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape _ = ()
@@ -1368,7 +1352,7 @@ SS-relative addressing modes:
             |   MOVZX => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVL_32_64_R _ => isX64 (* Needed *)
             |   MOVL_32_A => isX64 (* Needed *)
-            |   IMULRR => isX64 (* Needed to ensure the result is 64-bits *)
+            |   IMUL => isX64 (* Needed to ensure the result is 64-bits *)
             |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
@@ -1927,7 +1911,8 @@ SS-relative addressing modes:
     |   FreeRegisters of regSet
     |   MakeSafe of genReg
     |   RepeatOperation of repOps
-    |   Group3Ops of genReg * group3Ops
+    |   DivideAccR of {arg: genReg, isSigned: bool }
+    |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
     |   FPLoadFromGenReg of genReg
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
@@ -1941,7 +1926,8 @@ SS-relative addressing modes:
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of fpReg
-    |   SignedMultiply of { source: genReg, output: genReg }
+    |   MultiplyRR of { source: genReg, output: genReg }
+    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
     |   SignExtendForDivide
@@ -2143,7 +2129,8 @@ SS-relative addressing modes:
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   MakeSafe reg => ( stream "MakeSafe "; printGReg reg)
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
-        |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printGReg reg)
+        |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
+        |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
         |   FPLoadFromGenReg reg => (stream "FPLoad "; printGReg reg)
         |   FPLoadFromFPReg {source, lastRef} =>
@@ -2163,7 +2150,8 @@ SS-relative addressing modes:
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
-        |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printGReg source; stream " *=>"; printGReg output)
+        |   MultiplyRR {source, output } => (stream "MultiplyRR"; stream " "; printGReg source; stream " *=>"; printGReg output)
+        |   MultiplyRM {base, offset, output } => (stream "MultiplyRM"; stream " "; printBaseOffset(base, NoIndex, offset); stream " *=>"; printGReg output)
         |   XMMLoadFromMemory { base, offset, output } =>
             (
                 stream "MoveMR "; printBaseOffset(base, NoIndex, offset); stream " => "; printXMMReg output
@@ -2615,17 +2603,17 @@ SS-relative addressing modes:
                 cgOp remainder
             )
 
-        |   cgOp(Group3Ops(reg, ops) :: remainder) =
+        |   cgOp(DivideAccR{arg, isSigned} :: remainder) =
             (
-                checkSources[reg];
-                case ops of
-                    NOT => addDests[reg]
-                |   NEG => addDests[reg]
-                |   MUL => (checkSources[eax]; addDests[eax, edx])
-                |   IMUL => (checkSources[eax]; addDests[eax, edx])
-                |   DIV => (checkSources[eax, edx]; addDests[eax, edx])
-                |   IDIV => (checkSources[eax, edx]; addDests[eax, edx]);
-                genOpRegPlus2(Group3_A, reg, group3OpsToWord ops, code);
+                checkSources[arg, eax, edx]; addDests[eax, edx];
+                genOpRegPlus2(Group3_A, arg, if isSigned then 0w7 else 0w6, code);
+                cgOp remainder
+            )
+
+        |   cgOp(DivideAccM{base, offset, isSigned} :: remainder) =
+            (
+                checkSources[base, eax, edx]; addDests[eax, edx];
+                genOpPlus2(Group3_A, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6, code);
                 cgOp remainder
             )
 
@@ -3120,10 +3108,25 @@ SS-relative addressing modes:
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
             )
 
-        |   cgOp (SignedMultiply {source, output} :: remainder) =
+        |   cgOp (MultiplyRR {source, output} :: remainder) =
             (
+                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
+                   because the former allows us to specify the destination register.
+                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
+                   but we only ever want the low-order half. *)
                 checkSources[source, output]; addDests[output];
-                genOpReg(IMULRR (* 2 byte opcode *), output, source, code);
+                genOpReg(IMUL (* 2 byte opcode *), output, source, code);
+                cgOp remainder
+            )
+
+        |   cgOp (MultiplyRM {base, offset, output} :: remainder) =
+            (
+                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
+                   because the former allows us to specify the destination register.
+                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
+                   but we only ever want the low-order half. *)
+                checkSources[base, output]; addDests[output];
+                genOpEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code);
                 cgOp remainder
             )
 
