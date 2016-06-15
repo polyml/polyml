@@ -68,7 +68,6 @@ struct
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes          = 198  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes_overlap  = 199
-  val POLY_SYS_touch_final         = 228
 
   (* val POLY_SYS_vecsize = 256 *)
 
