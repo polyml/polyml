@@ -182,60 +182,11 @@ struct
   end
 
     local
-        val rtsTable =
-            [
-            (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
-            (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
-            (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
-            (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
-            (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_xora,"POLY_SYS_xora"),
-            (POLY_SYS_equala,"POLY_SYS_equala"),
-            (POLY_SYS_ora,"POLY_SYS_ora"),
-            (POLY_SYS_anda,"POLY_SYS_anda"),
-            (POLY_SYS_Real_str,"POLY_SYS_Real_str"),
-            (POLY_SYS_Real_geq,"POLY_SYS_Real_geq"),
-            (POLY_SYS_Real_leq,"POLY_SYS_Real_leq"),
-            (POLY_SYS_Real_gtr,"POLY_SYS_Real_gtr"),
-            (POLY_SYS_Real_lss,"POLY_SYS_Real_lss"),
-            (POLY_SYS_Real_eq,"POLY_SYS_Real_eq"),
-            (POLY_SYS_Real_neq,"POLY_SYS_Real_neq"),
-            (POLY_SYS_Add_real,"POLY_SYS_Add_real"),
-            (POLY_SYS_Sub_real,"POLY_SYS_Sub_real"),
-            (POLY_SYS_Mul_real,"POLY_SYS_Mul_real"),
-            (POLY_SYS_Div_real,"POLY_SYS_Div_real"),
-            (POLY_SYS_Abs_real,"POLY_SYS_Abs_real"),
-            (POLY_SYS_Neg_real,"POLY_SYS_Neg_real"),
-            (POLY_SYS_conv_real,"POLY_SYS_conv_real"),
-            (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
-            (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
-            (POLY_SYS_fixed_to_real,"POLY_SYS_fixed_to_real"),
-            (POLY_SYS_bytevec_eq,"POLY_SYS_bytevec_eq"),
-            (POLY_SYS_cmem_load_8,"POLY_SYS_cmem_load_8"),
-            (POLY_SYS_cmem_load_16, "POLY_SYS_cmem_load_16"),
-            (POLY_SYS_cmem_load_32,"POLY_SYS_cmem_load_32"),
-            (POLY_SYS_cmem_load_64,"POLY_SYS_cmem_load_64"),
-            (POLY_SYS_cmem_load_float,"POLY_SYS_cmem_load_float"),
-            (POLY_SYS_cmem_load_double, "POLY_SYS_cmem_load_double"),
-            (POLY_SYS_cmem_store_8, "POLY_SYS_cmem_store_8"),
-            (POLY_SYS_cmem_store_16, "POLY_SYS_cmem_store_16"),
-            (POLY_SYS_cmem_store_32, "POLY_SYS_cmem_store_32"),
-            (POLY_SYS_cmem_store_64, "POLY_SYS_cmem_store_64"),
-            (POLY_SYS_cmem_store_float, "POLY_SYS_cmem_store_float"),
-            (POLY_SYS_cmem_store_double, "POLY_SYS_cmem_store_double"),
-            (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
-            (POLY_SYS_move_words,"POLY_SYS_move_words"),
-            (POLY_SYS_move_bytes,"POLY_SYS_move_bytes")
-            ]
-
-        val rtsNames =
-            Vector.tabulate(256,
-                fn n => case List.find(fn (rtsNo, _) => rtsNo=n) rtsTable of
-                    SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
+        val rtsNames = Vector.tabulate(256, fn n => " RTS" ^ Int.toString n)
     in
         val rtsNames = rtsNames
         fun rtsFunctionName n = Vector.sub(rtsNames, n)
-     end
+    end
 
     local
         val doCall: int*machineWord -> string

@@ -1039,8 +1039,43 @@ struct
         |   codeToICode(BICBuiltIn4 _, _, _, _) =
                 raise InternalError "TODO: BICBuiltIn4"
 
-        |   codeToICode(BICBuiltIn5 _, _, _, _) =
-                raise InternalError "TODO: BICBuiltIn5"
+        |   codeToICode(instr as BICBuiltIn5{oper=BuiltIns.ByteVecEqual, ...}, context, isTail, destination) =
+                codeAsConditional(instr, context, isTail, destination)
+
+        |   codeToICode(BICBuiltIn5{oper=BuiltIns.ByteVecCompare, arg1, arg2, arg3, arg4, arg5}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
+                and arg4Reg = newPReg() and arg5Reg = newPReg()
+                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val ccRef = newCCRef()
+                val labLess = newLabel() and labGreater = newLabel()
+                and exitLab1 = newLabel() and exitLab2 = newLabel()
+            in
+                (codeToICodeTarget(arg1, context, false, arg1Reg) @
+                codeToICodeTarget(arg2, context, false, arg2Reg) @
+                codeToICodeTarget(arg3, context, false, arg3Reg) @
+                codeToICodeTarget(arg4, context, false, arg4Reg) @
+                codeToICodeTarget(arg5, context, false, arg5Reg) @
+                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
+                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
+                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                 ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
+                 ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
+                 MoveArgument{ source=IntegerConstant(tag 0), dest=target, kind=WordToWord },
+                 UnconditionalForwardJump{ label=exitLab1 },
+                 ForwardJumpLabel{ label=labLess, result=NONE },
+                 MoveArgument{ source=IntegerConstant(tag ~1), dest=target, kind=WordToWord },
+                 UnconditionalForwardJump{ label=exitLab2 },
+                 ForwardJumpLabel{ label=labGreater, result=NONE },
+                 MoveArgument{ source=IntegerConstant(tag 1), dest=target, kind=WordToWord },
+                 ForwardJumpLabel{ label=exitLab1, result=SOME target },
+                 ForwardJumpLabel{ label=exitLab2, result=SOME target }], target)
+            end
 
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
@@ -1582,6 +1617,30 @@ struct
                     [WordComparison{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
+            end
+
+        |   codeCondition(BICBuiltIn5{oper=BuiltIns.ByteVecEqual, arg1, arg2, arg3, arg4, arg5},
+                    context, jumpOn, jumpLabel) =
+            let
+                val arg1Reg = newPReg() and arg2Reg = newPReg() and arg3Reg = newPReg()
+                and arg4Reg = newPReg() and arg5Reg = newPReg()
+                val untag3Reg = newUReg() and untag4Reg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val ccRef = newCCRef()
+            in
+                codeToICodeTarget(arg1, context, false, arg1Reg) @
+                codeToICodeTarget(arg2, context, false, arg2Reg) @
+                codeToICodeTarget(arg3, context, false, arg3Reg) @
+                codeToICodeTarget(arg4, context, false, arg4Reg) @
+                codeToICodeTarget(arg5, context, false, arg5Reg) @
+                [UntagValue{source=arg3Reg, dest=untag3Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg1Reg, offset=0, index=MemIndex1 untag3Reg, dest=vec1Reg},
+                 UntagValue{source=arg4Reg, dest=untag4Reg, isSigned=false},
+                 LoadEffectiveAddress{base=SOME arg2Reg, offset=0, index=MemIndex1 untag4Reg, dest=vec2Reg},
+                 UntagValue{source=arg5Reg, dest=lenReg, isSigned=false},
+                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                 ConditionalForwardJump{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, label=jumpLabel}]
             end
 
         |   codeCondition(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel) =

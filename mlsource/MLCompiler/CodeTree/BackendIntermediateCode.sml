@@ -89,7 +89,8 @@ struct
             Built4PlaceHolder
 
         and builtIn5Ops =
-            Built5PlaceHolder
+            ByteVecEqual
+        |   ByteVecCompare
         
         fun builtIn0Repr CurrentThreadId = "CurrentThreadId"
 
@@ -149,7 +150,9 @@ struct
         |   builtIn3Repr AllocateWordMemory = "AllocateWordMemory"
 
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"
-        and builtIn5Repr Built5PlaceHolder = "Built5PlaceHolder"
+
+        and builtIn5Repr ByteVecEqual = "ByteVecEqual"
+        |   builtIn5Repr ByteVecCompare = "ByteVecCompare"
     end
 
     datatype argumentType =

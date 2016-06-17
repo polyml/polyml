@@ -193,6 +193,12 @@ struct
            then unboxed and remove unnecessary allocation. *)
     |   BoxLargeWord of { source: argument, dest: argument }
 
+        (* Compare two vectors of bytes and set the condition code on the result.
+           In general vec1Addr and vec2Addr will be pointers inside memory cells
+           so have to be untagged registers. *)
+    |   CompareByteVectors of
+            { vec1Addr: argument, vec2Addr: argument, length: argument, ccRef: ccRef }
+
     
     exception InternalError = Misc.InternalError
 
@@ -620,6 +626,16 @@ struct
                 val baseReg = asGenReg destAddr and outReg = asGenReg source
             in
                 codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
+            end
+
+        |   codeGenICode(CompareByteVectors { vec1Addr, vec2Addr, length, ... } :: rest, code) =
+            let
+                (* The arguments must be in specific registers. *)
+                val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
+                val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
+                val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
+            in
+                codeGenICode(rest, RepeatOperation CMPSB :: code)
             end
 
             (* MoveStackArgToPreg should have been removed by earlier passes. *)

@@ -218,6 +218,7 @@ struct
     open Char
 end;
 
+(* We want these overloads in String. *)
 val () = RunCall.addOverload Char.>= ">="
 and () = RunCall.addOverload Char.<= "<="
 and () = RunCall.addOverload Char.>  ">"
@@ -226,16 +227,9 @@ and () = RunCall.addOverload Char.<  "<";
 structure String =
 struct
     open String
-    val op >= : string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgeq
-    and op <= : string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrleq
-    and op >  : string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgtr
-    val op <  : string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrlss
 end;
 
-val () = RunCall.addOverload String.>= ">="
-and () = RunCall.addOverload String.<= "<="
-and () = RunCall.addOverload String.>  ">"
-and () = RunCall.addOverload String.<  "<";
+(* Overloads for String are added in String.sml *)
 
 structure Real =
 struct

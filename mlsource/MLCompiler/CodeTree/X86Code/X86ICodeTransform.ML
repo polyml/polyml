@@ -180,13 +180,14 @@ struct
                 SOME {reg as GenReg _, ...} => RealRegister reg
             |   _ => raise InternalError "getUreg"
 
-        (* Get a new untagged register.  We only handle two at the moment. *)
+        (* Get a new untagged register.  We only handle three at the moment. *)
         fun newUreg (iReg, {valueStack, untaggedRegs, ccState}: normalState) =
         let
             val newReg =
                 case untaggedRegs of
                     [] => edx
                 |   [_] => ecx
+                |   [_, _] => esi
                 |   _ => raise InternalError "newUreg"
         in
             ({valueStack=valueStack, ccState=ccState, untaggedRegs={ureg=iReg, reg=GenReg newReg}::untaggedRegs}, RealRegister(GenReg newReg))
@@ -776,7 +777,9 @@ struct
                                      dest=MemoryLocation {offset, base, index=MemIndex1(PReg(iReg, PRegUntagged))}, kind} :: rest,
                     state=NormalState state, code, context} =
             let
-                (* This is used for index stores of bytes. *)
+                (* This is used for index stores of bytes.  N.B.  If we're storing a byte from a register
+                   we must not use ESI or EDI for the value register in 32-bit mode.  That's because the
+                   encoding actually refers to DH and BH.  In 64-bit mode the REX prefix overrides this. *)
                 val ({ valueStack, ccState, untaggedRegs}, pushCode) = pushRax state
                 (* The index is an untagged value. *)
                 val realIReg =
@@ -1234,6 +1237,32 @@ struct
                     context=context}
             end
 
+        |   codeICode{
+                icode=LoadEffectiveAddress {
+                    base=SOME baseSource, offset, index=MemIndex1(PReg(iReg, PRegUntagged)), dest=PReg(dReg, PRegUntagged)
+                    } :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* This is used to compute the address for a CompareByteVectors instruction.
+                   We have to reuse the untagged register for the result.  Use eax for the base. *)
+                val (pushedState as { untaggedRegs, valueStack, ccState}, pushCode) = pushRax state (* Simplifies things *)
+                val realIReg =
+                    case List.find (fn {ureg, ...} => ureg = iReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: LoadEffectiveAddress"
+                val loadCode = loadSource(baseSource, eax, pushedState)
+                val filteredUntagged =
+                    List.filter (fn {ureg, ...} => ureg <> iReg) untaggedRegs
+                val resultState =
+                    {valueStack=valueStack, ccState=ccState, untaggedRegs={ureg=dReg, reg=realIReg}::filteredUntagged}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code=
+                        LoadEffectiveAddress {base=SOME raxAsArg, offset=offset, index=MemIndex1(RealRegister realIReg), dest=RealRegister realIReg} ::
+                        loadCode @ pushCode@code,
+                    context=context}
+            end
+
 (*        |   codeICode{icode=LoadEffectiveAddress { base=NONE, offset, index=MemIndex2(PReg iReg), dest } :: rest,
                       state=NormalState state, code, context} =
             (* Currently just used for tagging. *)
@@ -1453,6 +1482,38 @@ struct
                         InitialisationComplete{dest=raxAsArg} ::
                         MoveArgument{ source=newSrcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
                         AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
+            end
+
+        |   codeICode{icode=CompareByteVectors { vec1Addr, vec2Addr, length, ccRef } :: rest, state=NormalState state, code, context} =
+            let
+                val {untaggedRegs, ...} = state
+                val vec1Reg = argToUReg vec1Addr and vec2Reg = argToUReg vec2Addr and lenReg = argToUReg length
+                val realVec1Reg =
+                    case List.find (fn {ureg, ...} => ureg = vec1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: CompareByteVectors"
+                val realVec2Reg =
+                    case List.find (fn {ureg, ...} => ureg = vec2Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: CompareByteVectors"
+                val realLenReg =
+                    case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: CompareByteVectors"
+                (* These aren't in the registers we want so we have to shuffle them. *)
+                val _ = realVec1Reg = GenReg edx orelse raise InternalError "codeICode: vec1Reg"
+                val _ = realVec2Reg = GenReg ecx orelse raise InternalError "codeICode: vec2Reg"
+                val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
+                val resultState =
+                    {valueStack= #valueStack state, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState,
+                    code =
+                        CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=rcxAsArg, ccRef=ccRef} ::
+                        MoveArgument{source=RealRegister realVec1Reg, dest=rsiAsArg, kind=WordToWord} ::
+                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
             end
 
             (* These should not occur here.  They are only added during this phase. *)

@@ -182,9 +182,11 @@ struct
 
         |   codeProps (BuiltIn5{oper, arg1, arg2, arg3, arg4, arg5}) =
             let
+                open BuiltIns
                 val operProps =
                     case oper of
-                        BuiltIns.Built5PlaceHolder => 0w0
+                        ByteVecEqual => applicative
+                    |   ByteVecCompare => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2 andb codeProps arg3 andb codeProps arg4 andb codeProps arg5
             end

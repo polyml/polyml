@@ -315,6 +315,11 @@ struct
             (* Allocate a word cell. *)
             val () = enterRunCall ("allocateWordMemory",
                     makePolymorphic([a, b], mkBuiltIn3Fn AllocateWordMemory), mkProductType[Word, Word, a] ->> b)
+            (* Byte vector operations. *)
+            val () = enterRunCall ("byteVectorEqual",
+                    makePolymorphic([a], mkBuiltIn5Fn ByteVecEqual), mkProductType[a, a, Word, Word, Word] ->> Bool)
+            val () = enterRunCall ("byteVectorCompare",
+                    makePolymorphic([a], mkBuiltIn5Fn ByteVecCompare), mkProductType[a, a, Word, Word, Word] ->> Int)
         end
 
         local
@@ -968,14 +973,14 @@ struct
                             mkEqualWord(mkLoadLocal 0, mkLoadLocal 1),
                             (* Equal - test the contents. *)
                             mkEnv([
-                                (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
+                                (* ByteVecEqual takes a byte length so we have to multiply by
                                    the number of bytes per word. *)
                                 mkDec(2,
                                     mkBuiltIn2(BuiltIns.WordArith BuiltIns.ArithMult,
                                         mkConst(toMachineWord RunCall.bytesPerWord), mkLoadLocal 0))
                                 ],
-                                mkBuiltIn(POLY_SYS_bytevec_eq,
-                                    [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 2])),
+                                mkBuiltIn5(BuiltIns.ByteVecEqual,
+                                    mkLoadArgument 0, mkLoadArgument 1, CodeZero, CodeZero, mkLoadLocal 2)),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),
