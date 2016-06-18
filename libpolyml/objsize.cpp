@@ -107,7 +107,7 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     show_size    = show;
 
     // Create a bitmap for each of the areas apart from the IO area
-    nBitmaps = gMem.nlSpaces+gMem.npSpaces; //
+    nBitmaps = gMem.nlSpaces+gMem.npSpaces+gMem.ncSpaces; //
     bitmaps = new VisitBitmap*[nBitmaps];
     unsigned bm = 0;
     unsigned j;
@@ -120,6 +120,11 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     for (j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
+        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
+    }
+    for (j = 0; j < gMem.ncSpaces; j++)
+    {
+        CodeSpace *space = gMem.cSpaces[j];
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
     ASSERT(bm == nBitmaps);
