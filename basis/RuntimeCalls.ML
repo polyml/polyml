@@ -24,7 +24,6 @@ structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
   val POLY_SYS_xora                = 112 (* DCJM 21/6/00 *)
-  val POLY_SYS_equala              = 113
   val POLY_SYS_ora                 = 114 (* DCJM 21/6/00 *)
   val POLY_SYS_anda                = 115 (* DCJM 21/6/00 *)
   val POLY_SYS_Real_str            = 117 (* DCJM 6/4/00 *)
