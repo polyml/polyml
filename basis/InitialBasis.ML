@@ -259,11 +259,6 @@ and () = RunCall.addOverload Real.~ "~"
 and () = RunCall.addOverload Real.abs "abs"
 and () = RunCall.addOverload Real./ "/";
 
-(* Conversion functions.  At this stage we have installed a simple
- conversion function for strings and ints. *)
-val it: string->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_conv_real;
-RunCall.addOverload it "convReal";
-
 
     (* We need to use the same identifier for this that we used when
        compiling the compiler, particularly "make". *)
