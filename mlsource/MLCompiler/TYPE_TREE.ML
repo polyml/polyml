@@ -297,13 +297,13 @@ struct
                                 (* Otherwise the length of the second argument must be one and the first character of the
                                    string must match. *)
                             mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 1), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkLoadArgument 0, mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
+                                mkEqualWord(mkLoadArgument 0, mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 1, mkConst(toMachineWord wordSize))))
                             ),
                         (* First argument is long. *)
                         mkIf(
                             mkIsShort(mkLoadArgument 1), (* Is the second arg short? *)
                             mkCand(mkEqualWord(mkBuiltIn1(BuiltIns.StringLengthWord, mkLoadArgument 0), mkConst(toMachineWord 1)),
-                                mkEqualWord(mkBuiltIn2(BuiltIns.LoadByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
+                                mkEqualWord(mkLoadOperation(LoadStoreMLByte{isImmutable=true}, mkLoadArgument 0, mkConst(toMachineWord wordSize)), mkLoadArgument 1)),
                             (* Both long.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different.*)
