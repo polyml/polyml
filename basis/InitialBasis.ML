@@ -393,5 +393,7 @@ struct
         and processEnvGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(processEnvGeneralCall(RunCall.unsafeCast(code, arg)))
         and realGeneral(code: int, arg:'a):'b = RunCall.unsafeCast(realGeneralCall(RunCall.unsafeCast(code, arg)))
         val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
+        and ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
+        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
     end
 end;
