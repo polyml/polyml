@@ -471,22 +471,32 @@ struct
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
+                val aReg1 = newPReg() and fpReg = newUReg()
             in
-                raise InternalError "codeToICode: RealNeg"
+                (codeToICodeTarget(arg1, context, false, aReg1) @
+                 [FloatingPointNeg{ dest=fpReg, source=wordAt aReg1},
+                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
+                val aReg1 = newPReg() and fpReg = newUReg()
             in
-                raise InternalError "codeToICode: RealAbs"
+                (codeToICodeTarget(arg1, context, false, aReg1) @
+                 [FloatingPointAbs{ dest=fpReg, source=wordAt aReg1},
+                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
+                val aReg1 = newPReg() and untagReg = newUReg() and fpReg = newUReg()
             in
-                raise InternalError "codeToICode: FloatFixedInt"
+                (codeToICodeTarget(arg1, context, false, aReg1) @
+                 [UntagValue{source=aReg1, dest=untagReg, isSigned=true},
+                  FloatFixedInt{ dest=fpReg, source=untagReg},
+                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =

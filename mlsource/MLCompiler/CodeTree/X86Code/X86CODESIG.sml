@@ -81,7 +81,8 @@ sig
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
     and      branchOps =
                 JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA | JP | JNP
-    and      sse2Operations = SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div
+    and      sse2Operations =
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And
 
     datatype callKinds =
         Recursive
@@ -151,7 +152,6 @@ sig
     |   StartHandler of { handlerLab: addrs ref }
     |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
     |   FreeRegisters of RegSet.regSet
-    |   MakeSafe of genReg
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
@@ -166,12 +166,13 @@ sig
     |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
     |   FPUnary of fpUnaryOps
     |   FPStatusToEAX
-    |   FPLoadIntAndPop
+    |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
-    |   XMMArithRMem of { opc: sse2Operations, base: genReg, offset: int, output: xmmReg }
+    |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
 
     type operations = operation list

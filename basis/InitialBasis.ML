@@ -238,9 +238,6 @@ struct
     val ~ : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
     val abs : real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real
 
-    (* fromFixedInt is used internally and not exported from the final version of Real. *)
-    val fromFixedInt: FixedInt.int -> real = RunCall.run_call1 RuntimeCalls.POLY_SYS_fixed_to_real
-
 end;
 
 val () = RunCall.addOverload Real.>= ">="

@@ -296,9 +296,6 @@ struct
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 *)
 
-        |   reverse((r as FreeRegisters _) :: (f as MakeSafe _) :: tl, list, _) =
-                reverse(f :: r :: tl, list, true) (* Push it back *)
-
         |   reverse((r as FreeRegisters _) :: (f as ArithToGenReg{source=ShortConstArg _, ...}) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 

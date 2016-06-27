@@ -241,6 +241,13 @@ sig
     |   FloatingPointArith of
             { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
 
+        (* Floating point operations: negate and set sign positive. *)
+    |   FloatingPointNeg of { dest: argument, source: argument }
+    |   FloatingPointAbs of { dest: argument, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   FloatFixedInt of { dest: argument, source: argument }
+
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

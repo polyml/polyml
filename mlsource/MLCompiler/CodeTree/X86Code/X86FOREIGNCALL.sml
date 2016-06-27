@@ -362,8 +362,8 @@ struct
                 case abi of
                     (* X64 on both Windows and Unix take the first arg in xmm0.  We need to
                        unbox the value pointed at by rax. *)
-                    X64Unix => [ XMMArithRMem { opc= SSE2Move, base=eax, offset=0, output=xmm0 } ]
-                |   X64Win => [ XMMArithRMem { opc= SSE2Move, base=eax, offset=0, output=xmm0 } ]
+                    X64Unix => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
+                |   X64Win => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [

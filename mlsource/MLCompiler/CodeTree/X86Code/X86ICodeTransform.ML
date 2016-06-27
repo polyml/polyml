@@ -1724,6 +1724,101 @@ struct
         |   codeICode{icode=FloatingPointArith _ :: _, ...} =
                 raise InternalError "codeICode: FloatingPointArith"
 
+        |   codeICode{
+                icode=FloatingPointNeg{ dest, source=MemoryLocation{offset=offset, base=bReg, index=NoMemIndex}} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                val _ = raise InternalError "codeICode: FloatingPointNeg"
+                (* The address of the argument will be on the stack. *)
+                val {valueStack, ...} = checkTopInRax(state, argToPReg bReg)
+
+                val floatingPointReg =
+                    case fpMode of
+                        FPModeX87 => FPReg fp0
+                    |   FPModeSSE2 => XMMReg xmm0
+                val destReg = argToUReg dest
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            FloatingPointNeg{dest=RealRegister floatingPointReg, source=RealRegister floatingPointReg} ::
+                            MoveArgument{source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            code,
+                          context=context}
+            end
+
+        |   codeICode{icode=FloatingPointNeg _ :: _, ...} =
+                raise InternalError "codeICode: FloatingPointNeg"
+
+        |   codeICode{
+                icode=FloatingPointAbs{ dest, source=MemoryLocation{offset=offset, base=bReg, index=NoMemIndex}} :: rest,
+                      state=NormalState state, code, context=context} =
+            let
+                val _ = raise InternalError "codeICode: FloatingPointAbs"
+                (* The address of the argument will be on the stack. *)
+                val {valueStack, ...} = checkTopInRax(state, argToPReg bReg)
+
+                val floatingPointReg =
+                    case fpMode of
+                        FPModeX87 => FPReg fp0
+                    |   FPModeSSE2 => XMMReg xmm0
+                val destReg = argToUReg dest
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                          code=
+                            FloatingPointAbs{dest=RealRegister floatingPointReg, source=RealRegister floatingPointReg} ::
+                            MoveArgument{source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex},
+                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                            code,
+                          context=context}
+            end
+
+        |   codeICode{icode=FloatingPointAbs _ :: _, ...} =
+                raise InternalError "codeICode: FloatingPointAbs"
+
+        |   codeICode{icode=FloatFixedInt{ dest, source} :: rest, state=NormalState ({untaggedRegs, valueStack, ...}), code, context=context} =
+            let
+                (* The fixed point value should be in an untagged register. *)
+                val op1Reg = argToUReg source
+                val realOpReg =
+                    case List.find (fn {ureg, ...} => ureg = op1Reg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => reg
+                    |   _ => raise InternalError "codeICode: Multiplication"
+                val (floatingPointReg, floatCode) =
+                    case fpMode of
+                        FPModeX87 => 
+                        let
+                            (* This is complicated.  The integer value has to be in memory not in a
+                               register so we have to push it to the stack and then make sure it is
+                               popped afterwards.  Because it is untagged it is unsafe to leave it. *)
+                            val fpReg = FPReg fp0
+                            val fpCode =
+                                [
+                                    ResetStackPtr {numWords=1},
+                                    FloatFixedInt{dest=RealRegister fpReg, source=wordOffsetAddress(0, esp)},
+                                    PushValue{arg=RealRegister realOpReg}
+                                ]
+                        in
+                            (fpReg, fpCode)
+                        end
+                    |   FPModeSSE2 =>
+                        let
+                            val fpReg = XMMReg xmm0
+                        in
+                            (fpReg, [FloatFixedInt{dest=RealRegister fpReg, source=RealRegister realOpReg}])
+                        end
+                val destReg = argToUReg dest
+                val resultState =
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+            in
+                codeICode{icode=rest, state=NormalState resultState, code=floatCode @ code,context=context}
+            end
+
+
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
