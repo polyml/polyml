@@ -104,28 +104,22 @@ sig
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
-    datatype memoryAddress =
-        BaseOffset of { base: genReg, offset: int, index: indexType }
-    |   ConstantAddress of machineWord
+    datatype memoryAddress = BaseOffset of { base: genReg, offset: int, index: indexType }
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
+    datatype 'reg regOrMemoryArg =
+        RegisterArg of 'reg
+    |   MemoryArg of { base: genReg, offset: int, index: indexType }
+    |   ShortConstArg of LargeInt.int
+    |   LongConstArg of machineWord
+
     datatype operation =
-        MoveRR of { source: genReg, output: genReg }
-    |   MoveConstR of { source: LargeInt.int, output: genReg }
-    |   MoveConstFPR of { source: LargeInt.int, output: fpReg }
-    |   MoveLongConstR of { source: machineWord, output: genReg }
-    |   LoadMemR of { source: memoryAddress, output: genReg }
+        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
     |   LoadByteR of { source: memoryAddress, output: genReg }
-    |   PushR of genReg
-    |   PushConst of LargeInt.int
-    |   PushLongConst of machineWord
-    |   PushMem of { base: genReg, offset: int }
+    |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
-    |   ArithRR of { opc: arithOp, output: genReg, source: genReg }
-    |   ArithRConst of { opc: arithOp, output: genReg, source: LargeInt.int }
-    |   ArithRLongConst of { opc: arithOp, output: genReg, source: machineWord }
-    |   ArithRMem of { opc: arithOp, output: genReg, offset: int, base: genReg }
+    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
     |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }

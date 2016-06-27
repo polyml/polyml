@@ -1684,11 +1684,6 @@ struct
     fun loadFpRegToStack(FloatingPtReg fp, offset, code) =
         genFloatingPt({escape=0w1, md=0w3, nnn=0w0, rm= fp + offset}, code) (* FLD ST(r1) *)
 
-    (* Pops the top of the stack into a register.  This assumes that there is
-       exactly one item on the stack which is why we add one here. *)
-    fun storeFpRegFromStack(FloatingPtReg dest, code) =
-        genFloatingPt({escape=0w5, md=0w3, nnn=0w3, rm = dest+0w1(* One item *)}, code) (* FSTP ST(n+1) *)
-
     (* Allocate store and put the resulting pointer in the result register. *)
     local
         fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet: genReg list) =
@@ -1825,26 +1820,21 @@ struct
 
     datatype memoryAddress =
         BaseOffset of { base: genReg, offset: int, index: indexType }
-    |   ConstantAddress of machineWord
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
+    datatype 'reg regOrMemoryArg =
+        RegisterArg of 'reg
+    |   MemoryArg of { base: genReg, offset: int, index: indexType }
+    |   ShortConstArg of LargeInt.int
+    |   LongConstArg of machineWord
+
     datatype operation =
-        MoveRR of { source: genReg, output: genReg }
-    |   MoveConstR of { source: LargeInt.int, output: genReg }
-    |   MoveConstFPR of { source: LargeInt.int, output: fpReg }
-    |   MoveLongConstR of { source: machineWord, output: genReg }
-    |   LoadMemR of { source: memoryAddress, output: genReg }
+        MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
     |   LoadByteR of { source: memoryAddress, output: genReg }
-    |   PushR of genReg
-    |   PushConst of LargeInt.int
-    |   PushLongConst of machineWord
-    |   PushMem of { base: genReg, offset: int }
+    |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
-    |   ArithRR of { opc: arithOp, output: genReg, source: genReg }
-    |   ArithRConst of { opc: arithOp, output: genReg, source: LargeInt.int }
-    |   ArithRLongConst of { opc: arithOp, output: genReg, source: machineWord }
-    |   ArithRMem of { opc: arithOp, output: genReg, offset: int, base: genReg }
+    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
     |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
@@ -1917,7 +1907,11 @@ struct
             |   Index8 x => (stream "["; printGReg x; stream "*8]")
         )
         fun printMemAddress(BaseOffset{ base, offset, index }) = printBaseOffset(base, index, offset)
-        |   printMemAddress(ConstantAddress addr) = stream(stringOfWord addr)
+        
+        fun printRegOrMemoryArg printReg (RegisterArg r) = printReg r
+        |   printRegOrMemoryArg _ (MemoryArg{ base, offset, index }) = printBaseOffset(base, index, offset)
+        |   printRegOrMemoryArg _ (ShortConstArg c) = stream(LargeInt.toString c)
+        |   printRegOrMemoryArg _ (LongConstArg c) = stream(Address.stringOfWord c)
         
         fun printCallKind Recursive = stream "Recursive"
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
@@ -1925,35 +1919,14 @@ struct
         |   printCallKind (DirectReg reg) = printGReg reg
      in
         case operation of
-            MoveRR { source, output } =>
-                (stream "MoveRR "; printGReg output; stream " <= "; printGReg source)
-
-        |   MoveConstR { source, output } =>
-                (stream "MoveCR "; printGReg output; stream " <="; stream(LargeInt.toString source))
-
-        |   MoveConstFPR { source, output } =>
-                (stream "MoveCFPR "; printFPReg output; stream " <="; stream(LargeInt.toString source))
-
-        |   MoveLongConstR { output, source } =>
-                (stream "MoveCR "; printGReg output; stream " <= "; stream(Address.stringOfWord source))
-
-        |   LoadMemR { source, output } =>
-                (stream "MoveMR "; printGReg output; stream " <= "; printMemAddress source )
+            MoveToRegister { source, output } =>
+                (stream "MoveRR "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
 
         |   LoadByteR { source, output } =>
                 (stream "MoveByteR "; printGReg output; stream " <= "; printMemAddress source )
 
-        |   ArithRR { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printGReg source )
-
-        |   ArithRConst { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RC "); printGReg output; stream " <= "; stream(LargeInt.toString source) )
-
-        |   ArithRLongConst { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RC "); printGReg output; stream " <= "; stream(Address.stringOfWord source) )
-
-        |   ArithRMem { opc, output, offset, base } =>
-                (stream (arithOpRepr opc ^ "RM "); printGReg output; stream " <= "; printBaseOffset(base, NoIndex, offset) )
+        |   ArithToGenReg { opc, output, source } =>
+                (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
 
         |   ArithMemConst { opc, offset, base, source } =>
             (
@@ -1990,13 +1963,7 @@ struct
 
         |   LockMutableSegment reg => (stream "LockMutableSegment "; printGReg reg)
 
-        |   PushR source => (stream "PushR "; printGReg source)
-
-        |   PushConst source => (stream "PushC "; stream(LargeInt.toString source))
-
-        |   PushLongConst source => (stream "PushC "; stream(Address.stringOfWord source))
-
-        |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, NoIndex, offset))
+        |   PushToStack source => (stream "Push "; printRegOrMemoryArg printGReg source)
 
         |   PopR dest => (stream "PopR "; printGReg dest)
 
@@ -2290,7 +2257,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(MoveRR{ source=source, output } :: remainder) =
+        |   cgOp(MoveToRegister{ source=RegisterArg source, output } :: remainder) =
                 (* Move from one general register to another. *)
             (
                 checkSources[source]; addDests[output];
@@ -2298,7 +2265,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(MoveConstR{ source, output} :: remainder) =
+        |   cgOp(MoveToRegister{ source=ShortConstArg source, output} :: remainder) =
             (
                 addDests[output];
                 (* The RTS scans for possible addresses in MOV instructions so we
@@ -2328,7 +2295,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(MoveConstFPR{ source, output} :: remainder) =
+(*        |   cgOp(MoveConstFPR{ source, output} :: remainder) =
             let
                 val _ = addDests[output]
                     (* We seem to get a short zero here as a result of putting in a
@@ -2339,9 +2306,9 @@ struct
                 genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w6}, code); (* FLDZ *)
                 storeFpRegFromStack(output, code);
                 cgOp remainder
-            end
+            end*)
 
-        |   cgOp(MoveLongConstR{ source, output } :: remainder) =
+        |   cgOp(MoveToRegister{ source=LongConstArg source, output } :: remainder) =
             let
                 val (rc, rx) = getReg output
             in
@@ -2352,7 +2319,7 @@ struct
                 cgOp remainder
             end
 
-        |   cgOp(LoadMemR{ source=BaseOffset{base, offset, index=NoIndex}, output} :: ResetStack count :: remainder) =
+        |   cgOp(MoveToRegister{ source=MemoryArg{base, offset, index=NoIndex}, output} :: ResetStack count :: remainder) =
             if base = esp andalso offset < count * wordSize
             then (* Can use a pop instruction. *)
             let
@@ -2369,7 +2336,7 @@ struct
                     cgOp(if resetAfter = 0 then remainder else ResetStack resetAfter :: remainder)
                 end
                 else cgOp(ResetStack resetBefore ::
-                          LoadMemR{source=BaseOffset{base=base, offset=offset-resetBefore*wordSize, index=NoIndex}, output=output } ::
+                          MoveToRegister{source=MemoryArg{base=base, offset=offset-resetBefore*wordSize, index=NoIndex}, output=output } ::
                           (if count = resetBefore then remainder else ResetStack(count - resetBefore) :: remainder))
             end
             else
@@ -2379,21 +2346,10 @@ struct
                 cgOp(ResetStack count :: remainder)
             )
 
-        |   cgOp(LoadMemR{source=BaseOffset{base, offset, index}, output } :: remainder) =
+        |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output } :: remainder) =
             (
                 checkSources[base]; checkIndexSource index; addDests[output];
                 genOpIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output, code);
-                cgOp remainder
-            )
-
-        |   cgOp(LoadMemR{source=ConstantAddress addr, output } :: remainder) =
-            (
-                addDests[output];
-                (* The absolute address form is interpreted as PC relative in 64-bit mode. *)
-                if isX64 then raise InternalError "LoadMemR: ConstantAddress" else ();
-                genop(MOVL_A_R, NONE, code);
-                genmodrm (Based0, #1 (getReg output), 0w5 (* constant address *), code);
-                addConstToVec(WVal addr, InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -2403,16 +2359,6 @@ struct
                 case index of
                     NoIndex => genOpEA (MOVZX (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
                 |   _ => genOpIndexed (MOVZX, 0, SOME base, index, output, code);
-                cgOp remainder
-            )
-
-        |   cgOp(LoadByteR{source=ConstantAddress addr, output } :: remainder) =
-            (
-                addDests[output];
-                if isX64 then raise InternalError "LoadByteR: ConstantAddress" else ();
-                genop (MOVZX, NONE, code);
-                genmodrm (Based0, #1(getReg output), 0w5 (* constant address *), code);
-                addConstToVec(WVal addr, InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -2428,7 +2374,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(ArithRR{ opc, output, source } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source } :: remainder) =
             (
                 case opc of
                     XOR =>
@@ -2439,14 +2385,14 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(ArithRConst{ opc, output, source } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=ShortConstArg source } :: remainder) =
             (
                 checkSources[output]; case opc of CMP => () | _ => addDests[output];
                 genImmed (opc, output, source, code);
                 cgOp remainder
             )
 
-        |   cgOp(ArithRLongConst{ opc, output, source } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=LongConstArg source } :: remainder) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
             let
                 val (rc, rx) = getReg output
@@ -2468,12 +2414,15 @@ struct
                 cgOp remainder
             end
 
-        |   cgOp(ArithRMem{ opc, output, offset, base } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index=NoIndex} } :: remainder) =
             (
                 checkSources[output, base]; case opc of CMP => () | _ => addDests[output];
                 genOpEA(Arith (opc, 0w3), LargeInt.fromInt offset, base, output, code);
                 cgOp remainder
             )
+
+        |   cgOp(ArithToGenReg _ :: _) =
+                raise InternalError "cgOp: ArithToGenReg"
 
         |   cgOp(ArithMemConst{ opc, offset, base, source } :: remainder) =
                 let
@@ -2593,17 +2542,17 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(PushR reg :: remainder) =
+        |   cgOp(PushToStack(RegisterArg reg) :: remainder) =
                     (checkSources[reg]; genPushPop(PUSH_R, reg, code); cgOp remainder)
 
-        |   cgOp(PushMem{base, offset} :: remainder) =
+        |   cgOp(PushToStack(MemoryArg{base, offset, index=NoIndex}) :: remainder) =
             (
                 checkSources[base];
                 genOpPlus2(Group5, LargeInt.fromInt offset, base, 0w6 (* push *), code);
                 cgOp remainder
             )
 
-        |   cgOp(PushConst constnt :: remainder) = 
+        |   cgOp(PushToStack(ShortConstArg constnt) :: remainder) = 
             (
                 if is8BitL constnt
                 then ( genop (PUSH_8, NONE, code); gen8s (LargeInt.toInt constnt, code) )
@@ -2611,7 +2560,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(PushLongConst constnt :: remainder) = 
+        |   cgOp(PushToStack(LongConstArg constnt) :: remainder) = 
             (
                 if isX64
                 then (* Put it in the constant area. *)
@@ -2627,6 +2576,9 @@ struct
 		        );
                 cgOp remainder
             )
+            
+        |   cgOp(PushToStack _ :: _) =
+                raise InternalError "cgOp: PushToStack"
 
         |   cgOp(PopR reg :: remainder) = (addDests[reg]; genPushPop(POP_R, reg, code); cgOp remainder)
 
@@ -2644,13 +2596,6 @@ struct
                         checkSources[base];
                         checkIndexSource index;
                         genOpIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore, code)
-                    )
-                |   ConstantAddress address =>
-                    (
-                        if isX64 then raise InternalError "StoreRegToMemory: ConstantAddress" else ();
-                        genop(MOVL_R_A, NONE, code);
-                        genmodrm(Based0, #1 (getReg toStore), 0w5 (* constant address *), code);
-                        addConstToVec(WVal address, InlineAbsolute, code)
                     );
                 cgOp remainder
             )
@@ -2669,13 +2614,6 @@ struct
                         checkSources[base];
                         checkIndexSource index;
                         genOpIndexed (MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code)
-                    )
-                |   ConstantAddress address =>
-                    (
-                        if isX64 then raise InternalError "StoreRegToMemory: ConstantAddress" else ();
-                        genop (MOVL_32_A, NONE, code);
-                        genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
-                        addConstToVec(WVal address, InlineAbsolute, code)
                     );
                 gen32s (toStore, code);
                 cgOp remainder
@@ -2685,23 +2623,6 @@ struct
             (
                 checkSources[base]; checkIndexSource index;
                 genMemoryConstant(toStore, MOVL_32_A, 0w0, LargeInt.fromInt offset, base, index, code);
-                cgOp remainder
-            )
-
-        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address=ConstantAddress address } :: remainder) =
-            (
-                (* We have to be careful here that we don't accidentally produce a full word of
-                   zeros aligned on a word boundary.  Since we have two addresses here which
-                   could potentially have any combination of zeros in the high bytes of one and
-                   the low bytes of the next the only safe option is to ensure the addresses are
-                   on word boundaries. *)
-                if isX64 then raise InternalError "StoreLongConstToMemory: ConstantAddress" else ();
-                doPending(code, wordSize*2 + 2);
-                align(0w2, code);
-                genop (MOVL_32_A, NONE, code);
-                genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
-                addConstToVec(WVal address, InlineAbsolute, code);
-                addConstToVec(WVal toStore, InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -2727,13 +2648,6 @@ struct
                         checkSources[base];
                         checkIndexSource index;
                         genOpIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore, code)
-                    )
-                |   ConstantAddress address =>
-                    (
-                        if isX64 then raise InternalError "StoreByteRegToMemory: ConstantAddress" else ();
-                        genop (opcode, NONE, code);
-                        genmodrm(Based0, #1 (getReg toStore), 0w5 (* constant address *), code);
-                        addConstToVec(WVal address, InlineAbsolute, code)
                     );
                 cgOp remainder
             end
@@ -2752,13 +2666,6 @@ struct
                         checkSources[base];
                         checkIndexSource index;
                         genOpIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code)
-                    )
-                |   ConstantAddress address =>
-                    (
-                        if isX64 then raise InternalError "StoreByteConstToMemory: ConstantAddress" else ();
-                        genop (MOVB_8_A, NONE, code);
-                        genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
-                        addConstToVec(WVal address, InlineAbsolute, code)
                     );
                 gen8u (toStore, code);
                 cgOp remainder
