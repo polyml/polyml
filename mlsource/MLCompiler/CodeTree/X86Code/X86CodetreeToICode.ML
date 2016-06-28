@@ -39,6 +39,25 @@ struct
   
     (* shift a short constant, but don't set tag bit *)
     fun semitag c = 2 * c
+
+    local
+        open RunCall
+        val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
+        fun makeRealConst l =
+        let
+            val r = allocateByteMemory(0wx8 div bytesPerWord, F_mutable_bytes)
+            fun setBytes([], _) = ()
+            |   setBytes(hd::tl, n) = (storeByte(r, n, hd); setBytes(tl, n+0wx1))
+            val () = setBytes(l, 0w0)
+            val () = clearMutableBit r
+        in
+            r
+        end
+    in
+        (* These are floating point constants used to change and mask the sign bit. *)
+        val realSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx80]
+        and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
+    end
  
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
@@ -472,20 +491,31 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and fpReg = newUReg()
+                (* The SSE2 code uses an SSE2 logical operation to flip the sign bit.  This
+                   requires the values to be loaded into registers first because the logical
+                   operations require 128-bit operands. *)
+                val code =
+                    case fpMode of
+                        FPModeX87 => X87FPUnaryOps{ fpOp=FCHS, dest=fpReg, source=wordAt aReg1}
+                    |   FPModeSSE2 =>
+                            SSE2FPArith{opc=SSE2Xor, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realSignBit}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [FloatingPointNeg{ dest=fpReg, source=wordAt aReg1},
-                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
+                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and fpReg = newUReg()
+                val code =
+                    case fpMode of
+                        FPModeX87 => X87FPUnaryOps{ fpOp=FABS, dest=fpReg, source=wordAt aReg1}
+                    |   FPModeSSE2 =>
+                            SSE2FPArith{opc=SSE2And, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realAbsMask}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [FloatingPointAbs{ dest=fpReg, source=wordAt aReg1},
-                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
+                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn1{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
@@ -939,17 +969,35 @@ struct
                 val aReg1 = newPReg() and aReg2 = newPReg()
                 val fpReg = newUReg()
                 open BuiltIns
-                val fpOp =
-                    case fpOper of
-                        ArithAdd => FPOpAdd
-                    |   ArithSub => FPOpSub
-                    |   ArithMult => FPOpMul
-                    |   ArithDiv => FPOpDiv
-                    |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
+                val arith =
+                    case fpMode of
+                        FPModeX87 =>
+                        let
+                            val fpOp =
+                                case fpOper of
+                                    ArithAdd => FADD
+                                |   ArithSub => FSUB
+                                |   ArithMult => FMUL
+                                |   ArithDiv => FDIV
+                                |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
+                        in
+                            [X87FPArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2}]
+                        end
+                    |   FPModeSSE2 =>
+                        let
+                            val fpOp =
+                                case fpOper of
+                                    ArithAdd => SSE2Add
+                                |   ArithSub => SSE2Sub
+                                |   ArithMult => SSE2Mul
+                                |   ArithDiv => SSE2Div
+                                |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
+                        in
+                            [SSE2FPArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2}]
+                        end
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [FloatingPointArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2},
-                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
+                    arith @ [BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
@@ -1736,7 +1784,7 @@ struct
                 val getResultCode =
                     case (fpMode, jumpOn) of
                         (FPModeX87, _) =>
-                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
                              ArithmeticFunction{
                                 oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() },
                              ArithmeticFunction{
@@ -1774,7 +1822,7 @@ struct
                 val getResultCode =
                     case fpMode of
                         FPModeX87 =>
-                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
                              ArithmeticFunction{
                                 oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
                              ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
@@ -1798,7 +1846,7 @@ struct
                 val getResultCode =
                     case fpMode of
                         FPModeX87 =>
-                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
                              ArithmeticFunction{
                                 oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 },
                              ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
@@ -1822,7 +1870,7 @@ struct
                 val getResultCode =
                     case fpMode of
                         FPModeX87 =>
-                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
                              ArithmeticFunction{
                                 oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
                              ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]
@@ -1846,7 +1894,7 @@ struct
                 val getResultCode =
                     case fpMode of
                         FPModeX87 =>
-                            [GetFloatingPtCondition { ccRef=ccRef1, dest=testReg1 },
+                            [X87FPGetCondition { ccRef=ccRef1, dest=testReg1 },
                              ArithmeticFunction{
                                 oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 },
                              ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel}]

@@ -78,8 +78,7 @@ struct
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
-    datatype floatingPtOps = FPOpAdd | FPOpSub | FPOpMul | FPOpDiv
-    and boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxFloat
 
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
@@ -221,19 +220,20 @@ struct
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
-    |   GetFloatingPtCondition of { ccRef: ccRef, dest: argument }
+    |   X87FPGetCondition of { ccRef: ccRef, dest: argument }
 
-        (* Floating point arithmetic.  These are different depending on whether we're
-           using X87 FP or SSE2. *)
-    |   FloatingPointArith of
-            { opc: floatingPtOps, resultReg: argument, arg1: argument, arg2: argument }
+        (* Binary floating point operations on the X87. *)
+    |   X87FPArith of
+            { opc: fpOps, resultReg: argument, arg1: argument, arg2: argument }
 
         (* Floating point operations: negate and set sign positive. *)
-    |   FloatingPointNeg of { dest: argument, source: argument }
-    |   FloatingPointAbs of { dest: argument, source: argument }
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: argument, source: argument }
 
         (* Load a fixed point value as a floating point value. *)
     |   FloatFixedInt of { dest: argument, source: argument }
+
+        (* Binary floating point operations using SSE2 instructions. *)
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: argument, arg1: argument, arg2: argument }
     
     exception InternalError = Misc.InternalError
 
@@ -702,7 +702,7 @@ struct
         |   codeGenICode(CompareFloatingPt _ :: _, _) =
                 raise InternalError "codeGenICode: CompareFloatingPt: TODO"
 
-        |   codeGenICode(GetFloatingPtCondition { dest, ... } :: rest, code) =
+        |   codeGenICode(X87FPGetCondition { dest, ... } :: rest, code) =
             let
                 val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
                 (* This currently pops the value. *)
@@ -712,45 +712,41 @@ struct
             end
 
         |   codeGenICode(
-                FloatingPointArith {
+                X87FPArith {
                     opc, resultReg=RealRegister(FPReg fpResReg), arg1=RealRegister(FPReg fpArgReg),
                     arg2=MemoryLocation{offset, base=RealRegister(GenReg baseReg), index=NoMemIndex} } :: rest, code) =
             let
-                val fpOp =
-                    case opc of
-                        FPOpAdd => FADD
-                    |   FPOpSub => FSUB
-                    |   FPOpMul => FMUL
-                    |   FPOpDiv => FDIV
                 val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
             in
-                codeGenICode(rest, FPArithMemory{opc=fpOp, base=baseReg, offset=offset} :: code)
+                codeGenICode(rest, FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
             end
+
+        |   codeGenICode(X87FPArith _ :: _, _) =
+                raise InternalError "codeGenICode: X87FPArith: TODO"
 
         |   codeGenICode(
-                FloatingPointArith {
+                SSE2FPArith {
                     opc, resultReg=RealRegister(XMMReg xmmResReg), arg1=RealRegister(XMMReg xmmArgReg), arg2 } :: rest, code) =
             let
-                val fpOp =
-                    case opc of
-                        FPOpAdd => SSE2Add
-                    |   FPOpSub => SSE2Sub
-                    |   FPOpMul => SSE2Mul
-                    |   FPOpDiv => SSE2Div
                 val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
             in
-                codeGenICode(rest, XMMArith{ opc=fpOp, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
+                codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
             end
 
-        |   codeGenICode(FloatingPointArith _ :: _, _) =
-                raise InternalError "codeGenICode: FloatingPointArith: TODO"
+        |   codeGenICode(SSE2FPArith _ :: _, _) =
+                raise InternalError "codeGenICode: SSE2FPArith: TODO"
 
-        |   codeGenICode(FloatingPointNeg _ :: _, _) =
+        |   codeGenICode(X87FPUnaryOps {fpOp, dest=RealRegister(FPReg fpResReg), source=RealRegister(FPReg fpArgReg)} :: rest, code) =
+            let
+                val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+                val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+            in
+                codeGenICode(rest, FPUnary fpOp :: code)
+            end
+
+        |   codeGenICode(X87FPUnaryOps _ :: _, _) =
                 raise InternalError "codeGenICode: FloatingPointNeg: TODO"
-
-        |   codeGenICode(FloatingPointAbs _ :: _, _) =
-                raise InternalError "codeGenICode: FloatingPointAbs: TODO"
 
         |   codeGenICode(FloatFixedInt { dest=RealRegister(XMMReg xmmResReg), source=RealRegister(GenReg srcReg) } :: rest, code) =
                 codeGenICode(rest, XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code)
