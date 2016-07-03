@@ -147,7 +147,10 @@ struct
         InlineAbsolute      (* The constant is within the code. *)
     |   InlineRelative      (* The constant is within the code but is PC relative (call or jmp). *)
     |   ConstArea of int    (* The constant is in the constant area (64-bit only). *)
-    |   NonAddrArea         (* The constant is in the non-address area (64-bit real values). *)
+
+    and nonAddressConsts =
+        NonAddressReal of machineWord
+    |   NonAddressInt of LargeInt.int
 
   and code = Code of 
     { codeVec:        cseg,           (* This segment is used as a buffer. When the
@@ -158,7 +161,7 @@ struct
            {const: const, addrs: addrs, posn: ConstPosn} list ref,
       numOfConsts:    word ref,        (* size of constVec *)
       nonInlineConsts: int ref,
-      nonAddressConsts: int ref,
+      nonAddressConstants: {const: nonAddressConsts, addrs: addrs} list ref,
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
@@ -224,7 +227,7 @@ struct
             constVec       = ref [],
             numOfConsts    = ref 0w0,
             nonInlineConsts = ref 0,
-            nonAddressConsts = ref 0,
+            nonAddressConstants = ref [],
             labelList      = ref [],
             longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
@@ -416,7 +419,7 @@ struct
                 ConstArea _ => (nonInlineConsts := ! nonInlineConsts + 1; ConstArea(!nonInlineConsts))
             |  p => p
         val isInline =
-            case posn of ConstArea _ => false | NonAddrArea => false | _ => true
+            case posn of ConstArea _ => false | _ => true
     in
 	    numOfConsts := ! numOfConsts + 0w1;
         constVec    := {const = valu, addrs = !ic, posn = realPosn} :: ! constVec;
@@ -431,6 +434,12 @@ struct
         then gen64s (tag 0, cvec)
         else gen32s (case posn of InlineRelative => ~5 | _ => tag 0, cvec)
     end
+
+    fun addNonAddressConstant(valu: nonAddressConsts, cvec as Code{ic, nonAddressConstants, ...}): unit =
+    (
+        nonAddressConstants  := {const = valu, addrs = !ic} :: ! nonAddressConstants;
+        gen32s (tag 0, cvec)
+    )
 
 
     (* Registers. *)
@@ -1483,31 +1492,6 @@ struct
         genop(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE, cvec)
     end
 
-    (* Add an integer value to the non-word area.  This is used in 64-bit mode
-       for real constants and integer constants that will not fit in a 32-bit word. *)
-    fun addConstToNonWordArea(imm: LargeInt.int, code) =
-    let
-        (* For the moment use the same format as real numbers and put
-           this into a piece of memory which is then byte-copied into the
-           constant area.  This should only occur in 64-bit mode and
-           we don't have pc-relative addressing in 32-bit mode. *)
-        val _ = isX64 orelse raise InternalError "genImmed: Not 64-bit"
-        open Address
-        val mem = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(F_bytes orb8 F_mutable)))
-
-        fun setMem(m, n) = 
-        if n = Word.fromInt wordSize then ()
-        else 
-        (
-            assignByte(mem, n, Word8.fromLargeInt(m mod 0x100));
-            setMem(m div 0x100, n+0w1)
-        )
-        val () = setMem(imm, 0w0)
-        val () = lock mem
-    in
-        addConstToVec(WVal(toMachineWord mem), NonAddrArea, code)
-    end
-
     fun genImmed (opn: arithOp, rd: genReg, imm: LargeInt.int, cvec) : unit =
     if is8BitL imm
     then (* Can use one byte immediate *) 
@@ -1527,7 +1511,7 @@ struct
     in
         genop(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false}, cvec);
         genmodrm (Based0, rc, 0w5 (* PC-relative *), cvec);
-        addConstToNonWordArea(imm, cvec)
+        addNonAddressConstant(NonAddressInt imm, cvec)
     end
 
     fun genReg (opn: arithOp, rd: genReg, rs: genReg, cvec) =
@@ -2333,7 +2317,7 @@ struct
                     in
                         genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
                         genmodrm (Based0, rc, 0w5 (* PC-relative *), code);
-                        addConstToNonWordArea(source, code)
+                        addNonAddressConstant(NonAddressInt source, code)
                     end
                 )
                 else (* 32-bit mode. *)
@@ -2947,8 +2931,9 @@ struct
                        addressing which happens to be encoded in the same way. *)
                     genop(FPESC 0w5, NONE, code); (* FLD [Constant] *)
                     genmodrm (Based0, 0w0, 0w5 (* constant address/PC-relative *), code);
-                    addConstToVec(WVal(toMachineWord realValue),
-                        if isX64 then NonAddrArea else InlineAbsolute, code)
+                    if isX64
+                    then addNonAddressConstant(NonAddressReal(toMachineWord realValue), code)
+                    else addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code)
                 );
                 cgOp remainder
             end
@@ -2987,8 +2972,9 @@ struct
                 (* See comment on FPLoadFromConst *)
                 genop(FPESC 0w4, NONE, code); (* FADD etc [constnt] *)
                 genmodrm (Based0, fpOpToWord opc, 0w5 (* constant address *), code);
-                addConstToVec(WVal source,
-                    if isX64 then NonAddrArea else InlineAbsolute, code);
+                if isX64
+                then addNonAddressConstant(NonAddressReal source, code)
+                else addConstToVec(WVal source, InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -3069,7 +3055,9 @@ struct
                    addressing which happens to be encoded in the same way. *)
                 genop(SSE2Ops opc, NONE, code);
                 genmodrm (Based0, rrC, 0w5 (* constant address/PC-relative *), code);
-                addConstToVec(WVal constVal, if isX64 then NonAddrArea else InlineAbsolute, code);
+                if isX64
+                then addNonAddressConstant(NonAddressReal constVal, code)
+                else addConstToVec(WVal constVal, InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -3828,6 +3816,7 @@ struct
 
         (* After code generation get the final values of some refs. *)
         val Code{codeVec, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
+                 nonAddressConstants = ref nonAddressConstants,
                  procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
@@ -3841,26 +3830,43 @@ struct
            constants in 64-bit mode.  Other constants are left until we have a
            valid code object. *)
         local
-            fun putNonAddrConst{const = WVal c, addrs, posn=NonAddrArea, ...} =
+            fun putNonAddrConst{const, addrs} =
                 let
                     val addrOfConst = ! ic
-                    val cAsAddr = toAddress c
-                    (* For the moment this should always be a real number contained in
-                       a byte segment.  If this changes in the future we may need to
-                       align this back onto a 4/8-byte boundary. *)
-                    val cLength = length cAsAddr * Word.fromInt wordSize
-                    val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
-                                raise InternalError "putNonAddrConst: Not a real number"
-                    fun doCopy n =
-                        if n = cLength then ()
-                        else (gen8u(loadByte(cAsAddr, n), cvec); doCopy(n+0w1))
-                    val () = doCopy 0w0
+                    val () =
+                        case const of
+                            NonAddressReal c =>
+                            let
+                                val cAsAddr = toAddress c
+                                (* For the moment this should always be a real number contained in
+                                   a byte segment.  If this changes in the future we may need to
+                                   align this back onto a 4/8-byte boundary. *)
+                                val cLength = length cAsAddr * Word.fromInt wordSize
+                                val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
+                                            raise InternalError "putNonAddrConst: Not a real number"
+                                fun doCopy n =
+                                    if n = cLength then ()
+                                    else (gen8u(loadByte(cAsAddr, n), cvec); doCopy(n+0w1))
+                            in
+                                doCopy 0w0
+                            end
+                        |   NonAddressInt imm =>
+                            let
+                                fun setMem(m, n) = 
+                                if n = Word.fromInt wordSize then ()
+                                else 
+                                (
+                                    gen8u(Word8.fromLargeInt(m mod 0x100), cvec);
+                                    setMem(m div 0x100, n+0w1)
+                                )
+                            in
+                                setMem(imm, 0w0)
+                            end
                 in
                     set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeVec)
                 end
-            |   putNonAddrConst _ = ()
         in
-            val () = List.app putNonAddrConst constVec
+            val () = List.app putNonAddrConst nonAddressConstants
         end
 
         (* +4 for code size, function name, register mask (no longer used) and profile object. *)
@@ -3902,7 +3908,6 @@ struct
                 case posn of
                     InlineAbsolute => csegPutConstant (seg, addrs, value, 0w0)
                 |   InlineRelative => csegPutConstant (seg, addrs, value, 0w1)
-                |   NonAddrArea => () (* Already done. *)
                 |   ConstArea nonInlineCount =>
                     (* Not inline.  Put the constant in the constant area and set the original address
                         to be the relative offset to the constant itself. *)
