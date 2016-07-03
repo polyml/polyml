@@ -1483,6 +1483,31 @@ struct
         genop(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE, cvec)
     end
 
+    (* Add an integer value to the non-word area.  This is used in 64-bit mode
+       for real constants and integer constants that will not fit in a 32-bit word. *)
+    fun addConstToNonWordArea(imm: LargeInt.int, code) =
+    let
+        (* For the moment use the same format as real numbers and put
+           this into a piece of memory which is then byte-copied into the
+           constant area.  This should only occur in 64-bit mode and
+           we don't have pc-relative addressing in 32-bit mode. *)
+        val _ = isX64 orelse raise InternalError "genImmed: Not 64-bit"
+        open Address
+        val mem = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(F_bytes orb8 F_mutable)))
+
+        fun setMem(m, n) = 
+        if n = Word.fromInt wordSize then ()
+        else 
+        (
+            assignByte(mem, n, Word8.fromLargeInt(m mod 0x100));
+            setMem(m div 0x100, n+0w1)
+        )
+        val () = setMem(imm, 0w0)
+        val () = lock mem
+    in
+        addConstToVec(WVal(toMachineWord mem), NonAddrArea, code)
+    end
+
     fun genImmed (opn: arithOp, rd: genReg, imm: LargeInt.int, cvec) : unit =
     if is8BitL imm
     then (* Can use one byte immediate *) 
@@ -1498,26 +1523,11 @@ struct
     )
     else (* It won't fit in the immediate; put it in the non-address area. *)
     let
-        (* For the moment use the same format as real numbers and put
-           this into a piece of memory which is then byte-copied into the
-           constant area. *)
-        open Address
-        val mem = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(F_bytes orb8 F_mutable)))
-
-        fun setMem(m, n) = 
-        if n = Word.fromInt wordSize then ()
-        else 
-        (
-            assignByte(mem, n, Word8.fromLargeInt(m mod 0x100));
-            setMem(m div 0x100, n+0w1)
-        )
-        val () = setMem(imm, 0w0)
-        val () = lock mem
         val (rc, rx) = getReg rd
     in
         genop(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false}, cvec);
         genmodrm (Based0, rc, 0w5 (* PC-relative *), cvec);
-        addConstToVec(WVal(toMachineWord mem), NonAddrArea, cvec)
+        addConstToNonWordArea(imm, cvec)
     end
 
     fun genReg (opn: arithOp, rd: genReg, rs: genReg, cvec) =
@@ -1852,8 +1862,8 @@ struct
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
     |   MemoryArg of memoryAddress
-    |   ShortConstArg of LargeInt.int
-    |   LongConstArg of machineWord
+    |   NonAddressConstArg of LargeInt.int
+    |   AddressConstArg of machineWord
     
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
     and fpSize = SinglePrecision | DoublePrecision
@@ -1939,8 +1949,8 @@ struct
         
         fun printRegOrMemoryArg printReg (RegisterArg r) = printReg r
         |   printRegOrMemoryArg _ (MemoryArg{ base, offset, index }) = printBaseOffset(base, index, offset)
-        |   printRegOrMemoryArg _ (ShortConstArg c) = stream(LargeInt.toString c)
-        |   printRegOrMemoryArg _ (LongConstArg c) = stream(Address.stringOfWord c)
+        |   printRegOrMemoryArg _ (NonAddressConstArg c) = stream(LargeInt.toString c)
+        |   printRegOrMemoryArg _ (AddressConstArg c) = stream(Address.stringOfWord c)
         
         fun printCallKind Recursive = stream "Recursive"
         |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
@@ -2303,34 +2313,56 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(MoveToRegister{ source=ShortConstArg source, output} :: remainder) =
-            (
-                (* The RTS scans for possible addresses in MOV instructions so we
-                   can only use MOV if this is a tagged value.  If it isn't we have
-                   to use something else such as XOR/ADD. *)
-                if source mod 2 = 0
+        |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output} :: remainder) =
+            let
+                val () =
+                if isX64
                 then
                 (
-                    genReg(XOR, output, output, code);
-                    if source = 0 then ()
-                    else genImmed (ADD, output, source, code)
+                    if source >= ~0x40000000 andalso source < 0x40000000
+                    then (* Signed 32-bits. *)
+                    (
+                        (* This is not scanned in 64-bit mode because 32-bit values aren't
+                           big enough to contain addresses. *)
+                        genOpRegPlus2 (MOVL_32_A, output, 0w0, code);
+                        gen32s (source, code)
+                    )
+                    else (* Too big for 32-bits; put it in the non-word area. *)
+                    let
+                        val (rc, rx) = getReg output
+                    in
+                        genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
+                        genmodrm (Based0, rc, 0w5 (* PC-relative *), code);
+                        addConstToNonWordArea(source, code)
+                    end
                 )
-                else if isX64 andalso source >= ~0x40000000 andalso source < 0x40000000
-                then (* Signed 32-bits.  This is better on X64 but longer than a 32 bit immediate on i386 *)
+                else (* 32-bit mode. *)
                 (
-                    genOpRegPlus2 (MOVL_32_A, output, 0w0, code);
-                    gen32s (source, code)
+                    (* The RTS scans for possible addresses in MOV instructions so we
+                       can only use MOV if this is a tagged value.  If it isn't we have
+                       to use something else such as XOR/ADD.  In particular this is used
+                       before LOCK XADD for atomic inc/dec.
+                       TODO: There are various special cases such as setting to -1 can
+                       be done with an OR whatever the initial value.  INC can be used
+                       in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
+                    if source mod 2 = 0
+                    then
+                    (
+                        genReg(XOR, output, output, code);
+                        if source = 0 then ()
+                        else genImmed (ADD, output, source, code)
+                    )
+                    else
+                    let
+                        val (rc, _) = getReg output
+                    in
+                        genop (MOVL_32_64_R rc, NONE, code);
+                        gen32s (source, code)
+                    end
                 )
-                else
-                let
-                    val (rc, rx) = getReg output
-                in
-                    genop (MOVL_32_64_R rc,
-                            if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE, code);
-                    if isX64 then gen64s (source, code) else gen32s (source, code)
-                end;
+            in
                 cgOp remainder
-            )
+            end
 
 (*        |   cgOp(MoveConstFPR{ source, output} :: remainder) =
             let
@@ -2345,7 +2377,7 @@ struct
                 cgOp remainder
             end*)
 
-        |   cgOp(MoveToRegister{ source=LongConstArg source, output } :: remainder) =
+        |   cgOp(MoveToRegister{ source=AddressConstArg source, output } :: remainder) =
             let
                 val (rc, rx) = getReg output
             in
@@ -2427,13 +2459,13 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(ArithToGenReg{ opc, output, source=ShortConstArg source } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source } :: remainder) =
             (
                 genImmed (opc, output, source, code);
                 cgOp remainder
             )
 
-        |   cgOp(ArithToGenReg{ opc, output, source=LongConstArg source } :: remainder) =
+        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg source } :: remainder) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
             let
                 val (rc, rx) = getReg output
@@ -2577,7 +2609,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(PushToStack(ShortConstArg constnt) :: remainder) = 
+        |   cgOp(PushToStack(NonAddressConstArg constnt) :: remainder) = 
             (
                 if is8BitL constnt
                 then ( genop (PUSH_8, NONE, code); gen8s (LargeInt.toInt constnt, code) )
@@ -2585,7 +2617,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(PushToStack(LongConstArg constnt) :: remainder) = 
+        |   cgOp(PushToStack(AddressConstArg constnt) :: remainder) = 
             (
                 if isX64
                 then (* Put it in the constant area. *)
@@ -2619,7 +2651,11 @@ struct
 
         |   cgOp(StoreConstToMemory{ toStore=toStore, address } :: remainder) =
             (
-                (* Short constant *)
+                (* Short constant.  In 32-bit mode this is scanned as a possible address.  That means
+                   we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
+                   There's a special check for using this to set the length word on newly allocated
+                   memory. *)
+                (*isX64 orelse toStore mod 2 = 1 orelse raise InternalError "cgOp: StoreConstToMemory not tagged";*)
                 case address of
                     {offset, base, index=NoIndex} =>
                         genOpPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0, code) 
@@ -3024,7 +3060,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp (XMMArith { opc, source=LongConstArg constVal, output=SSE2Reg rrC } :: remainder) =
+        |   cgOp (XMMArith { opc, source=AddressConstArg constVal, output=SSE2Reg rrC } :: remainder) =
             (
                (* The real constant here is actually the address of an 8-byte memory
                    object.  The SSE2 instruction takes the address as the argument and in 32-bit mode
