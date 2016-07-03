@@ -1614,8 +1614,7 @@ struct
         |   codeToICode(BICBlockOperation {kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
                 val target = asTarget destination
-                val lengthReg = newPReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
                     codeAddress(sourceLeft, true, context)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
@@ -1623,13 +1622,15 @@ struct
                 val ccRef = newCCRef()
                 val labLess = newLabel() and labGreater = newLabel()
                 and exitLab1 = newLabel() and exitLab2 = newLabel()
+                
+                val (lengthCode, lengthUntag, lengthArg) = codeAsUntagged(length, false (* unsigned *), context)
 
                 val code =
-                    leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
+                    leftCode @ rightCode @ lengthCode @
                     leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
                     rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
-                    [UntagValue{source=lengthReg, dest=lenReg, isSigned=false},
-                     CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                    lengthUntag @
+                    [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
                      ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
                      ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
                      MoveArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord },
@@ -1991,19 +1992,19 @@ struct
         |   codeCondition(
                 BICBlockOperation{kind=BlockOpEqualByte, sourceLeft, destRight, length}, context, jumpOn, jumpLabel) =
             let
-                val lengthReg = newPReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
+                val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val ccRef = newCCRef()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
                     codeAddress(sourceLeft, true, context)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
                     codeAddress(destRight, true, context)
+                val (lengthCode, lengthUntag, lengthArg) = codeAsUntagged(length, false (* unsigned *), context)
             in
-                leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
+                leftCode @ rightCode @ lengthCode @
                 leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
                 rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
-                [UntagValue{source=lengthReg, dest=lenReg, isSigned=false},
-                 CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lenReg, ccRef=ccRef },
+                lengthUntag @
+                [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
                  ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JE else JNE, label=jumpLabel}]
             end
 
@@ -2133,6 +2134,25 @@ struct
                 val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex}
             in
                 (codeValues, untagCode, memResult)
+            end
+
+        (* Return an untagged value.  If we have a constant just return it.  Otherwise
+           return the code to evaluate the argument, the code to untag it and the
+           reference to the untagged register. *)
+        and codeAsUntagged(BICConstnt(value, _), isSigned, _) =
+            let
+                (* Should always be short except for unreachable code. *)
+                val cval = if isShort value then toShort value else 0w0
+            in
+                ([], [], IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval)) (* Don't tag. *)
+            end
+        |   codeAsUntagged(arg, isSigned, context) =
+            let
+                val argReg = newPReg() and untagReg = newUReg()
+                val code = codeToICodeTarget(arg, context, false, argReg)
+                val untag = [UntagValue{source=argReg, dest=untagReg, isSigned=isSigned}]
+            in
+                (code, untag, untagReg)
             end
 
         val icode = pushClosureReg @ pushArgs @
