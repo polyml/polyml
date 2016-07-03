@@ -1835,11 +1835,20 @@ struct
                 val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
                 val resultState =
                     {valueStack= #valueStack state, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
+                (* There's a complication here.  CompareByteVectors generates REPE CMPSB to compare
+                   the vectors but the condition code is only set if CMPSB is executed at least
+                   once.  If the value in RCX/ECX is zero it will never be executed and the
+                   condition code will be unchanged.  We want the result to be "equal" in that
+                   case so we need to ensure that is the case.  It's quite possible that the
+                   condition code has just been set by shifting RCX/ECX to remove the tag in which
+                   case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
+                   is two bytes in 32-bit but three in 64-bit. *)
             in
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code =
                         CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=rcxAsArg, ccRef=ccRef} ::
+                        WordComparison {arg1=rcxAsArg, arg2=rcxAsArg, ccRef=ccRef} :: (* Set CC - any reg will do. *)
                         MoveArgument{source=RealRegister realVec1Reg, dest=rsiAsArg, kind=MoveWord} ::
                         MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=MoveWord} ::
                         MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=MoveWord} :: code, context=context}
