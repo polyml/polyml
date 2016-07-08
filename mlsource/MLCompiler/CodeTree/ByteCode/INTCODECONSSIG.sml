@@ -67,7 +67,8 @@ sig
    val genTailCall    : int * int * code -> unit
    val genNonLocal    : int * int * int * code -> unit
    
-   val genRTSCall:    int * code -> unit
+   val genRTSCallFast:    int * code -> unit
+   val genRTSCallFull:    int * code -> unit
 
    (* genEnter instructions are only needed when machine-code routines
       can call interpreted routines or vice-versa. The enterInt instruction

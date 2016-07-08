@@ -1012,7 +1012,7 @@ struct
     in
         structure Foreign = 
         struct
-            fun rtsCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
+            fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
             let
                 open Address
                 val cvec = codeCreate (entryName, debugArgs)
@@ -1026,7 +1026,7 @@ struct
                 val () = genLocals numOfArgs
 
                 val () = pushConst(entryPointAddr, cvec)
-                val () = genRTSCall(numOfArgs, cvec)
+                val () = makeCall(numOfArgs, cvec)
                 val () = genReturn (numOfArgs, cvec)
             
                 val codeAddr = copyCode cvec
@@ -1036,6 +1036,8 @@ struct
                 closure
             end
 
+            val rtsCallFast = rtsCall genRTSCallFast
+            and rtsCallFull = rtsCall genRTSCallFull
         end
     end
 

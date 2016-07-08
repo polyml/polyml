@@ -286,12 +286,19 @@ struct
     val opcode_setHandler        = Opcode 129
     val opcode_setHandlerI       = Opcode 130
 
-    val opcode_callRTS0          = Opcode 131
-    and opcode_callRTS1          = Opcode 132
-    and opcode_callRTS2          = Opcode 133
-    and opcode_callRTS3          = Opcode 134
-    and opcode_callRTS4          = Opcode 135
-    and opcode_callRTS5          = Opcode 136
+    val opcode_callFastRTS0      = Opcode 131
+    and opcode_callFastRTS1      = Opcode 132
+    and opcode_callFastRTS2      = Opcode 133
+    and opcode_callFastRTS3      = Opcode 134
+    and opcode_callFastRTS4      = Opcode 135
+    and opcode_callFastRTS5      = Opcode 136
+
+    val opcode_callFullRTS0      = Opcode 0x89
+    and opcode_callFullRTS1      = Opcode 0x8a
+    and opcode_callFullRTS2      = Opcode 0x8b
+    and opcode_callFullRTS3      = Opcode 0x8c
+    and opcode_callFullRTS4      = Opcode 0x8d
+    and opcode_callFullRTS5      = Opcode 0x8e
 
  
     (* val opcode_last              = opcode_ioVec_225; *)
@@ -400,12 +407,18 @@ struct
       val () = repUpdate(opcode_tail4b,        "tail4b");
       val () = repUpdate(opcode_tail3_2,       "tail3_2");
       val () = repUpdate(opcode_tail3_3,       "tail3_3");
-      val () = repUpdate(opcode_callRTS0,      "callRTS0")
-      val () = repUpdate(opcode_callRTS1,      "callRTS1")
-      val () = repUpdate(opcode_callRTS2,      "callRTS2")
-      val () = repUpdate(opcode_callRTS3,      "callRTS3")
-      val () = repUpdate(opcode_callRTS4,      "callRTS4")
-      val () = repUpdate(opcode_callRTS5,      "callRTS5")
+      val () = repUpdate(opcode_callFastRTS0,  "callFastRTS0")
+      val () = repUpdate(opcode_callFastRTS1,  "callFastRTS1")
+      val () = repUpdate(opcode_callFastRTS2,  "callFastRTS2")
+      val () = repUpdate(opcode_callFastRTS3,  "callFastRTS3")
+      val () = repUpdate(opcode_callFastRTS4,  "callFastRTS4")
+      val () = repUpdate(opcode_callFastRTS5,  "callFastRTS5")
+      val () = repUpdate(opcode_callFullRTS0,  "callFullRTS0")
+      val () = repUpdate(opcode_callFullRTS1,  "callFullRTS1")
+      val () = repUpdate(opcode_callFullRTS2,  "callFullRTS2")
+      val () = repUpdate(opcode_callFullRTS3,  "callFullRTS3")
+      val () = repUpdate(opcode_callFullRTS4,  "callFullRTS4")
+      val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;
@@ -1123,13 +1136,21 @@ struct
         checkBranchList(cvec, true, 0)
     end
 
-    fun genRTSCall(0, cvec) = genOpc (opcode_callRTS0, 1, cvec)
-    |   genRTSCall(1, cvec) = genOpc (opcode_callRTS1, 1, cvec)
-    |   genRTSCall(2, cvec) = genOpc (opcode_callRTS2, 1, cvec)
-    |   genRTSCall(3, cvec) = genOpc (opcode_callRTS3, 1, cvec)
-    |   genRTSCall(4, cvec) = genOpc (opcode_callRTS4, 1, cvec)
-    |   genRTSCall(5, cvec) = genOpc (opcode_callRTS5, 1, cvec)
-    |   genRTSCall(_, _) = raise InternalError "genRTSCall"
+    fun genRTSCallFast(0, cvec) = genOpc (opcode_callFastRTS0, 1, cvec)
+    |   genRTSCallFast(1, cvec) = genOpc (opcode_callFastRTS1, 1, cvec)
+    |   genRTSCallFast(2, cvec) = genOpc (opcode_callFastRTS2, 1, cvec)
+    |   genRTSCallFast(3, cvec) = genOpc (opcode_callFastRTS3, 1, cvec)
+    |   genRTSCallFast(4, cvec) = genOpc (opcode_callFastRTS4, 1, cvec)
+    |   genRTSCallFast(5, cvec) = genOpc (opcode_callFastRTS5, 1, cvec)
+    |   genRTSCallFast(_, _) = raise InternalError "genRTSFastCall"
+
+    fun genRTSCallFull(0, cvec) = genOpc (opcode_callFullRTS0, 1, cvec)
+    |   genRTSCallFull(1, cvec) = genOpc (opcode_callFullRTS1, 1, cvec)
+    |   genRTSCallFull(2, cvec) = genOpc (opcode_callFullRTS2, 1, cvec)
+    |   genRTSCallFull(3, cvec) = genOpc (opcode_callFullRTS3, 1, cvec)
+    |   genRTSCallFull(4, cvec) = genOpc (opcode_callFullRTS4, 1, cvec)
+    |   genRTSCallFull(5, cvec) = genOpc (opcode_callFullRTS5, 1, cvec)
+    |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"
 
   local
     fun fixupConstantLoad (constStartAddrs : addrs, cvec : code) =

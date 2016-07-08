@@ -211,12 +211,16 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 }
 
 extern "C" {
-    typedef POLYUNSIGNED(*callRts0)();
-    typedef POLYUNSIGNED(*callRts1)(POLYUNSIGNED);
-    typedef POLYUNSIGNED(*callRts2)(POLYUNSIGNED, POLYUNSIGNED);
-    typedef POLYUNSIGNED(*callRts3)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
-    typedef POLYUNSIGNED(*callRts4)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
-    typedef POLYUNSIGNED(*callRts5)(POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED, POLYUNSIGNED);
+    typedef POLYUNSIGNED(*callFastRts0)();
+    typedef POLYUNSIGNED(*callFastRts1)(PolyWord);
+    typedef POLYUNSIGNED(*callFastRts2)(PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFastRts3)(PolyWord, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFastRts4)(PolyWord, PolyWord, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFastRts5)(PolyWord, PolyWord, PolyWord, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFullRts0)(PolyObject *);
+    typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, PolyWord);
+    typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, PolyWord, PolyWord, PolyWord);
 }
 
 void IntTaskData::InterruptCode()
@@ -1214,10 +1218,10 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS0:
+        case INSTR_callFastRTS0:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
-                callRts0 doCall = (callRts0)rtsCall.AsCodePtr();
+                callFastRts0 doCall = (callFastRts0)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
@@ -1230,16 +1234,16 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS1:
+        case INSTR_callFastRTS1:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg1 = *sp++;
-                callRts1 doCall = (callRts1)rtsCall.AsCodePtr();
+                callFastRts1 doCall = (callFastRts1)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
                 this->p_sp = sp;
-                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned());
+                POLYUNSIGNED result = doCall(rtsArg1);
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
@@ -1247,17 +1251,17 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS2:
+        case INSTR_callFastRTS2:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg1 = *sp++;
-                callRts2 doCall = (callRts2)rtsCall.AsCodePtr();
+                callFastRts2 doCall = (callFastRts2)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
                 this->p_sp = sp;
-                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned());
+                POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
@@ -1265,18 +1269,18 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS3:
+        case INSTR_callFastRTS3:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
-                callRts3 doCall = (callRts3)rtsCall.AsCodePtr();
+                callFastRts3 doCall = (callFastRts3)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
                 this->p_sp = sp;
-                POLYUNSIGNED result = doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned());
+                POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
@@ -1284,20 +1288,19 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS4:
+        case INSTR_callFastRTS4:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg4 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg3 = *sp++;
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
-                callRts4 doCall = (callRts4)rtsCall.AsCodePtr();
+                callFastRts4 doCall = (callFastRts4)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
                 this->p_sp = sp;
-                POLYUNSIGNED result =
-                        doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned(), rtsArg4.AsUnsigned());
+                POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
@@ -1305,7 +1308,7 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_callRTS5:
+        case INSTR_callFastRTS5:
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg5 = *sp++; // Pop off the args, last arg first.
@@ -1313,14 +1316,82 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsArg3 = *sp++;
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
-                callRts5 doCall = (callRts5)rtsCall.AsCodePtr();
+                callFastRts5 doCall = (callFastRts5)rtsCall.AsCodePtr();
                 // Set these in case of exception or GC.  Is this necessary?
                 this->p_pc = pc;
                 this->p_lastInstr = li;
                 this->p_sp = sp;
-                POLYUNSIGNED result =
-                        doCall(rtsArg1.AsUnsigned(), rtsArg2.AsUnsigned(), rtsArg3.AsUnsigned(),
-                               rtsArg4.AsUnsigned(), rtsArg5.AsUnsigned());
+                POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callFullRTS0:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                callFullRts0 doCall = (callFullRts0)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(this->threadObject);
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callFullRTS1:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg1 = *sp++;
+                callFullRts1 doCall = (callFullRts1)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1);
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callFullRTS2:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg1 = *sp++;
+                callFullRts2 doCall = (callFullRts2)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2);
+                sp = this->p_sp; // May have changed if there was an exception
+                // If this raised an exception 
+                if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callFullRTS3:
+            {
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
+                PolyWord rtsArg2 = *sp++;
+                PolyWord rtsArg1 = *sp++;
+                callFullRts3 doCall = (callFullRts3)rtsCall.AsCodePtr();
+                // Set these in case of exception or GC.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2, rtsArg3);
                 sp = this->p_sp; // May have changed if there was an exception
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
