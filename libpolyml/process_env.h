@@ -28,11 +28,18 @@ class TaskData;
 extern Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code);
 extern Handle finishc(TaskData *mdTaskData, Handle h);
 
-extern "C" {
+#ifndef DLLEXPORT
 #ifdef _MSC_VER
-    __declspec(dllexport)
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
 #endif
-        void PolyFinish(PolyObject *threadId, PolyWord arg);
+#endif
+
+extern "C" {
+    DLLEXPORT void PolyFinish(PolyObject *threadId, PolyWord arg);
+    DLLEXPORT void PolyTerminate(PolyObject *threadId, PolyWord arg);
+    DLLEXPORT POLYUNSIGNED PolyProcessEnvGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
 }
 
 #endif

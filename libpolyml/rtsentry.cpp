@@ -51,6 +51,7 @@
 #include "arb.h"
 #include "basicio.h"
 #include "process_env.h"
+#include "os_specific.h"
 
 // Table of RTS entry functions.  In theory it ought to be possible to get these
 // using dlsym/GetProcAddress but that's difficult to get to work with various
@@ -63,8 +64,10 @@ static struct _entrypts {
     polyRTSFunction entry;
 } entryPtTable[] =
 {
+    // Basic IO
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
-    { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
+    { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
+    // Arbitrary precision
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
     { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
     { "PolyMultiplyArbitrary",          (polyRTSFunction)&PolyMultiplyArbitrary},
@@ -75,6 +78,13 @@ static struct _entrypts {
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
     { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
+    // Process-env
+    { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
+    { "PolyTerminate",                  (polyRTSFunction)&PolyTerminate},
+    { "PolyProcessEnvGeneral",          (polyRTSFunction)&PolyProcessEnvGeneral},
+    // OS-specific
+    { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
+    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
 
     { NULL, NULL} // End of list.
 };

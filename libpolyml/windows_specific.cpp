@@ -50,6 +50,13 @@
 
 #include <lmcons.h>
 
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x) assert(x)
+#else
+#define ASSERT(x) 0
+#endif
+
 
 #include "globals.h"
 #include "arb.h"
@@ -789,6 +796,33 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+// General interface to Windows OS-specific.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = OS_spec_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyGetOSType()
+{
+    return TAGGED(1).AsUnsigned(); // Return 1 for Windows
 }
 
 /*

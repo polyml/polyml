@@ -68,8 +68,6 @@ extern Handle int_to_word_c(TaskData *taskData, Handle x);
 extern Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
 extern Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 
-extern int              compareLong(TaskData *taskData, Handle,Handle);
-
 // Return a uintptr_t/intptr_t value.
 extern POLYUNSIGNED     getPolyUnsigned(TaskData *taskData, PolyWord);
 extern POLYSIGNED       getPolySigned(TaskData *taskData, PolyWord);
@@ -102,7 +100,7 @@ extern "C" {
     DLLEXPORT POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     DLLEXPORT POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     DLLEXPORT POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
-    DLLEXPORT POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
+    DLLEXPORT POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
     DLLEXPORT POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     DLLEXPORT POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
 }

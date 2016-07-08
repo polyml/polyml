@@ -171,7 +171,7 @@ struct
 
     local
         val doCall: int*syserror -> string
-             = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+             = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
     in
         (* Convert a numeric system error to a string. *)
         fun errorName (s: syserror) : string = doCall(2, s)
@@ -180,7 +180,7 @@ struct
 
     local
         val doCall: int*string -> syserror
-             = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+             = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
     in
         (* Convert a string to an error message if possible. *)
         fun syserror (s: string) : syserror option =
@@ -209,9 +209,8 @@ struct
         exception InvalidArc
         
         local
-            val getOS: int =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
-
+            val getOSCall: unit -> int = RunCall.rtsCallFast0 "PolyGetOSType"
+            val getOS: int = getOSCall()
         in
             val isWindows =
                 case getOS of
@@ -731,7 +730,7 @@ struct
 
         local
             val doIo: int*unit*string -> dirFd
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun openDir (s : string):  dirstream = 
                 DIR(doIo(50, (), s), s)
@@ -739,7 +738,7 @@ struct
 
         local
             val doIo: int*dirFd*unit -> string
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun readDir (DIR(d, _)):  string option =
             let
@@ -752,7 +751,7 @@ struct
 
         local
             val doIo: int*dirFd*unit -> unit
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun closeDir(DIR(d, _)) =
                 doIo(52, d, ())
@@ -760,7 +759,7 @@ struct
 
         local
             val doIo: int*dirFd*string -> unit
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* We need to pass in the string because Windows
                has to reopen the stream. *)
@@ -772,7 +771,7 @@ struct
 
         local
             val doIo: int*unit*unit -> string
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Return current directory. *)
             fun getDir() = doIo(54, (), ())
@@ -782,7 +781,7 @@ struct
 
         local
             val doIo: int*unit*string -> unit
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Create and delete directories and remove a file. *)
             fun mkDir s = doIo(55, (), s)
@@ -792,7 +791,7 @@ struct
 
         local
             val doIo: int*unit*string -> bool
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Test for directory and symbolic link. *)
             fun isDir s = doIo(57, (), s)
@@ -801,7 +800,7 @@ struct
 
         local
             val doIo: int*unit*string -> string
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Read a symbolic link. *)
             fun readLink s = doIo(59, (), s)
@@ -811,7 +810,7 @@ struct
 
         local
             val doIo: int*unit*string -> Time.time
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Get file modification time. *)
             fun modTime s = doIo(61, (), s)
@@ -819,7 +818,7 @@ struct
 
         local
             val doIo: int*unit*string -> Position.int (* This can be larger than 32-bits. *)
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Get file size. *)
             fun fileSize s = doIo(62, (), s)
@@ -827,7 +826,7 @@ struct
 
         local
             val doIo: int*string*Time.time -> unit
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Get file size. *)
             fun setTime(s, NONE) = doIo(63, s, Time.now())
@@ -836,7 +835,7 @@ struct
 
         local
             val doIo: int*string*string -> unit
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Rename a file. *)
             fun rename {old, new} = doIo(65, old, new)
@@ -849,7 +848,7 @@ struct
 
         local
             val doIo: int*string*word -> bool
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
 
             fun mapAccess (A_READ, m) = Word.orb(m, 0w1)
              |  mapAccess (A_WRITE, m) = Word.orb(m, 0w2)
@@ -891,7 +890,7 @@ struct
                     (fn(c, a) => a * 0w7 + Word.fromInt(Char.ord c)) 0w0 s
         local
             val doIo: int*unit*string -> LargeInt.int
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Get file id (inode).  Returns negative value if inodes aren't
                supported. *)
@@ -919,7 +918,7 @@ struct
                             a pointer into the io table. *)
         local
             val doIo: int*iodesc*unit -> int
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             (* Get underlying index. *)
             fun getIndex f = doIo(69, f, ())
@@ -954,7 +953,7 @@ struct
 
         local
             val doIo: int*iodesc*int -> int
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun kind (i: iodesc): iodesc_kind =
             let
@@ -979,7 +978,7 @@ struct
 
         local
             val doIo: int*iodesc*int -> word
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun sys_poll_test(i: iodesc) = doIo(22, i, 0)
         end
@@ -988,7 +987,7 @@ struct
             val doIo: int*int*
                 (iodesc Vector.vector * word Vector.vector * Time.time) ->
                         word Vector.vector
-                 = RunCall.run_call3 RuntimeCalls.POLY_SYS_io_dispatch
+                 = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
         in
             fun sys_poll_block(iov, wv) = doIo(23, 0, (iov, wv, Time.zeroTime))
             fun sys_poll_poll(iov, wv) = doIo(25, 0, (iov, wv, Time.zeroTime))
@@ -1119,7 +1118,7 @@ struct
 
         local
             val doCall: int*unit -> int
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         in
             val success = doCall(15, ())
             and failure = doCall(16, ())
@@ -1129,7 +1128,7 @@ struct
 
         local
             val doCall: int*string -> status
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         in
             (* Run a process and wait for the result. *)
             fun system s = doCall(17, s)
@@ -1137,7 +1136,7 @@ struct
         
         local
             val doCall: int*(unit->unit) -> unit
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         in
             (* Register a function to be run at exit. *)
             fun atExit f = doCall(18, f)
@@ -1147,7 +1146,7 @@ struct
             (* exit - supply result code and close down all threads. *)
             val doExit: int -> unit = RunCall.rtsCallFull1 "PolyFinish"
             val doCall: int*unit -> (unit->unit) =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+                RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         in
             fun exit (n: int) =
             let
@@ -1163,16 +1162,16 @@ struct
         end
 
         (* Terminate without running the atExit list or flushing the
-           buffers.  The type returns a type variable so we don't
-           use the local...in...end mechanism to reduce extra calls,
-           but it hardly matters since we'll only call this at most
-           once per session! *)
-        fun terminate n =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env(20, n)
+           buffers.  We raise an exception to get the type right. *)
+        local
+            val doCall: int -> unit = RunCall.rtsCallFull1 "PolyTerminate"
+        in
+            fun terminate n = (doCall n; raise Fail "never")
+        end
 
         local
             val doCall: int*string -> string
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+                 = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
         in
             (* Get an environment string.  The underlying call raises an
                exception if the string isn't there. *)

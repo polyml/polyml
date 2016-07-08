@@ -1164,21 +1164,21 @@ void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft)
 #endif
 
 /* compare_unsigned is passed LONG integers only */
-static int compare_unsigned(Handle x, Handle y)
+static int compare_unsigned(PolyWord x, PolyWord y)
 {
 #ifdef USE_GMP
-    mp_size_t lx = numLimbs(DEREFWORD(x));
-    mp_size_t ly = numLimbs(DEREFWORD(y));
+    mp_size_t lx = numLimbs(x);
+    mp_size_t ly = numLimbs(y));
 
     if (lx != ly)  /* u > v if u longer than v */
     {
         return (lx > ly ? 1 : -1);
     }
-    return mpn_cmp(DEREFLIMBHANDLE(x), DEREFLIMBHANDLE(y), lx);
+    return mpn_cmp(x, y, lx);
 #else
     /* First look at the lengths */
-    POLYUNSIGNED lx = get_length(DEREFWORD(x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(y));
+    POLYUNSIGNED lx = get_length(x);
+    POLYUNSIGNED ly = get_length(y);
 
     if (lx != ly)  /* u > v if u longer than v */
     {
@@ -1186,8 +1186,8 @@ static int compare_unsigned(Handle x, Handle y)
     }
 
     // Same length - look at the values. */
-    byte *u = DEREFBYTEHANDLE(x);
-    byte *v = DEREFBYTEHANDLE(y);
+    byte *u = x.AsCodePtr();
+    byte *v = y.AsCodePtr();
 
     POLYUNSIGNED i = lx;
     while (i > 0)
@@ -1203,60 +1203,45 @@ static int compare_unsigned(Handle x, Handle y)
 #endif
 }
 
-int compareLong(TaskData *taskData, Handle y, Handle x)
+int compareLong(PolyWord y, PolyWord x)
 {
     // Test if the values are bitwise equal.  If either is short
     // this is the only case where the values could be equal.
-    if (DEREFWORD(x) == DEREFWORD(y)) // Equal
+    if (x == y) // Equal
         return 0;
 
-    if (IS_INT(DEREFWORD(x)))
+    if (x.IsTagged())
     {
         // x is short.
-        if (IS_INT(DEREFWORD(y))) {
+        if (y.IsTagged()) {
             // Both short.  We've already tested for equality.
-            if (UNTAGGED(DEREFWORD(x)) < UNTAGGED(DEREFWORD(y)))
+            if (x.UnTagged() < y.UnTagged())
                 return -1; // Less
             else return 1; // Greater
         }
         // y is not short.  Just test the sign.  If it's negative
         // it must be less than any short value and if it's positive
         // it must be greater.
-        if (OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))))
+        if (OBJ_IS_NEGATIVE(GetLengthWord(y)))
             return 1; // x is greater
         else return -1; // x is less
     }
 
     // x is not short
-    if (IS_INT(DEREFWORD(y)))
+    if (y.IsTagged())
     {
         // y is short.  Just test the sign of x
-        if (OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))))
+        if (OBJ_IS_NEGATIVE(GetLengthWord(x)))
             return -1; // x is less
         else return 1; // x is greater
     }
 
-    /* Convert to long form */
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x); /* Convert to long form */
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
-
-    if (sign_x >= 0) /* x is positive */
+    // Must both be long.  We may be able to determine the result based purely on the sign bits.
+    if (! OBJ_IS_NEGATIVE(GetLengthWord(x))) /* x is positive */
     {
-        if (sign_y >= 0) /* y also positive */
+        if (! OBJ_IS_NEGATIVE(GetLengthWord(y))) /* y also positive */
         {
-            return compare_unsigned(long_x, long_y);
+            return compare_unsigned(x, y);
         }
         else /* y negative so x > y */
         {
@@ -1265,9 +1250,9 @@ int compareLong(TaskData *taskData, Handle y, Handle x)
     }
     else
     { /* x is negative */
-        if (sign_y < 0) /* y also negative */
+        if (OBJ_IS_NEGATIVE(GetLengthWord(y))) /* y also negative */
         {
-            return compare_unsigned(long_y, long_x);
+            return compare_unsigned(y, x);
         }
         else /* y positive so x < y */
         {
@@ -1275,7 +1260,6 @@ int compareLong(TaskData *taskData, Handle y, Handle x)
         }
     }
 } /* compareLong */
-
 
 /* logical_long.  General purpose function for binary logical operations. */
 static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, int signY,
@@ -1515,34 +1499,34 @@ long forms of integers.
 Handle equal_longc(TaskData *taskData, Handle y, Handle x)
 /* Returns 1 if the arguments are equal, otherwise 0. */
 {
-    bool c = compareLong(taskData, y, x) == 0;
+    bool c = compareLong(y->Word(), x->Word()) == 0;
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
 Handle gt_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = (compareLong(taskData, y, x) == 1);
+    bool c = compareLong(y->Word(), x->Word()) == 1;
 
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
 Handle ls_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = (compareLong(taskData, y, x) == -1);
+    bool c = (compareLong(y->Word(), x->Word()) == -1);
 
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
 Handle ge_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = compareLong(taskData, y, x) != -1;
+    bool c = compareLong(y->Word(), x->Word()) != -1;
 
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
 
 Handle le_longc(TaskData *taskData, Handle y, Handle x)
 {
-    bool c = compareLong(taskData, y, x) != 1;
+    bool c = compareLong(y->Word(), x->Word()) != 1;
 
     return taskData->saveVec.push(c ? TAGGED(1) : TAGGED(0));
 }
@@ -1727,7 +1711,7 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
     x = absValue(taskData, x);
     y = absValue(taskData, y);
 
-    if (compareLong(taskData, y, x) < 0)
+    if (compareLong(y->Word(), x->Word()) < 0)
         return gxd(taskData, y, x);
     else return gxd(taskData, x, y);
 }
@@ -1862,23 +1846,10 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
     return 0; // Result is unit
 }
 
-POLYSIGNED PolyCompareArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+// This can be a fast call.  It does not need to allocate or use handles.
+POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
-    ASSERT(taskData != 0);
-    taskData->PreRTSCall();
-    Handle reset = taskData->saveVec.mark();
-    Handle pushedArg1 = taskData->saveVec.push(arg1);
-    Handle pushedArg2 = taskData->saveVec.push(arg2);
-    int result = 0;
-
-    try {
-        result = compareLong(taskData, pushedArg2, pushedArg1);
-    } catch (...) { } // If an ML exception is raised
-
-    taskData->saveVec.reset(reset); // Ensure the save vec is reset
-    taskData->PostRTSCall();
-    return result;
+    return TAGGED(compareLong(arg2, arg1)).AsSigned();
 }
 
 POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)

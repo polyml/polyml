@@ -1895,6 +1895,29 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     }
 }
 
+// General interface to IO.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedStrm = taskData->saveVec.push(strm);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = IO_dispatch_c(taskData, pushedArg, pushedStrm, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 class BasicIO: public RtsModule
 {
 public:
