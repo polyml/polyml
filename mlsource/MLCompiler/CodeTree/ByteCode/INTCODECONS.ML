@@ -300,6 +300,8 @@ struct
     and opcode_callFullRTS4      = Opcode 0x8d
     and opcode_callFullRTS5      = Opcode 0x8e
 
+    val opcode_callFastRTSFtoF   = Opcode 0x8f
+    and opcode_callFastRTSGtoF   = Opcode 0x90
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -419,6 +421,8 @@ struct
       val () = repUpdate(opcode_callFullRTS3,  "callFullRTS3")
       val () = repUpdate(opcode_callFullRTS4,  "callFullRTS4")
       val () = repUpdate(opcode_callFullRTS5,  "callFullRTS5")
+      val () = repUpdate(opcode_callFastRTSFtoF,  "callFullRTSFtoF")
+      val () = repUpdate(opcode_callFastRTSGtoF,  "callFullRTSGtoF")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);
     end;
@@ -1151,6 +1155,9 @@ struct
     |   genRTSCallFull(4, cvec) = genOpc (opcode_callFullRTS4, 1, cvec)
     |   genRTSCallFull(5, cvec) = genOpc (opcode_callFullRTS5, 1, cvec)
     |   genRTSCallFull(_, _) = raise InternalError "genRTSCallFull"
+    
+    fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, 1, cvec)
+    and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, 1, cvec)
 
   local
     fun fixupConstantLoad (constStartAddrs : addrs, cvec : code) =

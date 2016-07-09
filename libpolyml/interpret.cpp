@@ -219,6 +219,7 @@ extern "C" {
     typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, PolyWord);
     typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, PolyWord, PolyWord);
     typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, PolyWord, PolyWord, PolyWord);
+    typedef double (*callRTSFtoF) (double arg);
 }
 
 void IntTaskData::InterruptCode()
@@ -1394,6 +1395,27 @@ int IntTaskData::SwitchToPoly()
                 // If this raised an exception 
                 if (this->p_lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
+                break;
+            }
+
+        case INSTR_callFastFtoF:
+            {
+                // Floating point call.  The call itself does not allocate but we
+                // need to put the result into a "box".
+                PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
+                PolyWord rtsArg1 = *sp++;
+                callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
+                Handle reset = this->saveVec.mark();
+                // Set these in case of GC while allocating the box.  Is this necessary?
+                this->p_pc = pc;
+                this->p_lastInstr = li;
+                this->p_sp = sp;
+                double argument = real_arg(this->saveVec.push(rtsArg1));
+                // Allocate memory for the result.
+                Handle result = real_result(this, doCall(argument));
+                PolyWord res = result->Word();
+                this->saveVec.reset(reset);
+                *(--sp) = res;
                 break;
             }
 

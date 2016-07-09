@@ -1009,35 +1009,38 @@ struct
             Thread.Thread.thread * string -> machineWord =
                 RunCall.rtsCall2 "PolyCreateEntryPointObject"
 
+        fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
+        let
+            open Address
+            val cvec = codeCreate (entryName, debugArgs)
+            val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+
+            val entryPointAddr = makeEntryPoint(Thread.Thread.self(), entryName)
+
+            (* Each argument is at the same offset, essentially we're just shifting them *)
+            fun genLocals 0 = ()
+            |   genLocals n = (genLocal(numOfArgs +1, cvec); genLocals (n-1))
+            val () = genLocals numOfArgs
+
+            val () = pushConst(entryPointAddr, cvec)
+            val () = makeCall(numOfArgs, cvec)
+            val () = genReturn (numOfArgs, cvec)
+        
+            val codeAddr = copyCode cvec
+        in
+            assignWord(closure, 0w0, toMachineWord codeAddr);
+            lock closure;
+            closure
+        end
     in
         structure Foreign = 
         struct
-            fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
-            let
-                open Address
-                val cvec = codeCreate (entryName, debugArgs)
-                val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
-
-                val entryPointAddr = makeEntryPoint(Thread.Thread.self(), entryName)
-
-                (* Each argument is at the same offset, essentially we're just shifting them *)
-                fun genLocals 0 = ()
-                |   genLocals n = (genLocal(numOfArgs +1, cvec); genLocals (n-1))
-                val () = genLocals numOfArgs
-
-                val () = pushConst(entryPointAddr, cvec)
-                val () = makeCall(numOfArgs, cvec)
-                val () = genReturn (numOfArgs, cvec)
-            
-                val codeAddr = copyCode cvec
-            in
-                assignWord(closure, 0w0, toMachineWord codeAddr);
-                lock closure;
-                closure
-            end
 
             val rtsCallFast = rtsCall genRTSCallFast
             and rtsCallFull = rtsCall genRTSCallFull
+            
+            fun rtsCallFastFloattoFloat(entryName, debugArgs) =
+                rtsCall (fn (_, c) => genRTSCallFastFloatFloat c) (entryName, 1, debugArgs)
         end
     end
 
