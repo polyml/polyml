@@ -116,7 +116,9 @@ struct
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
-
+    
+        (* Arithmetic or logical operation. *)
+    |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
     
     exception InternalError = Misc.InternalError
@@ -312,12 +314,13 @@ struct
                            point they diverged.  The common part is the resulting state. *)
                         fun matchStates([], _) = []
                         |   matchStates(_, []) = []
-                        |   matchStates((hd as {loc=OnStack s1, preg=preg1})::l1, {loc=OnStack s2, preg=preg2}::l2) =
-                                if preg1 <> preg2
-                                then []
-                                else if s1 <> s2 then raise InternalError "matchStates"
+                        |   matchStates((hd as {loc=loc1, preg=preg1})::l1, {loc=loc2, preg=preg2}::l2) =
+                            if preg1 <> preg2
+                            then []
+                            else if loc1 <> loc2
+                            then raise InternalError "matchStates"
                                 else hd :: matchStates(l1, l2)
-                        |   matchStates _ = raise InternalError "matchStates"
+
                         val composite =
                             List.rev(matchStates(List.rev dropThrough, List.rev labState))
                         (* Currently the only thing we need to adjust is the stack pointer. *)
@@ -404,7 +407,7 @@ struct
                                       context={forwardLabels=(label, state, lab) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
             end
 
-            (* Word comparison.  Currently only between a pseudo-reg and a constant. *)
+            (* Word comparison. *)
         |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR, arg2=IntegerConstant testVal, condition, label} :: rest,
                       state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
             let
@@ -412,10 +415,45 @@ struct
                 val startState =
                     case state of
                         {preg, loc=InRax } :: bodyState =>
-                            if preg = testR then bodyState else raise InternalError "ConditionalForwardJump"
-                    |   _ => raise InternalError "ConditionalForwardJump"
-                (* Evaluate the test. Branch if the value equals false. *)
+                            if preg = testR then bodyState else raise InternalError "JumpOnWordComparison"
+                    |   _ => raise InternalError "JumpOnWordComparison"
                 val testIt = ArithRConst {opc=CMP, output=eax, source=testVal}
+                val (condJump, branchLabel) = condBranch(condition, PredictNeutral)
+            in
+                codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
+                                      context={forwardLabels=(label, startState, branchLabel) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+            end
+
+        |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR, arg2=AddressConstant testVal, condition, label} :: rest,
+                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+            let
+                (* The value on the top of the stack should be in rax and the value we want to test. *)
+                val startState =
+                    case state of
+                        {preg, loc=InRax } :: bodyState =>
+                            if preg = testR then bodyState else raise InternalError "JumpOnWordComparison"
+                    |   _ => raise InternalError "JumpOnWordComparison"
+                val testIt = ArithRLongConst {opc=CMP, output=eax, source=testVal}
+                val (condJump, branchLabel) = condBranch(condition, PredictNeutral)
+            in
+                codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
+                                      context={forwardLabels=(label, startState, branchLabel) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+            end
+
+        |   codeICode{icode=JumpOnWordComparison{arg1=PReg testR1, arg2=PReg testR2, condition, label} :: rest,
+                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+            let
+                (* The second argument should be on the top of the stack and in rax. *)
+                val startState =
+                    case state of
+                        {preg, loc=InRax } :: bodyState =>
+                            if preg = testR2 then bodyState else raise InternalError "codeICode: JumpOnWordComparison"
+                    |   _ => raise InternalError "codeICode: JumpOnWordComparison"
+                val secondArg =
+                    case findEntry (testR1, state) of
+                        OnStack s => s
+                    |   _ => raise InternalError "codeICode: JumpOnWordComparison"
+                val testIt = ArithRMem{ opc=CMP, output=eax, offset=(stackPtr state - secondArg - 1) * wordSize, base=esp }
                 val (condJump, branchLabel) = condBranch(condition, PredictNeutral)
             in
                 codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
@@ -827,7 +865,24 @@ struct
                 (* We may have more than one return point so we can't just stop here. *)
                 codeICode{icode=rest, state=Exited, code=returnCode, context=context}
             end
-            
+
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1, operand2 } :: rest, state=NormalState state, code, context} =
+            let
+                val resReg = argToPReg resultReg
+                and oper1Reg = argToPReg operand1
+                val op2Value = case operand2 of IntegerConstant v => v | _ => raise InternalError "TODO: ArithmeticFunction"
+                val topState =
+                    case state of
+                        {preg, loc=InRax} :: topState =>
+                            if preg=oper1Reg then topState
+                            else raise InternalError "ArithmeticFunction: not top"
+                    |   _ => raise InternalError "ArithmeticFunction: not top"
+                val resultState = {preg=resReg, loc=InRax} :: topState
+                val resCode = ArithRConst { opc=oper, output=eax, source=op2Value } :: code
+            in
+                codeICode{icode=rest, state=NormalState resultState, code=resCode, context=context}
+            end
+
         val (fnState, fnCode) = codeICode{icode=icode, state=NormalState [], code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
         val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
 

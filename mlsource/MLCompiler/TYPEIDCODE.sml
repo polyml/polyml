@@ -840,7 +840,7 @@ struct
                all the enum constructors.  I've now extended this to all cases where
                there is more than one constructor.  The idea is to speed up equality
                between identical data structures. *)
-            val eqCode = mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
+            val eqCode = mkCor(mkBuiltIn2(BuiltIns.EqualBitwiseWord, arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns

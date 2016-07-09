@@ -400,19 +400,24 @@ struct
         resultType=resultType
     }
 
-    val mkBuiltIn = BuiltIn
+    (* Old version that called RTS functions. *)
+    fun mkBuiltIn(ioCall, args) = mkEval(rtsFunction ioCall, args)
+
+    fun mkBuiltIn0 oper = BuiltIn0 { oper = oper }
+    and mkBuiltIn1 (oper, arg1) = BuiltIn1 { oper = oper, arg1 = arg1 }
+    and mkBuiltIn2 (oper, arg1, arg2) =
+        BuiltIn2 { oper = oper, arg1 = arg1, arg2 = arg2 }
+    and mkBuiltIn3 (oper, arg1, arg2, arg3) =
+        BuiltIn3 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3 }
+    and mkBuiltIn4 (oper, arg1, arg2, arg3, arg4) =
+        BuiltIn4 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4 }
+    and mkBuiltIn5 (oper, arg1, arg2, arg3, arg4, arg5) =
+        BuiltIn5 { oper = oper, arg1 = arg1, arg2 = arg2, arg3 = arg3, arg4 = arg4, arg5 = arg5 }
 
     local
-        open RuntimeCalls
+        open BuiltIns
     in
-        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
-        val testptreqFunction    = rtsFunction POLY_SYS_word_eq
-
-        (* N.B. int equality is SHORT integer equality *)
-        fun mkTestinteq (xp1, xp2) = 
-            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2]);
-
-        fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2]);
+        fun mkNot arg = BuiltIn1{oper=NotBoolean, arg1=arg}
     end
 
     fun identityFunction (name : string) : codetree = 
