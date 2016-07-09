@@ -653,7 +653,7 @@ struct
                    pointer equality and not attempt to create equality functions for
                    the argument.  It may not be an equality type. *)
                 if isPointerEqType iden
-                then rtsFunction POLY_SYS_word_eq
+                then mkBuiltIn2Fn BuiltIns.EqualBitwiseWord
                 else
                 let
                     open TypeValue
@@ -803,8 +803,7 @@ struct
                                constant that represents the value).  We have to test
                                the tags if it is not short because we can't guarantee
                                that the constant tuple hasn't been duplicated. *)
-                            val isShort =
-                                mkBuiltIn(POLY_SYS_is_short, [addPolymorphism(extractInjection base)])
+                            val isShort = mkIsShort(addPolymorphism(extractInjection base))
                        in
                             mkIf(mkIf(isShort, CodeFalse, matches arg1), matches arg2, processConstrs rest)
                         end
@@ -929,14 +928,10 @@ struct
 *)
 
         local
-            fun callIo function args =
-                mkBuiltIn(function, args)
-
             fun eqStr (arg, str) =
-                callIo POLY_SYS_word_eq [arg, mkConst(toMachineWord str)]
+                mkBuiltIn2(BuiltIns.EqualBitwiseWord, arg, mkConst(toMachineWord str))
 
-            fun isNotNull arg =
-                callIo POLY_SYS_not_bool [callIo POLY_SYS_is_short [arg]]
+            val isNotNull = mkNot o mkIsShort
 
             fun testTag(arg, tagV) =
             (* Test the tag in the first word of the datatype. *)
@@ -960,15 +955,15 @@ struct
                                     isNotNull(mkLoadLocal 0),
                                     mkCand(
                                         isNotNull (listTl(mkLoadLocal 0)),
-                                        callIo POLY_SYS_not_bool
-                                        [
+                                        mkNot
+                                        (
                                             mkCand(testTag(listHd(mkLoadLocal 0), tagPrettyString),
                                             mkEnv(
                                                 [mkDec(1, mkVarField(1, listHd(mkLoadLocal 0)))],
                                                 mkCor(eqStr(mkLoadLocal 1, "("), mkCor(eqStr(mkLoadLocal 1, "{"), eqStr(mkLoadLocal 1, "[")))
                                                 )
                                             )
-                                        ]
+                                        )
                                     )
                                 ),
                                 (* then: Parenthesise the argument. *)

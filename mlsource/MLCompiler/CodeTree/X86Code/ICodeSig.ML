@@ -123,6 +123,9 @@ sig
         (* Arithmetic or logical operation. *)
     |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
+        (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
+    |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
+
     val codeICodeFunctionToX86: {icode: x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
             argRegsUsed: genReg list, hasFullClosure: bool, currentStackArgs: int,
             debugSwitches: Universal.universal list } -> address

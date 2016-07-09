@@ -156,6 +156,9 @@ struct
                     [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1)}]
             end
 
+        |   codeToICode(instr as BICBuiltIn1{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, target) =
+                codeAsConditional(instr, context, isTail, target)
+
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.EqualBitwiseWord, ...}, context, isTail, target) =
                 codeAsConditional(instr, context, isTail, target)
 
@@ -533,6 +536,15 @@ struct
             |   codeCondition(BICBuiltIn1{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel) =
                     (* If we have a "not" we can just invert the jump condition. *)
                     codeCondition(arg1, context, not jumpOn, jumpLabel)
+
+            |   codeCondition(BICBuiltIn1{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
+                let
+                    val testReg = newPReg()
+                    val testCode = codeToICode(arg1, context, false, testReg)
+                in
+                    testCode @
+                        [JumpOnTag{arg=testReg, onShort=jumpOn, label=jumpLabel}]
+                end
 
                 (* Word equality.  This is used both for simple equality on words and
                    also for general pointer equality. The argument could be a long or short value. *)

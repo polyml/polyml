@@ -120,6 +120,9 @@ struct
         (* Arithmetic or logical operation. *)
     |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
+        (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
+    |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
+
     
     exception InternalError = Misc.InternalError
 
@@ -460,8 +463,25 @@ struct
                                       context={forwardLabels=(label, startState, branchLabel) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
             end
             
-       |    codeICode{icode=JumpOnWordComparison _ :: _, ...} =
+        |   codeICode{icode=JumpOnWordComparison _ :: _, ...} =
                 raise InternalError "codeICode: JumpOnWordComparison TODO"
+
+        |   codeICode{icode=JumpOnTag{arg, onShort, label} :: rest,
+                      state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+            let
+                val argReg = argToPReg arg
+                (* The value on the top of the stack should be in rax and the value we want to test. *)
+                val startState =
+                    case state of
+                        {preg, loc=InRax } :: bodyState =>
+                            if preg = argReg then bodyState else raise InternalError "JumpOnTag"
+                    |   _ => raise InternalError "JumpOnTag"
+                val testIt = TestTagR eax
+                val (condJump, branchLabel) = condBranch(if onShort then JNE else JE, PredictNeutral)
+            in
+                codeICode{icode=rest, state=NormalState startState, code=condJump @ [testIt] @ code,
+                                      context={forwardLabels=(label, startState, branchLabel) :: forwardLabels, loopArgs=loopArgs, handlers=handlers}}
+            end
 
             (* Set up an exception handler. *)
         |   codeICode{icode=PushExceptionHandler{ handlerAddr, handleStart } :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =

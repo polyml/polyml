@@ -137,9 +137,11 @@ struct
 
         |   codeProps (BuiltIn1{oper, arg1}) =
             let
+                open BuiltIns
                 val operProps =
                     case oper of
-                        BuiltIns.NotBoolean => applicative
+                        NotBoolean => applicative
+                    |   IsTaggedValue => applicative
             in
                 operProps andb codeProps arg1
             end

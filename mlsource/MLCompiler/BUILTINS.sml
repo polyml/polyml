@@ -24,6 +24,7 @@ sig
 
     and builtIn1Ops =
         NotBoolean (* true => false; false => true - XOR *)
+    |   IsTaggedValue (* Test the tag bit. *)
 
     and builtIn2Ops =
         EqualBitwiseWord (* Test equality for a word.  Used for both pointer equality and Word.word. *)
