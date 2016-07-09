@@ -304,6 +304,7 @@ struct
     and opcode_callFastRTSGtoF   = Opcode 0x90
     
     val opcode_notBoolean        = Opcode 0x91
+    val opcode_isTagged          = Opcode 0x92
     
     val opcode_equalWord         = Opcode 0xa0
  
@@ -428,6 +429,7 @@ struct
       val () = repUpdate(opcode_callFastRTSFtoF,  "callFullRTSFtoF")
       val () = repUpdate(opcode_callFastRTSGtoF,  "callFullRTSGtoF")
       val () = repUpdate(opcode_notBoolean,     "notBoolean")
+      val () = repUpdate(opcode_isTagged,       "isTagged")
       val () = repUpdate(opcode_equalWord,      "equalWord")
     in
       fun repr (Opcode n) : string = Array.sub (repArray, n);

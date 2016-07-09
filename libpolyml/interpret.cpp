@@ -1422,6 +1422,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_notBoolean:
             *sp = (*sp == True) ? False : True; break;
 
+        case INSTR_isTagged:
+            *sp = IS_INT(*sp) ? True : False; break;
+
         case INSTR_equalWord:
         {
             PolyWord u = *sp++;

@@ -474,20 +474,25 @@ struct
         |   BICBuiltIn0 { oper } => raise InternalError "intgcode: BICBuiltIn0"
 
         |   BICBuiltIn1 { oper, arg1 } =>
-            (
-                gencde (arg1, ToStack, NotEnd, loopAddr);
+            let
+                open BuiltIns
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+            in
                 case oper of
                     NotBoolean => genOpcode(opcode_notBoolean, cvec)
-            )
+                |   IsTaggedValue => genOpcode(opcode_isTagged, cvec)
+            end
 
         |   BICBuiltIn2 { oper, arg1, arg2 } =>
-            (
-                gencde (arg1, ToStack, NotEnd, loopAddr);
-                gencde (arg2, ToStack, NotEnd, loopAddr);
+            let
+                open BuiltIns
+                val () = gencde (arg1, ToStack, NotEnd, loopAddr)
+                val () = gencde (arg2, ToStack, NotEnd, loopAddr)
+            in
                 case oper of
                     EqualBitwiseWord => genOpcode(opcode_equalWord, cvec);
                 decsp() (* Removes one item from the stack. *)
-            )
+            end
 
         |   BICBuiltIn3 { oper, arg1, arg2, arg3 } => raise InternalError "intgcode: BICBuiltIn3"
 

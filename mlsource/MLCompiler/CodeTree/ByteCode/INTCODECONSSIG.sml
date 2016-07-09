@@ -32,6 +32,7 @@ sig
     val delHandler : opcode
     
     val opcode_notBoolean: opcode
+    val opcode_isTagged: opcode
     val opcode_equalWord: opcode
 
     val addrPlus  : addrs * int -> addrs
