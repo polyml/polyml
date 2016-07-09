@@ -148,8 +148,8 @@ struct
 
     (* Loads a local, argument or closure value; translating local
        stack addresses to real stack offsets. *)
-        fun locaddr(BICLoadArgument locn, _) = pushStackValue (numOfArgs-locn, 0)
-        |   locaddr(BICLoadLocal locn, _) =
+        fun locaddr(BICLoadArgument locn) = pushStackValue (numOfArgs-locn, 0)
+        |   locaddr(BICLoadLocal locn) =
             (
                 (* positive address - on the stack. *)
                     case STRETCHARRAY.sub (decVec, locn) of
@@ -158,13 +158,13 @@ struct
                     |   _ => (* Should be on the stack, not a function. *)
                         raise InternalError "locaddr: bad stack address"
             )
-        | locaddr(BICLoadClosure locn, _) =
+        | locaddr(BICLoadClosure locn) =
             ( (* closure-pointer relative *)
                 case loadStaticLink (locn+1, 1) of
                     Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
             )
-        |   locaddr(BICLoadRecursive, _) =
+        |   locaddr BICLoadRecursive =
             (
                 case loadStaticLink (0, 1) of
                     Recursive codeAddr => ( pushConst (codeAddr, cvec); incsp () )
@@ -484,10 +484,6 @@ struct
                 gencde (code, whereto, tailKind, loopAddr)
             end
 
-        |   BICKillItems { expression, ... } =>
-                (* This is inserted by the higher level code to get the use-counts
-                   correct.  Kill entries are BICExtract entries with lastRef true. *)
-                    gencde (expression, whereto, tailKind, loopAddr)
     in (* body of gencde *) 
 
       (* This ensures that there is precisely one item on the stack if
@@ -547,7 +543,7 @@ struct
      function may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
     (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
-   and genProc (lam as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
+   and genProc (lam: bicLambdaForm as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
         let
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
@@ -559,7 +555,7 @@ struct
         
             (* Code-gen function. No non-local references. *)
              val res : address =
-               codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
+               codegen (#body lam, newCode, loadRecLink, List.length (#argTypes lam), parameters);
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
             val () = Address.lock closure
 
@@ -587,7 +583,7 @@ struct
 
         (* Code-gen function. *)
         val res : address =
-          codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters);
+          codegen (#body lam, newCode, loadSl, List.length (#argTypes lam), parameters);
 
         val sizeOfClosure = List.length (#closure lam) + 1;
       in
@@ -613,7 +609,7 @@ struct
              | loadItems (v :: vs, addr : int) =
              let
                (* Generate an item and move it into the vector *)
-               val () = gencde (v, ToStack, NotEnd, NONE);
+               val () = gencde (BICExtract v, ToStack, NotEnd, NONE);
                val () = genMoveToVec(addr, cvec);
                val () = decsp ();
              in
@@ -635,7 +631,7 @@ struct
            val () = incsp ();
            
            val () =
-             apply (fn (pt: backendIC) => gencde (pt, ToStack, NotEnd, NONE)) (#closure lam);
+             apply (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam);
                 
            val () = genTuple (sizeOfClosure, cvec);
          in
@@ -720,7 +716,7 @@ struct
     case #function eval of
        (* The function is being loaded from the stack or closure so it
           may be a static-link function. *)
-      BICExtract(ext, _) =>
+      BICExtract ext =>
         let
             (* Since the function is on the stack there can be no side-effects
                in loading it. Can therefore load the arguments now. *)
@@ -988,7 +984,7 @@ struct
    copyCode cvec
  end (* codegen *);
 
-    fun gencodeLambda({ name, body, argLifetimes, ...}:bicLambdaForm, parameters, closure) =
+    fun gencodeLambda({ name, body, argTypes, ...}:bicLambdaForm, parameters, closure) =
     let
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
@@ -998,16 +994,15 @@ struct
 
         (* This function must have no non-local references. *)
         val codeAddr =
-            codegen (body, newCode, loadRecLink, List.length argLifetimes, parameters)
+            codegen (body, newCode, loadRecLink, List.length argTypes, parameters)
     in
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
     end
 
     local
-        val makeEntryPoint:
-            Thread.Thread.thread * string -> machineWord =
-                RunCall.rtsCall2 "PolyCreateEntryPointObject"
+        val makeEntryPoint: string -> machineWord =
+            RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point
 
         fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
         let
@@ -1015,7 +1010,7 @@ struct
             val cvec = codeCreate (entryName, debugArgs)
             val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
 
-            val entryPointAddr = makeEntryPoint(Thread.Thread.self(), entryName)
+            val entryPointAddr = makeEntryPoint entryName
 
             (* Each argument is at the same offset, essentially we're just shifting them *)
             fun genLocals 0 = ()
