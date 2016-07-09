@@ -129,6 +129,10 @@
 #include "Console.h"
 #endif
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
+
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
@@ -143,6 +147,12 @@
 #define PFLAG_ASYNCH_ONCE   6   // First handle asynchronously then switch to synch.
 #define PFLAG_INTMASK       6   // Mask of the above bits
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
+
+    { NULL, NULL} // End of list.
+};
 
 class Processes: public ProcessExternal, public RtsModule
 {
@@ -151,6 +161,7 @@ public:
     virtual void Init(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);

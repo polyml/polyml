@@ -60,6 +60,11 @@
 #include "statistics.h"
 #include "../polystatistics.h"
 #include "gc.h"
+#include "rts_module.h"
+
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
 
 #define SAVE(x) taskData->saveVec.push(x)
 
@@ -577,3 +582,19 @@ POLYUNSIGNED PolySpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord a
     if (result == 0) return TAGGED(0).AsUnsigned();
     else return result->Word().AsUnsigned();
 }
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
+class PolySpecificModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static PolySpecificModule polySpecificModule;

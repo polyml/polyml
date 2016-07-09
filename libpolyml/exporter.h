@@ -35,19 +35,6 @@ class TaskData;
 extern Handle exportNative(TaskData *mdTaskData, Handle args);
 extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
-    DLLEXPORT POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
-}
-
 // This is the base class for the exporters for the various object-code formats.
 class Exporter
 {

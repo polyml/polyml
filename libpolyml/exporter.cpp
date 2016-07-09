@@ -72,6 +72,7 @@
 #include "processes.h" // For IO_SPACING
 #include "sys.h" // For EXC_Fail
 #include "rtsentry.h"
+#include "rts_module.h"
 
 #include "pexport.h"
 
@@ -82,6 +83,11 @@
 #elif defined(HAVE_MACH_O_RELOC_H)
 #include "machoexport.h"
 #endif
+
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
+}
 
 /*
 To export the function and everything reachable from it we need to copy
@@ -734,3 +740,19 @@ unsigned long ExportStringTable::makeEntry(const char *str)
     return entry;
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyExport",                     (polyRTSFunction)&PolyExport},
+    { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
+
+    { NULL, NULL} // End of list.
+};
+
+class ExporterModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static ExporterModule exporterModule;

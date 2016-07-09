@@ -153,6 +153,11 @@ typedef char TCHAR;
 #pragma warning(disable:4996)
 #endif
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyChDir(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord strm, PolyWord arg);
+}
+
 /* Points to tokens which represent the streams and the stream itself. 
    For each stream a single word token is made containing the file 
    number, and its address is put in here. When the stream is closed 
@@ -1920,6 +1925,14 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
     else return result->Word().AsUnsigned();
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
+    { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class BasicIO: public RtsModule
 {
 public:
@@ -1927,6 +1940,7 @@ public:
     virtual void Start(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

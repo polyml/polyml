@@ -238,14 +238,17 @@ B      X_Acc_Object            XtAccelerators    acc                GetAcc
 #include "xcall_numbers.h"
 #include "diagnostics.h"
 #include "processes.h"
-#include "rts_module.h"
 #include "save_vec.h"
 #include "polystring.h"
 #include "scanaddrs.h"
 #include "memmgr.h"
 #include "machine_dep.h"
 #include "processes.h"
+#include "rts_module.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params);
+}
 /* The following are only forward so we can declare attributes */
 static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((noreturn));
 
@@ -9437,11 +9440,19 @@ static int XWindowsError(Display *display, XErrorEvent *error)
   return 0; /* DUMMY value - SPF 6/1/94 */
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyXWindowsGeneral",            (polyRTSFunction)&PolyXWindowsGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class XWinModule: public RtsModule
 {
 public:
     virtual void Init(void);
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -9559,7 +9570,7 @@ void XWinModule::Init(void)
     XSetErrorHandler(XWindowsError);
 }
 
-DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params)
+POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();
@@ -9590,8 +9601,13 @@ DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params
 #include "save_vec.h"
 #include "machine_dep.h"
 #include "processes.h"
+#include "rts_module.h"
 
 #include "xwindows.h"
+
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params);
+}
 
 Handle XWindows_c(TaskData *taskData, Handle/*params*/)
 {
@@ -9601,7 +9617,7 @@ Handle XWindows_c(TaskData *taskData, Handle/*params*/)
     return taskData->saveVec.push(TAGGED(0)); /* just to keep lint happy */
 }
 
-DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord /*params*/)
+POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord /*params*/)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     taskData->PreRTSCall();
@@ -9613,5 +9629,22 @@ DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord /*para
     taskData->PostRTSCall();
     return TAGGED(0).AsUnsigned(); // Return unit since we're raising an exception
 }
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyXWindowsGeneral",            (polyRTSFunction)&PolyXWindowsGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
+class XWinModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static XWinModule xwinModule;
+
 #endif
 

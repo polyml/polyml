@@ -26,16 +26,4 @@
 // Called by the thread to make the request.
 void ShareData(TaskData *taskData, Handle root);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root);
-}
-
 #endif

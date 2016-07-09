@@ -131,6 +131,11 @@
 #include "save_vec.h"
 #include "rts_module.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+}
+
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -389,7 +394,6 @@ static void restoreSignals(void)
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
-    TryAgain:
     int c = get_C_long(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
@@ -586,27 +590,30 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 21: /* Pause until signal. */
-        {
             /* This never returns.  When a signal is handled it will
                be interrupted. */
+       while (true)
+       {
             processes->ThreadPause(taskData);
             if (lastSigCount != receivedSignalCount)
                 raise_syscall(taskData, "Call interrupted by signal", EINTR);
-            goto TryAgain;
-        }
+       }
 
     case 22: /* Sleep until given time or until a signal.  Note: this is called
             with an absolute time as an argument and returns a relative time as
             result.  This RTS call is tried repeatedly until either the time has
             expired or a signal has occurred. */
+        while (true)
         {
             struct timeval tv;
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
+            Handle hSave = taskData->saveVec.mark();
             Handle hTime = args;
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
             unsigned long secs = get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs = get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            taskData->saveVec.reset(hSave);
             /* Has the time expired? */
             if (gettimeofday(&tv, NULL) != 0)
                 raise_syscall(taskData, "gettimeofday failed", errno);
@@ -619,11 +626,13 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 processes->ThreadPause(taskData);
                 if (lastSigCount != receivedSignalCount)
                     raise_syscall(taskData, "Call interrupted by signal", EINTR);
-                goto TryAgain;
+                // And loop
             }
-            else processes->TestAnyEvents(taskData); // Check for interrupts anyway
-
-            return Make_fixed_precision(taskData, 0);
+            else
+            {
+                processes->TestAnyEvents(taskData); // Check for interrupts anyway
+                return Make_fixed_precision(taskData, 0);
+            }
         }
     
     case 23: /* Set uid. */
@@ -1284,7 +1293,7 @@ TryAgain:
     int callFlags = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
     int flags = callFlags | WNOHANG; // Add in WNOHANG so we never block.
     pid_t pres = 0;
-    int status;
+    int status = 0;
     switch (kind)
     {
     case 0: /* Wait for any child. */
@@ -1320,7 +1329,8 @@ TryAgain:
     {
         Handle result, pidHandle, resHandle;
         pidHandle = Make_fixed_precision(taskData, pres);
-        resHandle = Make_fixed_precision(taskData, status);
+        // If the pid is zero status may not be a valid value and may overflow.
+        resHandle = Make_fixed_precision(taskData, pres == 0 ? 0: status);
 
         result = ALLOC(2);
         DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(pidHandle));
@@ -2071,10 +2081,19 @@ static int findPathVar(TaskData *taskData, PolyWord ps)
     raise_syscall(taskData, "pathconf argument not found", EINVAL);
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
+    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class UnixSpecific: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

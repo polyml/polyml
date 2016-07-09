@@ -27,10 +27,21 @@
 #error "No configuration file"
 #endif
 
-#include "rts_module.h"
-#include "diagnostics.h"
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
 
-#define MAX_MODULES 20
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x) assert(x)
+
+#else
+#define ASSERT(x)
+#endif
+
+#include "rts_module.h"
+
+#define MAX_MODULES 30
 
 static RtsModule *module_table[MAX_MODULES];
 static unsigned modCount = 0;
@@ -39,8 +50,7 @@ static unsigned modCount = 0;
 // initialisation phase.
 void RtsModule::RegisterModule(void)
 {
-    if (modCount == MAX_MODULES)
-        Crash("Too many run-time modules\n");
+    ASSERT(modCount < MAX_MODULES);
     module_table[modCount++] = this;
 }
 
@@ -66,4 +76,21 @@ void GCModules(ScanAddress *process)
 {
     for(unsigned i = 0; i < modCount; i++)
         module_table[i]->GarbageCollect(process);
+}
+
+polyRTSFunction FindModuleEntryPoint(const char *name)
+{
+    for(unsigned i = 0; i < modCount; i++)
+    {
+        entrypts entryPtTable = module_table[i]->GetRTSCalls();
+        if (entryPtTable != 0)
+        {
+            for (struct _entrypts *ep = entryPtTable; ep->entry != NULL; ep++)
+            {
+                if (strcmp(name, ep->name) == 0)
+                    return ep->entry;
+            }
+        }
+    }
+    return 0; // Not there
 }

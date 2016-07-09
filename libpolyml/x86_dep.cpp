@@ -1750,6 +1750,21 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 break;
             }
 
+        case 0xf2: // Beginning of SSE2 sequence.  Can also be RETNE but we don't use that.
+            {
+                pt++;
+                if (*pt != 0x0f) Crash("Unknown opcode 0xf2:%d at %p\n", *pt, pt);
+                pt++;
+                switch (*pt)
+                {
+                case 0x10:
+                case 0x11: pt++; skipea(&pt, process, false); break;
+
+                default: Crash("Unknown opcode 0xf2:0x0f:%d at %p\n", *pt, pt);
+                }
+                break;
+            }
+
         default: Crash("Unknown opcode %d at %p\n", *pt, pt);
         }
     }

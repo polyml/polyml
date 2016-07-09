@@ -56,20 +56,4 @@ extern Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x);
 
 extern Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord mode, PolyWord digits);
-    DLLEXPORT POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-    DLLEXPORT POLYUNSIGNED PolyRealBoxedFromString(PolyObject *threadId, PolyWord str);
-    DLLEXPORT POLYUNSIGNED PolyRealBoxedToLongInt(PolyObject *threadId, PolyWord arg);
-    DLLEXPORT double PolyRealSqrt(double arg);
-}
-
 #endif

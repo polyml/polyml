@@ -31,16 +31,4 @@ class ScanAddress;
 
 extern Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h);
 
-#ifndef DLLEXPORT
-#ifdef _MSC_VER
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-#endif
-
-extern "C" {
-    DLLEXPORT POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
-}
-
 #endif

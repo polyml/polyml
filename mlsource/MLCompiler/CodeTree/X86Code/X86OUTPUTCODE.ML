@@ -182,7 +182,7 @@ struct
     fun procName       (Code {procName,...})       = procName
     and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
 
-  (* %ebp points to a structure that interfaces to the RTS.  These are
+  (* EBP/RBP points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
     val memRegLocalMPointer       = if isX64 then 0 else ~28 (* Not used in 64-bit *)
     and memRegHandlerRegister     = if isX64 then ~80 else ~24
@@ -526,23 +526,45 @@ struct
     |   nReg(GenReg(GeneralReg(r, true))) = Word8.toInt r + 8
     |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
     |   nReg(XMMReg(SSE2Reg r)) = Word8.toInt r + 23
+        
+    datatype opsize = SZByte | SZDWord | SZQWord
+    
+    val sz32_64 = if isX64 then SZQWord else SZDWord
 
-    fun genRegRepr r =
-          if r = eax then (if isX64 then "%rax" else "%eax") else
-          if r = ebx then (if isX64 then "%rbx" else "%ebx") else
-          if r = ecx then (if isX64 then "%rcx" else "%ecx") else
-          if r = edx then (if isX64 then "%rdx" else "%edx") else
-          if r = esp then (if isX64 then "%rsp" else "%esp") else
-          if r = ebp then (if isX64 then "%rbp" else "%ebp") else
-          if r = esi then (if isX64 then "%rsi" else "%esi") else
-          if r = edi then (if isX64 then "%rdi" else "%edi") else
-          (* X86/64 registers *) "%r" ^ Int.toString (nReg(GenReg r))
-   
+    fun genRegRepr(GeneralReg (0w0, false), SZByte) = "al"
+    |   genRegRepr(GeneralReg (0w1, false), SZByte) = "cl"
+    |   genRegRepr(GeneralReg (0w2, false), SZByte) = "dl"
+    |   genRegRepr(GeneralReg (0w3, false), SZByte) = "bl"
+    |   genRegRepr(GeneralReg (0w4, false), SZByte) = "ah" (* TODO: May be different if there's a rex code *)
+    |   genRegRepr(GeneralReg (0w5, false), SZByte) = "ch"
+    |   genRegRepr(GeneralReg (0w6, false), SZByte) = "dh"
+    |   genRegRepr(GeneralReg (0w7, false), SZByte) = "bh"
+    |   genRegRepr(GeneralReg (reg, true),  SZByte) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "b"
+    |   genRegRepr(GeneralReg (0w0, false), SZDWord) = "eax"
+    |   genRegRepr(GeneralReg (0w1, false), SZDWord) = "ecx"
+    |   genRegRepr(GeneralReg (0w2, false), SZDWord) = "edx"
+    |   genRegRepr(GeneralReg (0w3, false), SZDWord) = "ebx"
+    |   genRegRepr(GeneralReg (0w4, false), SZDWord) = "esp"
+    |   genRegRepr(GeneralReg (0w5, false), SZDWord) = "ebp"
+    |   genRegRepr(GeneralReg (0w6, false), SZDWord) = "esi"
+    |   genRegRepr(GeneralReg (0w7, false), SZDWord) = "edi"
+    |   genRegRepr(GeneralReg (reg, true),  SZDWord) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "d"
+    |   genRegRepr(GeneralReg (0w0, false), SZQWord) = "rax"
+    |   genRegRepr(GeneralReg (0w1, false), SZQWord) = "rcx"
+    |   genRegRepr(GeneralReg (0w2, false), SZQWord) = "rdx"
+    |   genRegRepr(GeneralReg (0w3, false), SZQWord) = "rbx"
+    |   genRegRepr(GeneralReg (0w4, false), SZQWord) = "rsp"
+    |   genRegRepr(GeneralReg (0w5, false), SZQWord) = "rbp"
+    |   genRegRepr(GeneralReg (0w6, false), SZQWord) = "rsi"
+    |   genRegRepr(GeneralReg (0w7, false), SZQWord) = "rdi"
+    |   genRegRepr(GeneralReg (reg, true),  SZQWord) = "r" ^ Int.toString(Word8.toInt reg +8)
+    |   genRegRepr _ = "unknown" (* Suppress warning because word values are not exhaustive. *)
+
     and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
     
     and xmmRegRepr(SSE2Reg n) = "xmm" ^ Word8.toString n
 
-    fun regRepr(GenReg r) = genRegRepr r
+    fun regRepr(GenReg r) = genRegRepr (r, sz32_64)
     |   regRepr(FPReg r) = fpRegRepr r
     |   regRepr(XMMReg r) = xmmRegRepr r
 
@@ -774,13 +796,11 @@ struct
     |   MOVL_32_64_R of Word8.word
     |   MOVL_32_A
     |   MOVB_8_A
-    |   ESCAPE
     |   POP_A
     |   RET
     |   RET_16
     |   CondJump of branchOps
     |   Arith of arithOp * Word8.word
-    |   STC
     |   Group3_A
     |   Group3_a
     |   Group2_8_A
@@ -791,11 +811,11 @@ struct
     |   TEST_ACC8
     |   LOCK_XADD
     |   FPESC of Word8.word
-    |   XCHNG
     |   REP (* Rep prefix *)
-    |   SAHF
     |   MOVZX (* Needs escape code. *)
     |   IMULRR (* Needs escape code. *)
+    |   SSE2Load (* movsd with register destination - needs escape sequence. *)
+    |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
 
 
     fun opToInt Group1_8_A    =  0wx83
@@ -815,13 +835,11 @@ struct
     |   opToInt (MOVL_32_64_R reg) =  0wxb8 + reg
     |   opToInt MOVL_32_A     =  0wxc7
     |   opToInt MOVB_8_A      =  0wxc6
-    |   opToInt ESCAPE        =  0wx0f
     |   opToInt POP_A         =  0wx8f
     |   opToInt RET           = 0wxc3
     |   opToInt RET_16        = 0wxc2
     |   opToInt (CondJump opc) = 0wx70 + branchOpToWord opc
     |   opToInt (Arith (ao,dw)) = arithOpToWord ao * 0w8 + dw
-    |   opToInt STC           = 0wxf9
     |   opToInt Group3_A      = 0wxf7
     |   opToInt Group3_a      = 0wxf6
     |   opToInt Group2_8_A    = 0wxc1
@@ -832,11 +850,11 @@ struct
     |   opToInt TEST_ACC8     = 0wxa8
     |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
-    |   opToInt XCHNG         = 0wx87
     |   opToInt REP           = 0wxf3
-    |   opToInt SAHF          = 0wx9e
     |   opToInt MOVZX         = 0wxb6 (* Needs escape code. *)
     |   opToInt IMULRR        = 0wxaf (* Needs escape code. *)
+    |   opToInt SSE2Load      = 0wx10 (* Needs F2 0F escape. *)
+    |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
 
 (* ...
 
@@ -1225,9 +1243,11 @@ SS-relative addressing modes:
     val maxInstrSize = if isX64 then 15 else 12
     
     (* A few instructions require an escape. *)
-    fun genEscape(MOVZX, cvec) = gen8u(opToInt ESCAPE, cvec)
-    |   genEscape(LOCK_XADD, cvec) = gen8u(opToInt ESCAPE, cvec)
-    |   genEscape(IMULRR, cvec) = gen8u(opToInt ESCAPE, cvec)
+    fun genEscape(MOVZX, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(IMULRR, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(SSE2Load, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -1338,6 +1358,34 @@ SS-relative addressing modes:
         |   _       => ()
     end
 
+    fun genRex(opb, rrX, rbX, riX, code) =
+    let
+        (* We need a rex prefix if we need to set the length to 64-bit. *)
+        val need64bit =
+            case opb of
+                Group1_8_A => isX64 (* Arithmetic operations - must be 64-bit *)
+            |   Group1_32_A => isX64 (* Arithmetic operations - must be 64-bit *)
+            |   Group2_1_A => isX64 (* 1-bit shifts - must be 64-bit *)
+            |   Group2_8_A => isX64 (* n-bit shifts - must be 64-bit *)
+            |   Group2_CL_A => isX64 (* Shifts by value in CL *)
+            |   Group3_A => isX64 (* Test, Not, Mul etc. *)
+            |   Arith _ => isX64
+            |   MOVL_A_R => isX64 (* Needed *)
+            |   MOVL_R_A => isX64 (* Needed *)
+            |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVZX => isX64 (* Needed to ensure the result is 64-bits *)
+            |   MOVL_32_64_R _ => isX64 (* Needed *)
+            |   MOVL_32_A => isX64 (* Needed *)
+            |   IMULRR => isX64 (* Needed to ensure the result is 64-bits *)
+            |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
+            (* Group5 - We only use 2/4/6 and they don't need prefix *)
+            |   _ => false
+    in
+        if need64bit orelse rrX orelse rbX orelse riX
+        then gen8u(rex{w=need64bit, r=rrX, b=rbX, x = riX}, code)
+        else ()
+    end
+
     (* Generate a opcode plus a modrm byte.  *)
     fun genOpEA(opb:opCode, offset: LargeInt.int, rb: genReg, r: genReg, cvec): unit =
     let
@@ -1347,11 +1395,25 @@ SS-relative addressing modes:
         doPending (cvec, maxInstrSize);
         (* Any lock prefix comes before any REX prefix. *)
         case opb of LOCK_XADD => gen8u(0wxF0, cvec) | _ => ();
-        (* For the moment always put in a REX prefix. *)
-        if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x = false}, cvec) else ();
+        (* Add any necessary prefix. *)
+        genRex(opb, rrX, rbX, false, cvec);
         (* Generate the escape codes for the opcodes that need them. *)
         genEscape(opb, cvec);
         (*if offset < 0 andalso rb = esp then raise InternalError "Negative stack offset" else ();*)
+        gen8u(opToInt opb, cvec);
+        genEACode(offset, rbC, rrC, cvec)
+    end
+
+    fun genMMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC, cvec) =
+    let
+        val (rbC, rbX) = getReg rb
+        (* Currently the only XMM registers we use don't require a prefix. *)
+    in
+        doPending (cvec, maxInstrSize);
+        (* Add any necessary prefix. *)
+        genRex(opb, false, rbX, false, cvec);
+        (* Generate the escape codes for the opcodes that need them. *)
+        genEscape(opb, cvec);
         gen8u(opToInt opb, cvec);
         genEACode(offset, rbC, rrC, cvec)
     end
@@ -1361,22 +1423,9 @@ SS-relative addressing modes:
     fun genOpPlus2(opb:opCode, offset: LargeInt.int, rb: genReg, op2: Word8.word, cvec): unit =
     let
         val (rbC, rbX) = getReg rb
-        val need64bit =
-            case opb of
-                MOVB_8_A => false
-            |   Group3_a => false
-            |   FPESC _ => false
-            |   Group5 => false (* Call/Jmp/Push - size is intrinsic *)
-            |   Group1_8_A => isX64 (* Arithmetic operations - must be 64-bit *)
-            |   Group2_1_A => isX64 (* 1-bit shifts - must be 64-bit *)
-            |   Group2_8_A => isX64 (* n-bit shifts - must be 64-bit *)
-            |   _ => isX64 (* Anything else?  Assume it requires prefix. *)
     in
         doPending (cvec, maxInstrSize);
-        (* For the moment always put in a REX prefix. *)
-        (* If (opb = Group5 andalso op2 = 6 (* push *) orelse opb = POP_A)
-           andalso not rbX  then we don't need it. *)
-        if need64bit orelse rbX then gen8u(rex{w=need64bit, r=false, b=rbX, x = false}, cvec) else ();
+        genRex(opb, false, rbX, false, cvec);
         gen8u(opToInt opb, cvec);
         genEACode(offset, rbC, op2, cvec)
     end
@@ -1388,8 +1437,7 @@ SS-relative addressing modes:
         val (rrC, rrX) = getReg rd
     in
         doPending (cvec, maxInstrSize);
-        (* For the moment always put in a REX prefix. *)
-        if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x = false}, cvec) else ();
+        genRex(opb, rrX, rbX, false, cvec);
         genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
         genmodrm(Register, rrC, rbC, cvec)
@@ -1400,8 +1448,7 @@ SS-relative addressing modes:
         val (rrC, rrX) = getReg rd
     in
         doPending (cvec, maxInstrSize);
-        (* For the moment always put in a REX prefix. *)
-        if isX64 then gen8u(rex{w=true, r=false, b=rrX, x = false}, cvec) else ();
+        genRex(opb, false, rrX, false, cvec);
         gen8u(opToInt opb, cvec);
         genmodrm(Register, op2, rrC, cvec)
     end
@@ -1439,8 +1486,7 @@ SS-relative addressing modes:
             end
     in
         doPending (cvec, maxInstrSize);
-        (* For the moment always put in a REX prefix. *)
-        if isX64 then gen8u(rex{w=true, r=rrX, b=rbX, x=riX}, cvec) else ();
+        genRex(opb, rrX, rbX, riX, cvec);
 
         genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
@@ -2004,13 +2050,16 @@ SS-relative addressing modes:
     |   PreAddDetag of genReg
     |   TestOverflow
     |   SignedMultiply of { source: genReg, output: genReg }
+    |   XMMLoadFromMemory of { base: genReg, offset: int, output: xmmReg }
+    |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
 
     type operations = operation list
 
     fun printOperation(operation, stream) =
     let
-        val printGReg = stream o genRegRepr
-        and printFPReg = stream o fpRegRepr
+        fun printGReg r = stream(genRegRepr(r, sz32_64))
+        val printFPReg = stream o fpRegRepr
+        and printXMMReg = stream o xmmRegRepr
         fun printBaseOffset(b, x, i) =
         (
             stream(Int.toString i); stream "("; printGReg b; stream ")";
@@ -2109,7 +2158,7 @@ SS-relative addressing modes:
         |   StoreRegToMemory { toStore, address } =>
             (
                 stream "StoreRegToMemory "; printMemAddress address;
-                stream " <= "; stream(genRegRepr toStore)
+                stream " <= "; printGReg toStore
             )
 
         |   StoreConstToMemory { toStore, address } =>
@@ -2126,7 +2175,7 @@ SS-relative addressing modes:
         |   StoreByteRegToMemory { toStore, address } =>
             (
                 stream "StoreByteRegToMemory "; printMemAddress address;
-                stream " <= "; stream(genRegRepr toStore)
+                stream " <= "; stream(genRegRepr(toStore, SZByte))
             )
 
         |   StoreByteConstToMemory { toStore, address } =>
@@ -2227,6 +2276,14 @@ SS-relative addressing modes:
         |   PreAddDetag reg => (stream "Detag "; printGReg reg)
         |   TestOverflow => stream "TestOverflow"
         |   SignedMultiply {source, output } => (stream "SignedMultiply"; stream " "; printGReg source; stream " *=>"; printGReg output)
+        |   XMMLoadFromMemory { base, offset, output } =>
+            (
+                stream "MoveMR "; printBaseOffset(base, NoIndex, offset); stream " => "; printXMMReg output
+            )
+        |   XMMStoreToMemory { toStore, base, offset } =>
+            (
+                stream "MoveRM "; printXMMReg toStore;  stream " => "; printBaseOffset(base, NoIndex, offset)
+            )
         ;
  
         stream "\n"
@@ -2685,10 +2742,7 @@ SS-relative addressing modes:
             (
                 checkSources[base, output]; addDests[output];
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
-                genOpEA (LOCK_XADD, 0, base, output, code); (*0wxF0
-                gen8u (0wx0f (* ESCAPE *), code);
-                gen8u(0wxC1 (* xaddl *), code);
-                genEA(0, base, output, code);*)
+                genOpEA (LOCK_XADD, 0, base, output, code);
                 cgOp remainder
             )
 
@@ -3184,6 +3238,20 @@ SS-relative addressing modes:
                 genOpReg(IMULRR (* 2 byte opcode *), output, source, code);
                 cgOp remainder
             )
+
+        |   cgOp (XMMLoadFromMemory { base, offset, output } :: remainder) =
+            (
+                checkSources[base]; addDests[output];
+                genMMXEA(SSE2Load, LargeInt.fromInt offset, base, output, code);
+                cgOp remainder
+            )
+
+        |   cgOp (XMMStoreToMemory { toStore, base, offset } :: remainder) =
+            (
+                checkSources[base]; checkSources[toStore];
+                genMMXEA(SSE2Store, LargeInt.fromInt offset, base, toStore, code);
+                cgOp remainder
+            )
     in
         cgOp ops
     end
@@ -3194,26 +3262,11 @@ SS-relative addressing modes:
         val print = printStream
         val ptr = ref 0w0;
         (* prints a string representation of a number *)
-        fun printHex v = print(LargeInt.fmt StringCvt.HEX v)
- 
+        fun printValue v =
+            if v < 0 then (print "-"; print(LargeInt.toString  (~ v))) else print(LargeInt.toString v)
+
         infix 3 +:= ;
         fun (x +:= y) = (x := !x + (y:word));
-
-        fun print32 () =
-        let
-            val valu = get32s (!ptr, seg); 
-            val () = (ptr +:= 0w4);
-        in
-            printHex valu
-        end
-
-        fun print64 () =
-        let
-            val valu = get64s(!ptr, seg);
-        in
-            printHex valu;
-            ptr +:= 0w8
-        end
 
         fun get16s (a, seg: cseg) : int =
         let
@@ -3224,88 +3277,196 @@ SS-relative addressing modes:
             (b1' * 0x100) + b0
         end
  
-        fun print16 () = printHex(LargeInt.fromInt(get16s (!ptr, seg)) before (ptr +:= 0w2))
-        and print8 () = printHex(LargeInt.fromInt(get8s (!ptr, seg)) before (ptr +:= 0w1))
+        fun print32 () = printValue (get32s (!ptr, seg)) before (ptr +:= 0w4)
+        and print64 () = printValue (get64s (!ptr, seg)) before (ptr +:= 0w8)
+        and print16 () = printValue (LargeInt.fromInt(get16s (!ptr, seg)) before (ptr +:= 0w2))
+        and print8 () = printValue (LargeInt.fromInt(get8s (!ptr, seg)) before (ptr +:= 0w1))
  
         fun printJmp () =
         let
-            val valu = get8s (!ptr, seg) 
-            val () = ptr +:= 0w1;
+            val valu = get8s (!ptr, seg)  before ptr +:= 0w1
         in
-            printHex (LargeInt.fromInt(valu + Word.toInt(!ptr)))
-        end;
+            print (Word.fmt StringCvt.HEX (Word.fromInt valu + !ptr))
+        end
  
         (* Print an effective address. *)
-        fun printEA rex =
+        fun printEA(rex, sz) =
         let
-            val modrm = Word8.toInt (csegGet (seg, !ptr));
-            val () = (ptr +:= 0w1);
-            val md = modrm div 64;
-            val rm = modrm mod 8;
+            val modrm = csegGet (seg, !ptr)
+            val () = ptr +:= 0w1
             (* Decode the Rex prefix if present. *)
             val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
+            val prefix =
+                case sz of
+                    SZByte  => "byte ptr "
+                |   SZDWord => "dword ptr "
+                |   SZQWord => "qword ptr "
         in
-            if md = 3
-            then print (genRegRepr (mkReg(Word8.fromInt rm, rexB)))
+            case (modrm >>- 0w6, modrm andb8 0w7, isX64) of
+                (0w3, rm, _) => print (genRegRepr (mkReg(rm, rexB), sz))
       
-            else if rm = 4
-            then
-            let (* s-i-b present. *)
-                val sib = Word8.toInt (csegGet (seg, !ptr));
-                val () = (ptr +:= 0w1);
-                val ss    = sib div 64;
-                val index = (sib div 8) mod 8;
-                val base   = sib mod 8;
-            in
-                if md = 1 then print8 ()
-                else if md = 2 orelse base = 5 (* andalso md=0 *) 
-                then print32 ()
-                else ();
+            |   (md, 0w4, _) =>
+                let (* s-i-b present. *)
+                    val sib = csegGet (seg, !ptr)
+                    val () = ptr +:= 0w1
+                    val ss    = sib >>- 0w6
+                    val index = (sib  >>- 0w3) andb8 0w7
+                    val base   = sib andb8 0w7
+                in
+                    print prefix;
+
+                    case (md, base, isX64) of
+                        (0w1, _, _) => print8 ()
+                    |   (0w2, _, _) => print32 ()
+                    |   (0w0, 0w5, _) => print32 () (* Absolute in 32-bit mode.  PC-relative in 64-bit ?? *)
+                    |   _ => ();
           
-                print "(";
+                    print "(";
         
-                if md <> 0 orelse base <> 5
-                then print (genRegRepr (mkReg (Word8.fromInt base, rexB)))
-                else ();
+                    if md <> 0w0 orelse base <> 0w5
+                    then print (genRegRepr (mkReg (base, rexB), sz32_64))
+                    else if isX64 then print "rip" else ();
         
-                if index <> 4 (* No index. *)
-                then 
-                    print ("," ^ genRegRepr (mkReg(Word8.fromInt index, rexX)) ^ 
-                        (if ss = 0 then ",1"
-                        else if ss = 1 then ",2"
-                        else if ss = 2 then ",4" (* N.B. *not* 3 - bugfix 29/3/95 *)
-                        else ",8"))
-                else ();
+                    if index <> 0w4 (* No index. *)
+                    then 
+                        print ("," ^ genRegRepr (mkReg(index, rexX), sz32_64) ^ 
+                            (if ss = 0w0 then "*1"
+                            else if ss = 0w1 then "*2"
+                            else if ss = 0w2 then "*4"
+                            else "*8"))
+                    else ();
         
-                print ")"
-            end
+                    print ")"
+                end
       
-            else (* no s-i-b. *) if md = 0 andalso rm = 5
-            then (* Absolute address. *)
-                (print "("; print32 (); print ")")
-            else (* register plus offset. *)
-            (
-                if md = 1 then print8 ()
-                else if md = 2 then print32 ()
-                else ();
+            |   (0w0, 0w5, false) => (* Absolute address.*) (print prefix; print32 ())
+
+            |   (0w0, 0w5, _) => (* PC-relative in 64-bit  *)
+                        (print prefix; print ".+"; print32 ())
+            
+            |   (md, rm, _) => (* register plus offset. *)
+                (
+                    print prefix;
+                    if md = 0w1 then print8 ()
+                    else if md = 0w2 then print32 ()
+                    else ();
          
-                print ("(" ^ genRegRepr (mkReg(Word8.fromInt rm, rexB)) ^ ")")
-            )
+                    print ("(" ^ genRegRepr (mkReg(rm, rexB), sz32_64) ^ ")")
+                )
         end;
  
         fun printArith opc =
             print
                (case opc of
-                  0 => "add"
-                | 1 => "or"
-                | 2 => "adc"
-                | 3 => "sbb"
-                | 4 => "and"
-                | 5 => "sub"
-                | 6 => "xor"
-                | _ => "cmp"
+                  0 => "add "
+                | 1 => "or  "
+                | 2 => "adc "
+                | 3 => "sbb "
+                | 4 => "and "
+                | 5 => "sub "
+                | 6 => "xor "
+                | _ => "cmp "
+               )
+
+        fun printGvEv (opByte, rex, rexR, sz) =
+        let
+            (* Register is in next byte. *)
+            val nb = csegGet (seg, !ptr)
+            val reg = (nb >>- 0w3) andb8 0w7
+        in
+            printArith(Word8.toInt((opByte div 0w8) mod 0w8));
+            print "\t";
+            print (genRegRepr (mkReg(reg, rexR), sz));
+            print ",";
+            printEA(rex, sz)
+        end
+        
+        fun printMovCToR (opByte, sz, rexB) =
+        (
+            print "mov \t";
+            print(genRegRepr (mkReg (opByte mod 0w8, rexB), sz));
+            print ",";
+            case sz of SZByte => print "???" | SZDWord => print32 () | SZQWord => print64 ()
+        )
+        
+        fun printShift (opByte, rex, sz) =
+        let
+            (* Opcode is determined by next byte. *)
+            val nb = Word8.toInt (csegGet (seg, !ptr))
+            val opc = (nb div 8) mod 8
+        in
+            print
+               (case opc of
+                  4 => "shl "
+                | 5 => "shr "
+                | 7 => "sar "
+                | _ => "???"
                );
+            print "\t";
+            printEA(rex, sz);
+            print ",";
+            if opByte = opToInt Group2_1_A then print "1"
+            else if opByte = opToInt Group2_CL_A then print "cl"
+            else print8 ()
+        end
+        
+        fun printFloat (opByte, rex) =
+        let
+            (* Opcode is in next byte. *)
+            val opByte2  = csegGet (seg, !ptr)
+            val nnn = (opByte2 >>- 0w3) andb8 0w7
+            val escNo = opByte andb8 0wx7
+        in
+            if (opByte2 andb8 0wxC0) = 0wxC0
+            then (* mod = 11 *)
+            (
+                case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
+                    (0w1, 0w4, 0w0) => print "fchs"
+                |   (0w1, 0w5, 0w6) => print "fldz"
+                |   (0w1, 0w5, 0w1) => print "flf1"
+                |   (0w7, 0w4, 0w0) => print "fnstsw\tax"
+                |   (0w1, 0w5, 0w0) => print "fld1"
+                |   (0w1, 0w6, 0w3) => print "fpatan"
+                |   (0w1, 0w7, 0w2) => print "fsqrt"
+                |   (0w1, 0w7, 0w6) => print "fsin"
+                |   (0w1, 0w7, 0w7) => print "fcos"
+                |   (0w1, 0w6, 0w7) => print "fincstp"
+                |   (0w1, 0w6, 0w6) => print "fdecstp"
+                |   (0w5, 0w2, rno) => print ("fst \tst(" ^ Word8.toString rno ^ ")")
+                |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
+                |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
+                |   (0w1, 0w1, rno) => print ("fxch\tst(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w0, rno) => print ("fadd\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w1, rno) => print ("fmul\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w4, rno) => print ("fsub\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w5, rno) => print ("fsubr\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w6, rno) => print ("fdiv\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w0, 0w7, rno) => print ("fdivr\tst,st(" ^ Word8.toString rno ^ ")")
+                |   (0w5, 0w0, rno) => print ("ffree\tst(" ^ Word8.toString rno ^ ")")
+                |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2));
+                ptr +:= 0w1
+            )
+            else (* mod = 00, 01, 10 *)
+            (
+                case (escNo, nnn) of
+                    (0w3, 0w0) => print "fildl\t"
+                |   (0w7, 0w5) => print "fildq\t"
+                |   (0w4, 0w0) => print "fadd\t"
+                |   (0w4, 0w1) => print "fmul\t"
+                |   (0w4, 0w3) => print "fcomp\t"
+                |   (0w4, 0w4) => print "fsub\t"
+                |   (0w4, 0w5) => print "fsubr\t"
+                |   (0w4, 0w6) => print "fdiv\t"
+                |   (0w4, 0w7) => print "fdivr\t"
+                |   (0w5, 0w0) => print "fld \t"
+                |   (0w5, 0w2) => print "fst\t"
+                |   (0w5, 0w3) => print "fstp\t"
+                |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2));
+                printEA(rex, SZQWord)
+            )
+        end
     in
 
         if procName = "" (* No name *) then print "?" else print procName;
@@ -3313,7 +3474,7 @@ SS-relative addressing modes:
  
         while !ptr < endcode do
         let
-            val () = printHex (Word.toLargeInt(!ptr)) (* The address. *)
+            val () = print (Word.fmt StringCvt.HEX (!ptr)) (* The address in hex. *)
             val () = print "\t"
 
             (* See if we have a lock prefix. *)
@@ -3337,445 +3498,355 @@ SS-relative addressing modes:
             val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
 
-            val opByte = get8u (!ptr, seg);
-            val () = ptr +:= 0w1;
+            val opByte = get8u (!ptr, seg) before ptr +:= 0w1
+            
+            val defSize = if rexW then SZQWord else SZDWord
         in
-            if opByte = opToInt Group1_8_A orelse 
-                opByte = opToInt Group1_32_A orelse
-                opByte = opToInt Group1_8_a
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-            in
-                printArith ((nb div 8) mod 8);
-                if opByte = opToInt Group1_8_a
-                then print "b" else print "l";
-                print "_rev\t";
-                printEA rex; (* These are the wrong way round for gas. *)
-                print ",";
-                if opByte = opToInt Group1_32_A
-                then print32 () else print8 ()
-            end
-         
-            else if opByte = opToInt (CondJump JE)
-            then (print "je  \t"; printJmp())
+            case opByte of
+                0wx03 => printGvEv (opByte, rex, rexR, defSize)
 
-            else if opByte = opToInt (CondJump JNE)
-            then (print "jne  \t"; printJmp())
+            |   0wx0b => printGvEv (opByte, rex, rexR, defSize)
 
-            else if opByte = opToInt (CondJump JO)
-            then (print "jo  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JNO)
-            then (print "jno  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JL)
-            then (print "jl  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JG)
-            then (print "jg  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JLE)
-            then (print "jle \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JGE)
-            then (print "jge \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JB)
-            then (print "jb  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JA)
-            then (print "ja  \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JNA)
-            then (print "jna \t"; printJmp())
-
-            else if opByte = opToInt (CondJump JNB)
-            then (print "jnb \t"; printJmp())
-
-            else if opByte = opToInt JMP_8
-            then (print "jmp \t"; printJmp())
-
-            else if opByte = opToInt JMP_32
-            then
-            let
-                val valu     = get32s (!ptr, seg);
-                val () = (ptr +:= 0w4);
-            in
-                print "jmp\t";
-                printHex (Word.toLargeInt(!ptr) + valu)
-            end
-         
-            else if opByte = opToInt CALL_32
-            then
-            let
-                val valu     = get32s (!ptr, seg);
-                val () = (ptr +:= 0w4);
-            in
-                print "call\t";
-                printHex (Word.toLargeInt(!ptr) + valu)
-            end
-         
-            else if opByte = opToInt MOVL_A_R
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                print "movl\t";
-                printEA rex;
-                print ",";
-                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
-            end
-         
-            else if opByte mod 0w8 = 0w3 andalso opByte < 0wx3f
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                printArith(Word8.toInt((opByte div 0w8) mod 0w8));
-                print "\t";
-                printEA rex;
-                print ",";
-                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
-            end
-
-            else if opByte = opToInt MOVL_R_A
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                print "movl\t";
-                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)));
-                print ",";
-                printEA rex
-            end
-
-            else if opByte = opToInt XCHNG
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                print "xchngl\t";
-                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)));
-                print ",";
-                printEA rex
-            end
-
-            else if opByte = opToInt MOVB_R_A
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                print "movb\t";
-                if rexX
-                then print ("r" ^ Int.toString(reg+8) ^ "B")
-                else case reg of
-                    0 => print "%al"
-                |   1 => print "%cl"
-                |   2 => print "%dl"
-                |   3 => print "%bl"
-                     (* If there is a REX byte these select the low byte of the registers. *)
-                | 4 => print (if rex = 0w0 then "%ah" else "%sil")
-                | 5 => print (if rex = 0w0 then "%ch" else "%dil")
-                | 6 => print (if rex = 0w0 then "%dh" else "%bpl")
-                | 7 => print (if rex = 0w0 then "%bh" else "%spl")
-                |   _ => print ("r" ^ Int.toString reg);
-                print ",";
-                printEA rex
-            end
-
-
-            else if opByte >= opToInt (PUSH_R 0w0) andalso
-                    opByte <= opToInt (PUSH_R 0w7)
-            then print ("pushl\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB)))
-      
-            else if opByte >= opToInt (POP_R 0w0) andalso
-                    opByte <= opToInt (POP_R 0w7)
-            then print ("pop\t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-      
-            else if opByte = opToInt NOP
-            then print "nop"
-      
-            else if opByte = opToInt LEAL
-            then
-            let
-                (* Register is in next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val reg = (nb div 8) mod 8;
-            in
-                print "leal\t";
-                printEA rex;
-                print ",";
-                print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
-            end
-
-            else if opByte >= opToInt (MOVL_32_64_R(#1(getReg eax))) andalso
-                  opByte <= opToInt (MOVL_32_64_R(#1(getReg edi)))
-            then
-            (
-                print "movl\t";
-                if rexW then print64 () else print32 ();
-                print("," ^ genRegRepr (mkReg (opByte mod 0w8, rexB)))
-            )
-
-            else if opByte = opToInt MOVL_32_A
-            then
-            (
-                print "movl_rev\t";
-                printEA rex; (* These are the wrong way round. *)
-                print ",";
-                print32 ()
-            )
-         
-            else if opByte = opToInt MOVB_8_A
-            then
-            (
-                print "movb_rev\t";
-                printEA rex; (* These are the wrong way round. *)
-                print ",";
-                print8 ()
-            )
-         
-            else if opByte = opToInt PUSH_32
-            then (print "push\t"; print32 ())
-         
-            else if opByte = opToInt PUSH_8
-            then (print "push\t"; print8 ())
-         
-            else if opByte = opToInt Group5
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val opc = (nb div 8) mod 8;
-            in
-                print
-                  (case opc of
-                     2 => "call"
-                   | 4 => "jmp "
-                   | 6 => "push"
-                   | _ => "???"
-                  );
-                print "\t";
-                printEA rex
-            end
-         
-            else if opByte = opToInt Group3_A
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val opc = (nb div 8) mod 8;
-            in
-                print
-                  (case opc of
-                     0 => "testl"
-                   | 3 => "negl"
-                   | 4 => "mull"
-                   | 5 => "imull"
-                   | 6 => "divl"
-                   | 7 => "idivl"
-                   | _ => "???"
-                  );
-                print "\t";
-                printEA rex;
-                if opc = 0 then (print ","; print32 ()) else ()
-            end
-         
-            else if opByte = opToInt Group3_a
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val opc = (nb div 8) mod 8;
-            in
-                print
-                  (case opc of
-                     0 => "testb"
-                   | 3 => "negb"
-                   | _ => "???"
-                  );
-                print "\t";
-                printEA rex;
-                if opc = 0 then (print ","; print8 ()) else ()
-            end
-         
-            else if opByte = opToInt Group2_1_A orelse opByte = opToInt Group2_CL_A
-                    orelse opByte = opToInt Group2_8_A
-            then
-            let
-                (* Opcode is determined by next byte. *)
-                val nb = Word8.toInt (csegGet (seg, !ptr));
-                val opc = (nb div 8) mod 8;
-            in
-                print
-                   (case opc of
-                      4 => "shl "
-                    | 5 => "shr "
-                    | 7 => "sar "
-                    | _ => "???"
-                   );
-                print "\t";
-                printEA rex;
-                print ",";
-                (* This is the reverse order from gas which has the shift first. *)
-                if opByte = opToInt Group2_1_A then print "1"
-                else if opByte = opToInt Group2_CL_A then print "cl"
-                else print8 ()
-            end
-      
-            else if opByte = opToInt ESCAPE
-            then
-            let
-                (* Opcode is in next byte. *)
-                val opByte2  = Word8.toInt (csegGet (seg, !ptr));
-                val () = (ptr +:= 0w1)
-            in
-                if opByte2 = 0xB6 orelse opByte2 = 0xC1 orelse opByte2 = 0xAF
-                then
+            |   0wx0f => (* ESCAPE *)
                 let
+                    (* Opcode is in next byte. *)
+                    val opByte2  = Word8.toInt (csegGet (seg, !ptr))
+                    val () = (ptr +:= 0w1)
+                in
+                    if opByte2 = 0xB6 orelse opByte2 = 0xC1 orelse opByte2 = 0xAF
+                    then
+                    let
+                        val nb = csegGet (seg, !ptr);
+                        val reg = (nb >>- 0w3) andb8 0w7
+                    in
+                        print (if opByte2 = 0xB6 then "movzx\t" else if opByte2 = 0xC1 then "xadd\t" else "imul\t");
+                        printEA (rex, defSize);
+                        print ",";
+                        print (genRegRepr (mkReg(reg, rexR), if opByte2 = 0xB6 then SZByte else defSize))
+                    end
+       
+                    else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
+                    then
+                    let
+                        val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
+                    in
+                        print(
+                            case opByte2 of
+                                0x80 => "jo  \t"
+                            |   0x84 => "je  \t"
+                            |   0x85 => "jne \t"
+                            |   0x8c => "jl  \t"
+                            |   0x8d => "jge \t"
+                            |   0x8e => "jle \t"
+                            |   0x8f => "jg  \t" 
+                            |   0x82 => "jb  \t"
+                            |   0x83 => "jnb \t"
+                            |   0x86 => "jna \t"
+                            |   0x87 => "ja  \t" 
+                            |   _ => "???\t"
+                            );
+                        print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
+                    end
+
+                    else (print "esc\t"; printValue(LargeInt.fromInt opByte2))
+                end (* ESCAPE *)
+
+
+            |   0wx13 => printGvEv (opByte, rex, rexR, defSize)
+
+            |   0wx1b => printGvEv (opByte, rex, rexR, defSize)
+
+            |   0wx23 => printGvEv (opByte, rex, rexR, defSize)
+
+            |   0wx2b => printGvEv (opByte, rex, rexR, defSize)
+
+            |   0wx33 => printGvEv (opByte, rex, rexR, defSize)
+
+            |   0wx3b => printGvEv (opByte, rex, rexR, defSize)
+
+                (* Push and Pop.  These are 64-bit on X86/64 whether there is REX prefix or not. *)
+            |   0wx50 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx51 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx52 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx53 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx54 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx55 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx56 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx57 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+
+            |   0wx58 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx59 => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5a => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5b => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5c => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5d => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+            |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
+
+            |   0wx68 =>(print "push\t"; print32 ())
+         
+            |   0wx6a =>(print "push\t"; print8 ())
+
+            |   0wx70 => (print "jo  \t"; printJmp())
+            |   0wx71 => (print "jno \t"; printJmp())
+            |   0wx72 => (print "jb  \t"; printJmp())
+            |   0wx73 => (print "jnb \t"; printJmp())
+            |   0wx74 => (print "je  \t"; printJmp())
+            |   0wx75 => (print "jne \t"; printJmp())
+            |   0wx76 => (print "jna \t"; printJmp())
+            |   0wx77 => (print "ja  \t"; printJmp())
+
+            |   0wx7c => (print "jl  \t"; printJmp())
+            |   0wx7d => (print "jge \t"; printJmp())
+            |   0wx7e => (print "jle \t"; printJmp())
+            |   0wx7f => (print "jg  \t"; printJmp())
+
+            |   0wx80 => (* Group1_8_a *)
+                let (* Memory, byte constant *)
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                in
+                    printArith ((nb div 8) mod 8);
+                    print "\t";
+                    printEA(rex, SZByte);
+                    print ",";
+                    print8 ()
+                end
+
+            |   0wx81 =>
+                let (* Memory, 32-bit constant *)
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                in
+                    printArith ((nb div 8) mod 8);
+                    print "\t";
+                    printEA(rex, defSize);
+                    print ",";
+                    print32 ()
+                end
+
+            |   0wx83 =>
+                let (* Word memory, 8-bit constant *)
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                in
+                    printArith ((nb div 8) mod 8);
+                    print "\t";
+                    printEA(rex, defSize);
+                    print ",";
+                    print8 ()
+                end
+
+            |   0wx88 =>
+                let (* mov eb,gb i.e a store *)
+                    (* Register is in next byte. *)
                     val nb = Word8.toInt (csegGet (seg, !ptr));
                     val reg = (nb div 8) mod 8;
                 in
-                    print (if opByte2 = 0xB6 then "movzl\t" else if opByte2 = 0xC1 then "xaddl\t" else "imull\t");
-                    printEA rex;
+                    print "mov \t";
+                    printEA(rex, SZByte);
                     print ",";
-                    print (genRegRepr (mkReg(Word8.fromInt reg, rexR)))
+                    if rexX
+                    then print ("r" ^ Int.toString(reg+8) ^ "B")
+                    else case reg of
+                        0 => print "al"
+                    |   1 => print "cl"
+                    |   2 => print "dl"
+                    |   3 => print "bl"
+                         (* If there is a REX byte these select the low byte of the registers. *)
+                    |   4 => print (if rex = 0w0 then "ah" else "sil")
+                    |   5 => print (if rex = 0w0 then "ch" else "dil")
+                    |   6 => print (if rex = 0w0 then "dh" else "bpl")
+                    |   7 => print (if rex = 0w0 then "bh" else "spl")
+                    |   _ => print ("r" ^ Int.toString reg)
                 end
-       
-                else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
-                then
-                let
-                    val valu = get32s (!ptr, seg);
-                    val () = (ptr +:= 0w4);
+
+            |   0wx89 =>
+                let (* mov ev,gv i.e. a store *)
+                    (* Register is in next byte. *)
+                    val nb = csegGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
                 in
-                    print(
-                        case opByte2 of
-                            0x80 => "jo\t"
-                        |   0x84 => "je\t"
-                        |   0x85 => "jne\t"
-                        |   0x8c => "jl\t"
-                        |   0x8d => "jge\t"
-                        |   0x8e => "jle\t"
-                        |   0x8f => "jg\t" 
-                        |   0x82 => "jb\t"
-                        |   0x83 => "jnb\t"
-                        |   0x86 => "jna\t"
-                        |   0x87 => "ja\t" 
-                        |   _ => "???\t"
-                        );
-                    printHex (Word.toLargeInt(!ptr) + valu)
+                    print "mov \t";
+                    printEA(rex, defSize);
+                    print ",";
+                    print (genRegRepr (mkReg(reg, rexR), defSize))
+                end
+         
+            |   0wx8b =>
+                let (* mov gv,ev i.e. a load *)
+                    (* Register is in next byte. *)
+                    val nb = csegGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "mov \t";
+                    print (genRegRepr (mkReg(reg, rexR), defSize));
+                    print ",";
+                    printEA(rex, defSize)
                 end
 
-                else (print "esc\t"; printHex(LargeInt.fromInt opByte2))
-            end (* ESCAPE *)
+            |   0wx8d =>
+                let (* lea gv.M *)
+                    (* Register is in next byte. *)
+                    val nb = csegGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "lea \t";
+                    print (genRegRepr (mkReg(reg, rexR), defSize));
+                    print ",";
+                    printEA(rex, defSize)
+                end
          
-            else if opByte = opToInt POP_A
-            then (print "pop\t"; printEA rex)
-         
-            else if opByte = opToInt RET 
-            then print "ret"
-      
-            else if opByte = opToInt STC
-            then print "stc"
-         
-            else if opByte = opToInt RET_16
-            then (print "ret\t"; print16 ())
-
-            else if opByte = opToInt TEST_ACC8
-            then (print "testb\t%al,"; print8 ())
+            |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
+            |   0wx90 => print "nop"
             
-            else if opByte >= opToInt (FPESC 0w0) andalso opByte <= opToInt (FPESC 0w7)
-            then (* Floating point escapes *)
-            let
-                (* Opcode is in next byte. *)
-                val opByte2  = csegGet (seg, !ptr)
-                val nnn = (opByte2 >>- 0w3) andb8 0w7
-                val escNo = opByte andb8 0wx7
-            in
-                if (opByte2 andb8 0wxC0) = 0wxC0
-                then (* mod = 11 *)
+            |   0wx9e => print "sahf\n"
+
+            |   0wxa4 => print "movsb\n"
+            |   0wxa5 => print "movsl\n"
+            |   0wxa6 => print "cmpsb\n"
+
+            |   0wxa8 => (print "test\tal,"; print8 ())
+
+            |   0wxaa => print "stosb\n"
+            |   0wxab => print "stosl\n"
+
+            |   0wxb8 => printMovCToR (opByte, defSize, rexB)
+            |   0wxb9 => printMovCToR (opByte, defSize, rexB)
+            |   0wxba => printMovCToR (opByte, defSize, rexB)
+            |   0wxbb => printMovCToR (opByte, defSize, rexB)
+            |   0wxbc => printMovCToR (opByte, defSize, rexB)
+            |   0wxbd => printMovCToR (opByte, defSize, rexB)
+            |   0wxbe => printMovCToR (opByte, defSize, rexB)
+            |   0wxbf => printMovCToR (opByte, defSize, rexB)
+   
+            |   0wxc1 => (* Group2_8_A *) printShift (opByte, rex, SZByte)
+
+            |   0wxc2 => (print "ret \t"; print16 ())
+            |   0wxc3 => print "ret"
+         
+            |   0wxc6 => (* move 8-bit constant to memory *)
                 (
-                    case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
-                        (0w1, 0w4, 0w0) => print "fchs"
-                    |   (0w1, 0w5, 0w6) => print "fldz"
-                    |   (0w1, 0w5, 0w1) => print "flf1"
-                    |   (0w7, 0w4, 0w0) => print "fnstsw\tax"
-                    |   (0w1, 0w5, 0w0) => print "fld1"
-                    |   (0w1, 0w6, 0w3) => print "fpatan"
-                    |   (0w1, 0w7, 0w2) => print "fsqrt"
-                    |   (0w1, 0w7, 0w6) => print "fsin"
-                    |   (0w1, 0w7, 0w7) => print "fcos"
-                    |   (0w1, 0w6, 0w7) => print "fincstp"
-                    |   (0w1, 0w6, 0w6) => print "fdecstp"
-                    |   (0w5, 0w2, rno) => print ("fst \tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w5, 0w3, rno) => print ("fstp\tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w1, 0w0, rno) => print ("fld \tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w1, 0w1, rno) => print ("fxch\tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w3, rno) => print ("fcomp\tst(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w0, rno) => print ("fadd\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w1, rno) => print ("fmul\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w4, rno) => print ("fsub\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w5, rno) => print ("fsubr\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w6, rno) => print ("fdiv\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w0, 0w7, rno) => print ("fdivr\tst,st(" ^ Word8.toString rno ^ ")")
-                    |   (0w5, 0w0, rno) => print ("ffree\tst(" ^ Word8.toString rno ^ ")")
-                    |   _ => (printHex(Word8.toLargeInt opByte); printHex(Word8.toLargeInt opByte2));
-                    ptr +:= 0w1
+                    print "mov \t";
+                    printEA(rex, SZByte);
+                    print ",";
+                    print8 ()
                 )
-                else (* mod = 00, 01, 10 *)
+
+            |   0wxc7 => (* move 32/64-bit constant to memory *)
                 (
-                    case (escNo, nnn) of
-                        (0w3, 0w0) => print "fildl\t"
-                    |   (0w7, 0w5) => print "fildq\t"
-                    |   (0w4, 0w0) => print "fadd\t"
-                    |   (0w4, 0w1) => print "fmul\t"
-                    |   (0w4, 0w3) => print "fcomp\t"
-                    |   (0w4, 0w4) => print "fsub\t"
-                    |   (0w4, 0w5) => print "fsubr\t"
-                    |   (0w4, 0w6) => print "fdiv\t"
-                    |   (0w4, 0w7) => print "fdivr\t"
-                    |   (0w5, 0w0) => print "fld \t"
-                    |   (0w5, 0w2) => print "fst\t"
-                    |   (0w5, 0w3) => print "fstp\t"
-                    |   _ => (printHex(Word8.toLargeInt opByte); printHex(Word8.toLargeInt opByte2));
-                    printEA rex
+                    print "mov \t";
+                    printEA(rex, SZDWord);
+                    print ",";
+                    print32 ()
                 )
-            end
+
+            |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, SZDWord)
+
+            |   0wxd3 => (* Group2_CL_A *) printShift (opByte, rex, SZDWord)
+           
+            |   0wxd8 => printFloat (opByte, rex) (* Floating point escapes *)
+            |   0wxd9 => printFloat (opByte, rex)
+            |   0wxda => printFloat (opByte, rex)
+            |   0wxdb => printFloat (opByte, rex)
+            |   0wxdc => printFloat (opByte, rex)
+            |   0wxdd => printFloat (opByte, rex)
+            |   0wxde => printFloat (opByte, rex)
+            |   0wxdf => printFloat (opByte, rex)
+
+            |   0wxe8 =>
+                let (* 32-bit relative call. *)
+                    val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
+                in
+                    print "call\t";
+                    print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
+                end
+
+            |   0wxe9 =>
+                let (* 32-bit relative jump. *)
+                    val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
+                in
+                    print "jmp \t";
+                    print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
+                end
+
+            |   0wxeb => (print "jmp \t"; printJmp())
             
-            else if opByte = opToInt SAHF
-            then print "sahf\n"
+            |   0wxf2 => (* On its own this is REPNE but we don't use that. *)
+                if get8u (!ptr, seg) = 0wx0f
+                then (* SSE2 instruction *)
+                let
+                    val () = ptr +:= 0w1
+                    val op2 = get8u (!ptr, seg) before ptr +:= 0w1
+                    val nb = csegGet (seg, !ptr)
+                    val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                in
+                    case op2 of
+                        0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEA(rex, SZQWord) )
+                    |   0wx11 => ( print "movsd\t"; printEA(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
+                    |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                end
+                else print "repne\t"
 
-            else if opByte = opToInt REP
-            then print "rep\t"
+            |   0wxf3 => print "rep\t"
+        
+            |   0wxf6 => (* Group3_a *)
+                let
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val opc = (nb div 8) mod 8
+                in
+                    print
+                      (case opc of
+                         0 => "test"
+                       | 3 => "neg"
+                       | _ => "???"
+                      );
+                    print "\t";
+                    printEA(rex, SZByte);
+                    if opc = 0 then (print ","; print8 ()) else ()
+                end
 
-            else if opByte = 0wxA4
-            then print "movsb\n"
-
-            else if opByte = 0wxA5
-            then print "movsl\n"
-
-            else if opByte = 0wxA6
-            then print "cmpsb\n"
-
-            else if opByte = 0wxAA
-            then print "stosb\n"
-
-            else if opByte = 0wxAB
-            then print "stosl\n"
-
-            else printHex(Word8.toLargeInt opByte);
+            |   0wxf7 => (* Group3_A *)
+                let
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val opc = (nb div 8) mod 8
+                in
+                    print
+                      (case opc of
+                         0 => "test"
+                       | 3 => "neg"
+                       | 4 => "mul"
+                       | 5 => "imul"
+                       | 6 => "div"
+                       | 7 => "idiv"
+                       | _ => "???"
+                      );
+                    print "\t";
+                    printEA(rex, defSize);
+                    (* Test has an immediate operand.  It's 32-bits even in 64-bit mode. *)
+                    if opc = 0 then (print ","; print32 ()) else ()
+                end
+         
+            |   0wxff => (* Group5 *)
+                let
+                    (* Opcode is determined by next byte. *)
+                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val opc = (nb div 8) mod 8
+                in
+                    print
+                      (case opc of
+                         2 => "call"
+                       | 4 => "jmp "
+                       | 6 => "push"
+                       | _ => "???"
+                      );
+                    print "\t";
+                    printEA(rex, sz32_64) (* None of the cases we use need a prefix. *)
+                end
+ 
+            |   _ => print(Word8.fmt StringCvt.HEX opByte);
       
             print "\n"
         end; (* end of while loop *)

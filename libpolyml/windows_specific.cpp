@@ -80,6 +80,11 @@
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyOSSpecificGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetOSType();
+}
+
 typedef enum
 {
     HE_UNUSED,
@@ -1296,12 +1301,21 @@ static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL
     return result;
 }
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
+    { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+
+    { NULL, NULL} // End of list.
+};
+
 class WindowsModule: public RtsModule
 {
 public:
     virtual void Init(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

@@ -2670,12 +2670,14 @@ struct
        the run-time IDs for newly generated IDs. *)
     fun loadOpaqueIds (opaqueIds, mkAddr, level) =
     let
-        fun decId { dest, source } =
+        fun decId { dest as TypeId{idKind=dKind, ...}, source } =
         let
             val { addr=idAddr, level=idLevel } = vaLocal(idAccess dest)
             val addr = mkAddr 1;
-            val () = idAddr := addr and () = idLevel := level;
-            val idCode = codeGenerativeId(source, isEquality dest, mkAddr, level)
+            val () = idAddr := addr and () = idLevel := level
+            val isDatatype = case dKind of Bound{isDatatype, ...} => isDatatype | _ => false
+            val idCode =
+                codeGenerativeId{source=source, isEq=isEquality dest, isDatatype=isDatatype, mkAddr=mkAddr, level=level}
         in
             mkDec(addr, idCode)
         end
@@ -2696,7 +2698,7 @@ struct
             fun getMatchedId(n, isEq) =
                 case #source(List.nth (argIds, n)) of
                     id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
-                        Global(codeGenerativeId(id, isEq, mkAddr, level))
+                        Global(codeGenerativeId{source=id, isEq=isEq, isDatatype=false(*??*), mkAddr=mkAddr, level=level})
                 |   id => idAccess id
 
             val argCode = applyMatchActions(argLoadSource, matchToArgument, getMatchedId, mkAddr, level)
@@ -2954,7 +2956,7 @@ struct
                         fun getIds(n, isEq) =
                             case #source(List.nth(resIds, n)) of
                                 id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
-                                    Global(codeGenerativeId(id, isEq, mkAddr, level))
+                                    Global(codeGenerativeId{source=id, isEq=isEq, isDatatype=false (*??*), mkAddr=mkAddr, level=level})
                             |   id => idAccess id
 
                         val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)

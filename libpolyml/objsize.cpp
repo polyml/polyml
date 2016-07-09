@@ -65,6 +65,12 @@
 #include "mpoly.h"
 #include "processes.h"
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj);
+}
+
 extern FILE *polyStdout;
 
 #define MAX_PROF_LEN 100 // Profile lengths between 1 and this
@@ -425,3 +431,21 @@ POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
     taskData->PostRTSCall();
     return result->Word().AsUnsigned();
 }
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolyObjSize",                    (polyRTSFunction)&PolyObjSize},
+    { "PolyShowSize",                   (polyRTSFunction)&PolyShowSize},
+    { "PolyObjProfile",                 (polyRTSFunction)&PolyObjProfile},
+
+    { NULL, NULL} // End of list.
+};
+
+class ObjSizeModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static ObjSizeModule objSizeModule;

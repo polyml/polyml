@@ -109,6 +109,11 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "Console.h"
 #endif
 
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId);
+}
+
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(word))
 
@@ -527,12 +532,21 @@ void init_asyncmask(sigset_t *mask)
 
 #endif
 
+static struct _entrypts entryPtTable[] =
+{
+    { "PolySetSignalHandler",           (polyRTSFunction)&PolySetSignalHandler},
+    { "PolyWaitForSignal",              (polyRTSFunction)&PolyWaitForSignal},
+
+    { NULL, NULL} // End of list.
+};
+
 class SigHandler: public RtsModule
 {
 public:
     virtual void Init(void);
     virtual void Stop(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 
 #ifdef USE_PTHREAD_SIGNALS
     SigHandler() { threadRunning = false; }
