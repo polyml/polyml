@@ -3500,12 +3500,12 @@ SS-relative addressing modes:
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1
             
-            val defSize = if rexW then SZQWord else SZDWord
+            val sizeFromRexW = if rexW then SZQWord else SZDWord
         in
             case opByte of
-                0wx03 => printGvEv (opByte, rex, rexR, defSize)
+                0wx03 => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx0b => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx0b => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
             |   0wx0f => (* ESCAPE *)
                 let
@@ -3520,9 +3520,9 @@ SS-relative addressing modes:
                         val reg = (nb >>- 0w3) andb8 0w7
                     in
                         print (if opByte2 = 0xB6 then "movzx\t" else if opByte2 = 0xC1 then "xadd\t" else "imul\t");
-                        printEA (rex, defSize);
+                        printEA (rex, sizeFromRexW);
                         print ",";
-                        print (genRegRepr (mkReg(reg, rexR), if opByte2 = 0xB6 then SZByte else defSize))
+                        print (genRegRepr (mkReg(reg, rexR), if opByte2 = 0xB6 then SZByte else sizeFromRexW))
                     end
        
                     else if opByte2 >= 0x80 andalso opByte2 <= 0x8f
@@ -3552,17 +3552,17 @@ SS-relative addressing modes:
                 end (* ESCAPE *)
 
 
-            |   0wx13 => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx13 => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx1b => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx1b => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx23 => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx23 => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx2b => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx2b => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx33 => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx33 => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
-            |   0wx3b => printGvEv (opByte, rex, rexR, defSize)
+            |   0wx3b => printGvEv (opByte, rex, rexR, sizeFromRexW)
 
                 (* Push and Pop.  These are 64-bit on X86/64 whether there is REX prefix or not. *)
             |   0wx50 => print ("push\t" ^  genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
@@ -3620,7 +3620,7 @@ SS-relative addressing modes:
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
-                    printEA(rex, defSize);
+                    printEA(rex, sizeFromRexW);
                     print ",";
                     print32 ()
                 end
@@ -3632,7 +3632,7 @@ SS-relative addressing modes:
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
-                    printEA(rex, defSize);
+                    printEA(rex, sizeFromRexW);
                     print ",";
                     print8 ()
                 end
@@ -3668,9 +3668,9 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
-                    printEA(rex, defSize);
+                    printEA(rex, sizeFromRexW);
                     print ",";
-                    print (genRegRepr (mkReg(reg, rexR), defSize))
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
                 end
          
             |   0wx8b =>
@@ -3680,9 +3680,9 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
-                    print (genRegRepr (mkReg(reg, rexR), defSize));
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                     print ",";
-                    printEA(rex, defSize)
+                    printEA(rex, sizeFromRexW)
                 end
 
             |   0wx8d =>
@@ -3692,9 +3692,9 @@ SS-relative addressing modes:
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "lea \t";
-                    print (genRegRepr (mkReg(reg, rexR), defSize));
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
                     print ",";
-                    printEA(rex, defSize)
+                    printEA(rex, sizeFromRexW)
                 end
          
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
@@ -3711,14 +3711,14 @@ SS-relative addressing modes:
             |   0wxaa => print "stosb\n"
             |   0wxab => print "stosl\n"
 
-            |   0wxb8 => printMovCToR (opByte, defSize, rexB)
-            |   0wxb9 => printMovCToR (opByte, defSize, rexB)
-            |   0wxba => printMovCToR (opByte, defSize, rexB)
-            |   0wxbb => printMovCToR (opByte, defSize, rexB)
-            |   0wxbc => printMovCToR (opByte, defSize, rexB)
-            |   0wxbd => printMovCToR (opByte, defSize, rexB)
-            |   0wxbe => printMovCToR (opByte, defSize, rexB)
-            |   0wxbf => printMovCToR (opByte, defSize, rexB)
+            |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxb9 => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxba => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxbb => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxbc => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxbd => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxbe => printMovCToR (opByte, sizeFromRexW, rexB)
+            |   0wxbf => printMovCToR (opByte, sizeFromRexW, rexB)
    
             |   0wxc1 => (* Group2_8_A *) printShift (opByte, rex, SZByte)
 
@@ -3736,14 +3736,14 @@ SS-relative addressing modes:
             |   0wxc7 => (* move 32/64-bit constant to memory *)
                 (
                     print "mov \t";
-                    printEA(rex, SZDWord);
+                    printEA(rex, sizeFromRexW);
                     print ",";
                     print32 ()
                 )
 
-            |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, SZDWord)
+            |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, sizeFromRexW)
 
-            |   0wxd3 => (* Group2_CL_A *) printShift (opByte, rex, SZDWord)
+            |   0wxd3 => (* Group2_CL_A *) printShift (opByte, rex, sizeFromRexW)
            
             |   0wxd8 => printFloat (opByte, rex) (* Floating point escapes *)
             |   0wxd9 => printFloat (opByte, rex)
@@ -3824,7 +3824,7 @@ SS-relative addressing modes:
                        | _ => "???"
                       );
                     print "\t";
-                    printEA(rex, defSize);
+                    printEA(rex, sizeFromRexW);
                     (* Test has an immediate operand.  It's 32-bits even in 64-bit mode. *)
                     if opc = 0 then (print ","; print32 ()) else ()
                 end
@@ -3996,6 +3996,7 @@ SS-relative addressing modes:
         and  regSet         = RegSet.regSet
         and  label          = label
         and  labList        = labList
+        and  branchOps      = branchOps
     end
 
 end (* struct *) (* CODECONS *);

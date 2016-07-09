@@ -17,22 +17,20 @@
 
 signature GENCODESIG =
 sig
-    type backendIC and argumentType and machineWord
+    type backendIC and argumentType and machineWord and bicLoadForm
     type bicLambdaForm =
     {
         body          : backendIC,
         name          : string,
-        closure       : backendIC list,
+        closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        closureRefs   : int,
         localCount    : int,
-        heapClosure   : bool,
-        argLifetimes  : int list
+        heapClosure   : bool
     }
     val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
    
     structure Foreign: FOREIGNCALLSIG
 
-    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType end
+    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType and bicLoadForm = bicLoadForm end
 end;

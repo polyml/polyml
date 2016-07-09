@@ -111,7 +111,7 @@ struct
         
         (* This is a pointer to data that the RTS provides on entry.  Fields
            may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
-        val memRegArgumentPtr = case abi of X64Unix => ~32 | X64Win => 16 | X86_32 => 8
+        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => 16 | X86_32 => 8
 
         (* The argument pointer and the ML stack pointer need to be
            loaded into registers that will be saved by the callee.

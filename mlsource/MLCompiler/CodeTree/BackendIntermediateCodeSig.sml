@@ -30,7 +30,7 @@ sig
 
     |   BICConstnt of machineWord * Universal.universal list (* Load a constant *)
 
-    |   BICExtract of bicLoadForm * bool (* Get a local variable, an argument or a closure value *)
+    |   BICExtract of bicLoadForm (* Get a local variable, an argument or a closure value *)
 
     |   BICField of {base: backendIC, offset: int }
          (* Load a field from a tuple or record *)
@@ -61,12 +61,6 @@ sig
 
     |   BICLoop of (backendIC * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   BICKillItems of
-            (* Kill entries.  Used to mark a branch where a binding is no longer required.
-               "killSet" is always an Extract with lastRef=true so the type should
-               be loadForm list rather than backendIC list. *)
-            { expression: backendIC, killSet: backendIC list, killBefore: bool }
-
     |   BICRaise of backendIC (* Raise an exception *)
 
     |   BICLdexc (* Load the exception (used at the start of a handler) *)
@@ -88,7 +82,7 @@ sig
 
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
-    |   BICRecDecs of { addr: int, references: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
+    |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
     |   BICNullBinding of backendIC (* Just evaluate the expression and discard the result. *)
 
     and caseType =
@@ -105,21 +99,18 @@ sig
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      backendIC,
-        addr:       int,
-        references: int
+        addr:       int
     }
 
     and bicLambdaForm =
     { (* Lambda expressions. *)
         body          : backendIC,
         name          : string,
-        closure       : backendIC list,
+        closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        closureRefs   : int,
         localCount    : int,
-        heapClosure   : bool,
-        argLifetimes  : int list
+        heapClosure   : bool
     }
 
     type pretty
@@ -135,6 +126,7 @@ sig
     structure Sharing:
     sig
         type backendIC = backendIC
+        and  bicLoadForm = bicLoadForm
         and  caseType = caseType
         and  pretty = pretty
         and  argumentType = argumentType

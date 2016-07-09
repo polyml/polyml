@@ -30,7 +30,7 @@ struct
 
     |   BICConstnt of machineWord * Universal.universal list (* Load a constant *)
 
-    |   BICExtract of bicLoadForm * bool (* Get a local variable, an argument or a closure value *)
+    |   BICExtract of bicLoadForm (* Get a local variable, an argument or a closure value *)
 
     |   BICField of {base: backendIC, offset: int }
          (* Load a field from a tuple or record *)
@@ -61,12 +61,6 @@ struct
 
     |   BICLoop of (backendIC * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   BICKillItems of
-            (* Kill entries.  Used to mark a branch where a binding is no longer required.
-               "killSet" is always an Extract with lastRef=true so the type should
-               be loadForm list rather than backendIC list. *)
-            { expression: backendIC, killSet: backendIC list, killBefore: bool }
-
     |   BICRaise of backendIC (* Raise an exception *)
 
     |   BICLdexc (* Load the exception (used at the start of a handler) *)
@@ -88,7 +82,7 @@ struct
 
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
-    |   BICRecDecs of { addr: int, references: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
+    |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
     |   BICNullBinding of backendIC (* Just evaluate the expression and discard the result. *)
 
     and caseType =
@@ -105,21 +99,18 @@ struct
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      backendIC,
-        addr:       int,
-        references: int
+        addr:       int
     }
 
     and bicLambdaForm =
     { (* Lambda expressions. *)
         body          : backendIC,
         name          : string,
-        closure       : backendIC list,
+        closure       : bicLoadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        closureRefs   : int,
         localCount    : int,
-        heapClosure   : bool,
-        argLifetimes  : int list
+        heapClosure   : bool
     }
 
     structure CodeTags =
@@ -209,50 +200,34 @@ struct
                     [ PrettyString(rtsFunctionName function), PrettyBreak(1, 0), printList("", arglist, ",") ]
                 )
 
-        |   BICKillItems {expression, killSet, killBefore} =>
-            PrettyBlock(1, false, [],
-                [
-                    PrettyString(if killBefore then "KILLBEFORE(" else "KILLAFTER("),
-                    PrettyBreak(1, 0),
-                    pretty expression,
-                    PrettyBreak(1, 0),
-                    printList (" KILL=", killSet, ","),
-                    PrettyString ")"
-                ]
-            )
-
-        |   BICExtract (BICLoadLocal addr, lastRef) =>
+        |   BICExtract (BICLoadLocal addr) =>
             let
-                val last = if lastRef then ", last" else "";
                 val str : string =
-                    concat ["LOCAL(", Int.toString addr, last, ")"]
+                    concat ["LOCAL(", Int.toString addr, ")"]
             in
                 PrettyString str
             end
          
-        |   BICExtract (BICLoadArgument addr, lastRef) =>
+        |   BICExtract (BICLoadArgument addr) =>
             let
-                val last = if lastRef then ", last" else "";
                 val str : string =
-                    concat ["PARAM(", Int.toString addr, last, ")"]
+                    concat ["PARAM(", Int.toString addr, ")"]
             in
                 PrettyString str
             end
 
-       |   BICExtract (BICLoadClosure addr, lastRef) =>
+       |   BICExtract (BICLoadClosure addr) =>
             let
-                val last = if lastRef then ", last" else "";
                 val str : string =
-                    concat ["CLOS(", Int.toString addr, last, ")"]
+                    concat ["CLOS(", Int.toString addr, ")"]
             in
                 PrettyString str
             end
 
-       |   BICExtract (BICLoadRecursive, lastRef) =>
+       |   BICExtract (BICLoadRecursive) =>
             let
-                val last = if lastRef then ", last" else "";
                 val str : string =
-                    concat ["RECURSIVE(", last, ")"]
+                    concat ["RECURSIVE(", ")"]
             in
                 PrettyString str
             end
@@ -266,15 +241,12 @@ struct
                 )
             end
         
-        |   BICLambda {body, name, closure, argTypes, closureRefs,
-                  heapClosure, resultType, localCount, argLifetimes} =>
+        |   BICLambda {body, name, closure, argTypes,
+                  heapClosure, resultType, localCount} =>
             let
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
                 |   prettyArgTypes (hd::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
-                fun prettyArgLife [] = []
-                |   prettyArgLife [last] = [PrettyString(Int.toString last)]
-                |   prettyArgLife (hd::tl) = PrettyString(Int.toString hd) :: PrettyBreak(1, 0) :: prettyArgLife tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -283,15 +255,12 @@ struct
                         PrettyString name,
                         PrettyBreak (1, 0),
                         PrettyString ( "CL="  ^ Bool.toString heapClosure),
-                        PrettyString (" CR="  ^ Int.toString closureRefs),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
                         PrettyBreak(1, 0),
-                        PrettyBlock (1, false, [], PrettyString "ARGLIVES=" :: prettyArgLife argLifetimes),
-                        PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
-                        printList (" CLOS=", (*map BICExtract *)closure, ","),
+                        printList (" CLOS=", map BICExtract closure, ","),
                         PrettyBreak (1, 0),
                         pretty body,
                         PrettyString "){LAMBDA}"
@@ -447,11 +416,10 @@ struct
        
     |   prettyBinding(BICRecDecs ptl) =
         let
-            fun prettyRDec {lambda, addr, references} =
+            fun prettyRDec {lambda, addr} =
             PrettyBlock (1, false, [],
                 [
-                    PrettyString (concat
-                        ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                    PrettyString (concat ["DECL #", Int.toString addr, "="]),
                     PrettyBreak (1, 0),
                     pretty(BICLambda lambda)
                 ]
@@ -465,11 +433,10 @@ struct
         end
     |   prettyBinding(BICNullBinding c) = pretty c
 
-    and prettySimpleBinding{value, addr, references} =
+    and prettySimpleBinding{value, addr} =
         PrettyBlock (1, false, [],
             [
-                PrettyString (concat
-                    ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                PrettyString (concat ["DECL #", Int.toString addr, "="]),
                 PrettyBreak (1, 0),
                 pretty value
             ]
@@ -478,6 +445,7 @@ struct
     structure Sharing =
     struct
         type backendIC = backendIC
+        and  bicLoadForm = bicLoadForm
         and  caseType = caseType
         and  pretty = pretty
         and  argumentType = argumentType
