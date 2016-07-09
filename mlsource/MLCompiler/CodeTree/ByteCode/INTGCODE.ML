@@ -179,71 +179,58 @@ struct
 
      val () =
        case pt of
-         BICEval evl =>
-           genEval (evl, tailKind)
-        
-       |    BICBuiltIn(function, argList) =>
-                genEval(
-                    {function=BICConstnt(ioOp function, []),
-                     argList=map (fn c => (c, GeneralType)) argList, resultType=GeneralType},
-                    tailKind)
+            BICEval evl => genEval (evl, tailKind)
 
-       | BICExtract ext =>
-           (* This may just be being used to discard a value which isn't
+        |   BICExtract ext =>
+            (* This may just be being used to discard a value which isn't
               used on this branch. *)
-           if whereto = NoResult then ()
-           else locaddr ext
+                if whereto = NoResult then () else locaddr ext
        
-       | BICField {base, offset} =>
-         let
-           val () = gencde (base, ToStack, NotEnd, loopAddr);
-         in
-           genIndirect (offset, cvec)
-         end
+        |   BICField {base, offset} =>
+                (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
        
-       | BICLambda lam =>
-           genProc (lam, false, fn () => ())
+        |   BICLambda lam => genProc (lam, false, fn () => ())
            
-       | BICConstnt(w, _) =>
-         let
-           val () = pushConst (w, cvec);
-         in
-           incsp ()
-         end
+        |   BICConstnt(w, _) =>
+            let
+                val () = pushConst (w, cvec);
+            in
+                incsp ()
+            end
   
-       | BICCond (testPart, thenPart, elsePart) =>
-           genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
+        |   BICCond (testPart, thenPart, elsePart) =>
+                genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
   
-       | BICNewenv(decls, exp) =>
-         let         
-            (* Processes a list of entries. *)
+        |   BICNewenv(decls, exp) =>
+            let         
+                (* Processes a list of entries. *)
             
-            (* Mutually recursive declarations. May be either lambdas or constants. Recurse down
-               the list pushing the addresses of the closure vectors, then unwind the 
-               recursion and fill them in. *)
-            fun genMutualDecs [] = ()
+                (* Mutually recursive declarations. May be either lambdas or constants. Recurse down
+                   the list pushing the addresses of the closure vectors, then unwind the 
+                   recursion and fill them in. *)
+                fun genMutualDecs [] = ()
 
-            |   genMutualDecs ({lambda, addr, ...} :: otherDecs) =
-                    genProc (lambda, true,
-                        fn() =>
-                        (
-                            STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
-                            genMutualDecs (otherDecs)
-                        ))
+                |   genMutualDecs ({lambda, addr, ...} :: otherDecs) =
+                        genProc (lambda, true,
+                            fn() =>
+                            (
+                                STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
+                                genMutualDecs (otherDecs)
+                            ))
 
-            fun codeDecls(BICRecDecs dl) = genMutualDecs (dl)
-            |   codeDecls(BICDeclar{value, addr, ...}) =
-                (
-                    gencde (value, ToStack, NotEnd, loopAddr);
-                    STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
-                )
-            |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
-          in
+                fun codeDecls(BICRecDecs dl) = genMutualDecs (dl)
+                |   codeDecls(BICDeclar{value, addr, ...}) =
+                    (
+                        gencde (value, ToStack, NotEnd, loopAddr);
+                        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+                    )
+                |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
+            in
                 List.app codeDecls decls;
                 gencde (exp, whereto, tailKind, loopAddr)
-          end
+            end
           
-         | BICBeginLoop {loop=body, arguments} =>
+        |   BICBeginLoop {loop=body, arguments} =>
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
                will drop through. *)
@@ -266,7 +253,7 @@ struct
                 (* Leave the arguments on the stack.  They can be cleared later if needed. *)
             end
 
-         | BICLoop argList => (* Jump back to the enclosing BeginLoop. *)
+        |   BICLoop argList => (* Jump back to the enclosing BeginLoop. *)
             let
                 val (startLoop, startSp, argIndexList) =
                     case loopAddr of
@@ -298,15 +285,15 @@ struct
                 jumpback (startLoop, cvec)
             end
   
-       | BICRaise exp =>
-         let
-           val () = gencde (exp, ToStack, NotEnd, loopAddr);
-           val () = genRaiseEx cvec;
-         in
-           exited := true
-         end
+        |   BICRaise exp =>
+            let
+                val () = gencde (exp, ToStack, NotEnd, loopAddr)
+                val () = genRaiseEx cvec;
+            in
+                exited := true
+            end
   
-       | BICHandle {exp, handler} =>
+        |   BICHandle {exp, handler} =>
          let
            type handler = labels;
            
@@ -355,35 +342,35 @@ struct
            exited := false
          end
   
-       | BICLdexc =>
-         let
-           (* Get the name of the exception. *)
-           val () = genLdexc cvec
-         in
-           incsp ()
-         end
+        |   BICLdexc =>
+            let
+                (* Get the name of the exception. *)
+                val () = genLdexc cvec
+            in
+                incsp ()
+            end
   
-       | BICCase (cas as {cases, caseType, ...}) =>
-         let
-            val numberOfCases = LargeInt.fromInt(List.length cases)
-            val range =
-                case caseType of
-                    CaseTag max => Word.toLargeInt max
-                |   _ =>
-                    let
-                        val (_, aLabel) = hd cases
-                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                    in
-                        Word.toLargeInt (max-min)
-                    end
-         in
-           if 3 * numberOfCases < range + 5
-           then genSparseCase(cas, whereto, tailKind, loopAddr)
-           else genDenseCase (cas, whereto, tailKind, loopAddr)
-         end
+        |   BICCase (cas as {cases, caseType, ...}) =>
+            let
+                val numberOfCases = LargeInt.fromInt(List.length cases)
+                val range =
+                    case caseType of
+                        CaseTag max => Word.toLargeInt max
+                    |   _ =>
+                        let
+                            val (_, aLabel) = hd cases
+                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                        in
+                            Word.toLargeInt (max-min)
+                        end
+            in
+                if 3 * numberOfCases < range + 5
+                then genSparseCase(cas, whereto, tailKind, loopAddr)
+                else genDenseCase (cas, whereto, tailKind, loopAddr)
+            end
   
-       | BICTuple recList =>
+        |   BICTuple recList =>
          let
            (* Move the fields into the vector. *)
            fun loadItems [] = ()
@@ -407,7 +394,7 @@ struct
                that if we generate a value to the stack it only occupies a single
                word.  Rather than change this code and risk breaking something I'm
                simply generating them as mutable tuples on the heap. *)
-        | BICContainer size =>
+        |   BICContainer size =>
             (* Reserve a number of words on the stack for use as a tuple on the
                stack.  The result is the address of this space. *)
             (
@@ -415,7 +402,7 @@ struct
             incsp() (* Pushes a single word. *)
             )
 
-        | BICSetContainer{container, tuple, filter} =>
+        |   BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container.  If the tuple is a
                Tuple instruction we can avoid generating the tuple and then
                unpacking it and simply copy the fields that make up the tuple
@@ -483,6 +470,30 @@ struct
             in
                 gencde (code, whereto, tailKind, loopAddr)
             end
+
+        |   BICBuiltIn0 { oper } => raise InternalError "intgcode: BICBuiltIn0"
+
+        |   BICBuiltIn1 { oper, arg1 } =>
+            (
+                gencde (arg1, ToStack, NotEnd, loopAddr);
+                case oper of
+                    NotBoolean => genOpcode(opcode_notBoolean, cvec)
+            )
+
+        |   BICBuiltIn2 { oper, arg1, arg2 } =>
+            (
+                gencde (arg1, ToStack, NotEnd, loopAddr);
+                gencde (arg2, ToStack, NotEnd, loopAddr);
+                case oper of
+                    EqualBitwiseWord => genOpcode(opcode_equalWord, cvec);
+                decsp() (* Removes one item from the stack. *)
+            )
+
+        |   BICBuiltIn3 { oper, arg1, arg2, arg3 } => raise InternalError "intgcode: BICBuiltIn3"
+
+        |   BICBuiltIn4 { oper, arg1, arg2, arg3, arg4 } => raise InternalError "intgcode: BICBuiltIn4"
+
+        |   BICBuiltIn5 { oper, arg1, arg2, arg3, arg4, arg5 } => raise InternalError "intgcode: BICBuiltIn5"
 
     in (* body of gencde *) 
 
