@@ -42,14 +42,13 @@ end
 =
 struct
     (* open IO *)
-    open RuntimeCalls
     type address = LibrarySupport.address
     type fileDescr = OS.IO.iodesc
     (* Called after any exception in the lower level reader or
        writer to map any exception other than Io into Io. *)
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_close (strm: fileDescr): unit = doIo(7, strm, 0)
         and sys_block_in(strm: fileDescr): unit = doIo(27, strm, 0)
@@ -57,7 +56,7 @@ struct
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_read_text (strm: fileDescr, vil: address*word*word): int =
             doIo(8, strm, vil)
@@ -73,14 +72,14 @@ struct
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_read_string (strm: fileDescr, len: int): string =
             doIo(10, strm, len)
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun readBinVector (strm: fileDescr, len: int): Word8Vector.vector =
             doIo(26, strm, len)
@@ -88,7 +87,7 @@ struct
 
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_get_buffsize (strm: fileDescr): int = doIo(15, strm, 0)
         and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
@@ -98,19 +97,19 @@ struct
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_get_pos(strm: fileDescr): Position.int = doIo(18, strm, 0) (* N.B. large int *)
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_end_pos(strm: fileDescr): Position.int = doIo(20, strm, 0) (* N.B. large int *)
     end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_set_pos(strm: fileDescr, p: Position.int): unit =
             (doIo(19, strm, p); ()) (* N.B. large int *)

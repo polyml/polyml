@@ -1168,13 +1168,13 @@ static int compare_unsigned(PolyWord x, PolyWord y)
 {
 #ifdef USE_GMP
     mp_size_t lx = numLimbs(x);
-    mp_size_t ly = numLimbs(y));
+    mp_size_t ly = numLimbs(y);
 
     if (lx != ly)  /* u > v if u longer than v */
     {
         return (lx > ly ? 1 : -1);
     }
-    return mpn_cmp(x, y, lx);
+    return mpn_cmp((mp_limb_t *)x.AsCodePtr(), (mp_limb_t *)y.AsCodePtr(), lx);
 #else
     /* First look at the lengths */
     POLYUNSIGNED lx = get_length(x);
@@ -1477,12 +1477,24 @@ double get_arbitrary_precision_as_real(TaskData *, PolyWord x)
         POLYSIGNED t = UNTAGGED(x);
         return (double)t;
     }
+    double acc = 0;
+#if USE_GMP
+    mp_limb_t *u = (mp_limb_t *)(x.AsObjPtr());
+    mp_size_t lx = numLimbs(x);
+    for ( ; lx > 0; lx--) {
+        int ll = sizeof(mp_limb_t);
+        for ( ; ll > 0 ; ll-- ) {
+            acc = acc * 256;
+        }
+        acc = acc + (double)u[lx-1];
+    }
+#else
     byte *u = (byte *)(x.AsObjPtr());
     POLYUNSIGNED lx = OBJECT_LENGTH(x)*sizeof(PolyWord);
-    double acc = 0;
     for( ; lx > 0; lx--) {
         acc = acc * 256 + (double)u[lx-1];
     }
+#endif
     if (OBJ_IS_NEGATIVE(GetLengthWord(x)))
         return -acc;
     else return acc;
@@ -1738,7 +1750,8 @@ POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     try {
         // Could raise an exception if out of memory.
         result = add_longc(taskData, pushedArg2, pushedArg1);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();

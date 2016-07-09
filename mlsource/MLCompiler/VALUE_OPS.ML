@@ -408,7 +408,13 @@ struct
         (* Create the "val X =" part. *)
         fun valPart (valOrCons, isColon) =
         let
-            val (space, equOrColon) = if isColon then (0, ":") else (1, "=")
+            (* If we're putting in a colon we don't need a space after an alphanumeric id but we
+               do if it's symbolic. *)
+            val isAlphaNumeric =
+                let val first = String.sub(name, 0) in Char.isAlpha first orelse first = #"'" end
+            val space =
+                if isColon andalso isAlphaNumeric then 0 else 1
+            val equOrColon = if isColon then ":" else "="
         in
             PrettyBlock (0, false, [],
                 [

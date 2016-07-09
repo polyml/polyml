@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13
+    and David C. J. Matthews 2006, 2010-13, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -56,6 +56,7 @@
 #include "processes.h"
 #include "gctaskfarm.h"
 #include "diagnostics.h"
+#include "sharedata.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the
@@ -279,7 +280,7 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             // If we can't find a permanent space choose a space that isn't
             // an allocation space.  Otherwise we could break the invariant
             // that immutable areas never point into the allocation area.
-            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt);
+            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt-1);
             if (bestSpace == 0)
             {
                 bestShare = itemVec[j].pt;
@@ -551,7 +552,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return 0;
 
-    MemSpace *space = gMem.SpaceForAddress(old.AsAddress());
+    MemSpace *space = gMem.SpaceForAddress(old.AsStackAddr()-1);
     if (space == 0 || space->spaceType == ST_IO)
         return 0;
 
@@ -902,4 +903,30 @@ void ShareData(TaskData *taskData, Handle root)
     // Raise an exception if it failed.
     if (! request.result)
         raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+}
+
+// RTS call entry.
+POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        if (! root.IsDataPtr())
+            return TAGGED(0).AsUnsigned(); // Nothing to do.
+
+        // Request the main thread to do the sharing.
+        ShareRequest request(taskData->saveVec.push(root));
+        processes->MakeRootRequest(taskData, &request);
+
+        // Raise an exception if it failed.
+        if (! request.result)
+            raise_exception_string(taskData, EXC_Fail, "Insufficient memory");
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
 }

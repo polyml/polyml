@@ -52,6 +52,18 @@
 #include "basicio.h"
 #include "process_env.h"
 #include "os_specific.h"
+#include "poly_specific.h"
+#include "objsize.h"
+#include "exporter.h"
+#include "sharedata.h"
+#include "network.h"
+#include "sighandler.h"
+#include "timing.h"
+#include "profiling.h"
+#include "xwindows.h"
+#include "polyffi.h"
+#include "foreign.h"
+#include "reals.h"
 
 // Table of RTS entry functions.  In theory it ought to be possible to get these
 // using dlsym/GetProcAddress but that's difficult to get to work with various
@@ -77,6 +89,7 @@ static struct _entrypts {
     { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
+    // RTS entry itself
     { "PolyCreateEntryPointObject",     (polyRTSFunction)&PolyCreateEntryPointObject},
     // Process-env
     { "PolyFinish",                     (polyRTSFunction)&PolyFinish},
@@ -85,6 +98,42 @@ static struct _entrypts {
     // OS-specific
     { "PolyGetOSType",                  (polyRTSFunction)&PolyGetOSType},
     { "PolyOSSpecificGeneral",          (polyRTSFunction)&PolyOSSpecificGeneral},
+    // Poly-specific
+    { "PolySpecificGeneral",            (polyRTSFunction)&PolySpecificGeneral},
+    // Run-time
+    { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
+    // Objsize
+    { "PolyObjSize",                    (polyRTSFunction)&PolyObjSize},
+    { "PolyShowSize",                   (polyRTSFunction)&PolyShowSize},
+    { "PolyObjProfile",                 (polyRTSFunction)&PolyObjProfile},
+    // Exporter
+    { "PolyExport",                     (polyRTSFunction)&PolyExport},
+    { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
+    // Share data
+    { "PolyShareCommonData",            (polyRTSFunction)&PolyShareCommonData},
+    // Networking
+    { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
+    // Signal handling
+    { "PolySetSignalHandler",           (polyRTSFunction)&PolySetSignalHandler},
+    { "PolyWaitForSignal",              (polyRTSFunction)&PolyWaitForSignal},
+    // Timing
+    { "PolyTimingGeneral",              (polyRTSFunction)&PolyTimingGeneral},
+    // Profiling
+    { "PolyProfiling",                  (polyRTSFunction)&PolyProfiling},
+    // Threads
+    { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
+    // FFI (new interface)
+    { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
+    // Foreign (old interface)
+    { "PolyForeignGeneral",             (polyRTSFunction)&PolyForeignGeneral},
+    // X-Windows
+    { "PolyXWindowsGeneral",            (polyRTSFunction)&PolyXWindowsGeneral},
+    // Reals
+    { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
+    { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
+    { "PolyRealBoxedFromString",        (polyRTSFunction)&PolyRealBoxedFromString},
+    { "PolyRealBoxedToLongInt",         (polyRTSFunction)&PolyRealBoxedToLongInt},
+    { "PolyRealSqrt",                   (polyRTSFunction)&PolyRealSqrt},
 
     { NULL, NULL} // End of list.
 };

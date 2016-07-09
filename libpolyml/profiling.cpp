@@ -472,6 +472,25 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
     return request.extractAsList(taskData);
 }
 
+POLYUNSIGNED PolyProfiling(PolyObject *threadId, PolyWord mode)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedMode = taskData->saveVec.push(mode);
+    Handle result = 0;
+
+    try {
+        result = profilerc(taskData, pushedMode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // This is called from the root thread when all the ML threads have been paused.
 void ProfileRequest::Perform()
 {

@@ -47,6 +47,10 @@
 
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
+#define ASSERT(x) assert(x)
+
+#else
+#define ASSERT(x)
 #endif
 
 #ifdef HAVE_STDLIB_H

@@ -312,6 +312,32 @@ Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     return processesModule.ThreadDispatch(taskData, args, code);
 }
 
+// General interface to thread.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = processesModule.ThreadDispatch(taskData, pushedArg, pushedCode);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
@@ -864,8 +890,15 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     if (debugOptions & DEBUG_THREADS)
                         Log("THREAD: Run out of store, interrupting threads\n");
                     BroadcastInterrupt();
-                    if (ProcessAsynchRequests(taskData))
-                        return 0; // Has been interrupted.
+                    try {
+                        if (ProcessAsynchRequests(taskData))
+                            return 0; // Has been interrupted.
+                    }
+                    catch(KillException &)
+                    {
+                        // The thread may have been killed.
+                        processes->ThreadExit(taskData);
+                    }
                     // Not interrupted: pause this thread to allow for other
                     // interrupted threads to free something.
 #if defined(_WIN32)

@@ -46,7 +46,7 @@
 
 static void CheckAddress(PolyWord *pt)
 {
-    MemSpace *space = gMem.SpaceForAddress(pt);
+    MemSpace *space = gMem.SpaceForAddress(pt-1);
     if (space == 0)
     {
         Log("Check: Bad pointer %p (no space found)\n", pt);
@@ -99,7 +99,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
 
     PolyWord *pt  = (PolyWord*)base;
     CheckAddress(pt);
-    MemSpace *space = gMem.SpaceForAddress(pt);
+    MemSpace *space = gMem.SpaceForAddress(pt-1);
     if (space == 0)
         Crash ("Bad pointer 0x%08x found", pt);
 

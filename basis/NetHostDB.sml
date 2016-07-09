@@ -146,14 +146,14 @@ in
     
         local
             val doCall: int*unit -> string
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
         in
             fun getHostName () = doCall(0, ())
         end
         
         local
             val doCall: int*string -> entry
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
         in
             fun getByName s =
                 SOME(doCall(1, s)) handle OS.SysErr _ => NONE
@@ -161,7 +161,7 @@ in
     
         local
             val doCall: int*LargeInt.int -> entry
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+                 = RunCall.rtsCallFull2 "PolyNetworkGeneral"
         in
             fun getByAddr n =
                 SOME(doCall(2, n)) handle OS.SysErr _ => NONE

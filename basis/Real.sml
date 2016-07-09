@@ -26,28 +26,28 @@ struct
        per call, but that's complicated in ML97. *)
     local
         val doReal : int*real->real =
-            RunCall.run_call2 POLY_SYS_Real_Dispatch
+            RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callReal n x = doReal(n, x)
     end
 
     local
         val doReal : int*(real*real)->real =
-            RunCall.run_call2 POLY_SYS_Real_Dispatch
+            RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealReal n p = doReal(n, p)
     end
 
     local
         val doReal : int*real->bool =
-            RunCall.run_call2 POLY_SYS_Real_Dispatch
+            RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealToBool n x = doReal(n, x)
     end
 
     local
         val doReal : int*real->int =
-            RunCall.run_call2 POLY_SYS_Real_Dispatch
+            RunCall.rtsCallFull2 "PolyRealGeneral"
     in
         fun callRealToInt n x = doReal(n, x)
     end
@@ -156,7 +156,7 @@ struct
         and toExponent : real->int = callRealToInt 25
 
         val doReal : int*(real*int)->real =
-            RunCall.run_call2 POLY_SYS_Real_Dispatch
+            RunCall.rtsCallFull2 "PolyRealGeneral"
 
         fun fromManAndExp (ri: real*int): real = doReal(23, ri)
     in
@@ -184,7 +184,7 @@ struct
            32-bits).  That will convert all the bits of the mantissa
            but if the exponent is large we may have to multiply by
            some power of two. *)
-        val realToInt: real -> LargeInt.int  = RunCall.run_call1 POLY_SYS_real_to_int
+        val realToInt: real -> LargeInt.int  = RunCall.rtsCallFull1 "PolyRealBoxedToLongInt"
     in
         
         val realFloor = callReal 19
@@ -230,7 +230,7 @@ struct
     end;
 
     local
-        val realConv: string->real = RunCall.run_call1 POLY_SYS_conv_real
+        val realConv: string->real = RunCall.rtsCallFull1 "PolyRealBoxedFromString"
 
         val posNan = abs(0.0 / 0.0)
         val negNan = ~posNan
@@ -264,7 +264,7 @@ struct
     end
         
     local
-        val dtoa: real*int*int -> string*int*int = RunCall.run_call3 POLY_SYS_Real_str
+        val dtoa: real*int*int -> string*int*int = RunCall.rtsCallFull3 "PolyRealBoxedToString"
         open StringCvt
 
         fun addZeros n =

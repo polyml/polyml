@@ -148,9 +148,11 @@ end
 
 structure Windows :> WINDOWS =
 struct
-    open RuntimeCalls
-    fun getConst i =
-        SysWord.fromInt(RunCall.run_call2 POLY_SYS_os_specific (1006, i))
+    local
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+    in
+        fun getConst i = SysWord.fromInt(winCall (1006, i))
+    end
 
     structure Key =
     struct
@@ -204,7 +206,7 @@ struct
             | EXPAND_SZ of string
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
             (* Open one of the root keys. *)
             (* QUESTION: Why is this an option?  The definition asks
                the same question.  I've removed the option type. *)
@@ -221,7 +223,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
 
             fun pairToResult (0, k) = CREATED_NEW_KEY (SUBKEY k)
              |  pairToResult (_, k) = OPENED_EXISTING_KEY (SUBKEY k)
@@ -244,7 +246,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             (* TODO: We wouldn't normally expect to close a
                predefined key but it looks as though we might
@@ -255,7 +257,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
 
             fun unpackString v =
             let
@@ -305,7 +307,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun deleteValue(PREDEFINED i, s) =
                     (winCall(1022, (i, s)))
@@ -314,7 +316,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
             fun packString s =
             let
                 val len = String.size s
@@ -370,7 +372,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun enumKeyEx(PREDEFINED i, n) =
                     (winCall(1018, (i, n)))
@@ -384,7 +386,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
             (* In Windows NT RegDeleteKey will fail if the key has subkeys.
                To give the same behaviour in both Windows 95 and NT we have
                to recursively delete any subkeys. *)
@@ -413,14 +415,14 @@ struct
         type info = int (* Actually abstract. *)
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun startDialog (service, topic) =
                 winCall(1038, (service, topic))
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             (* The timeout and retry count apply only in the case of
                a busy result.  The Windows call takes a timeout parameter
@@ -444,7 +446,7 @@ struct
         end
 
         local
-            val winCall = RunCall.run_call2 POLY_SYS_os_specific
+            val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun stopDialog (info) = winCall(1040, info)
         end
@@ -460,7 +462,7 @@ struct
     *)
 
     local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
         fun getVolumeInformation root =
         let
@@ -474,19 +476,19 @@ struct
     end
 
     local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
         fun findExecutable s = SOME(winCall(1033, s)) handle OS.SysErr _ => NONE
     end
 
     local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
         fun openDocument s = winCall(1034, s)
     end
 
     local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
         fun launchApplication (command, arg) =
             winCall(1035, (command, arg))
@@ -496,75 +498,85 @@ struct
 
     (* Run a process and return a proces object which will
        allow us to extract the input and output streams. *)
-    fun execute(command, arg): ('a,'b) proc =
-        RunCall.run_call2 POLY_SYS_os_specific
-                (1000, (command, arg))
+    local
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+    in
+        fun execute(command, arg): ('a,'b) proc = RunCall.unsafeCast(winCall (1000, (command, arg)))
+    end
 
     local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
+        val doIo = RunCall.rtsCallFull3 "PolyBasicIOGeneral"
     in
         fun sys_get_buffsize (strm: OS.IO.iodesc): int = doIo(15, strm, 0)
     end
 
-    fun textInstreamOf p =
-    let
-        (* Get the underlying file descriptor. *)
-        val n = RunCall.run_call2 POLY_SYS_os_specific(1001, p)
-        val textPrimRd =
-            LibraryIOSupport.wrapInFileDescr
-                {fd=n, name="TextPipeInput", initBlkMode=true}
-        val streamIo = TextIO.StreamIO.mkInstream(textPrimRd, "")
+    local
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
-        TextIO.mkInstream streamIo
-    end
+        fun textInstreamOf p =
+        let
+            (* Get the underlying file descriptor. *)
+            val n = winCall (1001, RunCall.unsafeCast p)
+            val textPrimRd =
+                LibraryIOSupport.wrapInFileDescr
+                    {fd=n, name="TextPipeInput", initBlkMode=true}
+            val streamIo = TextIO.StreamIO.mkInstream(textPrimRd, "")
+        in
+            TextIO.mkInstream streamIo
+        end
         
-    fun textOutstreamOf p =
-    let
-        val n = RunCall.run_call2 POLY_SYS_os_specific(1002, p)
-        val buffSize = sys_get_buffsize n
-        val textPrimWr =
-            LibraryIOSupport.wrapOutFileDescr{fd=n, name="TextPipeOutput",
-                appendMode=false, initBlkMode=true, chunkSize=buffSize}
-        (* Construct a stream. *)
-        val streamIo = TextIO.StreamIO.mkOutstream(textPrimWr, IO.LINE_BUF)
-    in
-        TextIO.mkOutstream streamIo
-    end
+        fun textOutstreamOf p =
+        let
+            val n = winCall (1002, RunCall.unsafeCast p)
+            val buffSize = sys_get_buffsize n
+            val textPrimWr =
+                LibraryIOSupport.wrapOutFileDescr{fd=n, name="TextPipeOutput",
+                    appendMode=false, initBlkMode=true, chunkSize=buffSize}
+            (* Construct a stream. *)
+            val streamIo = TextIO.StreamIO.mkOutstream(textPrimWr, IO.LINE_BUF)
+        in
+            TextIO.mkOutstream streamIo
+        end
 
-    fun binInstreamOf p =
-    let
-        (* Get the underlying file descriptor. *)
-        val n = RunCall.run_call2 POLY_SYS_os_specific(1003, p)
-        val binPrimRd =
-            LibraryIOSupport.wrapBinInFileDescr
-                {fd=n, name="BinPipeInput", initBlkMode=true}
-        val streamIo =
-            BinIO.StreamIO.mkInstream(binPrimRd, Word8Vector.fromList [])
-    in
-        BinIO.mkInstream streamIo
-    end
+        fun binInstreamOf p =
+        let
+            (* Get the underlying file descriptor. *)
+            val n = winCall (1003, RunCall.unsafeCast p)
+            val binPrimRd =
+                LibraryIOSupport.wrapBinInFileDescr
+                    {fd=n, name="BinPipeInput", initBlkMode=true}
+            val streamIo =
+                BinIO.StreamIO.mkInstream(binPrimRd, Word8Vector.fromList [])
+        in
+            BinIO.mkInstream streamIo
+        end
         
-    fun binOutstreamOf p =
-    let
-        val n = RunCall.run_call2 POLY_SYS_os_specific(1004, p)
-        val buffSize = sys_get_buffsize n
-        val binPrimWr =
-            LibraryIOSupport.wrapBinOutFileDescr{fd=n, name="BinPipeOutput",
-                appendMode=false, initBlkMode=true, chunkSize=buffSize}
-        (* Construct a stream. *)
-        val streamIo = BinIO.StreamIO.mkOutstream(binPrimWr, IO.LINE_BUF)
-    in
-        BinIO.mkOutstream streamIo
+        fun binOutstreamOf p =
+        let
+            val n = winCall (1004, RunCall.unsafeCast p)
+            val buffSize = sys_get_buffsize n
+            val binPrimWr =
+                LibraryIOSupport.wrapBinOutFileDescr{fd=n, name="BinPipeOutput",
+                    appendMode=false, initBlkMode=true, chunkSize=buffSize}
+            (* Construct a stream. *)
+            val streamIo = BinIO.StreamIO.mkOutstream(binPrimWr, IO.LINE_BUF)
+        in
+            BinIO.mkOutstream streamIo
+        end
     end
 
     (* reap - wait until the process finishes and get the result.
        Note: this is defined to be able to return the result repeatedly.
        At present that's done by not closing the handle except in the
        garbage collector.  That could cause us to run out of handles. *)
-    fun reap p = RunCall.run_call2 POLY_SYS_os_specific(1005, p)
+    local
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
+    in
+        fun reap p = winCall (1005, RunCall.unsafeCast p)
+    end
 
     local
-        val winCall = RunCall.run_call2 POLY_SYS_os_specific
+        val winCall = RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
     in
         (* Run a process and wait for the result.  Rather than do the
            whole thing as a single RTS call we first start the process
@@ -630,7 +642,7 @@ struct
     struct
         local
             val winCall: int*unit->int*int*int*int*string =
-                RunCall.run_call2 POLY_SYS_os_specific
+                RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun getVersionEx () =
             let
@@ -647,7 +659,7 @@ struct
 
         local
             val winCall: int*unit->string =
-                RunCall.run_call2 POLY_SYS_os_specific
+                RunCall.rtsCallFull2 "PolyOSSpecificGeneral"
         in
             fun getWindowsDirectory () = winCall(1051, ())
             and getSystemDirectory () = winCall(1052, ())

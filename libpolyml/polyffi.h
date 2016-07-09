@@ -1,7 +1,7 @@
 /*
     Title:  New Foreign Function Interface
 
-    Copyright (c) 2015  David C.J. Matthews
+    Copyright (c) 2015-16 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -46,4 +46,16 @@ extern Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Ha
 extern Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
 #endif
   
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+}
+
 #endif

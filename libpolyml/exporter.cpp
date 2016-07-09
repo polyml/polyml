@@ -188,7 +188,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         return 0;
     // Ignore pointers to the IO area.  They will be relocated
     // when we write out the memory
-    MemSpace *space = gMem.SpaceForAddress(val.AsAddress());
+    MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
     ASSERT(space != 0);
     if (space->spaceType == ST_IO)
         return 0;
@@ -369,7 +369,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
     {
         PolyObject *forwardedTo = obj->GetForwardingPtr();
         POLYUNSIGNED length = GetObjLength(forwardedTo);
-        MemSpace *space = gMem.SpaceForAddress(forwardedTo);
+        MemSpace *space = gMem.SpaceForAddress(forwardedTo-1);
         if (space->spaceType == ST_EXPORT)
             obj->SetLengthWord(length);
         return length;
@@ -404,10 +404,10 @@ public:
     Exporter *exporter;
 };
 
-static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Exporter *exports)
+static void exporter(TaskData *taskData, Handle fileName, Handle root, const TCHAR *extension, Exporter *exports)
 {
     size_t extLen = _tcslen(extension);
-    TempString fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0), extLen));
+    TempString fileNameBuff(Poly_string_to_T_alloc(fileName->Word(), extLen));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", ENOMEM);
     size_t length = _tcslen(fileNameBuff);
@@ -422,8 +422,6 @@ static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Ex
 #endif
     if (exports->exportFile == NULL)
         raise_syscall(taskData, "Cannot open export file", errno);
-
-    Handle root = taskData->saveVec.push(args->WordP()->Get(1));
 
     // Request a full GC  to reduce the size of fix-ups.
     FullGC(taskData);
@@ -555,17 +553,20 @@ Handle exportNative(TaskData *taskData, Handle args)
     const char *extension = ".o"; // Cygwin
 #endif
     PECOFFExport exports;
-    exporter(taskData, args, extension, &exports);
+    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
+        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
 #elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
     // Most Unix including Linux, FreeBSD and Solaris.
     const char *extension = ".o";
     ELFExport exports;
-    exporter(taskData, args, extension, &exports);
+    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
+        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
 #elif defined(HAVE_MACH_O_RELOC_H)
     // Mac OS-X
     const char *extension = ".o";
     MachoExport exports;
-    exporter(taskData, args, extension, &exports);
+    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
+        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
 #else
     raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
 #endif
@@ -575,8 +576,67 @@ Handle exportNative(TaskData *taskData, Handle args)
 Handle exportPortable(TaskData *taskData, Handle args)
 {
     PExport exports;
-    exporter(taskData, args, _T(".txt"), &exports);
+    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
+        taskData->saveVec.push(args->WordP()->Get(1)), _T(".txt"), &exports);
     return taskData->saveVec.push(TAGGED(0));
+}
+
+POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedName = taskData->saveVec.push(fileName);
+    Handle pushedRoot = taskData->saveVec.push(root);
+
+    try {
+#ifdef HAVE_PECOFF
+        // Windows including Cygwin
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        const TCHAR *extension = _T(".obj"); // Windows
+#else
+        const char *extension = ".o"; // Cygwin
+#endif
+        PECOFFExport exports;
+        exporter(taskData, pushedName, pushedRoot, extension, &exports);
+#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
+        // Most Unix including Linux, FreeBSD and Solaris.
+        const char *extension = ".o";
+        ELFExport exports;
+        exporter(taskData, pushedName, pushedRoot, extension, &exports);
+#elif defined(HAVE_MACH_O_RELOC_H)
+        // Mac OS-X
+        const char *extension = ".o";
+        MachoExport exports;
+        exporter(taskData, pushedName, pushedRoot, extension, &exports);
+#else
+        raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
+#endif
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Returns unit
+}
+
+POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedName = taskData->saveVec.push(fileName);
+    Handle pushedRoot = taskData->saveVec.push(root);
+
+    try {
+        PExport exports;
+        exporter(taskData, pushedName, pushedRoot, _T(".txt"), &exports);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned(); // Returns unit
 }
 
 

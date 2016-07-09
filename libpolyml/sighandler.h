@@ -28,6 +28,19 @@ class TaskData;
 
 extern Handle Sig_dispatch_c(TaskData *taskData, Handle handler, Handle sig);
 
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolySetSignalHandler(PolyObject *threadId, PolyWord signalNo, PolyWord action);
+    DLLEXPORT POLYUNSIGNED PolyWaitForSignal(PolyObject *threadId);
+}
+
 extern void markSignalInuse(int sig);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))

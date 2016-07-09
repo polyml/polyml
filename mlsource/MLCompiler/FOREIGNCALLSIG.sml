@@ -19,4 +19,5 @@ signature FOREIGNCALLSIG =
 sig
     val rtsCallFull: string * int * Universal.universal list -> Address.address
     val rtsCallFast: string * int * Universal.universal list -> Address.address
+    val rtsCallFastFloattoFloat: string * Universal.universal list -> Address.address
 end;

@@ -4,10 +4,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further development David C.J. Matthews 2016
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -62,6 +63,7 @@
 #include "bitmap.h"
 #include "memmgr.h"
 #include "mpoly.h"
+#include "processes.h"
 
 extern FILE *polyStdout;
 
@@ -374,4 +376,52 @@ Handle ObjProfile(TaskData *taskData, Handle obj)
     printfprof(process.mprofile);
     fflush(polyStdout); /* We need this for Windows at least. */
     return Make_arbitrary_precision(taskData, process.total_length);
+}
+
+POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+
+    ProcessVisitAddresses process(false);
+    process.ScanObjectAddress(obj.AsObjPtr());
+    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+
+    taskData->PostRTSCall();
+    return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+
+    ProcessVisitAddresses process(true);
+    process.ScanObjectAddress(obj.AsObjPtr());
+    fflush(polyStdout); /* We need this for Windows at least. */
+    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+
+    taskData->PostRTSCall();
+    return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+
+    ProcessVisitAddresses process(false);
+    process.ScanObjectAddress(obj.AsObjPtr());
+    fprintf(polyStdout, "\nImmutable object sizes and counts\n");
+    printfprof(process.iprofile);
+    fprintf(polyStdout, "\nMutable object sizes and counts\n");
+    printfprof(process.mprofile);
+    fflush(polyStdout); /* We need this for Windows at least. */
+    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+
+    taskData->PostRTSCall();
+    return result->Word().AsUnsigned();
 }

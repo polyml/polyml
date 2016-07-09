@@ -306,4 +306,101 @@ struct
         lock closure;
         closure
     end
+    
+    (* RTS call with one double-precision floating point argument and a floating point result.
+       First version.  This will probably be merged into the above code in due
+       course.
+       Currently ML always uses boxed values for floats.  *)
+    fun rtsCallFastFloattoFloat (functionName, debugSwitches) =
+    let
+        val entryPointAddr = makeEntryPoint functionName
+
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val abi =
+            case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (108, 0) of
+                1 => X64Unix
+            |   2 => X64Win
+            |   _ => X86_32
+
+        (* We don't need an argument pointer but we do need to save
+           the ML stack pointer across the call. *)
+        val (entryPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r13) else (ecx, edi)
+        
+        val stackSpace =
+            case abi of
+                X64Unix => memRegSize
+            |   X64Win => memRegSize + 32 (* Requires 32-byte save area. *)
+            |   X86_32 =>
+                let
+                    (* GCC likes to keep the stack on a 16-byte alignment. *)
+                    val argSpace = 8 (*nArgs*4*) (* One "double" value. *)
+                    val align = argSpace mod 16
+                in
+                    (* Add sufficient space so that esp will be 16-byte aligned *)
+                    if align = 0
+                    then memRegSize
+                    else memRegSize + 16 - align
+                end
+
+        (* Constants for a box for a float *)
+        val fpBoxSize = 8 div wordSize
+        val fpBoxLengthWord32 = IntInf.orb(IntInf.fromInt fpBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
+
+        val code =
+            [
+                MoveLongConstR{source=entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
+                MoveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
+                MoveRR{source=ebp, output=esp},
+                (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
+                ArithRConst{ opc=SUB, output=esp, source= LargeInt.fromInt stackSpace}
+            ] @
+            (
+                case abi of
+                    X64Unix => raise Fail "TODO"
+                |   X64Win => raise Fail "TODO"
+                |   X86_32 =>
+                     (* eax contains the address of the value.  This must be unboxed onto the stack. *)
+                    [
+                        FPLoadFromGenReg eax,
+                        ArithRConst{ opc=SUB, output=esp, source=8},
+                        FPStoreToMemory{ base=esp, offset=0, andPop=true }
+                    ]
+            ) @
+            [
+                CallFunction(DirectReg entryPtrReg), (* Call the function *)
+                MoveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
+            ] @
+            (
+                (* Put the floating point result into a box. *)
+                case abi of
+                    X64Unix => raise Fail "TODO"
+                |   X64Win => raise Fail "TODO"
+                |   X86_32 =>
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=fpBoxLengthWord32,
+                                address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
+                        FPStoreToMemory{ base=eax, offset=0, andPop=true },
+                        StoreInitialised
+                    ]
+            ) @
+            [
+                (* Remove any arguments that have been passed on the stack. *)
+                ReturnFromFunction 0
+            ]
+ 
+        val profileObject = createProfileObject functionName
+        val newCode = codeCreate (functionName, profileObject, debugSwitches)
+        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        (* Have to create a closure for this *)
+        open Address
+        val closure = alloc(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+    in
+        assignWord(closure, 0w0, toMachineWord createdCode);
+        lock closure;
+        closure
+    end
+
 end;

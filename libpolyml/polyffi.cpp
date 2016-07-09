@@ -460,6 +460,28 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
     }
 }
 
+// General interface to IO.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = poly_ffi(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 // Load and store functions.  These are implemented in assembly code or the code-generator
 // so are only provided for the interpreter.
 // These functions all take a base address, an offset and an index.  The offset is

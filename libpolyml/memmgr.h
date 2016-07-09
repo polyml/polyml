@@ -248,6 +248,9 @@ public:
 
     // Find a space that contains a given address.  This is called for every cell
     // during a GC so needs to be fast.,
+    // N.B.  This must be called on an address at the beginning or within the cell.
+    // Generally that means with a pointer to the length word.  Pointing at the
+    // first "data" word may give the wrong result if the length is zero.
     MemSpace *SpaceForAddress(const void *pt) const
     {
         uintptr_t t = (uintptr_t)pt;
@@ -266,6 +269,8 @@ public:
     }
 
     // Find a local address for a space.
+    // N.B.  The argument should generally be the length word.  See
+    // comment on SpaceForAddress.
     LocalMemSpace *LocalSpaceForAddress(const void *pt) const
     {
         MemSpace *s = SpaceForAddress(pt);
@@ -275,8 +280,6 @@ public:
     }
 
     bool IsIOPointer(const void *pt) const { return pt >= ioSpace->bottom && pt < ioSpace->top; }
-    bool IsLocalMutable(const void *pt) const
-    { LocalMemSpace *space = LocalSpaceForAddress(pt); return space != 0 && space->isMutable; }
 
     void SetReservation(POLYUNSIGNED words) { reservedSpace = words; }
 

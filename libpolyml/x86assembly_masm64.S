@@ -109,7 +109,13 @@ SaveR11             QWORD   ?
 SaveR12             QWORD   ?
 SaveR13             QWORD   ?
 SaveR14             QWORD   ?
-SaveFP              WORD   ?         ; Actually larger
+SaveXMM0            QWORD   ?
+SaveXMM1            QWORD   ?
+SaveXMM2            QWORD   ?
+SaveXMM3            QWORD   ?
+SaveXMM4            QWORD   ?
+SaveXMM5            QWORD   ?
+SaveXMM6            QWORD   ?
 ArgVector ENDS
 
 RETURN_HEAP_OVERFLOW        EQU 1
@@ -277,7 +283,13 @@ X86AsmSwitchToPoly  PROC FRAME
 X86AsmSwitchToPoly ENDP
 
 sw2polyfull:
-    FRSTOR  [ArgVector.SaveFP+rcx]
+    movsd   xmm0,[ArgVector.SaveXMM0+rcx]
+    movsd   xmm1,[ArgVector.SaveXMM1+rcx]
+    movsd   xmm2,[ArgVector.SaveXMM2+rcx]
+    movsd   xmm3,[ArgVector.SaveXMM3+rcx]
+    movsd   xmm4,[ArgVector.SaveXMM4+rcx]
+    movsd   xmm5,[ArgVector.SaveXMM5+rcx]
+    movsd   xmm6,[ArgVector.SaveXMM6+rcx]
     mov     rax,[ArgVector.SaveRAX+rcx]
     mov     rbx,[ArgVector.SaveRBX+rcx]
     mov     rdx,[ArgVector.SaveRDX+rcx]
@@ -306,8 +318,13 @@ SaveFullState:
     mov     [ArgVector.SaveRDX+rax],rdx
     mov     [ArgVector.SaveRSI+rax],rsi
     mov     [ArgVector.SaveRDI+rax],rdi
-    FNSAVE  [ArgVector.SaveFP+rax]          ; Save FP state.  Also resets the state so...
-    FLDCW   [ArgVector.SaveFP+rax]          ; ...load because we need the same rounding mode in the RTS
+    movsd   [ArgVector.SaveXMM0+rax],xmm0
+    movsd   [ArgVector.SaveXMM1+rax],xmm1
+    movsd   [ArgVector.SaveXMM2+rax],xmm2
+    movsd   [ArgVector.SaveXMM3+rax],xmm3
+    movsd   [ArgVector.SaveXMM4+rax],xmm4
+    movsd   [ArgVector.SaveXMM5+rax],xmm5
+    movsd   [ArgVector.SaveXMM6+rax],xmm6
     mov     [ArgVector.SaveR8+rax],r8
     mov     [ArgVector.SaveR9+rax],r9
     mov     [ArgVector.SaveR10+rax],r10
@@ -339,33 +356,6 @@ PUBLIC  X86AsmSaveStateAndReturn
 X86AsmSaveStateAndReturn:
 SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative address
 jmp     SaveFullState
-IFDEF NOTNOW
-    push    rax                ; Save rax
-    mov     rax,PolyStack[rbp]
-    mov     EBX_OFF[rax],rbx
-    mov     EDX_OFF[rax],rdx
-    FSTCW   FPREGS_OFF[rax]
-    FNINIT                     ; Reset the FP state.
-    FLDCW   FPREGS_OFF[rax]   ; But reload the rounding mode
-    mov     R8_OFF[rax],r8
-    mov     R9_OFF[rax],r9
-    mov     R10_OFF[rax],r10
-    mov     LocalMpointer[rbp],r15
-    pop     rbx                ; Get old rax value
-    mov     EAX_OFF[rax],rbx
-    mov     SP_OFF[rax],rsp
-    mov     byte ptr [InRTS+rbp],1
-    mov     rsp,SavedSp[rbp]
-    pop     rsi
-    pop     rdi
-    pop     r15                            ; Restore callee-save registers
-    pop     r14
-    pop     r13
-    pop     r12
-    pop     rbx
-    pop     rbp
-    ret
-ENDIF
 
 ; Used when entering new code.  The argument and closure are on the stack
 ; in case there is a GC before we enter the code.
@@ -1450,42 +1440,36 @@ real_add:
     call    mem_for_real
 ; Do the operation and put the result in the allocated
 ; space.
-    fld     qword ptr [rax]
-    fadd    qword ptr [rbx]
-    fstp    qword ptr [rcx]
+    movsd   xmm0,mmword ptr [rax]
+    addsd   xmm0,mmword ptr [rbx]
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
 PUBLIC  real_sub
 real_sub:
     call    mem_for_real
-; Do the operation and put the result in the allocated
-; space.
-    fld     qword ptr [rax]
-    fsub    qword ptr [rbx]
-    fstp    qword ptr [rcx]
+    movsd   xmm0,mmword ptr [rax]
+    subsd   xmm0,mmword ptr [rbx]
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
 PUBLIC  real_mul
 real_mul:
     call    mem_for_real
-; Do the operation and put the result in the allocated
-; space.
-    fld     qword ptr [rax]
-    fmul    qword ptr [rbx]
-    fstp    qword ptr [rcx]
+    movsd   xmm0,mmword ptr [rax]
+    mulsd   xmm0,mmword ptr [rbx]
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
 PUBLIC  real_div
 real_div:
-        call    mem_for_real
-; Do the operation and put the result in the allocated
-; space.
-    fld     qword ptr [rax]
-    fdiv    qword ptr [rbx]
-    fstp    qword ptr [rcx]
+    call    mem_for_real
+    movsd   xmm0,mmword ptr [rax]
+    divsd   xmm0,mmword ptr [rbx]
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
@@ -1499,9 +1483,10 @@ real_abs:
 ; Do the operation and put the result in the allocated
 ; space.
 ; N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
-    fld     qword ptr [rax]
-    fabs
-    fstp    qword ptr [rcx]
+    movsd   xmm0,mmword ptr [rax]
+    movsd   xmm1,real_abs_mask
+    andpd   xmm0,xmm1
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
@@ -1512,78 +1497,60 @@ real_neg:
 ; Do the operation and put the result in the allocated
 ; space.
 ; N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
-    fld     qword ptr [rax]
-    fchs
-    fstp    qword ptr [rcx]
+    movsd   xmm0,mmword ptr [rax]
+    movsd   xmm1,real_neg_sign
+    xorpd   xmm0,xmm1
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 
+    ALIGN 8
+real_abs_mask DQ   7fffffffffffffffh
+real_neg_sign DQ   8000000000000000h
+
 PUBLIC  real_eq
 real_eq:
-    fld     qword ptr [rax]
-    fcomp   qword ptr [rbx]
-    fnstsw  ax
-; Not all 64-bit processors support SAHF.
-; The result is true if the zero flag is set and parity flag clear.  
-    and     rax,17408           ; 0x4400
-    cmp     rax,16384           ; 0x4000
-    je      RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rax]
+    ucomisd xmm0,mmword ptr [rbx]
+    jp      RetFalse                ; If either was a NaN we return false
+    jnz     RetFalse
+    jmp     RetTrue
 
 PUBLIC  real_neq
 real_neq:
-    fld     qword ptr [rax]
-    fcomp   qword ptr [rbx]
-    fnstsw  ax
-    and     rax,17408
-    cmp     rax,16384
-    jne     RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rax]
+    ucomisd xmm0,mmword ptr [rbx]
+    jp      RetTrue                ; If either was a NaN we return true
+    jz      RetFalse
+    jmp     RetTrue
 
 PUBLIC  real_lss
 real_lss:
-; Compare rbx > rax
-    fld     qword ptr [rbx]
-    fcomp   qword ptr [rax]
-    fnstsw  ax
-
-; True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
-    and     rax,17664
-
-    je      RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rbx]
+    ucomisd xmm0,mmword ptr [rax]   ; Sets CF if less than or unordered, ZF if equal or unordered
+    jbe     RetFalse                ; Return false if <= or unordered
+    jmp     RetTrue
 
 PUBLIC  real_gtr
 real_gtr:
-    fld     qword ptr [rax]
-    fcomp   qword ptr [rbx]
-    fnstsw  ax
-
-; True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
-    and     rax,17664
-    je      RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rax]
+    ucomisd xmm0,mmword ptr [rbx]
+    jbe     RetFalse
+    jmp     RetTrue
 
 PUBLIC  real_leq
 real_leq:
-; Compare rbx > rax
-    fld     qword ptr [rbx]
-    fcomp   qword ptr [rax]
-    fnstsw  ax
-; True if the carry flag (C0) and parity (C2) are both clear
-    and     rax,1280
-    je      RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rbx]
+    ucomisd xmm0,mmword ptr [rax]
+    jb      RetFalse                ; Return false if < or unordered
+    jmp     RetTrue
 
 PUBLIC  real_geq
 real_geq:
-    fld     qword ptr [rax]
-    fcomp   qword ptr [rbx]
-    fnstsw  ax
-; True if the carry flag (C0) and parity (C2) are both clear
-    and     rax,1280
-    je      RetTrue
-    jmp     RetFalse
+    movsd   xmm0,mmword ptr [rax]
+    ucomisd xmm0,mmword ptr [rbx]
+    jb      RetFalse
+    jmp     RetTrue
 
 PUBLIC  real_from_int
 real_from_int:
@@ -1598,10 +1565,8 @@ fixed_to_real:
     mov     rbx,rax                 ; Put a valid value in rbx
     call    mem_for_real
     sar     rax,TAGSHIFT
-    push    rax                     ; Push it to the stack.  We can only load it from memory
-    fild    qword ptr [rsp]
-    pop     rax
-    fstp    qword ptr [rcx]
+    cvtsi2sd xmm0,rax
+    movsd   mmword ptr [rcx],xmm0
     mov     rax,rcx
     ret
 

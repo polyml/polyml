@@ -3,11 +3,11 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+    and David C. J. Matthews 2006, 2010-13, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,7 +25,17 @@
 
 // Called by the thread to make the request.
 void ShareData(TaskData *taskData, Handle root);
-// Called by the root thread to do the work.
-bool RunShareData(PolyObject *root);
+
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root);
+}
 
 #endif

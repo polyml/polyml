@@ -284,7 +284,7 @@ void close_stream(PIOSTRUCT str)
 #endif
     else close(str->device.ioDesc);
     str->ioBits = 0;
-    str->token = 0;
+    str->token = TAGGED(0);
     emfileFlag = false;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (str->hAvailable) CloseHandle(str->hAvailable);
@@ -292,43 +292,39 @@ void close_stream(PIOSTRUCT str)
 #endif
 }
 
-
-/******************************************************************************/
-/*                                                                            */
-/*      get_stream - utility function - doesn't allocate                      */
-/*                                                                            */
-/******************************************************************************/
-PIOSTRUCT get_stream(PolyObject *stream_token)
+PIOSTRUCT get_stream(PolyWord stream_token)
 /* Checks that the stream number is valid and returns the actual stream. 
    Returns NULL if the stream is closed. */
 {
-    POLYUNSIGNED stream_no = ((StreamToken*)stream_token)->streamNo;
+    POLYUNSIGNED stream_no;
+    if (stream_token.IsTagged())
+        stream_no = stream_token.UnTaggedUnsigned();
+    else stream_no = ((StreamToken*)stream_token.AsObjPtr())->streamNo;
 
-    if (stream_no >= max_streams ||
-        basic_io_vector[stream_no].token != stream_token ||
-        ! isOpen(&basic_io_vector[stream_no])) 
-        return 0; /* Closed. */
+    if (stream_no >= max_streams)
+        return 0;
+    if (basic_io_vector[stream_no].token != stream_token)
+    {
+        // Backwards compatibility.  The persistent streams may either be
+        // tagged values or IO entry pointers.
+        if (stream_no >= 3)
+            return 0;
+    }
+    if (! isOpen(&basic_io_vector[stream_no])) 
+        return 0; 
 
     return &basic_io_vector[stream_no];
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      make_stream_entry - utility function - allocates in Poly heap         */
-/*                                                                            */
-/******************************************************************************/
 Handle make_stream_entry(TaskData *taskData)
-/* Find a free entry in the stream vector and return a token for it. The
-   address of the token is preserved on the save vector so it will not be
-   deleted if there is a garbage collection (Entries in the stream vector
-   itself are "weak". */ 
+// Find a free entry in the stream vector and return a token for it.  
 {
     POLYUNSIGNED stream_no;
 
     ioLock.Lock();
     // Find an unused entry.
     for(stream_no = 0;
-        stream_no < max_streams && basic_io_vector[stream_no].token != 0;
+        stream_no < max_streams && basic_io_vector[stream_no].token != ClosedToken;
         stream_no++);
     
     /* Check we have enough space. */
@@ -342,6 +338,8 @@ Handle make_stream_entry(TaskData *taskData)
         basic_io_vector = newVector;
         /* Clear the new space. */
         memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
+        for (POLYUNSIGNED i = oldMax; i < max_streams; i++)
+            basic_io_vector[i].token = ClosedToken;
     }
 
     // Create the token.  This must be mutable not because it will be updated but
@@ -379,7 +377,7 @@ void free_stream_entry(POLYUNSIGNED stream_no)
     ASSERT(stream_no < max_streams);
 
     ioLock.Lock();
-    basic_io_vector[stream_no].token  = 0;
+    basic_io_vector[stream_no].token  = ClosedToken;
     basic_io_vector[stream_no].ioBits = 0;
     ioLock.Unlock();
 }
@@ -463,17 +461,17 @@ static Handle open_file(TaskData *taskData, Handle filename, int mode, int acces
 /* Close the stream unless it is stdin or stdout or already closed. */
 static Handle close_file(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
-    POLYUNSIGNED stream_no = STREAMID(stream);
-
-    if (strm != NULL && stream_no > 2)
-        /* Ignore closed streams, stdin, stdout or stderr. */
+    // Closed streams, stdin, stdout or stderr are all short ints.
+    if (stream->Word().IsDataPtr())
     {
-        close_stream(strm);
+        PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
+        if (strm != NULL && strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
+        // Ignore closed streams, stdin, stdout or stderr.
+        if (strm != NULL) close_stream(strm);
     }
 
     return Make_fixed_precision(taskData, 0);
-} /* close_file */
+}
 
 /* Read into an array. */
 // We can't combine readArray and readString because we mustn't compute the
@@ -1483,11 +1481,11 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     switch (c)
     {
     case 0: /* Return standard input */
-        return SAVE((PolyObject*)IoEntry(POLY_SYS_stdin));
+        return SAVE(basic_io_vector[0].token);
     case 1: /* Return standard output */
-        return SAVE((PolyObject*)IoEntry(POLY_SYS_stdout));
+        return SAVE(basic_io_vector[1].token);
     case 2: /* Return standard error */
-        return SAVE((PolyObject*)IoEntry(POLY_SYS_stderr));
+        return SAVE(basic_io_vector[2].token);
     case 3: /* Open file for text input. */
         return open_file(taskData, args, O_RDONLY, 0666, 0);
     case 4: /* Open file for binary input. */
@@ -1623,7 +1621,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             for (unsigned i = 0; i < max_streams; i++)
             {
                 str = &(basic_io_vector[i]);
-                if (str->token != 0 && str->device.ioDesc == ioDesc)
+                if (str->token != ClosedToken && str->device.ioDesc == ioDesc)
                     return taskData->saveVec.push(str->token);
             }
             /* Have to make a new entry. */
@@ -1910,7 +1908,11 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
 
     try {
         result = IO_dispatch_c(taskData, pushedArg, pushedStrm, pushedCode);
-    } catch (...) { } // If an ML exception is raised
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
@@ -1935,11 +1937,13 @@ void BasicIO::Init(void)
     max_streams = 20; // Initialise to the old Unix maximum. Will grow if necessary.
     /* A vector for the streams (initialised by calloc) */
     basic_io_vector = (PIOSTRUCT)calloc(max_streams, sizeof(IOSTRUCT));
+    for (unsigned i = 0; i < max_streams; i++)
+        basic_io_vector[i].token = ClosedToken;
 }
 
 void BasicIO::Start(void)
 {
-    basic_io_vector[0].token  = (PolyObject*)IoEntry(POLY_SYS_stdin);
+    basic_io_vector[0].token  = TAGGED(0);
     basic_io_vector[0].device.ioDesc = 0;
     basic_io_vector[0].ioBits = IO_BIT_OPEN | IO_BIT_READ;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1952,14 +1956,14 @@ void BasicIO::Start(void)
         basic_io_vector[0].hAvailable = hDup;
 #endif
 
-    basic_io_vector[1].token  = (PolyObject*)IoEntry(POLY_SYS_stdout);
+    basic_io_vector[1].token  = TAGGED(1);
     basic_io_vector[1].device.ioDesc = 1;
     basic_io_vector[1].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     basic_io_vector[1].ioBits |= getFileType(1);
 #endif
 
-    basic_io_vector[2].token  = (PolyObject*)IoEntry(POLY_SYS_stderr);
+    basic_io_vector[2].token  = TAGGED(2);
     basic_io_vector[2].device.ioDesc = 2;
     basic_io_vector[2].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1995,13 +1999,15 @@ void BasicIO::GarbageCollect(ScanAddress *process)
     {
         PIOSTRUCT str = &(basic_io_vector[i]);
         
-        if (str->token != 0)
+        if (str->token.IsDataPtr())
         {
-            process->ScanRuntimeAddress(&str->token, ScanAddress::STRENGTH_WEAK);
+            PolyObject *token = str->token.AsObjPtr();
+            process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
             
             /* Unreferenced streams may return zero. */ 
-            if (str->token == 0 && isOpen(str))
+            if (token == 0 && isOpen(str))
                 close_stream(str);
+            str->token = token == 0 ? ClosedToken : token;
         }
     }
 }

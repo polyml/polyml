@@ -31,9 +31,7 @@ typedef SaveVecEntry *Handle;
 class TaskData;
 
 // Exceptions thrown by C++ code.  Indicates that the caller should not return normally.
-// They can be thrown in one of two different situations:
-// 1.  The IO function needs to raise an ML exception
-// 2.  The IO function needs to retry the call.
+// They now result in ML exceptions.
 
 class IOException {
 public:
@@ -47,7 +45,8 @@ public:
     MemoryException() {}
 };
 
-// A request to kill the thread raises this exception. 
+// A request to kill the thread raises this exception.
+// This allows IO operations to handle this and unwind.
 class KillException {
 public:
     KillException() {}
@@ -87,7 +86,6 @@ extern void IncrementRTSCallCount(unsigned ioFunction);
 extern Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size );
 extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
-extern Handle stack_trace_c(TaskData *taskData);
 
 // Create fixed precision values.
 extern Handle Make_fixed_precision(TaskData *taskData, long);
@@ -102,5 +100,17 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 #endif
 
 extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
+
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyFullGC(PolyObject *threadId);
+}
 
 #endif /* _RUNTIME_H_DEFINED */

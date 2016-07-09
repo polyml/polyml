@@ -25,12 +25,15 @@ sig
 
     val sameCode: code * code -> bool
 
+    (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
     and fpReg = FloatingPtReg of Word8.word
+    and xmmReg = SSE2Reg of Word8.word
     
     datatype reg =
         GenReg of genReg
     |   FPReg of fpReg
+    |   XMMReg of xmmReg
 
     val isX64: bool
 
@@ -40,6 +43,8 @@ sig
     and r12: genReg and r13: genReg and r14: genReg and r15: genReg
     and fp0: fpReg and fp1: fpReg and fp2: fpReg and fp3: fpReg
     and fp4: fpReg and fp5: fpReg and fp6: fpReg and fp7: fpReg
+    and xmm0:xmmReg and xmm1:xmmReg and xmm2:xmmReg and xmm3:xmmReg
+    and xmm4:xmmReg and xmm5:xmmReg and xmm6:xmmReg
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
     val regN:   int -> reg
@@ -55,8 +60,9 @@ sig
         eqtype regSet
         val singleton: reg -> regSet
         val allRegisters: regSet (* All registers: data, address, floating pt. *)
-        val generalRegisters: regSet (* Registers checked by the GC. *)
+        val generalRegisters: regSet
         val floatingPtRegisters: regSet
+        val sse2Registers: regSet
         val noRegisters: regSet
         val isAllRegs: regSet->bool
         val regSetUnion: regSet * regSet -> regSet

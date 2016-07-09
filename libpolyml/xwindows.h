@@ -31,4 +31,16 @@ class TaskData;
 
 extern Handle XWindows_c(TaskData *taskData, Handle params);
 
+#ifndef DLLEXPORT
+#ifdef _MSC_VER
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+#endif
+
+extern "C" {
+    DLLEXPORT POLYUNSIGNED PolyXWindowsGeneral(PolyObject *threadId, PolyWord params);
+}
+
 #endif

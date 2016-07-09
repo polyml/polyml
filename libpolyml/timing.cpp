@@ -5,12 +5,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2011,12
+    Further development copyright David C.J. Matthews 2011,12,16
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -89,6 +88,9 @@
 
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
+#define ASSERT(x) assert(x)
+#else
+#define ASSERT(x) 0
 #endif
 
 #ifdef HAVE_STDIO_H
@@ -414,6 +416,28 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return 0;
         }
     }
+}
+
+// General interface to timing.  Ideally the various cases will be made into
+// separate functions.
+POLYUNSIGNED PolyTimingGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedCode = taskData->saveVec.push(code);
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = timing_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 #ifdef HAVE_WINDOWS_H

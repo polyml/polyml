@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Unix socket structure and signature.
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2016
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,9 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: Checked.  No change except that it seems I'd commented out some of the
-   type equivalences. *)
 
 signature UNIX_SOCK =
 sig
@@ -58,14 +54,14 @@ struct
 
     local
         val doCall: int * string -> sock_addr
-            = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+            = RunCall.rtsCallFull2 "PolyNetworkGeneral"
     in
         fun toAddr s = doCall(56, s)
     end
 
     local
         val doCall: int * sock_addr -> string
-            = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
+            = RunCall.rtsCallFull2 "PolyNetworkGeneral"
     in
         fun fromAddr s = doCall(57, s)
     end
