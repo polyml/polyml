@@ -101,6 +101,11 @@ struct
       the code.  DCJM 25/9/00.
   *)
   val usePortableConstantOffset = false;
+  
+  (* The "enterInt" instruction is only used when porting to a new architecture.  Since
+     we only use the interpreted version to support non-X86 architectures we don't need
+     to generate them. *)
+  val generateEnterInt = false
 
   (* To make the code portable these are both functions.  Note that
      similar changes are needed in Code_seg.ML and in the basis library.
@@ -1237,13 +1242,14 @@ struct
       genWord (arg3, cvec)
     end;
 
-  fun genEnterInt (cvec: code, args: int) : unit =
-  let
-    val () = genByte(opcode_down opcode_enterInt, cvec);
-    val () = genByte(args + 1, cvec);
-  in
-    ()
-  end;
+    fun genEnterInt (cvec: code, args: int) : unit =
+    if generateEnterInt
+    then
+    (
+        genByte(opcode_down opcode_enterInt, cvec);
+        genByte(args + 1, cvec)
+    )
+    else ()
 
   fun genEnterIntCall (cvec: code, args: int) : unit =
   let
@@ -1447,90 +1453,45 @@ struct
       genConstRef (constNum, cvec)
     end;
 
-  (* Now aligns *on* a word boundary, because machine instructions
-     themselves adjust the return address etc. SPF 23/6/95 *)
-  (* That may be OK for some architectures but it's no good for
-     the portable interpreted code.  Changed back to align OFF word.
-     Note: I've left it as addr mod 4 <> 2 rather than addr mod wordLength <> 2
-     since I think that it would be safe to treat word+2 or word+6 as being
-     code addresses. DCJM 21/9/2000. *)
-  fun alignOffWord (cvec: code, length: int) : unit =
-  let
-    val mustReset = !(stackReset cvec) <> 0;
-    (* Must allow enough space for the possible pad and the next
-       instruction. It would be a nuisance if we had aligned it off
-       a word boundary and then we found that genOpc lengthed some
-       branches and put it back on a word boundary. *)
-    (* Size is now increased to 20, to allow for extra "pad"
-       instructions following enterInt. (8 + 10 < 20). This
-       will (hopefully) fix the "jump too large" which appeared
-       when I added the extra return-point. SPF 3/8/95 *) 
-    val size : int = if mustReset then 23 else 20;
-    val () = checkBranchList (cvec, false, size);
-    val () = resetSp cvec;
-  in
-    while (getAddr (! (ic cvec)) + length) mod 4 <> (* 0 *) 2 do
-      genByte (opcode_down opcode_pad, cvec)
-  end;
-
-  fun genCallClosure (cvec: code) : unit =
-  let
-    val () = alignOffWord(cvec, 1);
-  in
-    genOpc (opcode_callClosure, 1, cvec)
-  end;
-
-  fun genTailCall (toslide : int, slideby: int, cvec: code) : unit =
+  fun genCallClosure (cvec: code) : unit = genOpc (opcode_callClosure, 1, cvec)
+    
+    fun genTailCall (toslide : int, slideby: int, cvec: code) : unit =
     if toslide < 256 andalso slideby < 256
-    then 
-      case (toslide, slideby) of
-        (3, 2) => 
-           let
-             val () = alignOffWord (cvec, 1);
-           in
-             genOpc (opcode_tail3_2, 1, cvec)
-           end
+    then case (toslide, slideby) of
+        (3, 2) =>  genOpc (opcode_tail3_2, 1, cvec)
            
-      | (3, 3) => 
-           let
-             val () = alignOffWord (cvec, 1);
-           in
-             genOpc (opcode_tail3_3, 1, cvec)
-           end
+    |   (3, 3) => genOpc (opcode_tail3_3, 1, cvec)
            
-      | (3, _) => 
-           let
-             val () = alignOffWord (cvec, 2);
-             val () = genOpc (opcode_tail3b, 2, cvec);
-           in
-             genByte (slideby, cvec)
-           end
+    |   (3, _) => 
+        let
+            val () = genOpc (opcode_tail3b, 2, cvec);
+        in
+            genByte (slideby, cvec)
+        end
            
-      | (4, _) => 
-           let
-             val () = alignOffWord (cvec, 2);
-             val () = genOpc (opcode_tail4b, 2, cvec);
-           in
-             genByte (slideby, cvec)
-           end
+    |   (4, _) => 
+        let
+            val () = genOpc (opcode_tail4b, 2, cvec);
+        in
+            genByte (slideby, cvec)
+        end
            
 
-      | (_, _) => 
-           let (* General byte case *)
-             val () = alignOffWord (cvec, 3);
-             val () = genOpc (opcode_tailbb, 3, cvec);
-             val () = genByte (toslide, cvec);
-           in
-             genByte (slideby, cvec)
-           end
+    |   (_, _) => 
+        let (* General byte case *)
+            val () = genOpc (opcode_tailbb, 3, cvec);
+            val () = genByte (toslide, cvec);
+        in
+            genByte (slideby, cvec)
+        end
            
-     else let (* General case. *)
-       val () = alignOffWord (cvec, 5);
-       val () = genOpc (opcode_tail, 5, cvec);
-       val () = genWord (toslide, cvec);
-     in
-       genWord(slideby, cvec)
-     end; (* genTailCall *)
+    else
+    let (* General case. *)
+        val () = genOpc (opcode_tail, 5, cvec);
+        val () = genWord (toslide, cvec);
+    in
+         genWord(slideby, cvec)
+    end; (* genTailCall *)
 
   fun genContainer (size : int, cvec: code) : unit =
     (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));
