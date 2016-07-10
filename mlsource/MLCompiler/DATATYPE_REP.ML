@@ -122,7 +122,7 @@ struct
         (* The run-time test whether a value matches a constructor. *)
         fun constrMatch (test: representations, value:codetree) : codetree =
         let
-            fun testTag (tag, v) = mkBuiltIn2 (BuiltIns.EqualBitwiseWord, mkTag tag, v)
+            fun testTag (tag, v) = mkEqualWord(mkTag tag, v)
 
             fun testTagOf(tag, maxTag, v) = mkTagTest (v, tag, maxTag)
       

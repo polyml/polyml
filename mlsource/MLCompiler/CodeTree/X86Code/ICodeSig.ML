@@ -54,6 +54,9 @@ sig
     |   MemoryLocation of { base: argument, offset: int } (* A memory location.  Could be the stack. *)
 
     datatype iLabel = ILabel of int
+    
+    (* The reference to a condition code. *)
+    datatype ccRef = CcRef of int
 
     datatype x86ICode =
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
@@ -68,7 +71,7 @@ sig
     |   FunctionCall of { regArgs: (argument * genReg) list, stackArgs: argument list, dest: argument, isTail: bool}
 
         (* Allocate a tuple or a function closure. *)
-    |   AllocateMemoryToPreg of { size: int, isMutable: bool, dest: argument}
+    |   AllocateMemoryOperation of { size: int, isMutable: bool, dest: argument}
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -90,10 +93,8 @@ sig
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: argument }
 
-        (* Indexed case.  This could possibly be simplified. *)
-    |   IndexedCaseOperation of { testReg: argument, workReg: argument, default: iLabel,
-                         cases: (iLabel * word) list, exhaustive: bool, min: word, max: word,
-                         arbitrary: bool }
+        (* Indexed case. *)
+    |   IndexedCaseOperation of { testReg: argument, workReg: argument, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: argument }
@@ -103,19 +104,22 @@ sig
     
     |   UnconditionalForwardJump of { label: iLabel }
 
-        (* Compare and branch between two word values. *)
-    |   JumpOnWordComparison of { arg1: argument, arg2: argument, condition: branchOps, label: iLabel }
+        (* Conditional branch. *)
+    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
+
+        (* Compare two word values. *)
+    |   WordComparison of { arg1: argument, arg2: argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { handlerAddr: argument, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument }
+    |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument, workReg: argument }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  As a special case it must ensure that rax is
            preserved because that contains the exception packet. *) 
-    |   BeginHandler of { handleStart: iLabel }
+    |   BeginHandler of { handleStart: iLabel, workReg: argument }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
@@ -123,13 +127,17 @@ sig
         (* Arithmetic or logical operation. *)
     |   ArithmeticFunction of { oper: arithOp, resultReg: argument, operand1: argument, operand2: argument }
 
-        (* Test the tag bit and jump if set (onShort=true) or clear (onShort=false). *)
-    |   JumpOnTag of { arg: argument, onShort: bool, label: iLabel }
+        (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
+    |   TestTagBit of { arg: argument, ccRef: ccRef }
 
-    val codeICodeFunctionToX86: {icode: x86ICode list, functionName: string, maxLabels: int, maxPRegs: int,
-            argRegsUsed: genReg list, hasFullClosure: bool, currentStackArgs: int,
-            debugSwitches: Universal.universal list } -> address
+        (* Push a value to the stack.  Added during translation phase. *)
+    |   PushValue of { arg: argument }
 
+        (* Remove items from the stack.  Added during translation phase. *)
+    |   ResetStackPtr of { numWords: int }
+
+    val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
+            functionName: string, debugSwitches: Universal.universal list } -> address
 
     structure Sharing:
     sig

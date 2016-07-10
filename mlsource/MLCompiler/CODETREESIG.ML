@@ -84,6 +84,8 @@ sig
     
     val mkNot:              codetree -> codetree
     val mkIsShort:          codetree -> codetree
+    val mkEqualWord:        codetree * codetree -> codetree
+    val equalWordFn:        codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 

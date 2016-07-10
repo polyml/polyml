@@ -23,6 +23,21 @@ struct
     
     structure BuiltIns =
     struct
+        datatype testConditions =
+            TestEqual
+        |   TestNotEqual
+        |   TestLess
+        |   TestLessEqual
+        |   TestGreater
+        |   TestGreaterEqual
+
+        datatype arithmeticOperations =
+            ArithAdd
+        |   ArithSub
+        |   ArithMult
+        |   ArithQuot
+        |   ArithRem
+
         datatype builtIn0Ops =
             Built0PlaceHolder
 
@@ -31,7 +46,9 @@ struct
         |   IsTaggedValue
 
         and builtIn2Ops =
-            EqualBitwiseWord
+            WordComparison of { test: testConditions, isSigned: bool }
+        |   FixedPrecisionArith of arithmeticOperations
+        |   WordArith of arithmeticOperations
 
         and builtIn3Ops =
             Built3PlaceHolder
@@ -47,7 +64,24 @@ struct
         and builtIn1Repr NotBoolean = "NotBoolean"
         |   builtIn1Repr IsTaggedValue = "IsTaggedValue"
 
-        and builtIn2Repr EqualBitwiseWord = "EqualBitwiseWord"
+        and builtIn2Repr (WordComparison{test, isSigned}) =
+                "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
+        |   builtIn2Repr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
+        |   builtIn2Repr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
+        
+        and testRepr TestEqual          = "Equal"
+        |   testRepr TestNotEqual       = "NotEqual"
+        |   testRepr TestLess           = "Less"
+        |   testRepr TestLessEqual      = "LessEqual"
+        |   testRepr TestGreater        = "Greater"
+        |   testRepr TestGreaterEqual   = "GreaterEqual"
+        
+        and arithRepr ArithAdd          = "Add"
+        |   arithRepr ArithSub          = "Sub"
+        |   arithRepr ArithMult         = "Mult"
+        |   arithRepr ArithQuot         = "Quot"
+        |   arithRepr ArithRem          = "Rem"
+
 
         and builtIn3Repr Built3PlaceHolder = "Built3PlaceHolder"
         and builtIn4Repr Built4PlaceHolder = "Built4PlaceHolder"

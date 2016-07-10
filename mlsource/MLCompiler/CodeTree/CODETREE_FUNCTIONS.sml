@@ -148,9 +148,15 @@ struct
 
         |   codeProps (BuiltIn2{oper, arg1, arg2}) =
             let
+                open BuiltIns
+                val mayRaise = PROPWORD_NOUPDATE orb PROPWORD_NODEREF
                 val operProps =
                     case oper of
-                        BuiltIns.EqualBitwiseWord => applicative
+                        WordComparison _ => applicative
+                    |   FixedPrecisionArith _ => mayRaise
+                    |   WordArith ArithQuot => mayRaise (* Check this: the higher level ops check for zero. *)
+                    |   WordArith ArithRem => mayRaise
+                    |   WordArith _ => applicative
             in
                 operProps andb codeProps arg1 andb codeProps arg2
             end

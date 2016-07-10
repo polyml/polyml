@@ -19,6 +19,21 @@
 
 signature BUILTINS =
 sig
+    datatype testConditions =
+        TestEqual
+    |   TestNotEqual
+    |   TestLess
+    |   TestLessEqual
+    |   TestGreater
+    |   TestGreaterEqual
+
+    datatype arithmeticOperations =
+        ArithAdd
+    |   ArithSub
+    |   ArithMult
+    |   ArithQuot
+    |   ArithRem
+
     datatype builtIn0Ops =
         Built0PlaceHolder
 
@@ -27,7 +42,15 @@ sig
     |   IsTaggedValue (* Test the tag bit. *)
 
     and builtIn2Ops =
-        EqualBitwiseWord (* Test equality for a word.  Used for both pointer equality and Word.word. *)
+        (* Compare two words and return the result.  This is used for both
+           word values (isSigned=false) and fixed precision integer (isSigned=true).
+           Tests for (in)equality can also be done on pointers in which case
+           this is pointer equality. *)
+        WordComparison of { test: testConditions, isSigned: bool }
+        (* Fixed precision int operations.  These may raise Overflow. *)
+    |   FixedPrecisionArith of arithmeticOperations
+        (* Arithmetic operations on word values.  These do not raise Overflow. *)
+    |   WordArith of arithmeticOperations
 
     and builtIn3Ops =
         Built3PlaceHolder
