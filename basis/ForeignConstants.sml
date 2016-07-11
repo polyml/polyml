@@ -54,7 +54,7 @@ struct
     end
     
     val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ()
-    val wordSize : word = RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
+    val wordSize : word = RunCall.bytesPerWord
     
     (* Minimum argument size. *)
     val ffiMinArgSize: Word.word = Compat560.ffiGeneral (51, 15)

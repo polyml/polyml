@@ -354,6 +354,14 @@ struct
 
     fun loadWord(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word(a, i)
     and loadWordFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_word_immut(a, i)
+ 
+    fun loadByte(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte(a, i)
+    and loadByteFromImmutable(a: 'a, i: word): 'b = run_call2 RuntimeCalls.POLY_SYS_load_byte_immut(a, i)
+   
+    fun memoryCellLength(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_length a
+    and memoryCellFlags(a:'a): word = run_call1 RuntimeCalls.POLY_SYS_get_flags a
+    
+    val bytesPerWord: word = run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
 end;
 
 (* This is used to provide compatibility between 5.6.0 and 5.6.1. *)
