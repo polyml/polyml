@@ -34,7 +34,7 @@ local
     open RuntimeCalls
     open LibrarySupport.Word8Array
 
-    val realSize: word = RunCall.run_call2 POLY_SYS_Real_Dispatch (28, ())
+    val realSize: word = Compat560.realGeneral (28, ())
     val System_lock: address -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
     val System_locks: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
 
