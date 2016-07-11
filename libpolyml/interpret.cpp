@@ -2612,3 +2612,32 @@ void IntTaskData::AtomicReset(Handle mutexp)
 static Interpreter interpreterObject;
 
 MachineDependent *machineDependent = &interpreterObject;
+
+// PolySetCodeConstant is not actually used in the interpreted version.
+// It is used in the X86 code-generator to insert inline constants.
+// Compat560 creates an RTS function unconditionally and rather than change
+// that it's easier to add it here for the time being.
+extern "C" {
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags);
+}
+
+POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags)
+{
+    return TAGGED(0).AsUnsigned();
+}
+
+static struct _entrypts entryPtTable[] =
+{
+    { "PolySetCodeConstant",              (polyRTSFunction)&PolySetCodeConstant},
+
+    { NULL, NULL} // End of list.
+};
+
+class IntModule: public RtsModule
+{
+public:
+    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
+};
+
+// Declare this.  It will be automatically added to the table.
+static IntModule intModule;

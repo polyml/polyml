@@ -967,8 +967,7 @@ struct
     end
 
     local
-        val makeEntryPoint: string -> machineWord =
-            RunCall.run_call1 RuntimeCalls.POLY_SYS_get_entry_point
+        val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
 
         fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
         let
