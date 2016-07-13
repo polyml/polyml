@@ -1627,6 +1627,56 @@ int IntTaskData::SwitchToPoly()
             break; 
         }
 
+        case INSTR_wordAnd:
+        {
+            PolyWord u = *sp++;
+            // Since both of these should be tagged the tag bit will be preserved.
+            *sp = PolyWord::FromUnsigned((*sp).AsUnsigned() & u.AsUnsigned());
+            break;
+        }
+
+        case INSTR_wordOr:
+        {
+            PolyWord u = *sp++;
+            // Since both of these should be tagged the tag bit will be preserved.
+            *sp = PolyWord::FromUnsigned((*sp).AsUnsigned() | u.AsUnsigned());
+            break;
+        }
+
+        case INSTR_wordXor:
+        {
+            PolyWord u = *sp++;
+            // This will remove the tag bit so it has to be reinstated.
+            *sp = PolyWord::FromUnsigned(((*sp).AsUnsigned() ^ u.AsUnsigned()) | TAGGED(0).AsUnsigned());
+            break;
+        }
+
+        case INSTR_wordShiftLeft:
+        {
+            // ML requires shifts greater than a word to return zero. 
+            // That's dealt with at the higher level.
+            PolyWord u = *sp++;
+            *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) << UNTAGGED_UNSIGNED(u));
+            break;
+        }
+
+        case INSTR_wordShiftRLog:
+        {
+            PolyWord u = *sp++;
+            *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) >> UNTAGGED_UNSIGNED(u));
+            break;
+        }
+
+        case INSTR_wordShiftRArith:
+        {
+            PolyWord u = *sp++;
+            // Strictly speaking, C does not require that this uses
+            // arithmetic shifting so we really ought to set the
+            // high-order bits explicitly.
+            *sp = TAGGED(UNTAGGED(*sp) >> UNTAGGED(u));
+            break;
+        }
+
         case INSTR_getThreadId:
             *(--sp) = this->threadObject;
             break;
