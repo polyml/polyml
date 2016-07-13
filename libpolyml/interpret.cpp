@@ -1549,6 +1549,8 @@ int IntTaskData::SwitchToPoly()
         {
             // We need to detect overflow.  There doesn't seem to be any convenient way to do
             // this so we use the arbitrary precision package and check whether the result is short.
+            // Clang and GCC 5.0 have __builtin_mul_overflow which will do this but GCC 5.0 is not
+            // currently (July 2016) in Debian stable.
             Handle reset = this->saveVec.mark();
             Handle pushedArg1 = this->saveVec.push(*sp++);
             Handle pushedArg2 = this->saveVec.push(*sp);
