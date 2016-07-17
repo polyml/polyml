@@ -159,16 +159,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buff
 
     // Return the null string if there's an error 
     if (outputLen <= 0) return EmptyString();
-    
-    // Return the character itself if the length is 1 */
-    if (outputLen == 1)
-    {
-        char obuff[1];
-        int check = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, obuff, 1, NULL, NULL);
-        if (check <= 0) return EmptyString();
-        return TAGGED(obuff[0]);
-    }
-    
+     
     // Get the number of words required, plus 1 for length word, plus flag bit.
     PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(outputLen) + 1, F_BYTE_OBJ));
     
