@@ -48,7 +48,7 @@ local
        function for strings in the pre-built compiler first tests for
        identity and then for either string being short. That means that
        an old format string does not match a new format. *)
-    val charAsString: char -> string = RunCall.unsafeCast
+    (*val charAsString: char -> string = RunCall.unsafeCast*)
 
     (* This is mostly backwards compatibility. *)
     val singleCharStringAsChar: string->char = RunCall.unsafeCast
