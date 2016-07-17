@@ -452,7 +452,7 @@ struct
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
                     [UntagValue{source=argReg1, dest=untagArg, isSigned=true},
-                     BoxLargeWord{ source=untagArg, dest=addrReg}]
+                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg}]
             in
                 moveIfNotAllowed(destination, code, addrReg)
             end
@@ -463,7 +463,7 @@ struct
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
                     [UntagValue{source=argReg1, dest=untagArg, isSigned=false},
-                     BoxLargeWord{ source=untagArg, dest=addrReg}]
+                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg}]
             in
                 moveIfNotAllowed(destination, code, addrReg)
             end
@@ -480,6 +480,13 @@ struct
                 val target = asTarget destination
             in
                 raise InternalError "codeToICode: RealAbs"
+            end
+
+        |   codeToICode(BICBuiltIn1{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
+            let
+                val target = asTarget destination
+            in
+                raise InternalError "codeToICode: FloatFixedInt"
             end
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
@@ -816,7 +823,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=aReg3, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
@@ -828,7 +835,7 @@ struct
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=aReg3, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
@@ -838,7 +845,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [Multiplication{resultReg=resValue, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=resValue, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
@@ -851,7 +858,7 @@ struct
                     (* We don't test for zero here - that's done explicitly. *)
                     [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
                                 quotient=quotient, remainder=remainder },
-                     BoxLargeWord{source=quotient, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
@@ -864,7 +871,7 @@ struct
                     (* We don't test for zero here - that's done explicitly. *)
                     [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
                                 quotient=quotient, remainder=remainder },
-                     BoxLargeWord{source=remainder, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
@@ -877,7 +884,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=aReg3, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
@@ -887,7 +894,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=aReg3, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
@@ -897,7 +904,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxLargeWord{source=aReg3, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
         |   codeToICode(BICBuiltIn2 {oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
@@ -913,35 +920,27 @@ struct
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                  [UntagValue{source=aReg2, dest=aReg2Untagged, isSigned=false},
                   ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=wordAt aReg1, shiftAmount=aReg2Untagged, ccRef=newCCRef() },
-                  BoxLargeWord{source=aReg3, dest=target}], target)
+                  BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], target)
             end
 
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
             let
+                val target = asTarget destination
+                val aReg1 = newPReg() and aReg2 = newPReg()
+                val fpReg = newUReg()
+                open BuiltIns
+                val fpOp =
+                    case fpOper of
+                        ArithAdd => FPOpAdd
+                    |   ArithSub => FPOpSub
+                    |   ArithMult => FPOpMul
+                    |   ArithDiv => FPOpDiv
+                    |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
             in
-                raise InternalError "codeToICode: RealArith ArithAdd"
+                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                 [FloatingPointArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2},
+                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], target)
             end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
-            let
-            in
-                raise InternalError "codeToICode: RealArith ArithSub"
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
-            let
-            in
-                raise InternalError "codeToICode: RealArith ArithMult"
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
-            let
-            in
-                raise InternalError "codeToICode: RealArith ArithDiv"
-            end
-
-        |   codeToICode(BICBuiltIn2 {oper=BuiltIns.RealArith _, ...}, _, _, _) =
-                raise InternalError "codeToICode: RealArith - unimplemented operation"
 
         |   codeToICode(instr as BICBuiltIn2{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(instr, context, isTail, destination)
@@ -1400,7 +1399,7 @@ struct
                 val (boxTagCode, moveKind) =
                     if isX64
                     then (TagValue {source=untaggedResReg, dest=target}, Bit32ToWordZeroExtend)
-                    else (BoxLargeWord{source=untaggedResReg, dest=target}, WordToWord)
+                    else (BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}, WordToWord)
             in
                 (codeBaseIndex @ codeUntag @
                     [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}, boxTagCode], target)
@@ -1417,7 +1416,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [MoveArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=WordToWord},
-                     BoxLargeWord{source=untaggedResReg, dest=target}], target)
+                     BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}], target)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreCFloat, address}, context, _, destination) =
