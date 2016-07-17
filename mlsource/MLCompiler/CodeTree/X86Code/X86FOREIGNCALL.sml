@@ -60,7 +60,7 @@ struct
     fun loadMemory(reg, base, offset) =
         MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg}
     and storeMemory(reg, base, offset) =
-        StoreRegToMemory{toStore=reg, address=BaseOffset{base=base, offset=offset, index=NoIndex}}
+        StoreRegToMemory{toStore=reg, address={base=base, offset=offset, index=NoIndex}}
 
     fun createProfileObject _ (*functionName*) =
     let
@@ -367,9 +367,9 @@ struct
                 |   X86_32 =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
-                        FPLoadFromMemory{base=eax, offset=0},
+                        FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
                         ArithToGenReg{ opc=SUB, output=esp, source=ShortConstArg 8},
-                        FPStoreToMemory{ base=esp, offset=0, andPop=true }
+                        FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
             ) @
             [
@@ -383,17 +383,17 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        FPStoreToMemory{ base=eax, offset=0, andPop=true },
+                                address={offset= ~wordSize, base=eax, index=NoIndex}},
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
                 |   _ => (* X64 The result is in xmm0 *)
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        StoreByteConstToMemory{toStore=F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
+                            address={offset= ~wordSize, base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
                     ]                    
             ) @
@@ -479,17 +479,17 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        FPStoreToMemory{ base=eax, offset=0, andPop=true },
+                                address={offset= ~wordSize, base=eax, index=NoIndex}},
+                        FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
                 |   _ => (* X64 The result is in xmm0 *)
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address=BaseOffset{offset= ~wordSize, base=eax, index=NoIndex}},
-                        StoreByteConstToMemory{toStore=F_bytes, address=BaseOffset{offset= ~1, base=eax, index=NoIndex}},
-                        XMMStoreToMemory { base=eax, offset=0, toStore=xmm0 },
+                            address={offset= ~wordSize, base=eax, index=NoIndex}},
+                        StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
                     ]                    
             ) @

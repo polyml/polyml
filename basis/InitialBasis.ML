@@ -259,27 +259,6 @@ and () = RunCall.addOverload Real./ "/";
 structure ForeignMemory =
 struct
     open ForeignMemory
-    type voidStar = LargeWord.word
-
-    fun getFloat(s: voidStar, i: Word.word): real =
-        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
-    fun getDouble(s: voidStar, i: Word.word): real =
-        RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
-
-    fun set8 (s: voidStar, i: Word.word, v: 'a): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
-    fun set16 (s: voidStar, i: Word.word, v: Word.word): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
-    fun set32 (s: voidStar, i: Word.word, v: 'a): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
-    fun set64 (s: voidStar, i: Word.word, v: LargeWord.word): unit =
-        if RunCall.bytesPerWord = 0w4
-        then raise RunCall.Foreign "64-bit operations not available"
-        else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
-    fun setFloat (s: voidStar, i: Word.word, v: real): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
-    fun setDouble (s: voidStar, i: Word.word, v: real): unit =
-        RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
     
     (* Add wrappers to these functions so that they raise exceptions if they are called. *)
     val get64 =
@@ -322,8 +301,6 @@ fun length l =
 local
     (* Temporary conversion function for characters. This is replaced in
        the Char structure. *)
-    open RuntimeCalls;
-
     val isShortString   : string -> bool = RunCall.isShort
 
     fun convChar (s: string) : char =
@@ -343,7 +320,7 @@ end;
    are installed here merely so that we can get useful output if we get a failure while
    compiling it. *)
 local
-    open RuntimeCalls PolyML
+    open PolyML
 
     fun print_bool _ _ (b: bool) =
         PrettyString(if b then "true" else "false")

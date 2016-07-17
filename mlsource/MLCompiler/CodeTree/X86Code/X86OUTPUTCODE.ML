@@ -519,7 +519,7 @@ struct
     |   nReg(FPReg(FloatingPtReg r)) = Word8.toInt r + 16
     |   nReg(XMMReg(SSE2Reg r)) = Word8.toInt r + 23
         
-    datatype opsize = SZByte | SZDWord | SZQWord
+    datatype opsize = SZByte | SZWord | SZDWord | SZQWord
     
     val sz32_64 = if isX64 then SZQWord else SZDWord
 
@@ -550,6 +550,15 @@ struct
     |   genRegRepr(GeneralReg (0w6, false), SZQWord) = "rsi"
     |   genRegRepr(GeneralReg (0w7, false), SZQWord) = "rdi"
     |   genRegRepr(GeneralReg (reg, true),  SZQWord) = "r" ^ Int.toString(Word8.toInt reg +8)
+    |   genRegRepr(GeneralReg (0w0, false), SZWord) = "ax"
+    |   genRegRepr(GeneralReg (0w1, false), SZWord) = "cx"
+    |   genRegRepr(GeneralReg (0w2, false), SZWord) = "dx"
+    |   genRegRepr(GeneralReg (0w3, false), SZWord) = "bx"
+    |   genRegRepr(GeneralReg (0w4, false), SZWord) = "sp"
+    |   genRegRepr(GeneralReg (0w5, false), SZWord) = "bp"
+    |   genRegRepr(GeneralReg (0w6, false), SZWord) = "si"
+    |   genRegRepr(GeneralReg (0w7, false), SZWord) = "di"
+    |   genRegRepr(GeneralReg (reg, true),  SZWord) = "r" ^ Int.toString(Word8.toInt reg +8) ^ "w"
     |   genRegRepr _ = "unknown" (* Suppress warning because word values are not exhaustive. *)
 
     and fpRegRepr(FloatingPtReg n) = "fp" ^ Word8.toString n
@@ -746,7 +755,9 @@ struct
     |   branchOpRepr JP = "JumpParity"
     |   branchOpRepr JNP = "JumpNoParity"
 
-    datatype sse2Operations = SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor | SSE2And
+    datatype sse2Operations =
+        SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
+        SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
     
     fun sse2OpRepr SSE2Move = "SSE2Move"
     |   sse2OpRepr SSE2Comp = "SSE2Comp"
@@ -756,6 +767,8 @@ struct
     |   sse2OpRepr SSE2Div  = "SSE2Div"
     |   sse2OpRepr SSE2Xor  = "SSE2Xor"
     |   sse2OpRepr SSE2And  = "SSE2And"
+    |   sse2OpRepr SSE2MoveSingle = "SSE2MoveSingle"
+    |   sse2OpRepr SSE2DoubleToFloat = "SSE2DoubleToFloat"
 
     (* Primary opCodes.  N.B. only opCodes actually used are listed here.
        If new instruction are added check they will be handled by the
@@ -769,6 +782,8 @@ struct
     |   CALL_32
     |   MOVL_A_R
     |   MOVL_R_A
+    |   MOVL_R_A16
+    |   MOVL_R_A32
     |   MOVB_R_A of {forceRex: bool}
     |   PUSH_R of Word8.word
     |   POP_R  of Word8.word
@@ -798,7 +813,8 @@ struct
     |   MOVZW (* Needs escape code. *)
     |   MOVL_A_R32 (* As MOVL_A_R but without RAX.W *)
     |   IMUL (* Needs escape code. *)
-    |   SSE2Store (* movsd with memory destination - needs escape sequence. *)
+    |   SSE2StoreSingle (* movss with memory destination - needs escape sequence. *)
+    |   SSE2StoreDouble (* movsd with memory destination - needs escape sequence. *)
     |   CQO_CDQ (* Sign extend before divide.. *)
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
     |   CVTSI2SD
@@ -811,6 +827,8 @@ struct
     |   opToInt CALL_32       =  0wxe8
     |   opToInt MOVL_A_R      =  0wx8b
     |   opToInt MOVL_R_A      =  0wx89
+    |   opToInt MOVL_R_A16    =  0wx89 (* Also has an OPSIZE prefix. *)
+    |   opToInt MOVL_R_A32    =  0wx89 (* Suppresses the REX.W prefix. *)
     |   opToInt (MOVB_R_A _)  =  0wx88
     |   opToInt (PUSH_R reg)  =  0wx50 + reg
     |   opToInt (POP_R  reg)  =  0wx58 + reg
@@ -840,7 +858,8 @@ struct
     |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
     |   opToInt MOVL_A_R32    = 0wx8b
     |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
-    |   opToInt SSE2Store     = 0wx11 (* Needs F2 0F escape. *)
+    |   opToInt SSE2StoreSingle     = 0wx11 (* Needs F3 0F escape. *)
+    |   opToInt SSE2StoreDouble     = 0wx11 (* Needs F2 0F escape. *)
     |   opToInt CQO_CDQ       = 0wx99
     |   opToInt (SSE2Ops SSE2Move) = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
@@ -850,6 +869,8 @@ struct
     |   opToInt (SSE2Ops SSE2Div)  = 0wx5e (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2And)  = 0wx54 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Xor)  = 0wx57 (* Needs 66 0F escape. *)
+    |   opToInt (SSE2Ops SSE2MoveSingle)  = 0wx5A (* Needs F3 0F escape. *)
+    |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
 
     datatype mode =
@@ -1190,12 +1211,15 @@ struct
     |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Store, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2StoreSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2StoreDouble, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2Comp, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2And, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2Xor, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(SSE2Ops SSE2MoveSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops _, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(CVTSI2SD, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
+    |   genEscape(MOVL_R_A16, cvec) = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
     |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -1346,48 +1370,31 @@ struct
         else ()
     end
 
-    (* Generate a opcode plus a modrm byte.  *)
-    fun genOpEA(opb:opCode, offset: LargeInt.int, rb: genReg, r: genReg, cvec): unit =
-    let
-        val (rbC, rbX) = getReg rb
-        val (rrC, rrX) = getReg r
+    local
+        (* Generate a opcode plus a modrm byte.  *)
+        fun genOpEAGen(opb:opCode, offset: LargeInt.int, rb: genReg, (rrC, rrX), cvec): unit =
+        let
+            val (rbC, rbX) = getReg rb
+        in
+            doPending (cvec, maxInstrSize);
+            (* Any lock prefix comes before any REX prefix. *)
+            case opb of LOCK_XADD => gen8u(0wxF0, cvec) | _ => ();
+            (* Add any necessary prefix. *)
+            genRex(opb, rrX, rbX, false, cvec);
+            (* Generate the escape codes for the opcodes that need them. *)
+            genEscape(opb, cvec);
+            gen8u(opToInt opb, cvec);
+            genEACode(offset, rbC, rrC, cvec)
+        end
     in
-        doPending (cvec, maxInstrSize);
-        (* Any lock prefix comes before any REX prefix. *)
-        case opb of LOCK_XADD => gen8u(0wxF0, cvec) | _ => ();
-        (* Add any necessary prefix. *)
-        genRex(opb, rrX, rbX, false, cvec);
-        (* Generate the escape codes for the opcodes that need them. *)
-        genEscape(opb, cvec);
-        (*if offset < 0 andalso rb = esp then raise InternalError "Negative stack offset" else ();*)
-        gen8u(opToInt opb, cvec);
-        genEACode(offset, rbC, rrC, cvec)
-    end
-
-    fun genMMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC, cvec) =
-    let
-        val (rbC, rbX) = getReg rb
-        (* Currently the only XMM registers we use don't require a prefix. *)
-    in
-        doPending (cvec, maxInstrSize);
-        (* Add any necessary prefix. *)
-        genRex(opb, false, rbX, false, cvec);
-        (* Generate the escape codes for the opcodes that need them. *)
-        genEscape(opb, cvec);
-        gen8u(opToInt opb, cvec);
-        genEACode(offset, rbC, rrC, cvec)
-    end
-
-    (* Generate a opcode plus a second modrm byte but where the "register" field in
-       the modrm byte is actually a code.  *)
-    fun genOpPlus2(opb:opCode, offset: LargeInt.int, rb: genReg, op2: Word8.word, cvec): unit =
-    let
-        val (rbC, rbX) = getReg rb
-    in
-        doPending (cvec, maxInstrSize);
-        genRex(opb, false, rbX, false, cvec);
-        gen8u(opToInt opb, cvec);
-        genEACode(offset, rbC, op2, cvec)
+        fun genOpEA(opb, offset, rb, r, cvec) =
+            genOpEAGen(opb, offset, rb, getReg r, cvec)
+        and genMMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC, cvec) =
+            genOpEAGen(opb, offset, rb, (rrC, false), cvec)
+        (* Generate a opcode plus a second modrm byte but where the "register" field in
+           the modrm byte is actually a code.  *)
+        and genOpPlus2(opb, offset, rb, op2, cvec) =
+            genOpEAGen(opb, offset, rb, (op2, false), cvec)
     end
 
     (* Register/register operation. *)
@@ -1413,52 +1420,59 @@ struct
         genmodrm(Register, op2, rrC, cvec)
     end
 
-    (* Similar to genEA, but used when there is an index register.
-     rb may be NONE if no base register is required (used
-     with leal to tag values). *)
-    fun genOpIndexed (opb:opCode, offset: LargeInt.int, rb: genReg option, ri: indexType, rd: genReg, cvec) =
-    let
-        val (rbC, rbX) = case rb of NONE => (0w0, false) | SOME rb => getReg rb
+    local
+        (* Similar to genEA, but used when there is an index register.
+           rb may be NONE if no base register is required (used
+           with leal to tag values). *)
+        fun genOpIndexedGen (opb:opCode, offset: LargeInt.int, rb: genReg option, ri: indexType, (rrC, rrX), cvec) =
+        let
+            val (rbC, rbX) = case rb of NONE => (0w0, false) | SOME rb => getReg rb
 
-        val (_, riX) = 
-            case ri of
-                NoIndex  => (0w0, false) (* No index reg. *)
-            |   Index1 i => getReg i
-            |   Index2 i => getReg i
-            |   Index4 i => getReg i
-            |   Index8 i => getReg i
+            val (_, riX) = 
+                case ri of
+                    NoIndex  => (0w0, false) (* No index reg. *)
+                |   Index1 i => getReg i
+                |   Index2 i => getReg i
+                |   Index4 i => getReg i
+                |   Index8 i => getReg i
 
-        val (rrC, rrX) = getReg rd
+            val (offsetCode, basefield) =
+            case rb of
+                NONE => (Based0, NONE (* no base register *))
+            |   SOME rb =>
+                let
+                    val base =
+                        if offset = 0 andalso rbC <> 0wx5
+                        then Based0    (* no disp field *)
+                        else if is8BitL offset
+                        then Based8   (* use 8-bit disp field *)
+                        else Based32; (* use 32-bit disp field *)
+                in
+                    (base, SOME rb)
+                end
+        in
+            doPending (cvec, maxInstrSize);
+            genRex(opb, rrX, rbX, riX, cvec);
 
-        val (offsetCode, basefield) =
-        case rb of
-            NONE => (Based0, NONE (* no base register *))
-        |   SOME rb =>
-            let
-                val base =
-                    if offset = 0 andalso rbC <> 0wx5
-                    then Based0    (* no disp field *)
-                    else if is8BitL offset
-                    then Based8   (* use 8-bit disp field *)
-                    else Based32; (* use 32-bit disp field *)
-            in
-                (base, SOME rb)
-            end
-    in
-        doPending (cvec, maxInstrSize);
-        genRex(opb, rrX, rbX, riX, cvec);
+            genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
+            gen8u(opToInt opb, cvec);
 
-        genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
-        gen8u(opToInt opb, cvec);
-
-        genmodrm (offsetCode, rrC, 0w4 (* s-i-b *), cvec);
-        gensib   (ri, basefield, cvec);
+            genmodrm (offsetCode, rrC, 0w4 (* s-i-b *), cvec);
+            gensib   (ri, basefield, cvec);
     
-        (* generate the disp field (if any) *)
-        case offsetCode of
-            Based8  => gen8s  (LargeInt.toInt offset, cvec)
-        |   Based32 => gen32s (offset, cvec)
-        |   _       => case rb of NONE =>  (* 32 bit absolute used as base *) gen32s (offset, cvec) | _ => ()
+            (* generate the disp field (if any) *)
+            case offsetCode of
+                Based8  => gen8s  (LargeInt.toInt offset, cvec)
+            |   Based32 => gen32s (offset, cvec)
+            |   _       => case rb of NONE =>  (* 32 bit absolute used as base *) gen32s (offset, cvec) | _ => ()
+        end
+    in
+        fun genOpIndexed (opb, offset, rb, ri, rd, cvec) =
+           genOpIndexedGen(opb, offset, rb, ri, getReg rd, cvec) 
+        and genMMXIndexed(opb, offset, rb, ri, SSE2Reg rrC, cvec) =
+            genOpIndexedGen(opb, offset, SOME rb, ri, (rrC, false), cvec)
+        and genOpIndexedPlus2(opb, offset, rb, ri, op2, cvec) =
+            genOpIndexedGen(opb, offset, SOME rb, ri, (op2, false), cvec)
     end
 
     fun genPushPop(opc, r, cvec) =
@@ -1831,18 +1845,18 @@ struct
     (* Operations. *)
     type cases = word * label
 
-    datatype memoryAddress =
-        BaseOffset of { base: genReg, offset: int, index: indexType }
+    type memoryAddress = { base: genReg, offset: int, index: indexType }
 
     datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
-    |   MemoryArg of { base: genReg, offset: int, index: indexType }
+    |   MemoryArg of memoryAddress
     |   ShortConstArg of LargeInt.int
     |   LongConstArg of machineWord
     
     datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
+    and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
         MoveToRegister of { source: genReg regOrMemoryArg, output: genReg }
@@ -1863,8 +1877,8 @@ struct
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
-    |   StoreByteRegToMemory of { toStore: genReg, address: memoryAddress }
-    |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
+    |   StoreNonWord of { size: nonWordSize, toStore: genReg, address: memoryAddress }
+    |   StoreNonWordConst of { size: nonWordSize, toStore: LargeInt.int, address: memoryAddress }
     |   AllocStore of { size: int, output: genReg, saveRegs: genReg list }
     |   AllocStoreVariable of { output: genReg, saveRegs: genReg list }
     |   StoreInitialised
@@ -1885,11 +1899,11 @@ struct
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
     |   AtomicXAdd of {base: genReg, output: genReg}
-    |   FPLoadFromMemory of { base: genReg, offset: int }
+    |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: fpReg, andPop: bool }
-    |   FPStoreToMemory of { base: genReg, offset: int, andPop: bool }
+    |   FPStoreToMemory of { address: memoryAddress, precision: fpSize, andPop: bool }
     |   FPArithR of { opc: fpOps, source: fpReg }
     |   FPArithConst of { opc: fpOps, source: machineWord }
     |   FPArithMemory of { opc: fpOps, base: genReg, offset: int }
@@ -1900,7 +1914,7 @@ struct
     |   MultiplyRR of { source: genReg, output: genReg }
     |   MultiplyRM of { base: genReg, offset: int,output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
-    |   XMMStoreToMemory of { toStore: xmmReg, base: genReg, offset: int }
+    |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
 
@@ -1921,7 +1935,7 @@ struct
             |   Index4 x => (stream "["; printGReg x; stream "*4]")
             |   Index8 x => (stream "["; printGReg x; stream "*8]")
         )
-        fun printMemAddress(BaseOffset{ base, offset, index }) = printBaseOffset(base, index, offset)
+        fun printMemAddress({ base, offset, index }) = printBaseOffset(base, index, offset)
         
         fun printRegOrMemoryArg printReg (RegisterArg r) = printReg r
         |   printRegOrMemoryArg _ (MemoryArg{ base, offset, index }) = printBaseOffset(base, index, offset)
@@ -1942,7 +1956,7 @@ struct
                 (stream "MoveRR "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source)
 
         |   LoadNonWord { size, source, output } =>
-                (stream "Move"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
+                (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
 
         |   ArithToGenReg { opc, output, source } =>
                 (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
@@ -2003,16 +2017,16 @@ struct
                 stream "StoreLongConstToMemory "; printMemAddress address; stream " <= "; stream(Address.stringOfWord toStore)
             )
 
-        |   StoreByteRegToMemory { toStore, address } =>
+        |   StoreNonWord { size, toStore, address } =>
             (
-                stream "StoreByteRegToMemory "; printMemAddress address;
+                stream "Store"; printSize size; stream " "; printMemAddress address;
                 stream " <= "; stream(genRegRepr(toStore, SZByte))
             )
 
-        |   StoreByteConstToMemory { toStore, address } =>
+        |   StoreNonWordConst { size, toStore, address } =>
             (
-                stream "StoreByteConstToMemory "; printMemAddress address;
-                stream " <= 0x"; stream(Word8.toString toStore)
+                stream "StoreConst"; printSize size; stream " "; printMemAddress address;
+                stream " <= "; stream(LargeInt.toString toStore)
             )
 
         |   LoadAddress{ output, offset, base, index } =>
@@ -2084,16 +2098,22 @@ struct
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
         |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printGReg base; stream ") <=> "; printGReg output)
-        |   FPLoadFromMemory{ base: genReg, offset: int } => (stream "FPLoad "; printBaseOffset(base, NoIndex, offset))
+        |   FPLoadFromMemory{address, precision=DoublePrecision} => (stream "FPLoadDouble "; printMemAddress address)
+        |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
                 (stream "FPLoad "; printFPReg source; if lastRef then stream " (LAST)" else())
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
         |   FPStoreToFPReg{ output, andPop } =>
                 (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printFPReg output)
-        |   FPStoreToMemory{ base: genReg, offset: int, andPop: bool } =>
+        |   FPStoreToMemory{ address, precision=DoublePrecision, andPop: bool } =>
             (
-                if andPop then stream "FPStoreAndPop => " else stream "FPStore => ";
-                printBaseOffset(base, NoIndex, offset)
+                if andPop then stream "FPStoreDoubleAndPop => " else stream "FPStoreDouble => ";
+                printMemAddress address
+            )
+        |   FPStoreToMemory{ address, precision=SinglePrecision, andPop: bool } =>
+            (
+                if andPop then stream "FPStoreSingleAndPop => " else stream "FPStoreSingle => ";
+                printMemAddress address
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printFPReg source)
         |   FPArithConst{ opc, source } => (stream(fpOpRepr opc); stream(Address.stringOfWord source))
@@ -2108,9 +2128,13 @@ struct
             (
                 stream (sse2OpRepr opc ^ "RM "); printXMMReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
             )
-        |   XMMStoreToMemory { toStore, base, offset } =>
+        |   XMMStoreToMemory { toStore, address, precision=DoublePrecision } =>
             (
-                stream "MoveRM "; printXMMReg toStore; stream " => "; printBaseOffset(base, NoIndex, offset)
+                stream "MoveDouble "; printXMMReg toStore; stream " => "; printMemAddress address
+            )
+        |   XMMStoreToMemory { toStore, address, precision=SinglePrecision } =>
+            (
+                stream "MoveSingle "; printXMMReg toStore; stream " => "; printMemAddress address
             )
         |   XMMConvertFromInt { source, output } =>
             (
@@ -2362,7 +2386,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(LoadNonWord{size=Size8Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
+        |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output } :: remainder) =
             (
                 case index of
                     NoIndex => genOpEA (MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
@@ -2370,7 +2394,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(LoadNonWord{size=Size16Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
+        |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output } :: remainder) =
             (
                 case index of
                     NoIndex => genOpEA (MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output, code)
@@ -2378,7 +2402,7 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(LoadNonWord{size=Size32Bit, source=BaseOffset{base, offset, index}, output } :: remainder) =
+        |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output } :: remainder) =
             (
                 case index of
                     NoIndex => genOpEA (MOVL_A_R32, LargeInt.fromInt offset, base, output, code)
@@ -2586,9 +2610,9 @@ struct
         |   cgOp(StoreRegToMemory{ toStore, address } :: remainder) =
             (
                 case address of
-                    BaseOffset{offset, base, index=NoIndex} =>
+                    {offset, base, index=NoIndex} =>
                         genOpEA(MOVL_R_A, LargeInt.fromInt offset, base, toStore, code) 
-                |   BaseOffset{offset, base, index} =>
+                |   {offset, base, index} =>
                         genOpIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore, code);
                 cgOp remainder
             )
@@ -2597,21 +2621,21 @@ struct
             (
                 (* Short constant *)
                 case address of
-                    BaseOffset{offset, base, index=NoIndex} =>
+                    {offset, base, index=NoIndex} =>
                         genOpPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0, code) 
-                |   BaseOffset{offset, base, index} =>
+                |   {offset, base, index} =>
                         genOpIndexed (MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code);
                 gen32s (toStore, code);
                 cgOp remainder
             )
 
-        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address=BaseOffset{offset, base, index} } :: remainder) =
+        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address={offset, base, index} } :: remainder) =
             (
                 genMemoryConstant(toStore, MOVL_32_A, 0w0, LargeInt.fromInt offset, base, index, code);
                 cgOp remainder
             )
 
-        |   cgOp(StoreByteRegToMemory{ toStore, address } :: remainder) =
+        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address } :: remainder) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
@@ -2622,24 +2646,50 @@ struct
                     GeneralReg (r, false) => if r >= 0w4 then raise InternalError "High byte register" else ()
                 |   _ => ();
                 case address of
-                    BaseOffset{offset, base, index=NoIndex} =>
+                    {offset, base, index=NoIndex} =>
                         genOpEA(opcode, LargeInt.fromInt offset, base, toStore, code) 
-                |   BaseOffset{offset, base, index} =>
+                |   {offset, base, index} =>
                         genOpIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore, code);
                 cgOp remainder
             end
 
-        |   cgOp(StoreByteConstToMemory{ toStore=toStore, address } :: remainder) =
+        |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address } :: remainder) =
+            (
+                case address of
+                    {offset, base, index=NoIndex} =>
+                        genOpEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore, code) 
+                |   {offset, base, index} =>
+                        genOpIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address } :: remainder) =
+            (
+                case address of
+                    {offset, base, index=NoIndex} =>
+                        genOpEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore, code) 
+                |   {offset, base, index} =>
+                        genOpIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore, code);
+                cgOp remainder
+            )
+
+        |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address } :: remainder) =
             (
                 (* Short constant *)
                 case address of
-                    BaseOffset{offset, base, index=NoIndex} =>
+                    {offset, base, index=NoIndex} =>
                         genOpPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0, code) 
-                |   BaseOffset{offset, base, index} =>
+                |   {offset, base, index} =>
                         genOpIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code);
-                gen8u (toStore, code);
+                gen8u (Word8.fromLargeInt toStore, code);
                 cgOp remainder
             )
+
+        |   cgOp(StoreNonWordConst{ size=Size16Bit, ... } :: _) =
+                raise InternalError "StoreNonWordConst: 16Bit"
+
+        |   cgOp(StoreNonWordConst{ size=Size32Bit, ... } :: _) =
+                raise InternalError "StoreNonWordConst: 32Bit"
 
         |   cgOp(AllocStore{ size, output, saveRegs } :: remainder) =
             (
@@ -2810,13 +2860,18 @@ struct
 
         |   cgOp (FreeRegisters _ :: remainder) = cgOp remainder
 
-        |   cgOp (FPLoadFromMemory { base, offset } :: remainder) =
-            (
-                (* The "value" in the general register is actually the address of
-                   the memory containing the FP value. *)
-                genOpPlus2(FPESC 0w5, LargeInt.fromInt offset, base, 0wx0, code); (* FLD [r1] *)
+        |   cgOp (FPLoadFromMemory {address={ base, offset, index }, precision} :: remainder) =
+            let
+                val loadInstr =
+                    case precision of
+                        DoublePrecision => FPESC 0w5
+                    |   SinglePrecision => FPESC 0w1
+            in
+                case index of
+                    NoIndex => genOpPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0, code)
+                |   index => genOpIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0, code);
                 cgOp remainder
-            )
+            end
 
         |   cgOp (FPLoadFromFPReg{source, ...} :: remainder) =
             (
@@ -2870,11 +2925,19 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp (FPStoreToMemory{ base, offset, andPop } :: remainder) =
-            (
-                genOpPlus2(FPESC 0w5, LargeInt.fromInt offset, base, if andPop then 0wx3 else 0wx2, code); (* FST/FSTP [rd] *)
+        |   cgOp (FPStoreToMemory{address={ base, offset, index}, precision, andPop } :: remainder) =
+            let
+                val storeInstr =
+                    case precision of
+                        DoublePrecision => FPESC 0w5
+                    |   SinglePrecision => FPESC 0w1
+                val subInstr = if andPop then 0wx3 else 0wx2
+            in
+                case index of
+                    NoIndex => genOpPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr, code)
+                |   index => genOpIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr, code);
                 cgOp remainder 
-            )
+            end
 
         |   cgOp (FPArithR{ opc, source = FloatingPtReg src} :: remainder) =
             (
@@ -2955,6 +3018,12 @@ struct
                 cgOp remainder
             )
 
+        |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output } :: remainder) =
+            (
+                genMMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output, code);
+                cgOp remainder
+            )
+
         |   cgOp (XMMArith { opc, source=LongConstArg constVal, output=SSE2Reg rrC } :: remainder) =
             (
                (* The real constant here is actually the address of an 8-byte memory
@@ -2983,11 +3052,18 @@ struct
         |   cgOp (XMMArith _ :: _) =
                 raise InternalError "cgOp: XMMArith"
 
-        |   cgOp (XMMStoreToMemory { toStore, base, offset } :: remainder) =
-            (
-                genMMXEA(SSE2Store, LargeInt.fromInt offset, base, toStore, code);
+        |   cgOp (XMMStoreToMemory { toStore, address={base, offset, index}, precision } :: remainder) =
+            let
+                val oper =
+                    case precision of
+                        DoublePrecision => SSE2StoreDouble
+                    |   SinglePrecision => SSE2StoreSingle
+            in
+                case index of
+                    NoIndex => genMMXEA(oper, LargeInt.fromInt offset, base, toStore, code)
+                |   index => genMMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore, code);
                 cgOp remainder
-            )
+            end
 
         |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC } :: remainder) =
             let
@@ -3058,6 +3134,7 @@ struct
             val prefix =
                 case sz of
                     SZByte  => "byte ptr "
+                |   SZWord  => "word ptr "
                 |   SZDWord => "dword ptr "
                 |   SZQWord => "qword ptr "
         in
@@ -3154,7 +3231,7 @@ struct
             print "mov \t";
             print(genRegRepr (mkReg (opByte mod 0w8, rexB), sz));
             print ",";
-            case sz of SZByte => print "???" | SZDWord => print32 () | SZQWord => print64 ()
+            case sz of SZDWord => print32 () | SZQWord => print64 () | _ => print "???"
         )
         
         fun printShift (opByte, rex, sz) =
@@ -3218,22 +3295,33 @@ struct
             else (* mod = 00, 01, 10 *)
             (
                 case (escNo, nnn) of
-                    (0w3, 0w0) => print "fildl\t"
-                |   (0w7, 0w5) => print "fildq\t"
-                |   (0w4, 0w0) => print "fadd\t"
-                |   (0w4, 0w1) => print "fmul\t"
-                |   (0w4, 0w3) => print "fcomp\t"
-                |   (0w4, 0w4) => print "fsub\t"
-                |   (0w4, 0w5) => print "fsubr\t"
-                |   (0w4, 0w6) => print "fdiv\t"
-                |   (0w4, 0w7) => print "fdivr\t"
-                |   (0w5, 0w0) => print "fld \t"
-                |   (0w5, 0w2) => print "fst\t"
-                |   (0w5, 0w3) => print "fstp\t"
-                |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2));
-                printEA(rex, SZQWord)
+                    (0w1, 0w0) => (print "fld \t"; printEA(rex, SZDWord)) (* Single precision. *)
+                |   (0w1, 0w2) => (print "fst\t"; printEA(rex, SZDWord))
+                |   (0w1, 0w3) => (print "fstp\t"; printEA(rex, SZDWord))
+                |   (0w3, 0w0) => (print "fildl\t"; printEA(rex, SZQWord))
+                |   (0w7, 0w5) => (print "fildq\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w0) => (print "fadd\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w1) => (print "fmul\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w3) => (print "fcomp\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w4) => (print "fsub\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w5) => (print "fsubr\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w6) => (print "fdiv\t"; printEA(rex, SZQWord))
+                |   (0w4, 0w7) => (print "fdivr\t"; printEA(rex, SZQWord))
+                |   (0w5, 0w0) => (print "fld \t"; printEA(rex, SZQWord)) (* Double precision. *)
+                |   (0w5, 0w2) => (print "fst\t"; printEA(rex, SZQWord))
+                |   (0w5, 0w3) => (print "fstp\t"; printEA(rex, SZQWord))
+                |   _ => (printValue(Word8.toLargeInt opByte); printValue(Word8.toLargeInt opByte2))
             )
         end
+        
+        fun printJmp32 oper =
+        let
+            val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
+        in
+            print oper; print "\t";
+            print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
+        end
+
     in
 
         if procName = "" (* No name *) then print "?" else print procName;
@@ -3250,13 +3338,11 @@ struct
                 then (print "lock "; ptr := !ptr + 0w1)
                 else ()
                 
-            val havePrefix =
+            val legacyPrefix =
                 let
                     val p = get8u (!ptr, seg)
                 in
-                    if p = 0wxF2
-                    then (ptr := !ptr + 0w1; p)
-                    else if p = 0wx66
+                    if p = 0wxF2 orelse p = 0wxF3 orelse p = 0wx66
                     then (ptr := !ptr + 0w1; p)
                     else 0wx0
                 end
@@ -3278,7 +3364,8 @@ struct
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1
             
-            val sizeFromRexW = if rexW then SZQWord else SZDWord
+            val sizeFromRexW =
+                if rexW then SZQWord else if legacyPrefix = 0wx66 then SZWord else SZDWord
         in
             case opByte of
                 0wx03 => printGvEv (opByte, rex, rexR, sizeFromRexW)
@@ -3291,91 +3378,116 @@ struct
                     val opByte2  = csegGet (seg, !ptr)
                     val () = (ptr +:= 0w1)
                 in
-                    if havePrefix = 0w0 andalso opByte2 = 0wxC1
-                    then
-                    let
-                        val nb = csegGet (seg, !ptr);
-                        val reg = (nb >>- 0w3) andb8 0w7
-                    in
-                        (* The address argument comes first in the assembly code. *)
-                        print "xadd\t";
-                        printEA (rex, sizeFromRexW);
-                        print ",";
-                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
-                    end
-                    
-                    else if havePrefix = 0w0 andalso (opByte2 = 0wxB6 orelse opByte2 = 0wxB7 orelse opByte2 = 0wxAF)
-                    then
-                    let
-                        val nb = csegGet (seg, !ptr);
-                        val reg = (nb >>- 0w3) andb8 0w7
-                    in
-                        (* The register argument comes first. *)
-                        print (if opByte2 = 0wxB6 orelse opByte2 = 0wxB7 then "movzx\t" else "imul\t");
-                        print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
-                        print ",";
-                        printEA (rex, if opByte2 = 0wxB6 then SZByte else sizeFromRexW)
-                    end
-       
-                    else if havePrefix = 0w0 andalso (opByte2 >= 0wx80 andalso opByte2 <= 0wx8f)
-                    then
-                    let
-                        val valu = get32s (!ptr, seg) before (ptr +:= 0w4)
-                    in
-                        print(
+                    case legacyPrefix of
+                        0w0 =>
+                        (
                             case opByte2 of
-                                0wx80 => "jo  \t"
-                            |   0wx81 => "jno \t"
-                            |   0wx82 => "jb  \t"
-                            |   0wx83 => "jnb \t"
-                            |   0wx84 => "je  \t"
-                            |   0wx85 => "jne \t"
-                            |   0wx86 => "jna \t"
-                            |   0wx87 => "ja  \t" 
-                            |   0wx88 => "js  \t"
-                            |   0wx89 => "jns  \t" 
-                            |   0wx8a => "jp  \t"
-                            |   0wx8b => "jnp  \t" 
-                            |   0wx8c => "jl  \t"
-                            |   0wx8d => "jge \t"
-                            |   0wx8e => "jle \t"
-                            |   0wx8f => "jg  \t" 
-                            |   _ => "???\t"
-                            );
-                        print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
-                    end
+                                0wxC1 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    (* The address argument comes first in the assembly code. *)
+                                    print "xadd\t";
+                                    printEA (rex, sizeFromRexW);
+                                    print ",";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
+                                end
+
+                            |   0wxB6 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movzx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZByte)
+                                end
+
+                            |   0wxB7 =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "movzx\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, SZWord)
+                                end
+
+                            |   0wxAF =>
+                                let
+                                    val nb = csegGet (seg, !ptr);
+                                    val reg = (nb >>- 0w3) andb8 0w7
+                                in
+                                    print "imul\t";
+                                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                                    print ",";
+                                    printEA (rex, sizeFromRexW)
+                                end
+
+                            |   0wx80 => printJmp32 "jo  "
+                            |   0wx81 => printJmp32 "jno "
+                            |   0wx82 => printJmp32 "jb  "
+                            |   0wx83 => printJmp32 "jnb "
+                            |   0wx84 => printJmp32 "je  "
+                            |   0wx85 => printJmp32 "jne "
+                            |   0wx86 => printJmp32 "jna "
+                            |   0wx87 => printJmp32 "ja  " 
+                            |   0wx88 => printJmp32 "js  "
+                            |   0wx89 => printJmp32 "jns " 
+                            |   0wx8a => printJmp32 "jp  "
+                            |   0wx8b => printJmp32 "jnp " 
+                            |   0wx8c => printJmp32 "jl  "
+                            |   0wx8d => printJmp32 "jge "
+                            |   0wx8e => printJmp32 "jle "
+                            |   0wx8f => printJmp32 "jg  "
+                            
+                            |   _ => (print "esc\t"; printValue(Word8.toLargeInt opByte2))
+                        )
                     
-                    else if havePrefix = 0wxf2
-                    then (* SSE2 instruction *)
-                    let
-                        val nb = csegGet (seg, !ptr)
-                        val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
-                    in
-                        case opByte2 of
-                            0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx11 => ( print "movsd\t"; printEAxmm(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
-                        |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
-                        |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
-                    end
+                    |   0wxf2 => (* SSE2 instruction *)
+                        let
+                            val nb = csegGet (seg, !ptr)
+                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                        in
+                            case opByte2 of
+                                0wx10 => ( print "movsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx11 => ( print "movsd\t"; printEAxmm(rex, SZQWord); print ","; print(xmmRegRepr reg)  )
+                            |   0wx2a => ( print "cvtsi2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                            |   0wx58 => ( print "addsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx59 => ( print "mulsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5a => ( print "cvtsd2ss\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5c => ( print "subsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx5e => ( print "divsd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   b => (print "F2\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                        end
 
-                    else if havePrefix = 0wx66
-                    then (* SSE2 instruction *)
-                    let
-                        val nb = csegGet (seg, !ptr)
-                        val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
-                    in
-                        case opByte2 of
-                            0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx54 => ( print "andpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   0wx57 => ( print "xorpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
-                        |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
-                    end
+                    |   0wxf3 => (* SSE2 instruction. *)
+                        let
+                            val nb = csegGet (seg, !ptr)
+                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                        in
+                            case opByte2 of
+                                0wx5a => ( print "cvtss2sd\t"; print(xmmRegRepr reg); print ","; printEA(rex, sizeFromRexW)  )
+                            |   0wx11 => ( print "movss\t"; printEAxmm(rex, SZDWord); print ","; print(xmmRegRepr reg)  )
+                            |   b => (print "F3\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                        end
 
-                    else (print "esc\t"; printValue(Word8.toLargeInt opByte2))
+                    |   0wx66 => (* SSE2 instruction *)
+                        let
+                            val nb = csegGet (seg, !ptr)
+                            val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
+                        in
+                            case opByte2 of
+                                0wx2e => ( print "ucomisd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx54 => ( print "andpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   0wx57 => ( print "xorpd\t"; print(xmmRegRepr reg); print ","; printEAxmm(rex, SZQWord) )
+                            |   b => (print "66\n"; print "0F\n"; print(Word8.fmt StringCvt.HEX b))
+                        end
+
+                    |   _ => (print "esc\t"; printValue(Word8.toLargeInt opByte2))
                 end (* ESCAPE *)
 
             |   0wx13 => printGvEv (opByte, rex, rexR, sizeFromRexW)
@@ -3534,14 +3646,18 @@ struct
             
             |   0wx9e => print "sahf\n"
 
-            |   0wxa4 => print "movsb\n"
-            |   0wxa5 => print "movsl\n"
-            |   0wxa6 => print "cmpsb\n"
+            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb\n")
+            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl\n")
+            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb\n")
 
             |   0wxa8 => (print "test\tal,"; print8 ())
 
-            |   0wxaa => print "stosb\n"
-            |   0wxab => if rexW then print "stosq\n" else print "stosl\n"
+            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb\n")
+            |   0wxab =>
+                (
+                    if legacyPrefix = 0wxf3 then print "rep " else ();
+                    if rexW then print "stosq\n" else print "stosl\n"
+                )
 
             |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)
             |   0wxb9 => printMovCToR (opByte, sizeFromRexW, rexB)
@@ -3603,8 +3719,6 @@ struct
                 end
 
             |   0wxeb => (print "jmp \t"; printJmp())
-
-            |   0wxf3 => print "rep\t"
         
             |   0wxf6 => (* Group3_a *)
                 let

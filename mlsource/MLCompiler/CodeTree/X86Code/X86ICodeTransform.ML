@@ -35,12 +35,12 @@ struct
     fun loadMemory(reg, base, offset) =
         [MoveArgument{
             source=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex},
-            dest=RealRegister(GenReg reg), kind=WordToWord}]
+            dest=RealRegister(GenReg reg), kind=MoveWord}]
     and loadStack(reg, offset) = loadMemory(reg, esp, offset)
     and storeMemory(reg, base, offset) =
         [MoveArgument{
             source=RealRegister(GenReg reg),
-            dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, kind=WordToWord}]
+            dest=MemoryLocation{base=RealRegister(GenReg base), offset=offset, index=NoMemIndex}, kind=MoveWord}]
 
     val raxAsArg = RealRegister(GenReg eax) and rbxAsArg = RealRegister(GenReg ebx)
     and rcxAsArg = RealRegister(GenReg ecx) and rsiAsArg = RealRegister(GenReg esi)
@@ -89,20 +89,20 @@ struct
             InRax =>
                 if dest = eax
                 then []
-                else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=WordToWord}]
+                else [MoveArgument{ source=RealRegister(GenReg eax), dest=RealRegister(GenReg dest), kind=MoveWord}]
         |   OnStack s => loadStack(dest, (stackPtr state - s - 1) * wordSize)
     )
 
     |   loadSource(src as AddressConstant _, dest, _) =
-            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
+            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=MoveWord}]
     |   loadSource(src as IntegerConstant _, dest, _) =
-            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=WordToWord}]
+            [MoveArgument{ source= src, dest=RealRegister(GenReg dest), kind=MoveWord}]
 
     |   loadSource(MemoryLocation{ base, offset, index=NoMemIndex }, dest, state) =
             (* Use the destination register as a base address. *)
             MoveArgument {
                 source=MemoryLocation {base=RealRegister(GenReg dest), offset=offset, index=NoMemIndex },
-                dest=RealRegister(GenReg dest), kind=WordToWord} ::
+                dest=RealRegister(GenReg dest), kind=MoveWord} ::
                     loadSource(base, dest, state)
 
     |   loadSource _ = raise InternalError "loadSource"
@@ -494,7 +494,7 @@ struct
             (* Create a new Preg containing the contents of another Preg.
                We only ever want the top item to be in RAX so we push the top of the stack. *)
         |   codeICode{
-                icode=MoveArgument{source as PReg(_, PRegGeneral), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest, state=NormalState state, code, context} =
+                icode=MoveArgument{source as PReg(_, PRegGeneral), dest=PReg(destReg, PRegGeneral), kind=MoveWord} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(source, eax, pushedState)
@@ -505,7 +505,7 @@ struct
             end
 
         |   codeICode{
-                icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg(destReg, PRegGeneral), kind=WordToWord} :: rest,
+                icode=MoveArgument{source=RealRegister(GenReg srcReg), dest=PReg(destReg, PRegGeneral), kind=MoveWord} :: rest,
                 state=NormalState state, code, context} =
             (* Move a specific register to the stack.  If it is anything but RAX we push it immediately. *)
             let
@@ -591,9 +591,23 @@ struct
                         SOME {reg as GenReg _, ...} => RealRegister reg
                     |   _ => raise InternalError "codeICode: find tagged"
                 val (resultState, resultReg) =
-                    case dType of
-                        PRegGeneral => (addRaxToState(state, destReg), raxAsArg)
-                    |   PRegUntagged => newUreg(destReg, state)
+                    case (dType, kind, fpMode) of
+                        (PRegUntagged, MoveFloat, FPModeX87) =>
+                            ({valueStack= #valueStack state, ccState= #ccState state,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, RealRegister(FPReg fp0))
+                    |   (PRegUntagged, MoveFloat, FPModeSSE2) =>
+                            ({valueStack= #valueStack state, ccState= #ccState state,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, RealRegister(XMMReg xmm0))
+                    |   (PRegUntagged, MoveDouble, FPModeX87) =>
+                            ({valueStack= #valueStack state, ccState= #ccState state,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, RealRegister(FPReg fp0))
+                    |   (PRegUntagged, MoveDouble, FPModeSSE2) =>
+                            ({valueStack= #valueStack state, ccState= #ccState state,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, RealRegister(XMMReg xmm0))
+                    |   (PRegGeneral, MoveFloat, _) => raise InternalError "MoveFloat to normal register"
+                    |   (PRegGeneral, MoveDouble, _) => raise InternalError "MoveDouble to normal register"
+                    |   (PRegGeneral, _, _) => (addRaxToState(state, destReg), raxAsArg)
+                    |   (PRegUntagged, _, _) => newUreg(destReg, state)
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=MoveArgument{ source=MemoryLocation{offset=offset, base=realBReg, index=NoMemIndex}, dest=resultReg, kind=kind} :: 
@@ -632,7 +646,7 @@ struct
                                     OnStack s => s
                                 |   _ => raise InternalError "codeICode: MoveArgument"
                             val code =
-                                [MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord}]
+                                [MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=MoveWord}]
                         in
                             (rbxAsArg, code)
                         end
@@ -690,9 +704,23 @@ struct
                         
                 val loadCode = codeBreg @ loadSource(iReg, eax, pushedState)
                 val (resultState, resultReg) =
-                    case dType of
-                        PRegGeneral => (addRaxToState(pushedState, destReg), raxAsArg)
-                    |   PRegUntagged =>
+                    case (dType, kind, fpMode) of
+                        (PRegUntagged, MoveFloat, FPModeX87) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, RealRegister(FPReg fp0))
+                    |   (PRegUntagged, MoveFloat, FPModeSSE2) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, RealRegister(XMMReg xmm0))
+                    |   (PRegUntagged, MoveDouble, FPModeX87) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, RealRegister(FPReg fp0))
+                    |   (PRegUntagged, MoveDouble, FPModeSSE2) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, RealRegister(XMMReg xmm0))
+                    |   (PRegGeneral, MoveFloat, _) => raise InternalError "MoveFloat to normal register"
+                    |   (PRegGeneral, MoveDouble, _) => raise InternalError "MoveDouble to normal register"
+                    |   (PRegGeneral, _, _) => (addRaxToState(pushedState, destReg), raxAsArg)
+                    |   (PRegUntagged, _, _) =>
                             ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
                                 untaggedRegs =[{ureg=destReg, reg=GenReg ecx}]}, rcxAsArg)
             in
@@ -704,7 +732,10 @@ struct
             end
 
             (* Store a pseudo-register in a memory location. *)
-        |   codeICode{icode=MoveArgument{ source=PReg(valueReg, PRegUntagged), dest=MemoryLocation{offset, base, index=NoMemIndex}, kind} :: rest,
+        |   codeICode{
+                icode=MoveArgument{
+                        source=PReg(valueReg, PRegUntagged),
+                        dest=MemoryLocation{offset, base as PReg(_, PRegGeneral), index=NoMemIndex}, kind} :: rest,
                       state=NormalState state, code, context} =
             let
                 val (pushedState as { valueStack, ccState, untaggedRegs}, pushCode) = pushRax state
@@ -726,6 +757,32 @@ struct
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code=store @ loadBaseToEax @ pushCode @ code, context=context}
+            end
+
+            (* As above except the base register is in an untagged register.  This is used for CMem stores. *)
+        |   codeICode{
+                icode=MoveArgument{
+                        source=PReg(valueReg, PRegUntagged),
+                        dest=MemoryLocation{offset, base=PReg(bReg, PRegUntagged), index=NoMemIndex}, kind} :: rest,
+                      state=NormalState{untaggedRegs, valueStack, ccState, ...}, code, context} =
+            let
+                (* CMem loads with a fixed offset *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val store =
+                    [MoveArgument{
+                        source=realVReg,
+                        dest=MemoryLocation{base=realBReg, offset=offset, index=NoMemIndex}, kind=kind}]
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{
+                    icode=rest, state=NormalState resultState, code=store @ code, context=context}
             end
 
             (* Store an untagged register in a memory location.  This is currently used to store the string
@@ -821,8 +878,8 @@ struct
                 codeICode{icode=rest, state=NormalState startState,
                     code =
                         MoveArgument{source=raxAsArg, dest=MemoryLocation {offset=offset, base=rcxAsArg, index=indexed}, kind=kind} ::
-                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rcxAsArg, kind=WordToWord} ::
-                        MoveArgument{source=wordOffsetAddress(stackPtr state - indexOnStack - 1, esp), dest=rbxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rcxAsArg, kind=MoveWord} ::
+                        MoveArgument{source=wordOffsetAddress(stackPtr state - indexOnStack - 1, esp), dest=rbxAsArg, kind=MoveWord} ::
                         code,
                     context=context}
             end
@@ -845,17 +902,160 @@ struct
                     case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
                         SOME {reg as GenReg _, ...} => RealRegister reg
                     |   _ => raise InternalError "codeICode: find tagged"
-                val baseOnStack =
-                    case findEntry (argToPReg base, state) of
-                        OnStack s => s
-                    |   _ => raise InternalError "codeICode: MoveArgument"
+                (* The base may be a tagged or untagged register.  CMem stores extract the base address from
+                   a LargeWord.word boxed value into an untagged register. *)
+                val (realBReg, codeBreg) =
+                    case base of
+                        PReg(bReg, PRegGeneral) =>
+                        let
+                            val baseOnStack =
+                                case findEntry (bReg, state) of
+                                    OnStack s => s
+                                |   _ => raise InternalError "codeICode: MoveArgument"
+                            val code =
+                                [MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=rbxAsArg, kind=MoveWord}]
+                        in
+                            (rbxAsArg, code)
+                        end
+                    |   PReg(bReg, PRegUntagged) =>
+                        let
+                            val realBReg =
+                                case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                                    SOME {reg as GenReg _, ...} => RealRegister reg
+                                |   _ => raise InternalError "codeICode: find tagged"
+                        in
+                            (realBReg, [])
+                        end
+                   |    _ => raise InternalError "codeICode: not Preg"
                 val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code =
-                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=raxAsArg, index=MemIndex1 realIReg}, kind=kind} ::
-                        MoveArgument{source=wordOffsetAddress(stackPtr state - baseOnStack - 1, esp), dest=raxAsArg, kind=WordToWord} ::
-                        pushCode @ code,
+                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=realBReg, index=MemIndex1 realIReg}, kind=kind} ::
+                        codeBreg @ pushCode @ code,
+                    context=context}
+            end
+
+        |   codeICode{icode=
+                       MoveArgument{ source=PReg(valueReg, PRegUntagged), dest=MemoryLocation {offset, base, index}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            (* Store an untagged value with an index value in a tagged register. This is used for CMem stores. *)
+            let
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1 indexArg => (indexArg, MemIndex1 raxAsArg)
+                    |   MemIndex2 indexArg => (indexArg, MemIndex2 raxAsArg)
+                    |   MemIndex4 indexArg => (indexArg, MemIndex4 raxAsArg)
+                    |   MemIndex8 indexArg => (indexArg, MemIndex8 raxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex"
+                (* The base address will be in an untagged register. *)
+                val (realBReg, codeBreg) =
+                    case base of
+                        PReg(_, PRegGeneral) => (rbxAsArg, loadSource(base, ebx, pushedState))
+                    |   PReg(bReg, PRegUntagged) =>
+                        let
+                            val realBReg =
+                                case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                                    SOME {reg as GenReg _, ...} => RealRegister reg
+                                |   _ => raise InternalError "codeICode: find tagged"
+                        in
+                            (realBReg, [])
+                        end
+                   |    _ => raise InternalError "codeICode: not Preg"
+                val realVReg =
+                    case List.find (fn {ureg, ...} => ureg = valueReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                        
+                val loadCode = codeBreg @ loadSource(iReg, eax, pushedState)
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        MoveArgument{source=realVReg, dest=MemoryLocation {offset=offset, base=realBReg, index=indexed}, kind=kind} ::
+                        loadCode @ pushCode @ code,
+                    context=context}
+            end
+
+         |   codeICode{icode=
+                        MoveArgument{
+                            source=MemoryLocation {offset=srcOffset, base=srcBase, index=NoMemIndex},
+                            dest=MemoryLocation {offset, base=PReg(bReg, PRegUntagged), index=NoMemIndex}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            let
+                (* This is used to store floating point values into C memory.  The source will be a PReg and the base will
+                   be an untagged register. *)
+                val _ = kind = MoveFloat orelse kind = MoveDouble orelse raise InternalError "Move memory to memory - not float"
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state 
+                val loadArgAddr = loadSource(srcBase, ebx, pushedState)
+                val resultReg =
+                    case fpMode of
+                        FPModeX87 => RealRegister(FPReg fp0)
+                    |   FPModeSSE2 => RealRegister(XMMReg xmm0)
+                val loadToFpReg =
+                    MoveArgument{ source=MemoryLocation{offset=srcOffset, base=rbxAsArg, index=NoMemIndex}, dest=resultReg, kind=MoveDouble}
+                (* The base address will be in an untagged register. *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val storeToMem =
+                    MoveArgument { source=resultReg, dest=MemoryLocation {offset=offset, base=realBReg, index=NoMemIndex}, kind=kind}
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+                val cvtToFloat =
+                    case (fpMode, kind) of
+                        (FPModeSSE2, MoveFloat) =>
+                            [SSE2FPArith { opc=SSE2DoubleToFloat, resultReg=resultReg, arg1=resultReg, arg2=resultReg }]
+                    |   _ => []
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        storeToMem :: cvtToFloat @ (loadToFpReg :: loadArgAddr @ pushCode @ code),
+                    context=context}
+            end
+           
+        |   codeICode{icode=
+                        MoveArgument{
+                            source=MemoryLocation {offset=srcOffset, base=srcBase, index=NoMemIndex},
+                            dest=MemoryLocation {offset, base=PReg(bReg, PRegUntagged), index}, kind} :: rest,
+                    state=NormalState state, code, context} =
+            let
+                (* This is used to store floating point values into C memory.  The source will be a PReg and the base will
+                   be an untagged register.  The index will be a tagged register. *)
+                val _ = kind = MoveFloat orelse kind = MoveDouble orelse raise InternalError "Move memory to memory - not float"
+                val (pushedState as { untaggedRegs, valueStack, ccState, ...}, pushCode) = pushRax state 
+                val loadArgAddr = loadSource(srcBase, ebx, pushedState)
+                val resultReg =
+                    case fpMode of
+                        FPModeX87 => RealRegister(FPReg fp0)
+                    |   FPModeSSE2 => RealRegister(XMMReg xmm0)
+                val loadToFpReg =
+                    MoveArgument{ source=MemoryLocation{offset=srcOffset, base=rbxAsArg, index=NoMemIndex}, dest=resultReg, kind=MoveDouble}
+                val (iReg, indexed) =
+                    case index of
+                        MemIndex1 indexArg => (indexArg, MemIndex1 raxAsArg)
+                    |   MemIndex2 indexArg => (indexArg, MemIndex2 raxAsArg)
+                    |   MemIndex4 indexArg => (indexArg, MemIndex4 raxAsArg)
+                    |   MemIndex8 indexArg => (indexArg, MemIndex8 raxAsArg)
+                    |   _ => raise InternalError "codeICode: MemIndex - move float"
+                (* The base address will be in an untagged register. *)
+                val realBReg =
+                    case List.find (fn {ureg, ...} => ureg = bReg) untaggedRegs of
+                        SOME {reg as GenReg _, ...} => RealRegister reg
+                    |   _ => raise InternalError "codeICode: find tagged"
+                val cvtToFloat =
+                    case (fpMode, kind) of
+                        (FPModeSSE2, MoveFloat) =>
+                            [SSE2FPArith { opc=SSE2DoubleToFloat, resultReg=resultReg, arg1=resultReg, arg2=resultReg }]
+                    |   _ => []
+                val storeToMem =
+                    MoveArgument { source=resultReg, dest=MemoryLocation {offset=offset, base=realBReg, index=indexed}, kind=kind}
+                val resultState = { valueStack= valueStack, ccState=ccState, untaggedRegs=[]}
+            in
+                codeICode{icode=rest, state=NormalState resultState,
+                    code =
+                        storeToMem :: cvtToFloat @ loadSource(iReg, eax, pushedState) @ (loadToFpReg :: loadArgAddr @ pushCode @ code),
                     context=context}
             end
 
@@ -895,7 +1095,7 @@ struct
                 val loadSize = loadSource(size, edx, startState)
                 (* We put the size in rdx, the flags in rax and the result in rdi. *)
                 val allocMem = [AllocateMemoryVariable{size=rdxAsArg, flags=raxAsArg, dest=rdiAsArg, initialiser=NONE}]
-                val moveToRAX = [MoveArgument{source=rdiAsArg, dest=raxAsArg, kind=WordToWord}]
+                val moveToRAX = [MoveArgument{source=rdiAsArg, dest=raxAsArg, kind=MoveWord}]
                 val resultState = clearCC(addRaxToState(startState, destReg))
             in
                 codeICode{
@@ -914,7 +1114,7 @@ struct
                 val loadSize = loadSource(size, ecx, startState)
                 val loadFlags = loadSource(flags, ebx, startState)
                 val allocMem = [AllocateMemoryVariable{size=rcxAsArg, flags=rbxAsArg, dest=rdxAsArg, initialiser=SOME raxAsArg}]
-                val moveToRAX = [MoveArgument{source=rdxAsArg, dest=raxAsArg, kind=WordToWord}]
+                val moveToRAX = [MoveArgument{source=rdxAsArg, dest=raxAsArg, kind=MoveWord}]
                 val resultState = clearCC(addRaxToState(startState, destReg))
             in
                 codeICode{
@@ -1013,15 +1213,15 @@ struct
                             case r of
                                 c as IntegerConstant value =>
                                     if is32bit value
-                                    then [MoveArgument{source=c, dest=dest, kind=WordToWord}]
-                                    else [MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord},
-                                          MoveArgument{source=c, dest=rsiAsArg, kind=WordToWord}]
+                                    then [MoveArgument{source=c, dest=dest, kind=MoveWord}]
+                                    else [MoveArgument{source=rsiAsArg, dest=dest, kind=MoveWord},
+                                          MoveArgument{source=c, dest=rsiAsArg, kind=MoveWord}]
                             |   c as AddressConstant _ =>
                                     if isX64
-                                    then [MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord},
-                                          MoveArgument{source=c, dest=rsiAsArg, kind=WordToWord}]
-                                    else [MoveArgument{source=c, dest=dest, kind=WordToWord}]
-                           |    r => MoveArgument{source=rsiAsArg, dest=dest, kind=WordToWord} ::
+                                    then [MoveArgument{source=rsiAsArg, dest=dest, kind=MoveWord},
+                                          MoveArgument{source=c, dest=rsiAsArg, kind=MoveWord}]
+                                    else [MoveArgument{source=c, dest=dest, kind=MoveWord}]
+                           |    r => MoveArgument{source=rsiAsArg, dest=dest, kind=MoveWord} ::
                                         loadSource(r, esi, currentState)
                     in
                         copyArgs(n-1, rl) @ copy
@@ -1108,7 +1308,7 @@ struct
                     state=NormalState(
                             {valueStack={loc=InRax, preg=addrReg} :: {loc=OnStack(sp+size-1), preg= ~1} :: #valueStack pushedState,
                              ccState=CCIndeterminate, untaggedRegs= []}),
-                    code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg, kind=WordToWord} :: (pushAll @ pushCode) @ code, context=context}
+                    code=MoveArgument{source=RealRegister(GenReg esp), dest=raxAsArg, kind=MoveWord} :: (pushAll @ pushCode) @ code, context=context}
             end
 
         |   codeICode{icode=IndexedCaseOperation{ testReg, workReg=_, cases, startValue} :: rest,
@@ -1200,7 +1400,7 @@ struct
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code= (* TODO: We could use LEA since this is normally (always?) ADD *)
-                        MoveArgument{source=realSReg, dest=raxAsArg, kind=WordToWord} ::
+                        MoveArgument{source=realSReg, dest=raxAsArg, kind=MoveWord} ::
                         ArithmeticFunction { oper=oper, resultReg=realSReg, operand1=realSReg, operand2=operand2, ccRef=ccRef } :: pushCode @ code,
                     context=context}
             end
@@ -1244,8 +1444,8 @@ struct
                             oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=RealRegister(GenReg ebx), ccRef=ccRef } ::
                         MoveArgument
                             { source=MemoryLocation{offset=(stackPtr state - secondArg - 1) * wordSize, base=RealRegister(GenReg esp), index=NoMemIndex},
-                              dest=raxAsArg, kind=WordToWord } ::
-                        MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx), kind=WordToWord} ::
+                              dest=raxAsArg, kind=MoveWord } ::
+                        MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx), kind=MoveWord} ::
                         code,
                     context=context}
             end
@@ -1450,7 +1650,7 @@ struct
                     code=ShiftOperation{ shift=shift, resultReg=rdxAsArg, operand=rdxAsArg,
                                          shiftAmount=rcxAsArg, ccRef=ccRef} ::
                          loadCode @
-                         (MoveArgument{source=rdxAsArg, dest=rcxAsArg, kind=WordToWord} :: code), context=context}
+                         (MoveArgument{source=rdxAsArg, dest=rcxAsArg, kind=MoveWord} :: code), context=context}
             end
 
         |   codeICode{icode=ShiftOperation _ :: _, ...} =
@@ -1546,7 +1746,7 @@ struct
                 codeICode{icode=rest, state=NormalState resultState,
                     code=
                         Division{ isSigned=isSigned, dividend=raxAsArg, divisor=rcxAsArg, quotient=raxAsArg, remainder=rdxAsArg} ::
-                        MoveArgument { source=RealRegister realDividend, dest=raxAsArg, kind=WordToWord } :: pushCode @ code, context=context}
+                        MoveArgument { source=RealRegister realDividend, dest=raxAsArg, kind=MoveWord } :: pushCode @ code, context=context}
             end
 
         |   codeICode{icode=AtomicExchangeAndAdd{ destAddr, source } :: rest,
@@ -1575,7 +1775,7 @@ struct
                         (* If the value we want to store is in eax i.e. the quotient, we
                            must move it to another register before the allocation. *)
                         val pushCode =
-                            [MoveArgument{ source=srcReg, dest=rcxAsArg, kind=WordToWord}]
+                            [MoveArgument{ source=srcReg, dest=rcxAsArg, kind=MoveWord}]
                     in
                         (rcxAsArg, state, pushCode)
                     end
@@ -1592,7 +1792,7 @@ struct
                     icode=rest, state=NormalState resultState,
                     code=
                         InitialisationComplete{dest=raxAsArg} ::
-                        MoveArgument{ source=newSrcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
+                        MoveArgument{ source=newSrcReg, dest=wordOffsetAddress(0, eax), kind=MoveWord} ::
                         AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
             end
 
@@ -1609,7 +1809,7 @@ struct
                     icode=rest, state=NormalState resultState,
                     code=
                         InitialisationComplete{dest=raxAsArg} ::
-                        MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=WordToWord} ::
+                        MoveArgument{ source=srcReg, dest=wordOffsetAddress(0, eax), kind=MoveDouble} ::
                         AllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
             end
 
@@ -1640,9 +1840,9 @@ struct
                     icode=rest, state=NormalState resultState,
                     code =
                         CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=rcxAsArg, ccRef=ccRef} ::
-                        MoveArgument{source=RealRegister realVec1Reg, dest=rsiAsArg, kind=WordToWord} ::
-                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=WordToWord} ::
-                        MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
+                        MoveArgument{source=RealRegister realVec1Reg, dest=rsiAsArg, kind=MoveWord} ::
+                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=MoveWord} ::
+                        MoveArgument{source=RealRegister realVec2Reg, dest=rdiAsArg, kind=MoveWord} :: code, context=context}
             end
 
         |   codeICode{icode=BlockMove { srcAddr, destAddr, length, isByteMove } :: rest, state=NormalState state, code, context} =
@@ -1672,9 +1872,9 @@ struct
                     icode=rest, state=NormalState resultState,
                     code =
                         BlockMove{srcAddr=rsiAsArg, destAddr=rdiAsArg, length=rcxAsArg, isByteMove=isByteMove} ::
-                        MoveArgument{source=RealRegister realSrcReg, dest=rsiAsArg, kind=WordToWord} ::
-                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=WordToWord} ::
-                        MoveArgument{source=RealRegister realDestReg, dest=rdiAsArg, kind=WordToWord} :: code, context=context}
+                        MoveArgument{source=RealRegister realSrcReg, dest=rsiAsArg, kind=MoveWord} ::
+                        MoveArgument{source=RealRegister realLenReg, dest=rcxAsArg, kind=MoveWord} ::
+                        MoveArgument{source=RealRegister realDestReg, dest=rdiAsArg, kind=MoveWord} :: code, context=context}
             end
 
         |   codeICode{
@@ -1709,7 +1909,7 @@ struct
                           code=
                             CompareFloatingPt{arg1=RealRegister floatingPointReg, arg2=MemoryLocation{offset=offset2, base=arg2Reg, index=NoMemIndex}, ccRef=ccRef} ::
                             MoveArgument{source=MemoryLocation{offset=offset1, base=arg1Reg, index=NoMemIndex},
-                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                                dest=RealRegister floatingPointReg, kind=MoveDouble} ::
                             loadArgAddr @ code,
                           context=context}
             end
@@ -1761,7 +1961,7 @@ struct
                                 opc=opc, resultReg=RealRegister floatingPointReg, arg1=RealRegister floatingPointReg,
                                 arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
                             MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
-                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                                dest=RealRegister floatingPointReg, kind=MoveDouble} ::
                             loadArgAddr @ code,
                           context=context}
             end
@@ -1798,7 +1998,7 @@ struct
                                 opc=opc, resultReg=RealRegister floatingPointReg, arg1=RealRegister floatingPointReg,
                                 arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
                             MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
-                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                                dest=RealRegister floatingPointReg, kind=MoveDouble} ::
                             loadArgAddr @ code,
                           context=context}
             end
@@ -1825,9 +2025,9 @@ struct
                             SSE2FPArith{
                                 opc=opc, resultReg=RealRegister floatingPointReg0, arg1=RealRegister floatingPointReg0,
                                 arg2=RealRegister floatingPointReg1} ::
-                            MoveArgument{source=arg2, dest=RealRegister floatingPointReg1, kind=WordToWord} ::
+                            MoveArgument{source=arg2, dest=RealRegister floatingPointReg1, kind=MoveDouble} ::
                             MoveArgument{source=MemoryLocation{offset=offset1, base=raxAsArg, index=NoMemIndex},
-                                dest=RealRegister floatingPointReg0, kind=WordToWord} ::
+                                dest=RealRegister floatingPointReg0, kind=MoveDouble} ::
                             code,
                           context=context}
             end
@@ -1851,7 +2051,7 @@ struct
                           code=
                             X87FPUnaryOps{fpOp=fpOp, dest=RealRegister floatingPointReg, source=RealRegister floatingPointReg} ::
                             MoveArgument{source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex},
-                                dest=RealRegister floatingPointReg, kind=WordToWord} ::
+                                dest=RealRegister floatingPointReg, kind=MoveDouble} ::
                             code,
                           context=context}
             end
