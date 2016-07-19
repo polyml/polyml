@@ -902,7 +902,6 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             }
         }
         /* Copy the results to a result vector. */
-        if (nDesc == 0) return taskData->saveVec.push(EmptyString()); /* Empty vector. */
         resVec = alloc_and_save(taskData, nDesc);
         for (POLYUNSIGNED j = 0; j < nDesc; j++)
             (DEREFWORDHANDLE(resVec))->Set(j, TAGGED(results[j]));
@@ -1124,7 +1123,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
        both opens the directory and returns the first entry. If
        fFindSucceeded is false we have already reached the end. */
     if (! strm->device.directory.fFindSucceeded)
-        return SAVE(EmptyString());
+        return SAVE(EmptyString(taskData));
     while (result == NULL)
     {
         WIN32_FIND_DATA *pFind = &strm->device.directory.lastFind;
@@ -1141,7 +1140,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
             if (dwErr == ERROR_NO_MORE_FILES)
             {
                 strm->device.directory.fFindSucceeded = 0;
-                if (result == NULL) return SAVE(EmptyString());
+                if (result == NULL) return SAVE(EmptyString(taskData));
             }
         }
     }

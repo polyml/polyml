@@ -74,17 +74,12 @@ NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int
 
 Handle make_exn(TaskData *taskData, int id, Handle arg);
 
-extern void add_word_to_io_area(unsigned sysop, PolyWord val);
-
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
 extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);
 
 extern Handle errorMsg(TaskData *taskData, int err);
 
-extern void IncrementRTSCallCount(unsigned ioFunction);
-
 extern Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size );
-extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);
 
 // Create fixed precision values.

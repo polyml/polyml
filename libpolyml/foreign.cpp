@@ -634,6 +634,7 @@ void Foreign::Init()
 
 void Foreign::Start()
 {
+#if (0)
     static void *nullValue = 0;
     PolyVolData *nullV = (PolyVolData*)IoEntry(POLY_SYS_foreign_null);
     V_INDEX(nullV) = next_vol++;
@@ -642,6 +643,7 @@ void Foreign::Start()
     C_POINTER(nullV) = &nullValue;
     OWN_C_SPACE(nullV) = false; // Not freed
     FINALISER(nullV) = 0; // No finaliser
+#endif
 }
 
 void Foreign::Stop()
@@ -1210,7 +1212,7 @@ static Handle fromCbytes (TaskData *taskData, Handle h)
 { TRACE; {
     char* str = *(char**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0));
     size_t size = get_C_long(taskData, DEREFHANDLE(h)->Get(1));
-    if (str == NULL) return SAVE(EmptyString());
+    if (str == NULL) return SAVE(EmptyString(taskData));
     else return SAVE(C_string_to_Poly(taskData, str, size));
 }}
 
@@ -1654,7 +1656,11 @@ static Handle set_final (TaskData *taskData, Handle pair)
 // Return the NULL vol.  This is a persistent vol which always contains null.
 static Handle getNull(TaskData *taskData, Handle)
 {
+#if (0)
     return SAVE((PolyObject*)IoEntry(POLY_SYS_foreign_null));
+#else
+    return SAVE(TAGGED(0));
+#endif
 }
 
 /**********************************************************************

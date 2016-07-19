@@ -1474,7 +1474,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
         if (FD_ISSET(strm->device.sock, pFds)) nRes++;
     }
     if (nRes == 0)
-        return SAVE(EmptyString()); /* None - return empty vector. */
+        return ALLOC(0); /* None - return empty vector. */
     else {
         Handle result = ALLOC(nRes);
         inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr(); /* It could have moved as a result of a gc. */

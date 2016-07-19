@@ -46,7 +46,6 @@ public:
 
     virtual unsigned InitialStackSize(void) { return 128; } // Initial size of a stack 
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
-    virtual void InitInterfaceVector(void) = 0;
 
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process) {}
