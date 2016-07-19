@@ -1035,7 +1035,6 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             }
         }
         /* Copy the results. */
-        if (nDesc == 0) return taskData->saveVec.push(EmptyString());
         /* Construct a result vector. */
         Handle resVec = alloc_and_save(taskData, nDesc);
         for (unsigned i = 0; i < nDesc; i++)
@@ -1150,7 +1149,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
     {
         struct dirent *dp = readdir(strm->device.ioDir);
         int len;
-        if (dp == NULL) return taskData->saveVec.push(EmptyString());
+        if (dp == NULL) return taskData->saveVec.push(EmptyString(taskData));
         len = NAMLEN(dp);
         if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
               (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))

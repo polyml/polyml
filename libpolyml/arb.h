@@ -49,6 +49,9 @@ extern Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft);
 
 // This is currently used in the interpreter.
 extern Handle mult_longc(TaskData *taskData, Handle,Handle);
+// Currently used in basicio.cpp
+extern Handle div_longc(TaskData *taskData, Handle,Handle);
+extern Handle rem_longc(TaskData *taskData, Handle,Handle);
 
 // Return a uintptr_t/intptr_t value.
 extern POLYUNSIGNED     getPolyUnsigned(TaskData *taskData, PolyWord);

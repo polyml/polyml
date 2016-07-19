@@ -746,7 +746,10 @@ bool PImport::DoImport()
                 ASSERT(ch == '\n');
                 // If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject())
-                    setEntryPoint(p);
+                {
+                    bool loadEntryPt = setEntryPoint(p);
+                    ASSERT(loadEntryPt);
+                }
                 break;
             }
 
