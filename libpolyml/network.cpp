@@ -411,7 +411,7 @@ public:
     WaitNetSend(SOCKET sock) { SetWrite(sock); }
 };
 
-Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
+static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
 TryAgain: // Used for various retries.

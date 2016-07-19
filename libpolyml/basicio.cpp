@@ -1479,7 +1479,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 
 
 /* IO_dispatchc.  Called from assembly code module. */
-Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
+static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 {
     unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
     switch (c)

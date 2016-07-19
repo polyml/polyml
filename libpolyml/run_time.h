@@ -79,9 +79,6 @@ extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);
 
 extern Handle errorMsg(TaskData *taskData, int err);
 
-extern Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size );
-extern Handle full_gc_c(TaskData *taskData);
-
 // Create fixed precision values.
 extern Handle Make_fixed_precision(TaskData *taskData, long);
 extern Handle Make_fixed_precision(TaskData *taskData, unsigned long);

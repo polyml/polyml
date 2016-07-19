@@ -119,13 +119,6 @@ Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
     return SAVE(alloc(taskData, size, flags));
 }
 
-/* CALL_IO0(full_gc_, NOIND) */
-Handle full_gc_c(TaskData *taskData)
-{
-    FullGC(taskData);
-    return SAVE(TAGGED(0));
-}
-
 POLYUNSIGNED PolyFullGC(PolyObject *threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -328,35 +321,6 @@ Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
         count--;
     }
     return list;
-}
-
-// In most cases the assembly coded version of this will handle the
-// allocation.  The function can be called by the assembly code
-// when it finds it has run out.  Using it avoids us having a
-// return address into the assembly code.
-Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
-{
-    unsigned flags = get_C_unsigned(taskData, DEREFWORD(flags_handle));
-    POLYUNSIGNED usize = getPolyUnsigned(taskData, DEREFWORD(size));
-    
-    if (usize >= MAX_OBJECT_SIZE)
-        raise_exception0(taskData, EXC_size);
-    
-    PolyObject *vector = alloc(taskData, usize, flags| F_MUTABLE_BIT);
-    
-    PolyWord value = DEREFWORD(initial);
-    
-    if (vector->IsByteObject()) {
-        // Byte segments are supposed to be initialised only with zero
-        if (value != TAGGED(0))
-            raise_exception_string(taskData, EXC_Fail, "non-zero byte segment");
-    }
-    else if (value != PolyWord::FromUnsigned(0))  {
-        for (POLYUNSIGNED i = 0; i < usize; i++)
-            vector->Set(i, value);
-    }
-    
-    return taskData->saveVec.push(vector);
 }
 
 void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)

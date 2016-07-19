@@ -232,9 +232,9 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #endif
 
     case 50: // GCD
-        return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));
+        raise_exception_string(taskData, EXC_Fail, "Old GCD call no longer used");
     case 51: // LCM
-        return lcm_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));
+        raise_exception_string(taskData, EXC_Fail, "Old LCM call no longer used");
 
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */

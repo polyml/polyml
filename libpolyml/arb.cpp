@@ -107,6 +107,26 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
 }
 
+static Handle add_longc(TaskData *taskData, Handle,Handle);
+static Handle sub_longc(TaskData *taskData, Handle,Handle);
+static Handle div_longc(TaskData *taskData, Handle,Handle);
+static Handle rem_longc(TaskData *taskData, Handle,Handle);
+static Handle quot_rem_c(TaskData *taskData, Handle,Handle,Handle);
+static Handle or_longc(TaskData *taskData, Handle,Handle);
+static Handle and_longc(TaskData *taskData, Handle,Handle);
+static Handle xor_longc(TaskData *taskData, Handle,Handle);
+static Handle neg_longc(TaskData *taskData, Handle);
+
+static Handle equal_longc(TaskData *taskData, Handle y, Handle x);
+static Handle gt_longc(TaskData *taskData, Handle y, Handle x);
+static Handle ls_longc(TaskData *taskData, Handle y, Handle x);
+static Handle ge_longc(TaskData *taskData, Handle y, Handle x);
+static Handle le_longc(TaskData *taskData, Handle y, Handle x);
+static Handle int_to_word_c(TaskData *taskData, Handle x);
+
+static Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
+static Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
+
 // Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
 #define BITS_PER_POLYWORD (SIZEOF_VOIDP*8)
 

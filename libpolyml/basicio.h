@@ -22,10 +22,5 @@
 #ifndef BASICIO_H
 #define BASICIO_H
 
-class SaveVecEntry;
-typedef SaveVecEntry *Handle;
-class TaskData;
-
-extern Handle IO_dispatch_c(TaskData *mdTaskData, Handle args, Handle strm, Handle code);
 
 #endif /* BASICIO_H */

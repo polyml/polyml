@@ -135,6 +135,29 @@ extern "C" {
     POLYEXTERNALSYMBOL double PolyFloatArbitraryPrecision(PolyWord arg);
 }
 
+static Handle Real_addc (TaskData *mdTaskData, Handle, Handle);
+static Handle Real_subc (TaskData *mdTaskData, Handle, Handle);
+static Handle Real_mulc (TaskData *mdTaskData, Handle, Handle);
+static Handle Real_divc (TaskData *mdTaskData, Handle, Handle);
+static Handle Real_absc (TaskData *mdTaskData, Handle);
+static Handle Real_negc (TaskData *mdTaskData, Handle);
+static Handle Real_convc (TaskData *mdTaskData, Handle);
+static Handle Real_intc (TaskData *mdTaskData, Handle);
+static Handle Real_from_arbitrary_precision (TaskData *mdTaskData, Handle);
+static Handle Real_sqrtc (TaskData *mdTaskData, Handle);
+static Handle Real_sinc (TaskData *mdTaskData, Handle);
+static Handle Real_cosc (TaskData *mdTaskData, Handle);
+static Handle Real_arctanc (TaskData *mdTaskData, Handle);
+static Handle Real_expc (TaskData *mdTaskData, Handle);
+static Handle Real_lnc (TaskData *mdTaskData, Handle);
+static Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg);
+static Handle Real_geqc(TaskData *mdTaskData, Handle y, Handle x);
+static Handle Real_leqc(TaskData *mdTaskData, Handle y, Handle x);
+static Handle Real_gtrc(TaskData *mdTaskData, Handle y, Handle x);
+static Handle Real_lssc(TaskData *mdTaskData, Handle y, Handle x);
+static Handle Real_eqc(TaskData *mdTaskData, Handle y, Handle x);
+static Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x);
+
 // Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
 
@@ -788,7 +811,7 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
 }
 
 /* Functions added for Standard Basis Library are all indirected through here. */
-Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
+static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
     unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
