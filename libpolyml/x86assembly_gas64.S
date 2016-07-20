@@ -63,23 +63,6 @@
 GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
-/* The "stack frame" pointed to by rbp acts as the "memory registers". */
-#define Fr_RaiseOverflow        -120
-#define Fr_HeapOverflow         -104
-#define Fr_StackOverflow        -96
-#define Fr_StackOverflowEx      -88
-#define Fr_HandlerRegister      -80
-#define Fr_LocalMbottom         -72
-#define Fr_StackLimit           -64
-
-/* The Windows calling convention reserves space for arguments in the
-   call.  In Unix we instead save the argument in an unused save location. */
-#ifdef _WIN32
-#define Fr_Argument             16
-#else
-#define Fr_Argument             -48
-#endif
-
 /* Extra entries on the C stack */
 #define Fr_SavedMLSP            -128
 
@@ -100,26 +83,26 @@ EXTNAME(id):
 #define Arg_ThreadId            0x38  /* My thread id */
 #define Arg_StackPtr            0x40  /* Stack Pointer */
 #define Arg_ProgramCtr          0x48
-#define Arg_SaveRAX             0x50
-#define Arg_SaveRBX             0x58
-#define Arg_SaveRCX             0x60
-#define Arg_SaveRDX             0x68
-#define Arg_SaveRSI             0x70
-#define Arg_SaveRDI             0x78
-#define Arg_SaveR8              0x80
-#define Arg_SaveR9              0x88
-#define Arg_SaveR10             0x90
-#define Arg_SaveR11             0x98
-#define Arg_SaveR12             0xa0
-#define Arg_SaveR13             0xa8
-#define Arg_SaveR14             0xb0
-#define Arg_SaveXMM0            0xb8
-#define Arg_SaveXMM1            0xc0
-#define Arg_SaveXMM2            0xc8
-#define Arg_SaveXMM3            0xd0
-#define Arg_SaveXMM4            0xd8
-#define Arg_SaveXMM5            0xe0
-#define Arg_SaveXMM6            0xe8
+#define Arg_SaveRAX             0x68
+#define Arg_SaveRBX             0x70
+#define Arg_SaveRCX             0x78
+#define Arg_SaveRDX             0x80
+#define Arg_SaveRSI             0x88
+#define Arg_SaveRDI             0x90
+#define Arg_SaveR8              0x98
+#define Arg_SaveR9              0xa0
+#define Arg_SaveR10             0xa8
+#define Arg_SaveR11             0xb0
+#define Arg_SaveR12             0xb8
+#define Arg_SaveR13             0xc0
+#define Arg_SaveR14             0xc8
+#define Arg_SaveXMM0            0xd0
+#define Arg_SaveXMM1            0xd8
+#define Arg_SaveXMM2            0xe0
+#define Arg_SaveXMM3            0xe8
+#define Arg_SaveXMM4            0xf0
+#define Arg_SaveXMM5            0xf8
+#define Arg_SaveXMM6            0x100
 
 /* IO function numbers.  These are functions that are called
    to handle special cases in this code */
@@ -145,8 +128,7 @@ EXTNAME(id):
 
 #define CALL_EXTRA(index) \
         pushq %rcx; \
-        movq  Fr_Argument(%rbp),%rcx; \
-        movb  $index,Arg_ReturnReason(%rcx); \
+        movb  $index,Arg_ReturnReason(%rbp); \
         popq  %rcx; \
         jmp   SaveFullState;
 
@@ -154,8 +136,13 @@ EXTNAME(id):
 /* Load the registers from the ML stack and jump to the code. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushq   %rbp                            # Standard entry sequence
-#    movq    %rsp,%rbp
-    movq    %rsp,Arg_SaveCStack(%rdi)
+/* If we're compiling with Mingw we're using Windows calling conventions. */
+#ifdef _WIN32
+    movq    %rcx,%rbp                       # Argument is in %rcx
+#else
+    movq    %rdi,%rbp                       # Argument is in %rdi
+#endif
+    movq    %rsp,Arg_SaveCStack(%rbp)
     pushq   %rbx
     pushq   %r12
     pushq   %r13
@@ -167,92 +154,68 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     subq    $(Fr_Size-56),%rsp              # Argument is already in %rcx
 #else
     subq    $(Fr_Size-40),%rsp
-    movq    %rdi,%rcx                       # Argument is in %rdi
 #endif
-    movq    %rdi,%rbp
 
-    movq    %rcx,Fr_Argument(%rbp)
-    movq    Arg_StackLimit(%rcx),%rax
-    movq    %rax,Fr_StackLimit(%rbp)
-    movq    Arg_LocalMbottom(%rcx),%rax
-    movq    %rax,Fr_LocalMbottom(%rbp)
-    movq    Arg_HandlerRegister(%rcx),%rax
-    movq    %rax,Fr_HandlerRegister(%rbp)
-    lea     callExStackEx(%rip),%rax
-    movq    %rax,Fr_StackOverflowEx(%rbp)
-    lea     callExStack(%rip),%rax
-    movq    %rax,Fr_StackOverflow(%rbp)
-    lea     callExHeap(%rip),%rax
-    movq    %rax,Fr_HeapOverflow(%rbp)
-    lea     callExRaiseOverflow(%rip),%rax
-    movq    %rax,Fr_RaiseOverflow(%rbp)
-    movq    Arg_LocalMpointer(%rcx),%r15
-    movq    Arg_StackPtr(%rcx),%rsp               # Set the new stack ptr
-    movq    Arg_ExceptionPacket(%rcx),%rax
+    movq    Arg_LocalMpointer(%rbp),%r15
+    movq    Arg_StackPtr(%rbp),%rsp               # Set the new stack ptr
+    movq    Arg_ExceptionPacket(%rbp),%rax
     cmpq    $1,%rax                             # Did we raise an exception?
     jnz     raisexLocal
 
-    movsd   Arg_SaveXMM0(%rcx),%xmm0
-    movsd   Arg_SaveXMM1(%rcx),%xmm1
-    movsd   Arg_SaveXMM2(%rcx),%xmm2
-    movsd   Arg_SaveXMM3(%rcx),%xmm3
-    movsd   Arg_SaveXMM4(%rcx),%xmm4
-    movsd   Arg_SaveXMM5(%rcx),%xmm5
-    movsd   Arg_SaveXMM6(%rcx),%xmm6
-    movq    Arg_SaveRAX(%rcx),%rax              # Load the registers
-    movq    Arg_SaveRBX(%rcx),%rbx
-    movq    Arg_SaveRDX(%rcx),%rdx
-    movq    Arg_SaveRSI(%rcx),%rsi
-    movq    Arg_SaveRDI(%rcx),%rdi
-    movq    Arg_SaveR8(%rcx),%r8
-    movq    Arg_SaveR9(%rcx),%r9
-    movq    Arg_SaveR10(%rcx),%r10
-    movq    Arg_SaveR11(%rcx),%r11
-    movq    Arg_SaveR12(%rcx),%r12
-    movq    Arg_SaveR13(%rcx),%r13
-    movq    Arg_SaveR14(%rcx),%r14
+    movsd   Arg_SaveXMM0(%rbp),%xmm0
+    movsd   Arg_SaveXMM1(%rbp),%xmm1
+    movsd   Arg_SaveXMM2(%rbp),%xmm2
+    movsd   Arg_SaveXMM3(%rbp),%xmm3
+    movsd   Arg_SaveXMM4(%rbp),%xmm4
+    movsd   Arg_SaveXMM5(%rbp),%xmm5
+    movsd   Arg_SaveXMM6(%rbp),%xmm6
+    movq    Arg_SaveRAX(%rbp),%rax              # Load the registers
+    movq    Arg_SaveRBX(%rbp),%rbx
+    movq    Arg_SaveRCX(%rbp),%rcx
+    movq    Arg_SaveRDX(%rbp),%rdx
+    movq    Arg_SaveRSI(%rbp),%rsi
+    movq    Arg_SaveRDI(%rbp),%rdi
+    movq    Arg_SaveR8(%rbp),%r8
+    movq    Arg_SaveR9(%rbp),%r9
+    movq    Arg_SaveR10(%rbp),%r10
+    movq    Arg_SaveR11(%rbp),%r11
+    movq    Arg_SaveR12(%rbp),%r12
+    movq    Arg_SaveR13(%rbp),%r13
+    movq    Arg_SaveR14(%rbp),%r14
     cld                                     # Clear this just in case
-    push    Arg_ProgramCtr(%rcx)
-    movq    Arg_SaveRCX(%rcx),%rcx
-    ret                                     # Jump to code address
+    jmp    *Arg_ProgramCtr(%rbp)            # Jump to code address
 
 /* This is exactly the same as raisex but seems to be needed to work round a PIC problem. */
 raisexLocal:
-    movq    Fr_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
+    movq    Arg_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
     jmp     *(%rcx)
 
 /* Code to save the state and switch to C
    This saves the full register state. */
 SaveFullState:
-    pushq   %rax                                # Save rax
-    movq    Fr_Argument(%rbp),%rax
-    movq    %rbx,Arg_SaveRBX(%rax)
-    movq    %rcx,Arg_SaveRCX(%rax)
-    movq    %rdx,Arg_SaveRDX(%rax)
-    movq    %rsi,Arg_SaveRSI(%rax)
-    movq    %rdi,Arg_SaveRDI(%rax)
-    movsd   %xmm0,Arg_SaveXMM0(%rax)
-    movsd   %xmm1,Arg_SaveXMM1(%rax)
-    movsd   %xmm2,Arg_SaveXMM2(%rax)
-    movsd   %xmm3,Arg_SaveXMM3(%rax)
-    movsd   %xmm4,Arg_SaveXMM4(%rax)
-    movsd   %xmm5,Arg_SaveXMM5(%rax)
-    movsd   %xmm6,Arg_SaveXMM6(%rax)
-    movq    %r8,Arg_SaveR8(%rax)
-    movq    %r9,Arg_SaveR9(%rax)
-    movq    %r10,Arg_SaveR10(%rax)
-    movq    %r11,Arg_SaveR11(%rax)
-    movq    %r12,Arg_SaveR12(%rax)
-    movq    %r13,Arg_SaveR13(%rax)
-    movq    %r14,Arg_SaveR14(%rax)
-    popq    %rbx                                # Get old rax value
-    movq    %rbx,Arg_SaveRAX(%rax)
-    movq    %rsp,Arg_StackPtr(%rax)
-    movq    Fr_Argument(%rbp),%rax
-    movq    %r15,Arg_LocalMpointer(%rax)        # Save back heap pointer
-    movq    Fr_HandlerRegister(%rbp),%rbx       # and handler pointer
-    movq    %rbx,Arg_HandlerRegister(%rax)
-    movq    Arg_SaveCStack(%rax),%rsp           # Restore C stack pointer
+    movq    %rax,Arg_SaveRAX(%rbp)
+    movq    %rbx,Arg_SaveRBX(%rbp)
+    movq    %rcx,Arg_SaveRCX(%rbp)
+    movq    %rdx,Arg_SaveRDX(%rbp)
+    movq    %rsi,Arg_SaveRSI(%rbp)
+    movq    %rdi,Arg_SaveRDI(%rbp)
+    movsd   %xmm0,Arg_SaveXMM0(%rbp)
+    movsd   %xmm1,Arg_SaveXMM1(%rbp)
+    movsd   %xmm2,Arg_SaveXMM2(%rbp)
+    movsd   %xmm3,Arg_SaveXMM3(%rbp)
+    movsd   %xmm4,Arg_SaveXMM4(%rbp)
+    movsd   %xmm5,Arg_SaveXMM5(%rbp)
+    movsd   %xmm6,Arg_SaveXMM6(%rbp)
+    movq    %r8,Arg_SaveR8(%rbp)
+    movq    %r9,Arg_SaveR9(%rbp)
+    movq    %r10,Arg_SaveR10(%rbp)
+    movq    %r11,Arg_SaveR11(%rbp)
+    movq    %r12,Arg_SaveR12(%rbp)
+    movq    %r13,Arg_SaveR13(%rbp)
+    movq    %r14,Arg_SaveR14(%rbp)
+    movq    %rsp,Arg_StackPtr(%rbp)
+    movq    %r15,Arg_LocalMpointer(%rbp)        # Save back heap pointer
+    movq    Arg_SaveCStack(%rbp),%rsp           # Restore C stack pointer
 #ifdef _WIN32
     subq    $56,%rsp
     popq    %rsi
@@ -287,7 +250,7 @@ INLINE_ROUTINE(X86AsmPopArgAndClosure)
 
 # This is used if the RTS sets up an exception.  It's probably no longer relevant.
 INLINE_ROUTINE(X86AsmRaiseException)
-    movq    Fr_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
+    movq    Arg_HandlerRegister(%rbp),%rcx    # Get next handler into %rcx
     jmp     *(%rcx)
 # Additional assembly code routines
 
@@ -300,6 +263,16 @@ INLINE_ROUTINE(X86AsmCallbackReturn)
 
 INLINE_ROUTINE(X86AsmCallbackException)
     CALL_EXTRA(RETURN_CALLBACK_EXCEPTION)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
+    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
+    CALL_EXTRA(RETURN_STACK_OVERFLOW)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
+    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
+
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
