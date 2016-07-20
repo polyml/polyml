@@ -63,28 +63,6 @@
 GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
-.set    TAG,        1
-.set    TAGSHIFT,   1
-.set    TAGMULT,    (1 << TAGSHIFT)
-
-#define TAGGED(i) ((i << TAGSHIFT) | TAG)
-#define MAKETAGGED(from,to)     leaq    TAG(,from,2),to
-
-#define POLYWORDSIZE    8
-
-#define NIL         TAGGED(0)
-#define UNIT        TAGGED(0)
-#define ZERO        TAGGED(0)
-#define FALSE       TAGGED(0)
-#define TRUE        TAGGED(1)
-#define MINUS1      TAGGED(0-1)
-
-#define B_bytes     0x01
-#define B_typeBits  0x03
-#define B_mutable   0x40
-
-#define Max_Length  0x00ffffffffffffff
-
 /* The "stack frame" pointed to by rbp acts as the "memory registers". */
 #define Fr_RaiseOverflow        -120
 #define Fr_HeapOverflow         -104
@@ -117,8 +95,8 @@ EXTNAME(id):
 #define Arg_ExceptionPacket     0x20  /* Address of packet to raise */
 #define Arg_RequestCode         0x28  /* Byte: Io function to call. */
 #define Arg_ReturnReason        0x2a  /* Byte: Reason for returning from ML. */
-#define Arg_FullRestore         0x2b  /* Byte: Full/partial restore */
-#define Arg_PolyStack           0x30  /* Current stack base */
+#define Arg_UnusedRestore       0x2b  /* Byte: Full/partial restore */
+#define Arg_SaveCStack          0x30  /* Current stack base */
 #define Arg_ThreadId            0x38  /* My thread id */
 #define Arg_StackPtr            0x40  /* Stack Pointer */
 #define Arg_ProgramCtr          0x48
@@ -173,19 +151,11 @@ EXTNAME(id):
         jmp   SaveFullState;
 
 
-/* Load the registers from the ML stack and jump to the code.
-  This is used to start ML code.
-  The argument is the address of the MemRegisters struct and goes into %rbp.
-  This is the general code for switching control to ML.  There are a number of cases to consider:
-  1.  Initial entry to root function or a new thread.  Needs to load EDX at least.
-  2.  Normal return from an RTS call.  Could just do a simple return.
-  3.  Exception raised in RTS call.
-  4.  Callback from C to an ML function.  In effect this is a coroutine. Similar to 1.
-  5.  Return from "trap" i.e. Heap/Stack overflow.  Stack-overflow can result in an exception
-      either because the stack can't be grown or because Interrupt has been raised. */
+/* Load the registers from the ML stack and jump to the code. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushq   %rbp                            # Standard entry sequence
-    movq    %rsp,%rbp
+#    movq    %rsp,%rbp
+    movq    %rsp,Arg_SaveCStack(%rdi)
     pushq   %rbx
     pushq   %r12
     pushq   %r13
@@ -199,6 +169,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     subq    $(Fr_Size-40),%rsp
     movq    %rdi,%rcx                       # Argument is in %rdi
 #endif
+    movq    %rdi,%rbp
 
     movq    %rcx,Fr_Argument(%rbp)
     movq    Arg_StackLimit(%rcx),%rax
@@ -220,14 +191,7 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_ExceptionPacket(%rcx),%rax
     cmpq    $1,%rax                             # Did we raise an exception?
     jnz     raisexLocal
-    testb   $1,Arg_FullRestore(%rcx)            # Should we restore or clear the regs?
-    jnz     sw2polyfull
-/* We're returning from an RTS call. */
-    movq    Arg_SaveRAX(%rcx),%rax
-    cld                                         # Clear this just in case
-    jmp     *Arg_ProgramCtr(%rcx)                # Jump to code address
 
-sw2polyfull:
     movsd   Arg_SaveXMM0(%rcx),%xmm0
     movsd   Arg_SaveXMM1(%rcx),%xmm1
     movsd   Arg_SaveXMM2(%rcx),%xmm2
@@ -288,7 +252,7 @@ SaveFullState:
     movq    %r15,Arg_LocalMpointer(%rax)        # Save back heap pointer
     movq    Fr_HandlerRegister(%rbp),%rbx       # and handler pointer
     movq    %rbx,Arg_HandlerRegister(%rax)
-    movq    %rbp,%rsp                           # Restore C stack pointer
+    movq    Arg_SaveCStack(%rax),%rsp           # Restore C stack pointer
 #ifdef _WIN32
     subq    $56,%rsp
     popq    %rsi
@@ -313,10 +277,6 @@ callExStackEx:
 callExRaiseOverflow:
     CALL_EXTRA(RETURN_RAISE_OVERFLOW)
 
-# As X86AsmSaveFullState but only save what is necessary for an RTS call.
-INLINE_ROUTINE(X86AsmSaveStateAndReturn)
-SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
-    jmp SaveFullState
 
 /* Used when entering new code.  The argument and closure are on the stack
    in case there is a GC before we enter the code. */
@@ -324,49 +284,6 @@ INLINE_ROUTINE(X86AsmPopArgAndClosure)
     popq    %rdx
     popq    %rax
     jmp     *(%rdx)
-
-/* CallcodeTupled.  This is currently only used to "fold" RTS functions that are applied
-   to constant arguments.  Oddly, compared with other RTS functions, it takes a single
-   argument that is a pair containing the function closure and an argument vector. */
-INLINE_ROUTINE(callcodeTupled)
-    movq    (%rax),%rdx                         # closure
-    movq    POLYWORDSIZE(%rax),%rsi            # address of arg vector
-    cmpq    $NIL,%rsi                      # If calling a function without args this could be nil
-    je      cct2
-    movq    $Max_Length,%rcx               # Mask for length removing any flags
-    andq    (-POLYWORDSIZE)(%rsi),%rcx          # Load and mask length
-    jz      cct2
-    movq    (%rsi),%rax                         # First argument
-    addq    $POLYWORDSIZE,%rsi
-    subq    $1,%rcx
-    jz      cct2
-    movq    (%rsi),%rbx                         # Second argument
-    addq    $POLYWORDSIZE,%rsi
-    subq    $1,%rcx
-    jz      cct2
-    movq    (%rsi),%r8                           # Third argument
-    addq    $POLYWORDSIZE,%rsi
-    subq    $1,%rcx
-    jz      cct2
-    movq    (%rsi),%r9                           # Fourth argument
-    addq    $POLYWORDSIZE,%rsi
-    subq    $1,%rcx
-    jz      cct2
-    movq    (%rsi),%r10                          # Fifth argument
-    addq    $POLYWORDSIZE,%rsi
-    subq    $1,%rcx
-    jz      cct2
-    popq    %rdi                                # Get the return address
-cct1:                                           # Push the remaining args to the stack
-    pushq   (%rsi)
-    addq    $POLYWORDSIZE,%rsi
-    LOOP    cct1
-    pushq   %rdi                                # Push the return address
-cct2:                                           # Finished - enter function
-    movq    $UNIT,%rsi                     # Clobber, for the moment
-    movq    $UNIT,%rcx
-    jmp     *(%rdx)
-
 
 # This is used if the RTS sets up an exception.  It's probably no longer relevant.
 INLINE_ROUTINE(X86AsmRaiseException)
