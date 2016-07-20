@@ -93,4 +93,6 @@ extern Handle Make_fixed_precision(TaskData *taskData, unsigned long long);
 
 extern Handle Make_sysword(TaskData *taskData, uintptr_t p);
 
+extern struct _entrypts runTimeEPT[];
+
 #endif /* _RUNTIME_H_DEFINED */

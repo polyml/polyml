@@ -22,5 +22,6 @@
 #ifndef BASICIO_H
 #define BASICIO_H
 
+extern struct _entrypts basicIOEPT[];
 
 #endif /* BASICIO_H */

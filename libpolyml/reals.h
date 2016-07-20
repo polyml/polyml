@@ -31,4 +31,6 @@ class TaskData;
 extern double real_arg(Handle x); // Also used in "foreign.cpp"
 extern Handle real_result(TaskData *mdTaskData, double x); // Also used in "foreign.cpp"
 
+extern struct _entrypts realsEPT[];
+
 #endif

@@ -2031,18 +2031,9 @@ POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c,
     return TAGGED(0).AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts machineSpecificEPT[] =
 {
     { "PolySetCodeConstant",              (polyRTSFunction)&PolySetCodeConstant},
 
     { NULL, NULL} // End of list.
 };
-
-class IntModule: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static IntModule intModule;

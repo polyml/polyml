@@ -95,6 +95,7 @@
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "processes.h"
+#include "rtsentry.h"
 
 /*
     The Standard Basis Library assumes IEEE representation for reals.  Among other
@@ -974,7 +975,7 @@ POLYUNSIGNED PolyRealGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts realsEPT[] =
 {
     { "PolyRealBoxedToString",          (polyRTSFunction)&PolyRealBoxedToString},
     { "PolyRealGeneral",                (polyRTSFunction)&PolyRealGeneral},
@@ -1006,7 +1007,6 @@ class RealArithmetic: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

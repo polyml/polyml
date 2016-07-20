@@ -90,6 +90,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "save_vec.h"
 #include "processes.h"
 #include "memmgr.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
@@ -1975,7 +1976,7 @@ POLYUNSIGNED PolyXorArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts arbitraryPrecisionEPT[] =
 {
     { "PolyAddArbitrary",               (polyRTSFunction)&PolyAddArbitrary},
     { "PolySubtractArbitrary",          (polyRTSFunction)&PolySubtractArbitrary},
@@ -1993,12 +1994,3 @@ static struct _entrypts entryPtTable[] =
 
     { NULL, NULL} // End of list.
 };
-
-class ArbitraryPrecisionArithmetic: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-// Declare this.  It will be automatically added to the table.
-static ArbitraryPrecisionArithmetic arbModule;

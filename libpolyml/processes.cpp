@@ -124,6 +124,7 @@
 #include "sharedata.h"
 #include "exporter.h"
 #include "statistics.h"
+#include "rtsentry.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -148,7 +149,7 @@ extern "C" {
 #define PFLAG_ASYNCH_ONCE   6   // First handle asynchronously then switch to synch.
 #define PFLAG_INTMASK       6   // Mask of the above bits
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts processesEPT[] =
 {
     { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
     { "PolyThreadKillSelf",             (polyRTSFunction)&PolyThreadKillSelf},
@@ -163,7 +164,6 @@ public:
     virtual void Init(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);

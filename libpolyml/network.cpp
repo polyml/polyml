@@ -131,6 +131,7 @@ typedef int socklen_t;
 #include "rts_module.h"
 #include "machine_dep.h"
 #include "errors.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -1617,7 +1618,7 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts networkingEPT[] =
 {
     { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
 
@@ -1629,7 +1630,6 @@ class Networking: public RtsModule
 public:
     virtual void Init(void);
     virtual void Stop(void);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

@@ -135,6 +135,7 @@ typedef char TCHAR;
 #include "save_vec.h"
 #include "rts_module.h"
 #include "locking.h"
+#include "rtsentry.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -1923,7 +1924,7 @@ POLYUNSIGNED PolyBasicIOGeneral(PolyObject *threadId, PolyWord code, PolyWord st
     else return result->Word().AsUnsigned();
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts basicIOEPT[] =
 {
     { "PolyChDir",                      (polyRTSFunction)&PolyChDir},
     { "PolyBasicIOGeneral",             (polyRTSFunction)&PolyBasicIOGeneral},
@@ -1938,7 +1939,6 @@ public:
     virtual void Start(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.

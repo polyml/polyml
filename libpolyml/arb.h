@@ -71,4 +71,6 @@ extern double           get_arbitrary_precision_as_real(PolyWord x);
 void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft);
 #endif
 
+extern struct _entrypts arbitraryPrecisionEPT[];
+
 #endif

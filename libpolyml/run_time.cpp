@@ -56,7 +56,7 @@
 #include "sys.h"
 #include "polystring.h"
 #include "save_vec.h"
-#include "rts_module.h"
+#include "rtsentry.h"
 #include "memmgr.h"
 
 extern "C" {
@@ -423,19 +423,10 @@ POLYUNSIGNED PolyIsBigEndian()
 #endif
 }
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts runTimeEPT[] =
 {
     { "PolyFullGC",                     (polyRTSFunction)&PolyFullGC},
     { "PolyIsBigEndian",                (polyRTSFunction)&PolyIsBigEndian},
 
     { NULL, NULL} // End of list.
 };
-
-// RTS Module for these RTS calls.
-class RTS: public RtsModule
-{
-public:
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
-};
-
-static RTS rtsModule;

@@ -108,6 +108,7 @@ typedef char TCHAR;
 #include "save_vec.h"
 #include "rts_module.h"
 #include "locking.h"
+#include "rtsentry.h"
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyForeignGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
@@ -604,7 +605,7 @@ effect on Pass 3.
 
 **********************************************************************/
 
-static struct _entrypts entryPtTable[] =
+struct _entrypts foreignEPT[] =
 {
     { "PolyForeignGeneral",             (polyRTSFunction)&PolyForeignGeneral},
 
@@ -618,7 +619,6 @@ public:
     virtual void Start(void);
     virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
-    virtual entrypts GetRTSCalls(void) { return entryPtTable; }
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -1727,7 +1727,7 @@ static type_hh_fun handlers[] =
 #define NUM_HANDLERS ((int)(sizeof(handlers)/sizeof(type_hh_fun)))
 
 
-Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
+static Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
 {
     int fcode = get_C_int(taskData, DEREFWORD(fcode_h));
     
