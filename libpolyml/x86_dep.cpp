@@ -155,6 +155,7 @@ class X86TaskData;
 // The offsets are built into the assembly code and the code-generator.
 // localMpointer and stackPtr are updated before control returns to C.
 typedef struct _AssemblyArgs {
+    PolyWord tempSpacer[15];
     PolyWord        *localMpointer;     // Allocation ptr + 1 word
     PolyWord        *handlerRegister;   // Current exception handler
     PolyWord        *localMbottom;      // Base of memory + 1 word
@@ -163,8 +164,8 @@ typedef struct _AssemblyArgs {
     byte            unusedRequestCode;  // No longer used.
     byte            unusedFlag;         // No longer used
     byte            returnReason;       // Reason for returning from ML.
-    byte            fullRestore;        // 0 => clear registers, 1 => reload registers
-    StackObject     *unusedPStack;      // Current stack base
+    byte            unusedRestore;      // No longer used.
+    POLYUNSIGNED    saveCStack;         // Saved C stack frame.
     PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
     PolyWord        *stackPtr;          // Current stack pointer
     POLYCODEPTR     programCtr;
@@ -307,7 +308,6 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
-    assemblyInterface.fullRestore = 1; // To force the floating point to 64-bit
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
@@ -458,7 +458,7 @@ int X86TaskData::SwitchToPoly()
         this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         SetMemRegisters();
 
-        X86AsmSwitchToPoly(&this->assemblyInterface);
+        X86AsmSwitchToPoly(&this->assemblyInterface.localMpointer);
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
@@ -751,10 +751,6 @@ void X86TaskData::SaveMemRegisters()
 {
     this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
-    // We need to restore all the registers if we are emulating an instruction or
-    // are handling a heap or stack overflow.  For the moment we just consider
-    // all cases apart from an RTS call.
-    this->assemblyInterface.fullRestore = this->assemblyInterface.returnReason != 0 ? 1 : 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
 }
 

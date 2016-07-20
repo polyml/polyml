@@ -347,7 +347,7 @@ struct
                 val memRegArgumentPtr =
                     case Compat560.polySpecificGeneral (108, 0) of
                         1 => (*X64Unix*) ~48
-                    |   2 => (*X64Win*) 16
+                    |   2 => (*X64Win*) ~48
                     |   _ => (*X86_32*) 8
             in
                 ([MoveArgument{

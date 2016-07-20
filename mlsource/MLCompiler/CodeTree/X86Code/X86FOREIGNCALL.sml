@@ -79,6 +79,8 @@ struct
     datatype abi = X86_32 | X64Win | X64Unix
 
     val noException = 1
+        
+    val argSaveCStack = 6 * wordSize
 
     (* Full RTS call version.  An extra argument is passed that contains the thread ID.
        This allows the taskData object to be found which is needed if the code allocates
@@ -113,7 +115,7 @@ struct
         
         (* This is a pointer to data that the RTS provides on entry.  Fields
            may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
-        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => 16 | X86_32 => 8
+        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => ~48 | X86_32 => 8
 
         (* The argument pointer and the ML stack pointer need to be
            loaded into registers that will be saved by the callee.
@@ -155,7 +157,7 @@ struct
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save this in case it is needed for arguments. *)
                 (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
                 storeMemory(esp, argPtrReg, argStackPointer), (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(esp, argPtrReg, argSaveCStack), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
@@ -228,10 +230,12 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
-        val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+        (* This is a pointer to data that the RTS provides on entry.  Fields
+           may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
+        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => ~48 | X86_32 => 8
+
+        val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r12, r13) else (ecx, esi, edi)
         
         val stackSpace =
             case abi of
@@ -254,7 +258,8 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
+                loadMemory(esp, argPtrReg, argSaveCStack),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
@@ -324,10 +329,12 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
-        val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+        (* This is a pointer to data that the RTS provides on entry.  Fields
+           may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
+        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => ~48 | X86_32 => 8
+
+        val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r12, r13) else (ecx, esi, edi)
         
         val stackSpace =
             case abi of
@@ -354,7 +361,8 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
+                loadMemory(esp, argPtrReg, argSaveCStack),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @
@@ -428,10 +436,12 @@ struct
             |   2 => X64Win
             |   _ => X86_32
 
-        (* We don't need an argument pointer but we do need to save
-           the ML stack pointer across the call. *)
-        val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+        (* This is a pointer to data that the RTS provides on entry.  Fields
+           may be updated in the RTS call.  Where it is stored differs between the ABIs. *)
+        val memRegArgumentPtr = case abi of X64Unix => ~48 | X64Win => ~48 | X86_32 => 8
+
+        val (entryPtrReg, argPtrReg, saveMLStackPtrReg) =
+            if isX64 then (r11, r12, r13) else (ecx, esi, edi)
         
         val stackSpace =
             case abi of
@@ -458,7 +468,8 @@ struct
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
-                moveRR{source=ebp, output=esp},
+                loadMemory(argPtrReg, ebp, memRegArgumentPtr), (* Get argument data ptr  - use r12 to save reloading after the call *)
+                loadMemory(esp, argPtrReg, argSaveCStack),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
             ] @

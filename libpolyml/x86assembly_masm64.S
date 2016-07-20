@@ -71,7 +71,7 @@ Fr_StackOverflowEx  EQU     -88
 Fr_HandlerRegister  EQU     -80
 Fr_LocalMbottom     EQU     -72
 Fr_StackLimit       EQU     -64
-Fr_Argument         EQU     16
+Fr_Argument         EQU     -48
 
 ; Extra entries on the C stack
 Fr_SavedMLSP        EQU     -128
@@ -90,9 +90,9 @@ ExceptionPacket     QWORD   ?       ; Address of packet to raise
 UnusedRequestCode   DB      ?       ; Byte: Io function to call.
 UnusedFlag          DB      ?
 ReturnReason        DB      ?       ; Byte: Reason for returning from ML.
-FullRestore         DB      ?       ; Byte: Full/partial restore
+UnusedRestore       DB      ?       ; Byte:
 UnusedAlign         DWORD   ?
-UnusedPStack        QWORD   ?       ; Current stack base
+SaveCStack          QWORD   ?       ; Saved C stack frame
 ThreadId            QWORD   ?       ; My thread id
 StackPtr            QWORD   ?       ; Stack pointer
 ProgramCtr          QWORD   ?
@@ -141,73 +141,6 @@ CALL_EXTRA  MACRO   index
     jmp     SaveFullState
 ENDM
 
-#if (0)
-PRERTSCALL MACRO entryName
-; The initial sequence - this is standard for all calls.
-entryName PROC FRAME
-    .PUSHREG rbp                    ; Fake the frame.  It has been set up in X86AsmSwitchToPoly
-    .SETFRAME rbp,0
-    .PUSHREG rbx
-    .PUSHREG r12
-    .PUSHREG r13
-    .PUSHREG r14
-    .PUSHREG r15
-    .PUSHREG rdi
-    .PUSHREG rsi
-    .endprolog
-    mov     r12,[Fr_Argument+rbp]                           ; Load arg into r12 - saved across call
-    mov     qword ptr [ArgVector.ExceptionPacket+r12],1           ; Clear exception
-    mov     [ArgVector.LocalMpointer+r12],r15                     ; Save heap pointer
-    mov     r13,rsp                                         ; Save ML stack ptr in r13 - also saved
-    mov     rsp,rbp                                         ; Switch to C stack
-    sub     rsp,Fr_size
-    ; X86-64 Windows calling conventions.
-    mov     rcx,[ArgVector.ThreadId+r12]                          ; First argument - thread Id
-ENDM
-
-POSTRTSCALL MACRO  entryName,rtsName
-; This is the second part after the arguments have been set up
-    sub     rsp,32                                          ; Create save area
-EXTRN   rtsName:PROC
-    call    rtsName
-    mov     rsp,r13                                         ; Restore the ML stack ptr
-    mov     r15,[ArgVector.LocalMpointer+r12]                     ; Update heap pointer
-    mov     rdx,[ArgVector.LocalMbottom+r12]
-    mov     [Fr_LocalMbottom+rbp],rdx                       ; and heap base because we may have GCd
-    cmp     qword ptr [ArgVector.ExceptionPacket+r12],1
-    jne     rtsraisex
-    ret
-rtsraisex:
-    mov     rax,[ArgVector.ExceptionPacket+r12]
-    jmp     raisex
-entryName ENDP
-ENDM
-
-CALL_RTS1 MACRO entryName,rtsName
-; Macro to call a function with a single argument.  The RTS function is called with two
-; arguments, the first being the thread ID.  That can be used to find the taskData pointer.
-    PRERTSCALL entryName
-    mov     rdx,rax                                         ; Second argument
-    POSTRTSCALL entryName,rtsName
-ENDM
-
-CALL_RTS2 MACRO entryName,rtsName
-; Macro to call a function with two arguments.
-    PRERTSCALL entryName
-    mov     rdx,rax                                         ; Second argument
-    mov     r8,rbx
-    POSTRTSCALL entryName,rtsName
-ENDM
-
-CALL_RTS3 MACRO entryName,rtsName
-; Macro to call a function with three arguments.
-    PRERTSCALL entryName
-    mov     rdx,rax                                         ; Second argument
-    mov     r9,r8                                           ; Fourth argument
-    mov     r8,rbx                                          ; Third argument
-    POSTRTSCALL entryName,rtsName
-ENDM
-#endif
 
 ; Load the registers from the ML stack and jump to the code.
 ; This is used to start ML code.
@@ -221,32 +154,25 @@ ENDM
 ;     either because the stack can't be grown or because Interrupt has been raised.
 
 ; Switch from C code to ML.  This code uses the X86/64 Windows calling conventions.  It
-; saves the callee-save registers and records this information so that debuggers can find
-; the call stack and exception handlers can unwind the frame.  We don't actually use the
-; ability to raise C++ exceptions across ML.  N.B. Any calls from ML to C need to
-; duplicate the frame information.
+; saves the callee-save registers.
+; This does not set up a correct frame because we don't want to reserve a register for
+; that.  RBP needs to be the original argument because we need to be able to modify
+; the stack limit "register" from another thread in order to be able to interrupt
+; this one.
 X86AsmSwitchToPoly  PROC FRAME
-    mov     [rsp+8],rcx                     ; Save argument for use later
     push    rbp                             ; Standard entry sequence
-    .PUSHREG rbp
-    .SETFRAME rbp,0
-    mov     rbp,rsp                         
+    mov     [ArgVector.SaveCStack+rcx],rsp  ; Save this here instead of setting rbp itself
     push    rbx                             ; Save callee--save registers
-    .PUSHREG rbx
     push    r12
-    .PUSHREG r12
     push    r13
-    .PUSHREG r13
     push    r14
-    .PUSHREG r14
     push    r15
-    .PUSHREG r15
     push    rdi                             ; Callee save in Windows
-    .PUSHREG rdi
     push    rsi
-    .PUSHREG rsi
     .endprolog
+    mov     rbp,rcx                         ; Move argument into rbp - this is definitely non-standard
     sub     rsp,(Fr_size-56)
+    mov     [Fr_Argument+rbp],rcx           ; Temporary - save argument pointer itself
     mov     rax,[ArgVector.StackLimit+rcx]
     mov     [Fr_StackLimit+rbp],rax
     mov     rax,[ArgVector.LocalMbottom+rcx]
@@ -266,17 +192,6 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     rax,[ArgVector.ExceptionPacket+rcx]
     cmp     rax,1                                           ; Did we raise an exception?
     jnz     raisex
-    test    byte ptr [rcx+ArgVector.FullRestore],1          ; Should we restore or clear the regs?
-    jnz     sw2polyfull
-; We're returning from an RTS call.
-    mov     rax,[ArgVector.SaveRAX+rcx]
-    cld                                                     ; Clear this just in case
-    jmp     [ArgVector.ProgramCtr+rcx]                      ; Jump to code address
-
-; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
-X86AsmSwitchToPoly ENDP
-
-sw2polyfull:
     movsd   xmm0,[ArgVector.SaveXMM0+rcx]
     movsd   xmm1,[ArgVector.SaveXMM1+rcx]
     movsd   xmm2,[ArgVector.SaveXMM2+rcx]
@@ -301,6 +216,8 @@ sw2polyfull:
     mov     rcx,[ArgVector.SaveRCX+rcx]
     ret                                     ; Jump to code address
 
+; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
+X86AsmSwitchToPoly ENDP
 
 ; Code to save the state and switch to C
 ; This saves the full register state.
@@ -330,10 +247,10 @@ SaveFullState:
     mov     [ArgVector.SaveRAX+rax],rbx
     mov     [ArgVector.StackPtr+rax],rsp
     mov     rax,[Fr_Argument+rbp]
-    mov     [ArgVector.LocalMpointer+rax],r15     ; Save back heap pointer
-    mov     rbx,[Fr_HandlerRegister+rbp]    ; Copy back handler pointer
+    mov     [ArgVector.LocalMpointer+rax],r15       ; Save back heap pointer
+    mov     rbx,[Fr_HandlerRegister+rbp]            ; Copy back handler pointer
     mov     [ArgVector.HandlerRegister+rax],rbx
-    mov     rsp,rbp                         ; Restore C stack pointer
+    mov     rsp,[ArgVector.SaveCStack+rax]          ; Restore C stack pointer
     sub     rsp,56
     pop     rsi
     pop     rdi
@@ -344,12 +261,6 @@ SaveFullState:
     pop     rbx
     pop     rbp
     ret
-
-; As X86AsmSaveFullState but only save what is necessary for an RTS call.
-PUBLIC  X86AsmSaveStateAndReturn
-X86AsmSaveStateAndReturn:
-SaveStateAndReturnLocal: ; This is necessary so that the jmps use a PC-relative address
-jmp     SaveFullState
 
 ; Used when entering new code.  The argument and closure are on the stack
 ; in case there is a GC before we enter the code.
