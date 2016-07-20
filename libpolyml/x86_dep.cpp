@@ -155,7 +155,6 @@ class X86TaskData;
 // The offsets are built into the assembly code and the code-generator.
 // localMpointer and stackPtr are updated before control returns to C.
 typedef struct _AssemblyArgs {
-    PolyWord tempSpacer[15];
     PolyWord        *localMpointer;     // Allocation ptr + 1 word
     PolyWord        *handlerRegister;   // Current exception handler
     PolyWord        *localMbottom;      // Base of memory + 1 word
@@ -169,6 +168,9 @@ typedef struct _AssemblyArgs {
     PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
     PolyWord        *stackPtr;          // Current stack pointer
     POLYCODEPTR     programCtr;
+    byte            *heapOverFlowCall;  // These are filled in with the functions.
+    byte            *stackOverFlowCall;
+    byte            *stackOverFlowCallEx;
     // Saved registers, where applicable.
     PolyWord        p_rax;
     PolyWord        p_rbx;
@@ -283,7 +285,7 @@ enum RETURN_REASON {
     RETURN_ARB_EMULATION_NOW_UNUSED,
     RETURN_CALLBACK_RETURN,
     RETURN_CALLBACK_EXCEPTION,
-    RETURN_RAISE_OVERFLOW,
+    RETURN_RAISE_OVERFLOW_NOW_UNUSED,
     RETURN_KILL_SELF
 };
 
@@ -297,6 +299,9 @@ extern "C" {
     extern int X86AsmCallbackException(void);
     extern int X86AsmPopArgAndClosure(void);
     extern int X86AsmRaiseException(void);
+    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
@@ -308,6 +313,9 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
+    assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
@@ -458,7 +466,7 @@ int X86TaskData::SwitchToPoly()
         this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         SetMemRegisters();
 
-        X86AsmSwitchToPoly(&this->assemblyInterface.localMpointer);
+        X86AsmSwitchToPoly(&this->assemblyInterface);
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
@@ -507,20 +515,6 @@ int X86TaskData::SwitchToPoly()
             }
             return -1; // We're in a safe state to handle any interrupts.
         }
-
-        case RETURN_RAISE_OVERFLOW:
-            try {
-                // The primary reason for providing this is to allow the assembly code to
-                // raise the overflow exception.  It's quite difficult for it to make an
-                // exception packet otherwise.  It also provides a way to raise the
-                // exception from compiled code.
-                regPC() = (*regSP()++).AsCodePtr();
-                raise_exception0(this, EXC_overflow);
-            }
-            catch (IOException &) {
-                // Handle the C++ exception.
-            }
-            break;
 
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in EnterCallbackFunction

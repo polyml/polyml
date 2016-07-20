@@ -37,45 +37,8 @@
 ;  r14:  General register
 ;  r15:  Memory allocation pointer
 
-; Include RTS call numbers
-#include "sys.h"
-
-;
-; Tagged values.   A few operations, such as shift assume that the tag bit
-; is the bottom bit.
-;
-#define TAG         1
-#define TAGSHIFT    1
-#define TAGGED(i)   (i*2+1)
-
-#define POLYWORDSIZE    8
-
-#define NIL     TAGGED(0)
-#define UNIT    TAGGED(0)
-#define ZERO    TAGGED(0)
-#define FALSE   TAGGED(0)
-#define TRUE    TAGGED(1)
-#define MINUS1  TAGGED(0-1)
-
-#define B_bytes         01h
-#define B_typeBits      03h
-#define B_mutable       40h
-#define Max_Length      00ffffffffffffffh              
-
-; The "stack frame" pointed to by rbp acts as the "memory registers".
-Fr_RaiseOverflow    EQU     -120
-
-Fr_HeapOverflow     EQU     -104
-Fr_StackOverflow    EQU     -96
-Fr_StackOverflowEx  EQU     -88
-Fr_HandlerRegister  EQU     -80
-Fr_LocalMbottom     EQU     -72
-Fr_StackLimit       EQU     -64
-Fr_Argument         EQU     -48
-
 ; Extra entries on the C stack
 Fr_SavedMLSP        EQU     -128
-
 Fr_Size             EQU     144         ; Must be multiple of 16 to get alignment correct
 
 ; This is the argument vector passed in to X86AsmSwitchToPoly
@@ -96,6 +59,9 @@ SaveCStack          QWORD   ?       ; Saved C stack frame
 ThreadId            QWORD   ?       ; My thread id
 StackPtr            QWORD   ?       ; Stack pointer
 ProgramCtr          QWORD   ?
+HeapOverFlowCall    QWORD   ?
+StackOverFlowCall   QWORD   ?
+StackOverFlowCallEx QWORD   ?
 SaveRAX             QWORD   ?
 SaveRBX             QWORD   ?
 SaveRCX             QWORD   ?
@@ -123,7 +89,6 @@ RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
-RETURN_RAISE_OVERFLOW       EQU 8
 RETURN_KILL_SELF            EQU 9
 
 ;
@@ -135,8 +100,7 @@ RETURN_KILL_SELF            EQU 9
 
 CALL_EXTRA  MACRO   index
     push    rcx
-    mov     rcx,[Fr_Argument+rbp]
-    mov     byte ptr [ArgVector.ReturnReason+rcx],index
+    mov     byte ptr [ArgVector.ReturnReason+rbp],index
     pop     rcx
     jmp     SaveFullState
 ENDM
@@ -172,49 +136,33 @@ X86AsmSwitchToPoly  PROC FRAME
     .endprolog
     mov     rbp,rcx                         ; Move argument into rbp - this is definitely non-standard
     sub     rsp,(Fr_size-56)
-    mov     [Fr_Argument+rbp],rcx           ; Temporary - save argument pointer itself
-    mov     rax,[ArgVector.StackLimit+rcx]
-    mov     [Fr_StackLimit+rbp],rax
-    mov     rax,[ArgVector.LocalMbottom+rcx]
-    mov     [Fr_LocalMbottom+rbp],rax
-    mov     rax,[ArgVector.HandlerRegister+rcx]
-    mov     [Fr_HandlerRegister+rbp],rax
-    mov     rax,offset X86AsmCallExtraRETURN_STACK_OVERFLOWEX
-    mov     [Fr_StackOverflowEx+rbp],rax
-    mov     rax,offset X86AsmCallExtraRETURN_STACK_OVERFLOW
-    mov     [Fr_StackOverflow+rbp],rax
-    mov     rax,offset X86AsmCallExtraRETURN_HEAP_OVERFLOW
-    mov     [Fr_HeapOverflow+rbp],rax
-    mov     rax,offset X86AsmCallExtraRETURN_RAISE_OVERFLOW
-    mov     [Fr_RaiseOverflow+rbp],rax
     mov     r15,[ArgVector.LocalMpointer+rcx]
     mov     rsp,[ArgVector.StackPtr+rcx]
     mov     rax,[ArgVector.ExceptionPacket+rcx]
     cmp     rax,1                                           ; Did we raise an exception?
     jnz     raisex
-    movsd   xmm0,[ArgVector.SaveXMM0+rcx]
-    movsd   xmm1,[ArgVector.SaveXMM1+rcx]
-    movsd   xmm2,[ArgVector.SaveXMM2+rcx]
-    movsd   xmm3,[ArgVector.SaveXMM3+rcx]
-    movsd   xmm4,[ArgVector.SaveXMM4+rcx]
-    movsd   xmm5,[ArgVector.SaveXMM5+rcx]
-    movsd   xmm6,[ArgVector.SaveXMM6+rcx]
-    mov     rax,[ArgVector.SaveRAX+rcx]
-    mov     rbx,[ArgVector.SaveRBX+rcx]
-    mov     rdx,[ArgVector.SaveRDX+rcx]
-    mov     rsi,[ArgVector.SaveRSI+rcx]
-    mov     rdi,[ArgVector.SaveRDI+rcx]
-    mov     r8,[ArgVector.SaveR8+rcx]
-    mov     r9,[ArgVector.SaveR9+rcx]
-    mov     r10,[ArgVector.SaveR10+rcx]
-    mov     r11,[ArgVector.SaveR11+rcx]
-    mov     r12,[ArgVector.SaveR12+rcx]
-    mov     r13,[ArgVector.SaveR13+rcx]
-    mov     r14,[ArgVector.SaveR14+rcx]
+    movsd   xmm0,[ArgVector.SaveXMM0+rbp]
+    movsd   xmm1,[ArgVector.SaveXMM1+rbp]
+    movsd   xmm2,[ArgVector.SaveXMM2+rbp]
+    movsd   xmm3,[ArgVector.SaveXMM3+rbp]
+    movsd   xmm4,[ArgVector.SaveXMM4+rbp]
+    movsd   xmm5,[ArgVector.SaveXMM5+rbp]
+    movsd   xmm6,[ArgVector.SaveXMM6+rbp]
+    mov     rax,[ArgVector.SaveRAX+rbp]
+    mov     rbx,[ArgVector.SaveRBX+rbp]
+    mov     rcx,[ArgVector.SaveRCX+rbp]
+    mov     rdx,[ArgVector.SaveRDX+rbp]
+    mov     rsi,[ArgVector.SaveRSI+rbp]
+    mov     rdi,[ArgVector.SaveRDI+rbp]
+    mov     r8,[ArgVector.SaveR8+rbp]
+    mov     r9,[ArgVector.SaveR9+rbp]
+    mov     r10,[ArgVector.SaveR10+rbp]
+    mov     r11,[ArgVector.SaveR11+rbp]
+    mov     r12,[ArgVector.SaveR12+rbp]
+    mov     r13,[ArgVector.SaveR13+rbp]
+    mov     r14,[ArgVector.SaveR14+rbp]
     cld                                     ; Clear this just in case
-    push    [ArgVector.ProgramCtr+rcx]
-    mov     rcx,[ArgVector.SaveRCX+rcx]
-    ret                                     ; Jump to code address
+    jmp     [ArgVector.ProgramCtr+rbp]
 
 ; Everything up to here is considered as part of the X86AsmSwitchToPoly proc
 X86AsmSwitchToPoly ENDP
@@ -222,35 +170,29 @@ X86AsmSwitchToPoly ENDP
 ; Code to save the state and switch to C
 ; This saves the full register state.
 SaveFullState:
-    push    rax                ; Save rax
-    mov     rax,[Fr_Argument+rbp]
-    mov     [ArgVector.SaveRBX+rax],rbx
-    mov     [ArgVector.SaveRCX+rax],rcx
-    mov     [ArgVector.SaveRDX+rax],rdx
-    mov     [ArgVector.SaveRSI+rax],rsi
-    mov     [ArgVector.SaveRDI+rax],rdi
-    movsd   [ArgVector.SaveXMM0+rax],xmm0
-    movsd   [ArgVector.SaveXMM1+rax],xmm1
-    movsd   [ArgVector.SaveXMM2+rax],xmm2
-    movsd   [ArgVector.SaveXMM3+rax],xmm3
-    movsd   [ArgVector.SaveXMM4+rax],xmm4
-    movsd   [ArgVector.SaveXMM5+rax],xmm5
-    movsd   [ArgVector.SaveXMM6+rax],xmm6
-    mov     [ArgVector.SaveR8+rax],r8
-    mov     [ArgVector.SaveR9+rax],r9
-    mov     [ArgVector.SaveR10+rax],r10
-    mov     [ArgVector.SaveR11+rax],r11
-    mov     [ArgVector.SaveR12+rax],r12
-    mov     [ArgVector.SaveR13+rax],r13
-    mov     [ArgVector.SaveR14+rax],r14
-    pop     rbx                             ; Get old rax value
-    mov     [ArgVector.SaveRAX+rax],rbx
-    mov     [ArgVector.StackPtr+rax],rsp
-    mov     rax,[Fr_Argument+rbp]
-    mov     [ArgVector.LocalMpointer+rax],r15       ; Save back heap pointer
-    mov     rbx,[Fr_HandlerRegister+rbp]            ; Copy back handler pointer
-    mov     [ArgVector.HandlerRegister+rax],rbx
-    mov     rsp,[ArgVector.SaveCStack+rax]          ; Restore C stack pointer
+    mov     [ArgVector.SaveRAX+rbp],rax
+    mov     [ArgVector.SaveRBX+rbp],rbx
+    mov     [ArgVector.SaveRCX+rbp],rcx
+    mov     [ArgVector.SaveRDX+rbp],rdx
+    mov     [ArgVector.SaveRSI+rbp],rsi
+    mov     [ArgVector.SaveRDI+rbp],rdi
+    movsd   [ArgVector.SaveXMM0+rbp],xmm0
+    movsd   [ArgVector.SaveXMM1+rbp],xmm1
+    movsd   [ArgVector.SaveXMM2+rbp],xmm2
+    movsd   [ArgVector.SaveXMM3+rbp],xmm3
+    movsd   [ArgVector.SaveXMM4+rbp],xmm4
+    movsd   [ArgVector.SaveXMM5+rbp],xmm5
+    movsd   [ArgVector.SaveXMM6+rbp],xmm6
+    mov     [ArgVector.SaveR8+rbp],r8
+    mov     [ArgVector.SaveR9+rbp],r9
+    mov     [ArgVector.SaveR10+rbp],r10
+    mov     [ArgVector.SaveR11+rbp],r11
+    mov     [ArgVector.SaveR12+rbp],r12
+    mov     [ArgVector.SaveR13+rbp],r13
+    mov     [ArgVector.SaveR14+rbp],r14
+    mov     [ArgVector.StackPtr+rbp],rsp
+    mov     [ArgVector.LocalMpointer+rbp],r15       ; Save back heap pointer
+    mov     rsp,[ArgVector.SaveCStack+rbp]          ; Restore C stack pointer
     sub     rsp,56
     pop     rsi
     pop     rdi
@@ -274,7 +216,7 @@ X86AsmPopArgAndClosure:
 PUBLIC  X86AsmRaiseException
 X86AsmRaiseException:
 raisex:
-    mov     rcx,Fr_HandlerRegister[rbp]
+    mov     rcx,[ArgVector.HandlerRegister+rbp]
     jmp     qword ptr [rcx]
 
 ; RTS call to kill the current thread. 
@@ -310,6 +252,5 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
-CREATE_EXTRA_CALL RETURN_RAISE_OVERFLOW
 
 END
