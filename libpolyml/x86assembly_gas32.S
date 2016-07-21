@@ -58,46 +58,6 @@
 GLOBAL EXTNAME(id); \
 EXTNAME(id):
 
-#define TAG         1
-#define TAGSHIFT    1
-#define TAGMULT     (1 << TAGSHIFT)
-
-#define TAGGED(i) ((i << TAGSHIFT) | TAG)
-#define MAKETAGGED(from,to)     leal    TAG(,from,2),to
-
-#define POLYWORDSIZE    4
-
-#define NIL         TAGGED(0)
-#define UNIT        TAGGED(0)
-#define ZERO        TAGGED(0)
-#define FALSE       TAGGED(0)
-#define TRUE        TAGGED(1)
-#define MINUS1      TAGGED(0-1)
-
-#define B_bytes     0x01
-#define B_typeBits  0x03
-#define B_mutable   0x40
-
-#define Max_Length  0x00ffffff
-
-
-/* The "stack frame" pointed to by ebp acts as the "memory registers". */
-#define Fr_RaiseOverflow            -48
-#define Fr_HeapOverflow             -40
-#define Fr_StackOverflow            -36
-#define Fr_StackOverflowEx          -32
-#define Fr_LocalMpointer            -28
-#define Fr_HandlerRegister          -24
-#define Fr_LocalMbottom             -20
-#define Fr_StackLimit               -16
-#define Fr_SavedEsi                 -12
-#define Fr_SavedEdi                 -8
-#define Fr_SavedEbx                 -4
-#define Fr_SavedEBP                 0
-#define Fr_Argument                 8
-/* Extra entries on the C stack */
-#define Fr_SavedMLSP                -52
-
 #define Fr_Size                     56
 
 /* This is the argument vector passed in to X86AsmSwitchToPoly
@@ -111,28 +71,23 @@ EXTNAME(id):
 #define Arg_RequestCode         0x14 /* Byte: Io function to call. */
 #define Arg_ReturnReason        0x16  /* Byte: Reason for returning from ML. */
 #define Arg_FullRestore         0x17  /* Byte: Full/partial restore */
-#define Arg_PolyStack           0x18  /* Current stack base */
+#define Arg_SaveCStack          0x18  /* Save C Stack pointer */
 #define Arg_ThreadId            0x1c  /* My thread id */
 #define Arg_StackPtr            0x20  /* Stack Pointer */
 #define Arg_ProgramCtr          0x24
-#define Arg_SaveRAX             0x28
-#define Arg_SaveRBX             0x2c
-#define Arg_SaveRCX             0x30
-#define Arg_SaveRDX             0x34
-#define Arg_SaveRSI             0x38
-#define Arg_SaveRDI             0x3c
-#define Arg_SaveFP              0x40
-
-/* IO function numbers.  These are functions that are called
-   to handle special cases in this code */
-#include "sys.h"
+#define Arg_SaveRAX             0x34
+#define Arg_SaveRBX             0x38
+#define Arg_SaveRCX             0x3c
+#define Arg_SaveRDX             0x40
+#define Arg_SaveRSI             0x44
+#define Arg_SaveRDI             0x48
+#define Arg_SaveFP              0x4c
 
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
-#define RETURN_RAISE_OVERFLOW       8
 #define RETURN_KILL_SELF            9
 
 # Mark the stack as non-executable when supported
@@ -147,8 +102,7 @@ EXTNAME(id):
 
 #define CALL_EXTRA(index) \
         pushl %ecx; \
-        movl  Fr_Argument(%ebp),%ecx; \
-        movb  $index,Arg_ReturnReason(%ecx); \
+        movb  $index,Arg_ReturnReason(%ebp); \
         popl  %ecx; \
         jmp   SaveFullState;
 
@@ -164,73 +118,40 @@ EXTNAME(id):
       either because the stack can't be grown or because Interrupt has been raised. */
 INLINE_ROUTINE(X86AsmSwitchToPoly)
     pushl   %ebp                            # Standard entry sequence
-    movl    %esp,%ebp
+    movl    8(%esp),%ebp                    # Address of argument vector
+    movl    %esp,Arg_SaveCStack(%ebp)
     pushl   %ebx
     pushl   %edi
     pushl   %esi                            # Push callee-save registers
     subl    $(Fr_Size-12),%esp              # Allocate frame
-    movl    Fr_Argument(%ebp),%ecx          # Address of argument vector
-    movl    Arg_StackLimit(%ecx),%eax
-    movl    %eax,Fr_StackLimit(%ebp)
-    movl    Arg_LocalMbottom(%ecx),%eax
-    movl    %eax,Fr_LocalMbottom(%ebp)
-    movl    Arg_HandlerRegister(%ecx),%eax
-    movl    %eax,Fr_HandlerRegister(%ebp)
-    movl    Arg_LocalMpointer(%ecx),%eax
-    movl    %eax,Fr_LocalMpointer(%ebp)
-    movl    $callExStackEx,%eax
-    movl    %eax,Fr_StackOverflowEx(%ebp)
-    movl    $callExStack,%eax
-    movl    %eax,Fr_StackOverflow(%ebp)
-    movl    $callExHeap,%eax
-    movl    %eax,Fr_HeapOverflow(%ebp)
-    movl    $callExRaiseOverflow,%eax
-    movl    %eax,Fr_RaiseOverflow(%ebp)
-    movl    Arg_StackPtr(%ecx),%esp               # Set the new stack ptr
-    movl    Arg_ExceptionPacket(%ecx),%eax
+    movl    Arg_StackPtr(%ebp),%esp
+    movl    Arg_ExceptionPacket(%ebp),%eax
     cmpl    $1,%eax                             # Did we raise an exception?
     jnz     raisexlocal
-    testb   $1,Arg_FullRestore(%ecx)           # Should we restore or clear the regs?
-    jnz     sw2polyfull
-/* We're returning from an RTS call. */
-    movl    Arg_SaveRAX(%ecx),%eax              # The return value
+    FRSTOR  Arg_SaveFP(%ebp)
+    movl    Arg_SaveRAX(%ebp),%eax              # Load the registers
+    movl    Arg_SaveRBX(%ebp),%ebx              # Load the registers
+    movl    Arg_SaveRCX(%ebp),%ecx
+    movl    Arg_SaveRDX(%ebp),%edx
+    movl    Arg_SaveRSI(%ebp),%esi
+    movl    Arg_SaveRDI(%ebp),%edi
     cld                                     # Clear this just in case
-    jmp     *Arg_ProgramCtr(%ecx)            # Jump to code address
-
-sw2polyfull:
-    FRSTOR  Arg_SaveFP(%ecx)
-    movl    Arg_SaveRAX(%ecx),%eax              # Load the registers
-    movl    Arg_SaveRBX(%ecx),%ebx              # Load the registers
-    movl    Arg_SaveRDX(%ecx),%edx
-    movl    Arg_SaveRSI(%ecx),%esi
-    movl    Arg_SaveRDI(%ecx),%edi
-    cld                                     # Clear this just in case
-    push    Arg_ProgramCtr(%ecx)
-    movl    Arg_SaveRCX(%ecx),%ecx
-    ret                                     # Jump to code address
+    jmp     *Arg_ProgramCtr(%ebp)           # Jump to code address
 
 
 /* Code to save the state and switch to C
    This saves the full register state. */
 SaveFullState:
-    pushl   %eax                            # Save eax
-    movl    Fr_Argument(%ebp),%eax
-    movl    %ebx,Arg_SaveRBX(%eax)
-    movl    %ecx,Arg_SaveRCX(%eax)
-    movl    %edx,Arg_SaveRDX(%eax)
-    movl    %esi,Arg_SaveRSI(%eax)
-    movl    %edi,Arg_SaveRDI(%eax)
-    fnsave  Arg_SaveFP(%eax)                # Save FP state.  Also resets the state so...
-    fldcw   Arg_SaveFP(%eax)                # ...load because we need the same rounding mode in the RTS
-    popl    %ebx                            # Get old eax value
-    movl    %ebx,Arg_SaveRAX(%eax)
-    movl    %esp,Arg_StackPtr(%eax)               # Save ML stack pointer
-    movl    Fr_Argument(%ebp),%eax
-    movl    Fr_LocalMpointer(%ebp),%ebx     # Copy back heap pointer
-    movl    %ebx,Arg_LocalMpointer(%eax)
-    movl    Fr_HandlerRegister(%ebp),%ebx   # and handler pointer
-    movl    %ebx,Arg_HandlerRegister(%eax)
-    movl    %ebp,%esp                       # Restore C stack pointer
+    movl    %eax,Arg_SaveRAX(%ebp)
+    movl    %ebx,Arg_SaveRBX(%ebp)
+    movl    %ecx,Arg_SaveRCX(%ebp)
+    movl    %edx,Arg_SaveRDX(%ebp)
+    movl    %esi,Arg_SaveRSI(%ebp)
+    movl    %edi,Arg_SaveRDI(%ebp)
+    fnsave  Arg_SaveFP(%ebp)                # Save FP state.  Also resets the state so...
+    fldcw   Arg_SaveFP(%ebp)                # ...load because we need the same rounding mode in the RTS
+    movl    %esp,Arg_StackPtr(%ebp)         # Save ML stack pointer
+    movl    Arg_SaveCStack(%ebp),%esp       # Restore C stack pointer
     subl    $12,%esp                        # Sp is just before the registers
     popl    %esi
     popl    %edi
@@ -238,37 +159,14 @@ SaveFullState:
     popl    %ebp
     ret
 
-callExHeap:
-callheapOverflowLocal:
+INLINE_ROUTINE(X86AsmCallExtraRETURN_HEAP_OVERFLOW)
     CALL_EXTRA(RETURN_HEAP_OVERFLOW)
-callExStack:
-    CALL_EXTRA(RETURN_STACK_OVERFLOW)
-callExStackEx:
-    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
-callExRaiseOverflow:
-    CALL_EXTRA(RETURN_RAISE_OVERFLOW)
 
-# As X86AsmSaveFullState but only save what is necessary for an RTS call.
-INLINE_ROUTINE(X86AsmSaveStateAndReturn)
-SaveStateAndReturnLocal: # This is necessary so that the jmps use a PC-relative address
-    jmp SaveFullState
-    
-#if (0)
-    pushl   %eax                # Save eax
-    movl    PolyStack(%ebp),%eax
-    movl    %ebx,EBX_OFF(%eax)
-    movl    %edx,EDX_OFF(%eax)
-    fstcw   FPREGS_OFF(%eax)
-    fninit                     # Reset the FP state.
-    fldcw   FPREGS_OFF(%eax)   # But reload the rounding mode
-    popl    %ebx                # Get old eax value
-    movl    %ebx,EAX_OFF(%eax)
-    movl    %esp,SP_OFF(%eax)
-    movb    $1,InRTS(%ebp)             # inRTS:=0 (stack now kosher)
-    movl    SavedSp(%ebp),%esp
-    popal
-    ret
-#endif
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
+    CALL_EXTRA(RETURN_STACK_OVERFLOW)
+
+INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
+    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
 
 /* Used when entering new code.  The argument and closure are on the stack
    in case there is a GC before we enter the code. */
@@ -279,7 +177,7 @@ INLINE_ROUTINE(X86AsmPopArgAndClosure)
 
 INLINE_ROUTINE(X86AsmRaiseException)
 raisexlocal:
-    movl    Fr_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
+    movl    Arg_HandlerRegister(%ebp),%ecx    # Get next handler into %rcx
     jmp     *(%ecx)
 
 # Additional assembly code routines
