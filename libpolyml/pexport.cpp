@@ -283,7 +283,7 @@ void PExport::exportStore(void)
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
-    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries-1);
+    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries);
     if (indexOrder == 0)
         throw MemoryException();
 
@@ -299,7 +299,7 @@ void PExport::exportStore(void)
         indexOrder[j] = i;
         items++;
     }
-    ASSERT(items == memTableEntries-1);
+    ASSERT(items == memTableEntries);
 
     // Process the area in order of ascending address.
     for (i = 0; i < items; i++)
@@ -319,7 +319,6 @@ void PExport::exportStore(void)
                 if (newMap == 0)
                     throw MemoryException();
                 pMap = newMap;
-
             }
             POLYUNSIGNED length = obj->Length();
             pMap[nObjects++] = obj;
@@ -331,7 +330,7 @@ void PExport::exportStore(void)
     fprintf(exportFile, "Objects\t%lu\n", nObjects);
     fprintf(exportFile, "Root\t%lu\n", getIndex(rootFunction));
 
-    // Generate each of the areas apart from the IO area.
+    // Generate each of the areas.
     for (i = 0; i < memTableEntries; i++)
     {
         char *start = (char*)memTable[i].mtAddr;
