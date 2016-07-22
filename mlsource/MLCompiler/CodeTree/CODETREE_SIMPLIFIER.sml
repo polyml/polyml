@@ -113,20 +113,25 @@ struct
     (* Convert a constant to a fixed value.  Used in some constant folding. *)
     val toFix: machineWord -> FixedInt.int = FixedInt.fromInt o Word.toIntX o toShort
 
-    (* If we have a constant index value we convert that into a byte offset. We need
-       to know the size of the item on this platform.  We have to make this check
-       when we actually compile the code because the interpreted version will
-       generally be run on a platform different from the one the pre-built
-       compiler was compiled on. The ML word length will be the same because
-       we have separate pre-built compilers for 32 and 64-bit. *)
-    fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
-    |   getMultiplier (LoadStoreMLByte _)   = 0w1
-    |   getMultiplier LoadStoreC8           = 0w1
-    |   getMultiplier LoadStoreC16          = 0w2
-    |   getMultiplier LoadStoreC32          = 0w4
-    |   getMultiplier LoadStoreC64          = 0w8
-    |   getMultiplier LoadStoreCFloat       = Compat560.ffiSizeFloat()
-    |   getMultiplier LoadStoreCDouble      = Compat560.ffiSizeDouble()
+    local
+        val ffiSizeFloat: unit -> word = RunCall.rtsCallFast1 "PolySizeFloat"
+        and ffiSizeDouble: unit -> word = RunCall.rtsCallFast1 "PolySizeDouble"
+    in
+        (* If we have a constant index value we convert that into a byte offset. We need
+           to know the size of the item on this platform.  We have to make this check
+           when we actually compile the code because the interpreted version will
+           generally be run on a platform different from the one the pre-built
+           compiler was compiled on. The ML word length will be the same because
+           we have separate pre-built compilers for 32 and 64-bit. *)
+        fun getMultiplier (LoadStoreMLWord _)   = RunCall.bytesPerWord
+        |   getMultiplier (LoadStoreMLByte _)   = 0w1
+        |   getMultiplier LoadStoreC8           = 0w1
+        |   getMultiplier LoadStoreC16          = 0w2
+        |   getMultiplier LoadStoreC32          = 0w4
+        |   getMultiplier LoadStoreC64          = 0w8
+        |   getMultiplier LoadStoreCFloat       = ffiSizeFloat()
+        |   getMultiplier LoadStoreCDouble      = ffiSizeDouble()
+    end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
 
