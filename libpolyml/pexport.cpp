@@ -112,7 +112,6 @@ void PExport::printCodeAddr(byte *q)
 /* Get the index corresponding to an address. */
 void PExport::printAddress(void *p)
 {
-    unsigned area = findArea(p);
     fprintf(exportFile, "@%lu", getIndex((PolyObject*)p));
 }
 
