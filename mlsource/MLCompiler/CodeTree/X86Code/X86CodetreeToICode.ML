@@ -281,7 +281,7 @@ struct
                         in
                             if isRecursive
                             then ([], [], Recursive)
-                            else if flags addrAsAddr <> Address.F_words orelse isIoAddress addrAsAddr
+                            else if flags addrAsAddr <> Address.F_words
                             then ([MoveArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
                                       [(clPReg, edx)], FullCall)
                             else

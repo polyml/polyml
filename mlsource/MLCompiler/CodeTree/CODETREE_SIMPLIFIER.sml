@@ -719,15 +719,6 @@ struct
             end
 
         |   (_, gen as Constnt _, _) => (* Not inlinable - constant function. *)
-            (*if isIoAddress(toAddress w)
-            then (* If it is the address of a built-in function convert it. *)
-            let
-                val () = reprocess := true
-                val (evCopiedCode, decs, evSpec) = simpBuiltIn(rtsCodeFromAddress w, map #1 argList, context)
-            in
-                (evCopiedCode, decsFunct @ decs, evSpec)
-            end
-            else*)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode =
