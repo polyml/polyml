@@ -243,16 +243,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                  It is the maximum number of bytes in a segment
                  less one word for the length field. */
             return taskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
-    case 102: /* Test whether the supplied address is in the io area.
-                 This was previously done by having get_flags return
-                 256 but this was changed so that get_flags simply
-                 returns the top byte of the length word. */
-        {
-            PolyWord *pt = (PolyWord*)DEREFWORDHANDLE(args);
-            if (gMem.IsIOPointer(pt))
-                return Make_arbitrary_precision(taskData, 1);
-            else return Make_arbitrary_precision(taskData, 0);
-        }
+    case 102: /* Test whether the supplied address is in the io area. */
+            return Make_arbitrary_precision(taskData, 0);
     case 103:
         raise_exception_string(taskData, EXC_Fail, "RTS properties no longer used");
 

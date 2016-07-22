@@ -661,9 +661,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_11: { PolyWord u = sp[11]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
-            if ((*sp) == PolyWord::FromStackAddr(IoEntry(55)))
-                *sp = TAGGED(401); // We still seem to have some of the old AHL version number references.
-            else *sp = (*sp).AsObjPtr()->Get(0); break;
+            *sp = (*sp).AsObjPtr()->Get(0); break;
 
         case INSTR_indirect_1:
             *sp = (*sp).AsObjPtr()->Get(1); break;

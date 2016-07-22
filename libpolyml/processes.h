@@ -350,8 +350,6 @@ extern unsigned NumberOfPhysicalProcessors(void);
 
 extern ProcessExternal *processes;
 
-#define IO_SPACING 8 // This is a bit of a mess.
-
 extern struct _entrypts processesEPT[];
 
 #endif
