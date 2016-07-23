@@ -251,7 +251,7 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     *(--this->sp) = SPECIAL_PC_END_THREAD; /* Return address. */
     *(--this->sp) = closure; /* Closure address */
 
-    // Make packets for exceptions.
+    // Make packets for exceptions.             
     Handle exn = make_exn(parentTask, EXC_overflow, parentTask->saveVec.push(TAGGED(0)));
     overflowPacket = exn->WordP();
     exn = make_exn(parentTask, EXC_divide, parentTask->saveVec.push(TAGGED(0)));
@@ -1913,15 +1913,6 @@ void IntTaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     ASSERT(newp == ((PolyWord*)new_stack)+new_length);
 }
 
-static Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
-static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
-static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
-
-static Handle ThreadSelf(TaskData *taskData)
-{
-    return taskData->saveVec.push(taskData->threadObject);
-}
-
 Handle IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
@@ -1972,7 +1963,7 @@ Handle IntTaskData::EnterPolyCode()
 // code to do it.  These are defaults that are used where there is no
 // machine-specific code.
 
-Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
+static Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
@@ -1982,20 +1973,10 @@ Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
     return taskData->saveVec.push(newValue);
 }
 
-// Decrement the value contained in the first word of the mutex.
-Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    PLocker l(&mutexLock);
-    PolyObject *p = DEREFHANDLE(mutexp);
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-    p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
-}
-
 // Release a mutex.  We need to lock the mutex to ensure we don't
 // reset it in the time between one of atomic operations reading
 // and writing the mutex.
-Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
+static Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
     PLocker l(&mutexLock);
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.

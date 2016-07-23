@@ -189,8 +189,6 @@ private:
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
-Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
-
 class ScanAddress;
 
 // Indicate what the main thread is doing if the profile
