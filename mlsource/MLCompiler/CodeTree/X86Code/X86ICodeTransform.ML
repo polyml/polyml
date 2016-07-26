@@ -615,15 +615,22 @@ struct
             end
 
         |   codeICode{
-                icode=MoveArgument{ source=MemoryLocation{offset, base as RealRegister _, index=NoMemIndex}, dest=PReg(destReg, PRegGeneral), kind} :: rest,
+                icode=MoveArgument{ source=MemoryLocation{offset, base=RealRegister(GenReg realBase), index=NoMemIndex}, dest=PReg(destReg, PRegGeneral), kind} :: rest,
                 state=NormalState state, code, context} =
+            (* Load from memory with a base register that is currently a real register.  This could be the stack pointer if
+               we are loading a stack argument or the return address or it could be ebp/rbp *)
             let
+                val _ = case kind of MoveWord => () | _ => raise InternalError "codeICode: MoveArgument register"
                 val (pushedState, pushCode) = pushRax state
+                (* If we're loading from the stack pointer we have to adjust the offset. *)
+                val load =
+                    if realBase = esp
+                    then loadStack(eax, stackPtr pushedState * wordSize + offset)
+                    else loadMemory(eax, realBase, offset)
             in
                 (* We also generate loads from offsets in ebp. *)
                 codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=MoveArgument{ source=MemoryLocation{offset=offset, base=base, index=NoMemIndex}, dest=raxAsArg, kind=kind} :: pushCode @ code,
-                    context=context}
+                    code=load @ pushCode @ code, context=context}
             end
 
         |   codeICode{
@@ -1062,19 +1069,6 @@ struct
             (* Other combinations of move aren't used at the moment. *)
         |   codeICode{icode=MoveArgument _ :: _, ...} =
                 raise InternalError "codeICode: MoveArgument"
-
-            (* Load a value from the real stack.  Offset zero is the return address,
-               subsequent values are arguments that were pushed by the caller. *)
-        |   codeICode{icode=MoveStackArgToPreg{offset, dest} :: rest, state=NormalState state, code, context} =
-            let
-                val destReg = argToPReg dest
-                val (pushedState, pushCode) = pushRax state
-                val load = loadStack(eax, (stackPtr pushedState + offset) * wordSize)
-            in
-                codeICode{
-                    icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=load @ pushCode @ code, context=context}
-            end
             
         |   codeICode{icode=AllocateMemoryOperation{ size, flags, dest} :: rest, state=NormalState state, code, context} =
             let

@@ -230,7 +230,7 @@ struct
             let
                 val target = asTarget destination
             in
-                ([MoveStackArgToPreg{offset=List.length argTypes - a, dest=target}], target)
+                ([MoveArgument{source=wordOffsetAddress(List.length argTypes - a, RealRegister(GenReg esp)), dest=target, kind=MoveWord}], target)
             end
         
         |   codeToICode(BICExtract(BICLoadClosure c), _, _, destination) =

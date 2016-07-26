@@ -101,8 +101,6 @@ sig
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument, kind: moveKind }
-
-    |   MoveStackArgToPreg of { offset: int, dest: argument } (* Load an argument or the return address *)
     
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
