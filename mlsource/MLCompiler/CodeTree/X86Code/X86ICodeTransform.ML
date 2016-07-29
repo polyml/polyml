@@ -18,11 +18,14 @@
 functor X86ICodeTransform(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
+    structure IDENTIFY: X86IDENTIFYREFSSIG
+    sharing ICODE.Sharing = IDENTIFY.Sharing
 ) : X86ICODETRANSFORMSIG
 =
 struct
     open ICODE
     open Address
+    open IDENTIFY
     
     exception InternalError = Misc.InternalError
 
@@ -117,7 +120,7 @@ struct
     fun removeAfterTag({valueStack, ccState, ...}, _) =
         {valueStack=valueStack, ccState=ccState, untaggedRegs=[]}
 
-    fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs= _, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
+    fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
     let
         (* We may need to create additional labels. *)
         val labelCounter = ref maxLabels
@@ -2120,6 +2123,8 @@ struct
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
+        
+        (*val decoratedCode = identifyRegisters {icode=icode, maxPRegs=maxPRegs}*)
 
         val (fnState, fnCode) = codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
         val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"

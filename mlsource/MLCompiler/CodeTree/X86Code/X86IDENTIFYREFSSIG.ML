@@ -18,6 +18,8 @@
 signature X86IDENTIFYREFSSIG =
 sig
     type x86ICode
+    
+    val identifyRegisters: {icode: x86ICode list, maxPRegs: int} -> (x86ICode * int list) list
 
     structure Sharing:
     sig

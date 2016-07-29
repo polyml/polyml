@@ -28,7 +28,7 @@ struct
        It scans forward building up a list of the registers that have been defined then
        scans backwards building up a list of references.  A register is then "live" if
        it has been both defined and referenced otherwise it is dead.  *)
-    fun identifyRegisters { icode, maxPRegs=_ } =
+    fun identifyRegisters { icode, maxPRegs } =
     let
         (* Find the sources when the argument is used as a source. *)
         fun sourceRegs(PReg(i, _)) = [i]
@@ -46,62 +46,105 @@ struct
                 bRegs @ iRegs
             end
         |   sourceRegs _ = []
-        
+
         fun destRegs(PReg(i, _)) = [i]
         |   destRegs _ = raise InternalError "destRegs"
         
-        (* The list is registers is ordered with decreasing values.  That
-           corresponds roughly to the order in which registers are added to
-           the instruction list. *)
-        fun isSet([], _) = false
-        |   isSet(hd::tl, r) = if hd = r then true else if r > hd then false else isSet(tl, r)
+        (*
+        fun listToSet s =
+            Vector.tabulate(maxPRegs, fn i => List.exists(fn j => i=j) s)
 
-        fun addItem([], reg) = [reg]
-        |   addItem(l as i::r, reg) =
-                if i = reg then l
-                else if reg < i then i :: addItem(r, reg)
-                else reg :: l
-        
         fun intersect(ref1, ref2) =
-            List.foldl(fn (r, s) => if isSet(ref1, r) then addItem(s, r) else s) [] ref2
+            Vector.mapi(fn (_, false) => false | (i, _) => Vector.sub(ref2, i)) ref1
         
-        fun union(ref1, ref2) = List.foldl (fn(r, s) => addItem(s, r)) ref1 ref2
+        fun union(ref1, ref2) =
+            Vector.mapi(fn (_, true) => true | (i, _) => Vector.sub(ref2, i)) ref1
         
         fun checkSources(regs, state) =
-            List.app(fn r => (isSet(state, r) orelse raise InternalError "checkSources"; ())) regs
+            Vector.appi(
+                fn (_, false) => () | (i, true) => (Vector.sub(state, i) orelse raise InternalError "checkSources"; ())) regs
+         
+        val emptySet = Vector.tabulate(maxPRegs, fn _ => false)
+        *)
+        local
+            (* The list is registers is ordered with decreasing values.  That
+               corresponds roughly to the order in which registers are added to
+               the instruction list. *)
+            fun isSet([], _) = false
+            |   isSet(hd::tl, r) = if hd = r then true else if r > hd then false else isSet(tl, r)
+
+            fun addItem([], reg) = [reg]
+            |   addItem(l as i::r, reg) =
+                    if i = reg then l
+                    else if reg < i then i :: addItem(r, reg)
+                    else reg :: l
+        in
+            fun intersect([], _) = []
+            |   intersect(_, []) = []
+            |   intersect(ref1 as r1::t1, ref2 as r2::t2) =
+                    if r1 = r2 then r1 :: intersect(t1, t2)
+                    else if r1 < r2 then intersect(ref1, t2)
+                    else intersect(t1, ref2)
+                
+            fun union(ref1, []) = ref1
+            |   union([], ref2) = ref2
+            |   union(ref1 as r1::t1, ref2 as r2::t2) =
+                    if r1 = r2 then r1 :: union(t1, t2)
+                    else if r1 < r2 then r2 :: union(ref1, t2)
+                    else r1 :: union(t1, ref2)
+
+            fun listToSet s = List.foldl (fn (r, s) => addItem(s, r)) [] s
+            
+            (* Remove items in ref2 from ref1. *)
+            fun subtract(ref1, ref2) =
+                List.foldl (fn (r, s) => if isSet(ref2, r) then s else addItem(s, r)) [] ref1
+                
+            fun checkSources(regs, state) =
+                List.app(fn r => (isSet(state, r) orelse raise InternalError "checkSources"; ())) regs
+                
+            val emptySet = []
+        end
+
         
         (* Find the label and extract the corresponding state,  Remove this label from
            the list and return the updated list. *)
-        fun findLabel([], _) = raise InternalError "findLabel: label not found."
-        |   findLabel((this as (thisLabel, thisState)) :: tail, label) =
-                if thisLabel = label then (thisState, tail)
+        fun findOptionalLabel([], _) = (NONE, [])
+        |   findOptionalLabel((this as (thisLabel, thisState)) :: tail, label) =
+                if thisLabel = label then (SOME thisState, tail)
                 else
                 let
-                    val (foundState, foundTail) = findLabel(tail, label)
+                    val (foundState, foundTail) = findOptionalLabel(tail, label)
                 in
                     (foundState, this :: foundTail)
                 end
         
+        fun findLabel(list, label) =
+            case findOptionalLabel(list, label) of
+                (NONE, _) => raise InternalError "findLabel: Missing label"
+            |   (SOME res, resList) => (res, resList)
+        
         fun addSourcesAndDests(instr, rest, state, labels, loopLabels, sources, dests) =
         let
-            val () = checkSources(sources, state)
+            val sourceSet = listToSet sources
+            and destSet = listToSet dests
+            val () = checkSources(sourceSet, state)
             (* Add the destinations to the active set. *)
-            val active = union(state, dests)
+            val active = union(state, destSet)
             (* Process the rest, adding each register as it is initialised. *)
             val (tail, references, refLabels) =
                 identify(rest, active, labels, loopLabels)
             (* Have to add our sources to the result state.  These are now active. *)
-            val nowActive = union(references, sources)
+            val nowActive = union(references, sourceSet)
             (* Interset the references (the registers that are used after this) with the
                sources (the registers that are given values before this). *)
             val current = intersect(state, nowActive)
             (* Add our destinations to the list even if they are not used anywhere else. *)
-            val addDests = union(current, dests)
+            val addDests = union(current, destSet)
         in
-            ((instr, addDests) :: tail, nowActive, refLabels)
+            ((instr, addDests) :: tail, subtract(nowActive, destSet), refLabels)
         end
 
-        and identify ([], _, _, _) = ([], [], [])
+        and identify ([], _, _, _) = ([], emptySet, [])
         
         |   identify((instr as MoveArgument { source, dest=PReg(dReg, _), ...}) :: rest, state, labels, loopLabels) =
                 (* Moving to a preg, the destination. *)
@@ -116,9 +159,9 @@ struct
             let (* Tail recursive call.  References the argument sources but exits. *)
                 val stackSources = List.foldl(fn (arg, srcs) => sourceRegs arg @ srcs) [] stackArgs
                 val regSources = List.foldl(fn ((arg, _), srcs) => sourceRegs arg @ srcs) [] regArgs
-                val sources = stackSources @ regSources
+                val sources = listToSet(stackSources @ regSources)
                 val () = checkSources(sources, state)
-                val (tail, _, refLabels) = identify(rest, [], labels, loopLabels)
+                val (tail, _, refLabels) = identify(rest, emptySet, labels, loopLabels)
             in
                 ((instr, sources) :: tail, sources, refLabels)
             end
@@ -148,10 +191,10 @@ struct
         |   identify((instr as StartLoop{arguments, loopLabel}) :: rest, state, labels, loopLabels) =
             let
                 val sources =
-                    List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments
+                    listToSet(List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments)
                 val () = checkSources(sources, state)
                 val dests =
-                    List.foldl(fn ({loopReg, ...}, dests) => destRegs loopReg @ dests) [] arguments
+                    listToSet(List.foldl(fn ({loopReg, ...}, dests) => destRegs loopReg @ dests) [] arguments)
                 (* The active set is the envionment plus the loop variables. *)
                 val active = union(state, dests)
                 (* First pass - process the loop with an empty reference set. *)
@@ -195,10 +238,10 @@ struct
             let
                 val _ = thisLoopLab = loopLabel orelse raise InternalError "identify: JumpLoop mismatch"
                 val sources =
-                    List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments
+                    listToSet(List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments)
                 val () = checkSources(sources, state)
                 (* Because this is an unconditional branch the state afterwards is empty. *)
-                val (tail, references, refLabels) = identify(rest, [], labels, loopLabels)
+                val (tail, references, refLabels) = identify(rest, emptySet, labels, loopLabels)
                 (* If this is the second pass we need to add the extra active registers
                    to the references. *)
                 val compositeRefs =
@@ -216,11 +259,11 @@ struct
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, state, labels, loopLabels) =
             let
-                val sources = sourceRegs packet
+                val sources = listToSet(sourceRegs packet)
                 val () = checkSources(sources, state)
                 (* This is an unconditional exit.  The only active register is
                    the exception packet. *)
-                val (tail, _, refLabels) = identify(rest, [], labels, loopLabels)
+                val (tail, _, refLabels) = identify(rest, emptySet, labels, loopLabels)
             in
                 ((instr, sources) :: tail, sources, refLabels)
             end
@@ -229,7 +272,35 @@ struct
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, [], destRegs address)
 
         |   identify((instr as IndexedCaseOperation{testReg, workReg, cases, ...}) :: rest, state, labels, loopLabels) =
-                raise InternalError "TODO: IndexedCaseOperation"
+            let
+                (* This is rather like an unconditional branch except that we have a
+                   list of destination branches rather than a single destination. *)
+                val sources = listToSet(sourceRegs testReg)
+                val () = checkSources(sources, state)
+                val workDest = listToSet(destRegs workReg)
+                (* Add all the labels to the list.  For each branch the starting
+                   state is the same as the current state. *)
+                val labelsFromCase =
+                    List.foldl (fn (lab, labs) => (lab, state) :: labs) labels cases
+                val (tail, _, refLabels) = identify(rest, emptySet, labelsFromCase, loopLabels)
+                (* Now extract the case labels from the result list.  This is all the
+                   references from all various cases.  We need the union of these.
+                   i.e. if we need a register to be active on any of the branches it
+                   must be active before this indexed case. *)
+                val (newRefLabels, resultRefs) =
+                    List.foldl (
+                        fn (caseLab, (refLabs, refs)) =>
+                        let
+                            val (newRefs, newRefLabs) = findLabel(refLabs, caseLab)
+                        in
+                            (newRefLabs, union(newRefs, refs))
+                        end ) (refLabels, emptySet) cases
+                val nowActive = union(resultRefs, sources)
+                val current = intersect(state, nowActive)
+                val addDests = union(current, workDest)
+            in
+                ((instr, addDests) :: tail, nowActive, newRefLabels)
+            end
 
         |   identify((instr as LockMutable{addr}) :: rest, state, labels, loopLabels) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs addr, [])
@@ -239,27 +310,38 @@ struct
                 (* Ignore the "result" at the moment.  This is the optional register that
                    contains the result if we are merging.  It must have been defined before here
                    and referenced afterwards. *)
-                (* Find the set of active registers when we jumped here. *)
-                val (srcs, newSrcLabels) = findLabel(labels, label)
-                (* Add the sources that applied at the jump to the current set.
-                   In particular if we're following an unconditional jump this will
-                   set the state. *)
-                val active = union(srcs, state)
-                val (tail, references, refLabels) =
-                    identify(rest, active, newSrcLabels, loopLabels)
-                val current = intersect(active, references)
+                (* Find the set of active registers when we jumped here. 
+                   The label may not have been used. That could happen if we have a
+                   "drop-through" case in an andalso/orelse or if we didn't generate a
+                   jump because we raised an exception or made a tail-jump.  *)
+                val (optSrcs, newSrcLabels) = findOptionalLabel(labels, label)
             in
-                (* We include "references" in both the immediate result and as a label
-                   entry.  The registers are live in the immediately preceding code, if
-                   there is any, and also at the jump to this label. *)
-                ((instr, current) :: tail, references, (label, references)::refLabels)
+                case optSrcs of
+                    NONE =>
+                        (* If this was never used delete this instruction. *)
+                        identify(rest, state, newSrcLabels, loopLabels)
+                |   SOME srcs =>
+                    let
+                        (* Add the sources that applied at the jump to the current set.
+                           In particular if we're following an unconditional jump this will
+                           set the state. *)
+                        val active = union(srcs, state)
+                        val (tail, references, refLabels) =
+                            identify(rest, active, newSrcLabels, loopLabels)
+                        val current = intersect(active, references)
+                        (* We include "references" in both the immediate result and as a label
+                           entry.  The registers are live in the immediately preceding code, if
+                           there is any, and also at the jump to this label. *)
+                    in
+                        ((instr, current) :: tail, references, (label, references)::refLabels)
+                    end
             end
 
         |   identify((instr as UnconditionalForwardJump{label}) :: rest, state, labels, loopLabels) =
             let
                 (* Add the current state to the label list.  It will be picked up when we
                    encounter the label itself. *)
-                val (tail, _, refLabels) = identify(rest, [], (label, state) :: labels, loopLabels)
+                val (tail, _, refLabels) = identify(rest, emptySet, (label, state) :: labels, loopLabels)
                 (* Now find the label in the result list.  This will contain the set of registers
                    that are going to be used in the code after the label. *)
                 val (refs, newRefLabels) = findLabel(refLabels, label)
@@ -272,6 +354,10 @@ struct
             let
                 (* The current state applies both immediately after this and also at the
                    label. *)
+                (* We may have more than one jump to the same label.  When working forward
+                   we use the orginal state but when working back we need to add the
+                   references together. *)
+                val (oldLabel, _) = findOptionalLabel(labels, label)
                 val (tail, references, refLabels) =
                     identify(rest, state, (label, state) :: labels, loopLabels)
                 (* Find the registers that were active at the label. *)
@@ -281,28 +367,63 @@ struct
                 val resultState = union(references, refsFromLabel)
                 val current = intersect(state, resultState)
             in
-                ((instr, current) :: tail, resultState, newRefLabels)
+                ((instr, current) :: tail, resultState,
+                    (* If the label was already in use when we came here leave the
+                       result label in the list. *)
+                    if isSome oldLabel then refLabels else newRefLabels)
             end
 
         |   identify((instr as WordComparison{arg1, arg2, ...}) :: rest, state, labels, loopLabels) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs arg1 @ sourceRegs arg2, [])
 
         |   identify((instr as PushExceptionHandler{handlerAddr, handleStart}) :: rest, state, labels, loopLabels) =
-                raise InternalError "TODO: PushExceptionHandler"
+            let
+                (* Begin an exception handler.  Similar to a conditional jump.  The current state is the
+                   state at the start of the handler.  The handler itself will have been removed.
+                   We have one "destination" which is the handler entry on the stack. *)
+                val dests = listToSet(destRegs handlerAddr)
+                val active = union(state, dests)
+                (* Find the references that are active from the body. *)
+                val (tail, references, refLabels) =
+                    identify(rest, active, (handleStart, state) :: labels, loopLabels)
+                (* Find the registers that were active in the handler. *)
+                val (refsFromHandler, newRefLabels) = findLabel(refLabels, handleStart)
+                (* The active set is the union of the two. *)
+                val nowActive = union(references, refsFromHandler)
+                val current = intersect(state, nowActive)
+                val addDests = union(current, dests)
+            in
+                ((instr, addDests) :: tail, nowActive, newRefLabels)
+            end
 
-        |   identify((instr as PopExceptionHandler{handlerAddr, resultReg, workReg}) :: rest, state, labels, loopLabels) =
-                raise InternalError "TODO: PopExceptionHandler"
+        |   identify((instr as PopExceptionHandler{handlerAddr, resultReg=_, workReg}) :: rest, state, labels, loopLabels) =
+                (* Pop an exception handler. *)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs handlerAddr, destRegs workReg)
 
         |   identify((instr as BeginHandler{handleStart, workReg}) :: rest, state, labels, loopLabels) =
-                raise InternalError "TODO: BeginHandler"
+            let
+                (* Begin a handler.  This is similar to ForwardJumpLabel. *)
+                val dests = listToSet(destRegs workReg)
+                val (srcs, newSrcLabels) = findLabel(labels, handleStart)
+                (* Add the sources that applied at the jump to the current set.
+                   In particular if we're following an unconditional jump this will
+                   set the state. *)
+                val active = union(srcs, state)
+                val (tail, references, refLabels) =
+                    identify(rest, active, newSrcLabels, loopLabels)
+                val current = intersect(active, references)
+                val addDests = union(current, dests)
+            in
+                ((instr, addDests) :: tail, references, (handleStart, references)::refLabels)
+            end
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, state, labels, loopLabels) =
             let
-                val sources = sourceRegs resultReg
+                val sources = listToSet(sourceRegs resultReg)
                 val () = checkSources(sources, state)
                 (* This is an unconditional exit.  The only active register is
                    the result. *)
-                val (tail, _, refLabels) = identify(rest, [], labels, loopLabels)
+                val (tail, _, refLabels) = identify(rest, emptySet, labels, loopLabels)
             in
                 ((instr, sources) :: tail, sources, refLabels)
             end
@@ -384,8 +505,10 @@ struct
 
         |   identify((instr as SSE2FPArith{resultReg, arg1, arg2, ...}) :: rest, state, labels, loopLabels) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs arg1 @ sourceRegs arg2, destRegs resultReg)
+
+        val (decoratedCode, _, _) = identify(icode, emptySet, [], [])
     in
-        identify(icode, [], [], [])
+        decoratedCode
     end
 
     structure Sharing =
