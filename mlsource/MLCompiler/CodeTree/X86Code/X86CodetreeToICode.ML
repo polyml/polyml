@@ -1090,23 +1090,29 @@ struct
         |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, destination) =
             let
                 val target = asTarget destination
-                val startElse = newLabel() and skipElse = newLabel()
+                val startElse = newLabel()
                 val testCode = codeCondition(test, context, false, startElse)
                 (* Put the result in the target register. *)
                 val (thenCode, _, thenExited) = codeToICode(thenPt, context, isTail, SpecificPReg target)
-                val exitThen =
-                    if isTail
-                    then if thenExited then [] else [returnInstruction]
-                    else [UnconditionalForwardJump{label=skipElse}]
+                (* Add a jump round the else-part except that if this is a tail we
+                   return.  The then-part could have exited e.g. with a raise or a loop. *)
+                val (exitThen, thenLabel) =
+                    if thenExited then ([], [])
+                    else if isTail then ([returnInstruction], [])
+                    else
+                    let
+                        val skipElse = newLabel()
+                    in
+                        ([UnconditionalForwardJump{label=skipElse}], [ForwardJumpLabel{label=skipElse, result=SOME target}])
+                    end
                 val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg target)
+                (* Add a return to the else-part if necessary so we will always exit on a tail. *)
                 val exitElse =
-                    if isTail
-                    then if elseExited then [] else [returnInstruction]
-                    else [ForwardJumpLabel{label=skipElse, result=SOME target}]
+                    if isTail andalso not elseExited then [returnInstruction] else []
             in
                 (testCode @
                     thenCode @ exitThen @ [ForwardJumpLabel{label=startElse, result=NONE}] @
-                    elseCode @ exitElse, target, isTail)
+                    elseCode @ exitElse @ thenLabel, target, isTail orelse thenExited andalso elseExited)
             end
        
         |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, destination) =
@@ -1205,13 +1211,21 @@ struct
                 fun codeCases ((startLabel, SOME c, _) :: otherCases) =
                     let
                         (* Put in the case with a jump to the end of the sequence. *)
-                        val exitLabel = newLabel()
-                        val codeThis =
-                            ForwardJumpLabel{label=startLabel, result=NONE} ::
-                                codeToICodeTarget(c, context, isTail, target) @ [UnconditionalForwardJump{label=exitLabel}]
+                        val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg target)
+                        val (exitThisCase, exitLabel) =
+                            if caseExited then ([], [])
+                            else if isTail then ([returnInstruction], [])
+                            else
+                            let
+                                val exitLabel = newLabel()
+                            in
+                                ([UnconditionalForwardJump{label=exitLabel}],
+                                 [ForwardJumpLabel{label=exitLabel, result=SOME target}])
+                            end
                         val codeRest = codeCases otherCases
                     in
-                        codeThis @ codeRest @ [ForwardJumpLabel{label=exitLabel, result=SOME target}]
+                        ForwardJumpLabel{label=startLabel, result=NONE} ::
+                            codeThisCase @ exitThisCase @ codeRest @ exitLabel
                     end
 
                 |   codeCases((_, NONE, _) :: otherCases) = codeCases otherCases
@@ -1225,10 +1239,15 @@ struct
                         fun asForward l = ForwardJumpLabel{label=l, result=NONE}
                         val dLabs = map asForward extraDefaults
                         val defLabels = List.foldl addDefault dLabs fullCaseRange
+                        val (defaultCode, _, defaultExited) =
+                            codeToICode(default, context, isTail, SpecificPReg target)
                     in
                         (* Put in the default.  Because this is the last we don't need to
-                           jump round it. *)
-                         defLabels @ codeToICodeTarget(default, context, isTail, target)
+                           jump round it.  However if this is a tail and we haven't exited
+                           we put in a return.  That way the case will always have
+                           exited if this is a tail. *)
+                         defLabels @ defaultCode @
+                            (if isTail andalso not defaultExited then [returnInstruction] else [])
                     end
                     
                 val codedCases = codeCases fullCaseRange
@@ -1236,7 +1255,8 @@ struct
                 val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
             in
                 (testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
-                                        cases=codeLabels, startValue=min}] @ codedCases, target, false)
+                                        cases=codeLabels, startValue=min}] @ codedCases,
+                 target, isTail (* We have always exited on a tail. *))
             end
         
         |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, destination) =
