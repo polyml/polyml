@@ -2124,7 +2124,7 @@ struct
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
         
-        (*val decoratedCode = identifyRegisters {icode=icode, maxPRegs=maxPRegs}*)
+        val decoratedCode = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
 
         val (fnState, fnCode) = codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
         val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
