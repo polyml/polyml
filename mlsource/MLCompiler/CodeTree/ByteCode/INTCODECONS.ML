@@ -742,7 +742,7 @@ struct
   fun codeCreate (name : string, parameters) : code = 
   let
     val words : int = codesize div wordLength
-    val printStream = PRETTY.getSimplePrinter parameters;
+    val printStream = PRETTY.getSimplePrinter(parameters, []);
   in
     Code
       { 

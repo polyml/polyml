@@ -252,6 +252,8 @@ sig
     val codeAsX86Code: {icode: x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 
+    val printICode: x86ICode * (string -> unit) -> unit
+
     structure Sharing:
     sig
         type genReg         = genReg

@@ -19,6 +19,7 @@ functor X86ICodeTransform(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
+    structure PRETTY: PRETTYSIG
     sharing ICODE.Sharing = IDENTIFY.Sharing
 ) : X86ICODETRANSFORMSIG
 =
@@ -2125,12 +2126,56 @@ struct
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
         
         val decoratedCode = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+        
+        val icodeTabs = [8, 20, 60]
+        
+        val () =
+            (* Print the code before the transformation. *)
+            if DEBUG.getParameter DEBUG.icodeTag debugSwitches
+            then
+            let
+                val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+
+                fun printRegs([], _) = ()
+                |   printRegs(_, 0) = printStream "..."
+                |   printRegs([i], _) = printStream(Int.toString i)
+                |   printRegs(i::l, n) = (printStream(Int.toString i ^ ","); printRegs(l, n-1))
+
+                fun printCode(c, regs) =
+                (
+                    printICode(c, printStream);
+                    printStream "\t";
+                    printRegs(regs, 10);
+                    printStream "\n"
+                )
+            in
+                printStream(functionName ^ "\n");
+                List.app printCode decoratedCode;
+                printStream "\n"
+            end
+            else ()
 
         val (fnState, fnCode) = codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
         val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
+        val postTransformCode = List.rev fnCode (* Reverse the list *)
+        val () =
+            (* Print the code after the transformation. *)
+            if DEBUG.getParameter DEBUG.icodeTag debugSwitches
+            then
+            let
+                val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+
+                fun printCode c =
+                ( printICode(c, printStream); printStream "\n")
+            in
+                printStream(functionName ^ "\n");
+                List.app printCode postTransformCode;
+                printStream "\n"
+            end
+            else ()
     in
-        (* Reverse the list and then code-generate it. *)
-        codeAsX86Code{icode=List.rev fnCode, maxLabels = !labelCounter, stackRequired = !maxStack,
+        (* Ccode-generate it. *)
+        codeAsX86Code{icode=postTransformCode, maxLabels = !labelCounter, stackRequired = !maxStack,
                       inputRegisters= argRegsUsed @ (if hasFullClosure then [edx] else []), debugSwitches=debugSwitches,
                       functionName=functionName}
     end

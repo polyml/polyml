@@ -1507,7 +1507,7 @@ struct
                 ("assemblyCodeTag",        toMachineWord (assemblyCodeTag: bool tag),           Tag Bool),
                 ("parsetreeTag",           toMachineWord (parsetreeTag: bool tag),              Tag Bool),
                 ("codetreeTag",            toMachineWord (codetreeTag: bool tag),               Tag Bool),
-                ("pstackTraceTag",         toMachineWord (pstackTraceTag: bool tag),            Tag Bool),
+                ("icodeTag",               toMachineWord (icodeTag: bool tag),            Tag Bool),
                 ("lowlevelOptimiseTag",    toMachineWord (lowlevelOptimiseTag: bool tag),       Tag Bool),
                 ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),

@@ -53,6 +53,7 @@ local
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
+            structure PRETTY        = Pretty
         )
 in
 
