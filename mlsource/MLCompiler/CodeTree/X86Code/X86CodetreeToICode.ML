@@ -157,6 +157,8 @@ struct
             { anyConstant: bool, const32s: bool, memAddr: bool, existingPreg: bool }
         val allowInMemMove = (* We can move a 32-bit constant into memory but not a long constant. *)
             { anyConstant=false, const32s=true, memAddr=false, existingPreg=true }
+        and allowInPReg =
+            { anyConstant=false, const32s=false, memAddr=false, existingPreg=true }
 
         datatype destination =
             SpecificPReg of argument
@@ -205,6 +207,15 @@ struct
         in
             code
         end
+        
+        and codeToPReg(instr, context) =
+        let (* Many instructions require an argument in a register.  If it's already in a
+               register use that rather than creating a new one. *)
+            val (code, result, _) = codeToICode(instr, context, false, Allowed allowInPReg)
+            val _ = case result of PReg _ => () | _ => raise InternalError "codeToPReg"
+        in
+            (code, result)
+        end
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
@@ -251,8 +262,7 @@ struct
         
         |   codeToICode(BICField{base, offset}, context, _, destination) =
             let
-                val baseR = newPReg()
-                val codeBase = codeToICodeTarget(base, context, false, baseR)
+                val (codeBase, baseR) = codeToPReg(base, context)
             in
                 moveIfNotAllowed(destination, codeBase, wordOffsetAddress(offset, baseR))
             end
@@ -354,9 +364,10 @@ struct
                 (* TODO: If the argument is something that will be a conditional we would be better off
                    generating a conditional here. *)
                 val target = asTarget destination
-                val tReg = newPReg() and ccRef = newCCRef()
+                val ccRef = newCCRef()
+                val (argCode, tReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, tReg) @
+                (argCode @
                     [ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef}], target, false)
             end
 
@@ -366,14 +377,15 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val addrReg = newPReg() and argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
+                val argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
                 and ccRef1 = newCCRef() and ccRef2 = newCCRef() and ccRef3 = newCCRef()
                 (* Get the length of a memory cell (heap object).  We need to mask out the
                    top byte containing the flags and to tag the result.  The mask is 56 bits on
                    64-bit which won't fit in an inline constant.  Since we have to shift it
                    anyway we might as well do this by shifts. *)
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                 [MoveArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord},
                  ShiftOperation{shift=SHL, resultReg=argReg2, operand=argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 },
                  ShiftOperation{shift=SHR, resultReg=argReg3, operand=argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 },
@@ -383,18 +395,18 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val addrReg = newPReg() and argReg1 = newUReg()
+                val argReg1 = newUReg()
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                 [MoveArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveByte},
                  TagValue{ source=argReg1, dest=target }], target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
             let
-                val addrReg = newPReg()
-                val code =
-                    codeToICodeTarget(arg1, context, false, addrReg) @ [LockMutable{addr=addrReg}]
+                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val code = argCode @ [LockMutable{addr=addrReg}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -402,9 +414,10 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.StringLengthWord, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val addrReg = newPReg() and argReg1 = newUReg()
+                val argReg1 = newUReg()
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                 [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
                  TagValue{ source=argReg1, dest=target }], target, false)
             end
@@ -412,9 +425,10 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val addrReg = newPReg() and incrReg = newUReg()
+                val incrReg = newUReg()
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                  [MoveArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord},
                   AtomicExchangeAndAdd{ destAddr=addrReg, source=incrReg },
                   (* We want the result to be the new value but we've returned the old value. *)
@@ -424,9 +438,10 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val addrReg = newPReg() and incrReg = newUReg()
+                val incrReg = newUReg()
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                  [MoveArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord},
                   AtomicExchangeAndAdd{ destAddr=addrReg, source=incrReg },
                   ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], target, false)
@@ -438,9 +453,8 @@ struct
                    mutex to interlock atomic increment and decrement.  We have to use the same
                    mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
                    the hardware guarantees that an assignment of a word will be atomic. *)
-                val addrReg = newPReg()
-                val code =
-                    codeToICodeTarget(arg1, context, false, addrReg) @ [LockMutable{addr=addrReg}]
+                val (argCode, addrReg) = codeToPReg(arg1, context)
+                val code = argCode @ [LockMutable{addr=addrReg}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -450,9 +464,10 @@ struct
                    TODO: introduce a new ICode entry so that the next stage can optimise
                    longword operations. *)
                 val target = asTarget destination
-                val addrReg = newPReg() and argReg1 = newUReg()
+                val argReg1 = newUReg()
+                val (argCode, addrReg) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, addrReg) @
+                (argCode @
                 [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
                  TagValue{ source=argReg1, dest=target }], target, false)
             end
@@ -1802,8 +1817,8 @@ struct
             (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
                tag bit of a word. *)
             let
-                val tagReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICodeTarget(test, context, false, tagReg)
+                val ccRef = newCCRef()
+                val (testCode, tagReg) = codeToPReg(test, context)
             in
                 testCode @
                     [WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef},
@@ -2195,6 +2210,8 @@ struct
         val icode = pushClosureReg @ pushArgs @ bodyCode @ (if bodyExited then [] else [returnInstruction])
       
         open ICODETRANSFORM
+        
+        val () = if !pregCounter > 300 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()
     in
         codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,

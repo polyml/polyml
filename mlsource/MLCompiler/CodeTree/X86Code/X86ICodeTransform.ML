@@ -110,6 +110,11 @@ struct
                     loadSource(base, dest, state)
 
     |   loadSource _ = raise InternalError "loadSource"
+    
+    val loadSource =
+        fn(arg, dest, state as {valueStack={preg=_, loc=InRax } :: _, ...}) =>
+            if dest = eax then raise InternalError "loadSource: eax" else loadSource(arg, dest, state)
+        |  (arg, dest, state) => loadSource(arg, dest, state)
    
     fun clearCC({valueStack, untaggedRegs, ...}:normalState): normalState =
         {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=untaggedRegs}
@@ -152,6 +157,15 @@ struct
             then {valueStack=resultState, ccState=ccState, untaggedRegs=untaggedRegs}
             else raise InternalError "checkTopInRax"
         |   checkTopInRax _ = raise InternalError "checkTopInRax"
+        
+        
+        fun loadToRax(state, arg) =
+        let
+            val (pushedState, pushCode) = pushRax state
+            val load = loadSource(arg, eax, pushedState)
+        in
+            (pushedState, load @ pushCode)
+        end
  
         (* Reset the stack to value in the original state except that
            the target register should be moved into the result state. *)
@@ -364,28 +378,28 @@ struct
             end
 
             (* Word comparison. *)
-        |   codeICode{icode=WordComparison{arg1=PReg(testR, PRegGeneral), arg2=(c as IntegerConstant _), ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1 as PReg(_, PRegGeneral), arg2=(c as IntegerConstant _), ccRef} :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
-                val startState = checkTopInRax(state, testR)
+                val (startState, loadCode) = loadToRax(state, arg1)
                 (* The resulting state contains the condition we want to test. *)
                 val checkState =
                     {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
-                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code, context=context}
+                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: loadCode @ code, context=context}
             end
 
-        |   codeICode{icode=WordComparison{arg1=PReg(testR, PRegGeneral), arg2=(c as AddressConstant _), ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1 as PReg(_, PRegGeneral), arg2=(c as AddressConstant _), ccRef} :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
-                val startState = checkTopInRax(state, testR)
+                val (startState, loadCode) = loadToRax(state, arg1)
                 val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
-                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: code,
+                          code=WordComparison{ arg1=raxAsArg, arg2=c, ccRef=ccRef } :: loadCode @ code,
                           context=context}
             end
 
@@ -446,14 +460,13 @@ struct
 
         |   codeICode{icode=TestTagBit{arg, ccRef} :: rest, state=NormalState state, code, context} =
             let
-                val argReg = argToPReg arg
                 (* The value on the top of the stack should be in rax and the value we want to test. *)
-                val startState = checkTopInRax(state, argReg)
+                val (startState, loadCode) = loadToRax(state, arg)
                 val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                     (* TestTagBit only sets the condition codes.  It doesn't affect the register. *)
-                          code=TestTagBit{arg=raxAsArg, ccRef=ccRef} :: code, context=context}
+                          code=TestTagBit{arg=raxAsArg, ccRef=ccRef} :: loadCode @ code, context=context}
             end
 
             (* Set up an exception handler. *)
@@ -1260,23 +1273,24 @@ struct
                       context=context as {loopArgs=(startState, lab) :: _, ...}} =
             let
                 val _ = loopLabel = lab orelse raise InternalError "codeICode: JumpLoop - mismatched labels"
+                val (pushedState, pushCode) = pushRax state
                 (* Move each argument from the source to the loop variable.  This isn't the same as
                    MoveArgument because the destination already exists. *)
                 fun moveArg{source, loopReg} =
                 let
-                    val load = loadSource(source, eax, state)
+                    val load = loadSource(source, eax, pushedState)
                     val store =
-                        case findEntry (argToPReg loopReg, state) of
-                            OnStack s => storeMemory(eax, esp, (stackPtr state - s - 1) * wordSize)
+                        case findEntry (argToPReg loopReg, pushedState) of
+                            OnStack s => storeMemory(eax, esp, (stackPtr pushedState - s - 1) * wordSize)
                         |   InRax => raise InternalError "codeICode: JumpLoop"
                 in
                     store @ load
                 end
                 val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] arguments
                 val instrs =
-                    JumpLoop{arguments=[], loopLabel=loopLabel} :: resetStackPtr(stackPtr state - stackPtr startState) :: storeAll
+                    JumpLoop{arguments=[], loopLabel=loopLabel} :: resetStackPtr(stackPtr pushedState - stackPtr startState) :: storeAll
             in
-                codeICode{icode=rest, state=Exited, code=instrs @ code, context=context}
+                codeICode{icode=rest, state=Exited, code=instrs @ pushCode @ code, context=context}
             end
 
         |   codeICode{icode=JumpLoop _ :: _, ...} =
@@ -1286,9 +1300,10 @@ struct
                Since this exits we can ignore any further code and return the code and state. *)
         |   codeICode{icode=RaiseExceptionPacket{packet} :: rest, state=NormalState state, code, context} =
             let
-                val load = loadSource(packet, eax, state)
+                val (pushedState, pushCode) = pushRax state
+                val load = loadSource(packet, eax, pushedState)
             in
-                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=raxAsArg } :: load @ code, context=context}
+                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=raxAsArg } :: load @ pushCode @ code, context=context}
             end
 
             (* Reserve a contiguous area of memory on the stack.  This is used to receive the
@@ -1347,17 +1362,18 @@ struct
                 codeICode{icode=rest, state=Exited, code=returnCode @ code, context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=PReg(oper1Reg, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1 as PReg(_, PRegGeneral), operand2 as IntegerConstant _, ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The result is a tagged register.  This is used when the constant operand can be untagged. *)
-                val topState = checkTopInRax(state, oper1Reg)
-                val resultState = addRaxToState(topState, resReg)
+                val (pushedState, pushCode) = pushRax state
+                val loadCode = loadSource(operand1, eax, pushedState)
+                val resultState = addRaxToState(pushedState, resReg)
                 val checkState =
                     {valueStack= #valueStack resultState, ccState=CCState(ccRef, fn i=>i), untaggedRegs= #untaggedRegs resultState}
             in
                 codeICode{icode=rest, state=NormalState checkState,
-                    code=ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2, ccRef=ccRef } :: code,
+                    code=ArithmeticFunction { oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=operand2, ccRef=ccRef } :: loadCode @ pushCode @ code,
                     context=context}
             end
 
@@ -1750,13 +1766,14 @@ struct
         |   codeICode{icode=AtomicExchangeAndAdd{ destAddr, source } :: rest,
                       state=NormalState state, code, context} =
             let
+                val (pushedState, pushCode) = pushRax state
                 (* Load the "destination" address into rax. *)
-                val load = loadSource(destAddr, eax, state)
+                val load = loadSource(destAddr, eax, pushedState)
                 (* The "source" is an untagged register. *)
-                val srcReg = getUreg(argToUReg source, state)
+                val srcReg = getUreg(argToUReg source, pushedState)
             in
-                codeICode{icode=rest, state=NormalState state,
-                    code=AtomicExchangeAndAdd{destAddr=raxAsArg, source=srcReg} :: load @ code, context=context}
+                codeICode{icode=rest, state=NormalState pushedState,
+                    code=AtomicExchangeAndAdd{destAddr=raxAsArg, source=srcReg} :: load @ pushCode @ code, context=context}
             end
 
         |   codeICode{icode=BoxValue{ boxKind=BoxLargeWord, dest, source } :: rest, state=NormalState state, code, context} =
