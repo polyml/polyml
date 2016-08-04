@@ -131,20 +131,22 @@ struct
             val sourceSet = listToSet sources
             and destSet = listToSet dests
             val () = checkSources(sourceSet, state)
-            (* Add the destinations to the active set. *)
+            (* Add the destinations to the active set.  These are active after this instruction. *)
             val active = union(state, destSet)
             (* Process the rest, adding each register as it is initialised. *)
             val (tail, references, refLabels, resLoopLabels) =
                 identify(rest, active, labels, loopLabels)
-            (* Have to add our sources to the result state.  These are now active. *)
+            (* The result for this instruction is all the registers that were given values
+               either before this instruction or by it and also need to have a value AFTER it.
+               So we don't include registers whose last use is in this instruction or
+               result registers from this instruction that are never used. (e.g. the
+               remainder in a division or a work register). *)
+            val current = intersect(active, references)
+            (* Have to add our sources to the result state. These are all the
+               registers that have to have a value BEFORE this instruction. *)
             val nowActive = union(references, sourceSet)
-            (* Interset the references (the registers that are used after this) with the
-               sources (the registers that are given values before this). *)
-            val current = intersect(state, nowActive)
-            (* Add our destinations to the list even if they are not used anywhere else. *)
-            val addDests = union(current, destSet)
         in
-            ((instr, setToList addDests) :: tail, nowActive, refLabels, resLoopLabels)
+            ((instr, setToList current) :: tail, nowActive, refLabels, resLoopLabels)
         end
 
         and identify ([], _, _, _) = ([], emptySet, [], [])
@@ -166,7 +168,7 @@ struct
                 val () = checkSources(sources, state)
                 val (tail, _, refLabels, resLoopLabels) = identify(rest, emptySet, labels, loopLabels)
             in
-                ((instr, setToList sources) :: tail, sources, refLabels, resLoopLabels)
+                ((instr, []) :: tail, sources, refLabels, resLoopLabels)
             end
 
         |   identify((instr as FunctionCall{regArgs, stackArgs, dest, isTail=false, ...}) :: rest, state, labels, loopLabels) =
@@ -211,11 +213,10 @@ struct
                 (* Finally we need to add the sources.  They are used to initialise the
                    loop variables so aren't required within the loop itself. *)
                 val nowActive = union(references, sources)
-                val current = intersect(state, nowActive)
-                val addDests = union(current, dests)
+                val current = intersect(state, references)
             in
                 (* Add the loop entries to the result this.  They can then be added during the next pass. *)
-                ((instr, setToList addDests) :: tail, nowActive, refLabels, (loopLabel, activeForLoop) :: resLoopLabels)
+                ((instr, setToList current) :: tail, nowActive, refLabels, (loopLabel, activeForLoop) :: resLoopLabels)
             end
 
         |   identify((instr as EndLoop{...}) :: rest, state, labels, loopLabels) =
@@ -239,8 +240,8 @@ struct
                     case List.find(fn (lab, _) => lab = loopLabel) loopLabels of
                         NONE => references
                     |   SOME (_, extras) => union(references, extras)
+                val current = intersect(state, compositeRefs)
                 val nowActive = union(compositeRefs, sources)
-                val current = intersect(state, nowActive)
             in
                 ((instr, setToList current) :: tail, nowActive, refLabels, resLoopLabels)
             end
@@ -253,19 +254,18 @@ struct
                    the exception packet. *)
                 val (tail, _, refLabels, resLoopLabels) = identify(rest, emptySet, labels, loopLabels)
             in
-                ((instr, setToList sources) :: tail, sources, refLabels, resLoopLabels)
+                ((instr, []) :: tail, sources, refLabels, resLoopLabels)
             end
 
         |   identify((instr as ReserveContainer{address, ...}) :: rest, state, labels, loopLabels) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, [], destRegs address)
 
-        |   identify((instr as IndexedCaseOperation{testReg, workReg, cases, ...}) :: rest, state, labels, loopLabels) =
+        |   identify((instr as IndexedCaseOperation{testReg, workReg=_, cases, ...}) :: rest, state, labels, loopLabels) =
             let
                 (* This is rather like an unconditional branch except that we have a
                    list of destination branches rather than a single destination. *)
                 val sources = listToSet(sourceRegs testReg)
                 val () = checkSources(sources, state)
-                val workDest = listToSet(destRegs workReg)
                 (* Add all the labels to the list.  For each branch the starting
                    state is the same as the current state. *)
                 val labelsFromCase =
@@ -283,11 +283,10 @@ struct
                         in
                             (newRefLabs, union(newRefs, refs))
                         end ) (refLabels, emptySet) cases
+                val current = intersect(state, resultRefs)
                 val nowActive = union(resultRefs, sources)
-                val current = intersect(state, nowActive)
-                val addDests = union(current, workDest)
             in
-                ((instr, setToList addDests) :: tail, nowActive, newRefLabels, resLoopLabels)
+                ((instr, setToList current) :: tail, nowActive, newRefLabels, resLoopLabels)
             end
 
         |   identify((instr as LockMutable{addr}) :: rest, state, labels, loopLabels) =
@@ -379,19 +378,17 @@ struct
                 (* The active set is the union of the two. *)
                 val nowActive = union(references, refsFromHandler)
                 val current = intersect(state, nowActive)
-                val addDests = union(current, dests)
             in
-                ((instr, setToList addDests) :: tail, nowActive, newRefLabels, resLoopLabels)
+                ((instr, setToList current) :: tail, nowActive, newRefLabels, resLoopLabels)
             end
 
         |   identify((instr as PopExceptionHandler{handlerAddr, resultReg=_, workReg}) :: rest, state, labels, loopLabels) =
                 (* Pop an exception handler. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs handlerAddr, destRegs workReg)
 
-        |   identify((instr as BeginHandler{handleStart, workReg}) :: rest, state, labels, loopLabels) =
+        |   identify((instr as BeginHandler{handleStart, workReg=_}) :: rest, state, labels, loopLabels) =
             let
                 (* Begin a handler.  This is similar to ForwardJumpLabel. *)
-                val dests = listToSet(destRegs workReg)
                 val (srcs, newSrcLabels) = findLabel(labels, handleStart)
                 (* Add the sources that applied at the jump to the current set.
                    In particular if we're following an unconditional jump this will
@@ -400,9 +397,8 @@ struct
                 val (tail, references, refLabels, resLoopLabels) =
                     identify(rest, active, newSrcLabels, loopLabels)
                 val current = intersect(active, references)
-                val addDests = union(current, dests)
             in
-                ((instr, setToList addDests) :: tail, references, (handleStart, references)::refLabels, resLoopLabels)
+                ((instr, setToList current) :: tail, references, (handleStart, references)::refLabels, resLoopLabels)
             end
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, state, labels, loopLabels) =
@@ -413,7 +409,7 @@ struct
                    the result. *)
                 val (tail, _, refLabels, resLoopLabels) = identify(rest, emptySet, labels, loopLabels)
             in
-                ((instr, setToList sources) :: tail, sources, refLabels, resLoopLabels)
+                ((instr, []) :: tail, sources, refLabels, resLoopLabels)
             end
 
         |   identify((instr as ArithmeticFunction{resultReg, operand1, operand2, ...}) :: rest, state, labels, loopLabels) =
