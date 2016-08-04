@@ -2149,9 +2149,9 @@ struct
                 fun printCode(c, regs) =
                 (
                     printICode(c, printStream);
-                    printStream "\t";
+                    printStream "\t[";
                     printRegs(regs, 10);
-                    printStream "\n"
+                    printStream "]\n"
                 )
             in
                 printStream(functionName ^ "\n");
