@@ -157,8 +157,7 @@ struct
             then {valueStack=resultState, ccState=ccState, untaggedRegs=untaggedRegs}
             else raise InternalError "checkTopInRax"
         |   checkTopInRax _ = raise InternalError "checkTopInRax"
-        
-        
+
         fun loadToRax(state, arg) =
         let
             val (pushedState, pushCode) = pushRax state
@@ -403,13 +402,13 @@ struct
                           context=context}
             end
 
-        |   codeICode{icode=WordComparison{arg1=PReg(testR1, PRegGeneral), arg2=PReg(testR2, PRegGeneral), ccRef} :: rest,
+        |   codeICode{icode=WordComparison{arg1=PReg(testR1, PRegGeneral), arg2 as PReg(_, PRegGeneral), ccRef} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* The second argument should be on the top of the stack and in rax. *)
-                val startState = checkTopInRax(state, testR2)
+                val (startState, loadCode) = loadToRax(state, arg2)
                 val secondArg =
-                    case findEntry (testR1, state) of
+                    case findEntry (testR1, startState) of
                         OnStack s => s
                     |   _ => raise InternalError "codeICode: JumpOnWordComparison"
                 (* We want the first argument in the register so that means the condition codes
@@ -426,7 +425,8 @@ struct
                 val checkState = {valueStack= #valueStack startState, ccState=CCState(ccRef, revCond), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
-                          code=WordComparison{arg1=raxAsArg, arg2=wordOffsetAddress(stackPtr state - secondArg - 1, esp), ccRef=ccRef} :: code,
+                          code=WordComparison{arg1=raxAsArg, arg2=wordOffsetAddress(stackPtr startState - secondArg - 1, esp), ccRef=ccRef} ::
+                               loadCode @ code,
                           context=context}
             end
 
@@ -437,7 +437,7 @@ struct
                 state=NormalState state, code, context=context} =
                 (* This is used for LargeWord comparisons. *)
             let
-                val startState as {untaggedRegs, valueStack, ...} = checkTopInRax(state, argToPReg bReg2)
+                val (startState as { valueStack, untaggedRegs, ...}, loadArg2Base) = loadToRax(state, bReg2)
                 (* We use an untagged register temporarily. *)
                 val newReg =
                     case untaggedRegs of
@@ -451,7 +451,7 @@ struct
                           code=
                             WordComparison{arg1=RealRegister(GenReg newReg),
                                            arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef} ::
-                                loadArg1 @ code,
+                                loadArg1 @ loadArg2Base @ code,
                           context=context}
             end
             
@@ -1436,16 +1436,16 @@ struct
                     context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2=PReg(oper2Reg, PRegGeneral), ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2 as PReg(oper2Reg, PRegGeneral), ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The top item should be in RAX but that is the second argument.  That's all right for
                    addition but wrong for subtraction.  Move the first argument into RBX, load the second into
                    RAX and then do the operation. *)
                 val resReg = argToPReg resultReg
-                val topState = checkTopInRax(state, oper2Reg)
+                val (topState, loadArg2Base) = loadToRax(state, operand2)
                 val secondArg =
-                    case findEntry (oper1Reg, state) of
+                    case findEntry (oper1Reg, topState) of
                         OnStack s => s
                     |   _ => raise InternalError "codeICode: ArithmeticFunction"
                 val resultState = addRaxToState(topState, resReg)
@@ -1457,10 +1457,10 @@ struct
                         ArithmeticFunction {
                             oper=oper, resultReg=raxAsArg, operand1=raxAsArg, operand2=RealRegister(GenReg ebx), ccRef=ccRef } ::
                         MoveArgument
-                            { source=MemoryLocation{offset=(stackPtr state - secondArg - 1) * wordSize, base=RealRegister(GenReg esp), index=NoMemIndex},
+                            { source=MemoryLocation{offset=(stackPtr topState - secondArg - 1) * wordSize, base=RealRegister(GenReg esp), index=NoMemIndex},
                               dest=raxAsArg, kind=MoveWord } ::
                         MoveArgument { source=raxAsArg, dest=RealRegister(GenReg ebx), kind=MoveWord} ::
-                        code,
+                        loadArg2Base @ code,
                     context=context}
             end
 
@@ -1924,21 +1924,9 @@ struct
                       state=NormalState state, code, context=context} =
             let
                 (* Load the first argument into an SSE2 register or the X87 stack.
-                   Compare with the second.
-                   We may have the arguments either way round.  The second argument to be loaded
-                   will be in RAX but that may be bReg2 or bReg1. *)
-                val (startState as {valueStack, ...}, topReg) =
-                    case state of
-                        {valueStack={preg, loc=InRax } :: resultState, ccState, untaggedRegs} =>
-                        ({valueStack=resultState, ccState=ccState, untaggedRegs=untaggedRegs}, preg)
-                    |   _ => raise InternalError "codeICode: CompareFloatingPt - check top"
-                val (loadArgAddr, arg1Reg, arg2Reg) =
-                    if topReg = argToPReg bReg2
-                    then (loadSource(bReg1, ebx, startState), rbxAsArg, raxAsArg)
-                    else if topReg = argToPReg bReg1
-                    then (loadSource(bReg2, ebx, startState), raxAsArg, rbxAsArg)
-                    else raise InternalError "codeICode: CompareFloatingPt - check top"
-
+                   Compare with the second. *)
+                val (startState as { valueStack, ...}, arg2Code) = loadToRax(state, bReg2)
+                val arg1Code = loadSource(bReg1, ebx, startState)
                 val floatingPointReg =
                     case fpMode of
                         FPModeX87 => FPReg fp0
@@ -1947,10 +1935,10 @@ struct
             in
                 codeICode{icode=rest, state=NormalState checkState,
                           code=
-                            CompareFloatingPt{arg1=RealRegister floatingPointReg, arg2=MemoryLocation{offset=offset2, base=arg2Reg, index=NoMemIndex}, ccRef=ccRef} ::
-                            MoveArgument{source=MemoryLocation{offset=offset1, base=arg1Reg, index=NoMemIndex},
+                            CompareFloatingPt{arg1=RealRegister floatingPointReg, arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef} ::
+                            MoveArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
                                 dest=RealRegister floatingPointReg, kind=MoveDouble} ::
-                            loadArgAddr @ code,
+                            arg1Code @ arg2Code @ code,
                           context=context}
             end
 

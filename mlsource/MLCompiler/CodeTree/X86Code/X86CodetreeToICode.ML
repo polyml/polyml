@@ -542,7 +542,7 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and ccRef = newCCRef()
+                val ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand.
                    This should always be a tagged value if the type is correct.  However it's possible for it not to
                    be if we have an arbitrary precision value.  There will be a run-time check that the value is
@@ -552,8 +552,9 @@ struct
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @
+                (arg1Code @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
                     checkOverflow (ccRef, target), target, false)
             end
@@ -561,14 +562,15 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg2 = newPReg() and ccRef = newCCRef()
+                val ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg2Code @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
                     checkOverflow (ccRef, target), target, false)
             end
@@ -576,9 +578,11 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg() and ccRef = newCCRef()
+                val aReg3 = newPReg() and ccRef = newCCRef()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg1Code @ arg2Code @
                     (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
                     (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
                        the argument if one of the arguments is already untagged or if we have a constant argument. *)
@@ -591,14 +595,15 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and ccRef = newCCRef()
+                val ccRef = newCCRef()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @
+                (arg1Code @
                     [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
                     checkOverflow (ccRef, target), target, false)
             end
@@ -606,10 +611,12 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                val aReg3 = newPReg()
                 val ccRef = newCCRef()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg1Code @ arg2Code @
                     (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=ccRef}] @
                     checkOverflow (ccRef, target) @
@@ -673,7 +680,6 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand.
                    N.B. it is possible to have type-incorrect values in dead code. i.e. code that will
                    never be executed because of a run-time check.  *)
@@ -681,31 +687,34 @@ struct
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @
+                (arg1Code @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}], target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg2 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg2Code @
                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}], target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                val aReg3 = newPReg()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg1Code @ arg2Code @
                     (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
                      ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=aReg3, ccRef=newCCRef()}], target, false)
@@ -714,23 +723,25 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg()
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
                 val constVal =
                     if isShort value
                     then semitag(Word.toLargeIntX(toShort value))
                     else 0
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @
+                (arg1Code @
                     [ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}], target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                val aReg3 = newPReg()
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
+                (arg1Code @ arg2Code @
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=aReg2, ccRef=newCCRef()},
@@ -1832,8 +1843,8 @@ struct
 
         |   codeCondition(BICUnary{oper=BuiltIns.IsTaggedValue, arg1}, context, jumpOn, jumpLabel) =
             let
-                val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICodeTarget(arg1, context, false, testReg)
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPReg(arg1, context)
                 (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
             in
                 testCode @
@@ -1846,8 +1857,8 @@ struct
         |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2=BICConstnt(arg2Value, _)},
                     context, jumpOn, jumpLabel) =
             let
-                val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICodeTarget(arg1, context, false, testReg)
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPReg(arg1, context)
                 val arg2Arg = constantAsArgument arg2Value
             in
                 testCode @
@@ -1872,12 +1883,11 @@ struct
         |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
                     context, jumpOn, jumpLabel) =
             let
-                val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
-                val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val ccRef = newCCRef()
+                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
+                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
             in
-                testCode @
+                arg1Code @ arg2Code @
                     [WordComparison{arg1=arg1Reg, arg2=arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
@@ -1886,12 +1896,11 @@ struct
         |   codeCondition(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
                     context, jumpOn, jumpLabel) =
             let
-                val arg1Reg = newPReg() and arg2Reg = newPReg() and ccRef = newCCRef()
-                val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
+                val ccRef = newCCRef()
+                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
+                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
             in
-                testCode @
+                arg1Code @ arg2Code @
                     [WordComparison{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
@@ -1906,13 +1915,11 @@ struct
         |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestEqual, arg1, arg2},
                     context, jumpOn, jumpLabel) =
             let
-                val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                 val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
-                val testCode =
-                    codeToICodeTarget(arg1, context, false, arg1Reg) @
-                    codeToICodeTarget(arg2, context, false, arg2Reg)
-                (* If this is X87 we get the condition into RAX and test it there.  If
+                val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
+                val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
+               (* If this is X87 we get the condition into RAX and test it there.  If
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val getResultCode =
                     case (fpMode, jumpOn) of
@@ -1939,7 +1946,7 @@ struct
                             ConditionalForwardJump{ccRef=ccRef1, condition=JNE, label=jumpLabel}
                         ]
             in
-                testCode @
+                arg1Code @ arg2Code @
                     (CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: getResultCode)
             end
 
@@ -2211,7 +2218,7 @@ struct
       
         open ICODETRANSFORM
         
-        val () = if !pregCounter > 300 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()
+        (*val () = if !pregCounter > 300 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()*)
     in
         codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
