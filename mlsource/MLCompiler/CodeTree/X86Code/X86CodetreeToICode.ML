@@ -90,8 +90,8 @@ struct
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
-        val returnInstruction =
-            ReturnResultFromFunction{resultReg=resultTarget, numStackArgs=currentStackArgs}
+        fun returnInstruction target =
+            ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}
 
         fun constantAsArgument value =
             if isShort value
@@ -1116,25 +1116,30 @@ struct
         |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, destination) =
             let
                 val target = asTarget destination
+                (* If this is a tail each arm will exit separately and neither will return a result. *)
+                val (thenTarget, elseTarget) =
+                    if isTail
+                    then (newPReg(), newPReg())
+                    else (target, target)
                 val startElse = newLabel()
                 val testCode = codeCondition(test, context, false, startElse)
                 (* Put the result in the target register. *)
-                val (thenCode, _, thenExited) = codeToICode(thenPt, context, isTail, SpecificPReg target)
+                val (thenCode, _, thenExited) = codeToICode(thenPt, context, isTail, SpecificPReg thenTarget)
                 (* Add a jump round the else-part except that if this is a tail we
                    return.  The then-part could have exited e.g. with a raise or a loop. *)
                 val (exitThen, thenLabel) =
                     if thenExited then ([], [])
-                    else if isTail then ([returnInstruction], [])
+                    else if isTail then ([returnInstruction thenTarget], [])
                     else
                     let
                         val skipElse = newLabel()
                     in
                         ([UnconditionalForwardJump{label=skipElse}], [ForwardJumpLabel{label=skipElse, result=SOME target}])
                     end
-                val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg target)
+                val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg elseTarget)
                 (* Add a return to the else-part if necessary so we will always exit on a tail. *)
                 val exitElse =
-                    if isTail andalso not elseExited then [returnInstruction] else []
+                    if isTail andalso not elseExited then [returnInstruction elseTarget] else []
             in
                 (testCode @
                     thenCode @ exitThen @ [ForwardJumpLabel{label=startElse, result=NONE}] @
@@ -1236,11 +1241,12 @@ struct
                    TODO: This could be replaced by "returns" if we're at the tail. *)
                 fun codeCases ((startLabel, SOME c, _) :: otherCases) =
                     let
+                        val caseTarget = if isTail then newPReg() else target
                         (* Put in the case with a jump to the end of the sequence. *)
-                        val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg target)
+                        val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg caseTarget)
                         val (exitThisCase, exitLabel) =
                             if caseExited then ([], [])
-                            else if isTail then ([returnInstruction], [])
+                            else if isTail then ([returnInstruction caseTarget], [])
                             else
                             let
                                 val exitLabel = newLabel()
@@ -1265,15 +1271,16 @@ struct
                         fun asForward l = ForwardJumpLabel{label=l, result=NONE}
                         val dLabs = map asForward extraDefaults
                         val defLabels = List.foldl addDefault dLabs fullCaseRange
+                        val defaultTarget = if isTail then newPReg() else target
                         val (defaultCode, _, defaultExited) =
-                            codeToICode(default, context, isTail, SpecificPReg target)
+                            codeToICode(default, context, isTail, SpecificPReg defaultTarget)
                     in
                         (* Put in the default.  Because this is the last we don't need to
                            jump round it.  However if this is a tail and we haven't exited
                            we put in a return.  That way the case will always have
                            exited if this is a tail. *)
                          defLabels @ defaultCode @
-                            (if isTail andalso not defaultExited then [returnInstruction] else [])
+                            (if isTail andalso not defaultExited then [returnInstruction defaultTarget] else [])
                     end
                     
                 val codedCases = codeCases fullCaseRange
@@ -1340,12 +1347,17 @@ struct
         |   codeToICode(BICHandle {exp, handler}, context, isTail, destination) =
             let
                 val target = asTarget destination
+                val (bodyTarget, handlerTarget) =
+                    if isTail then (newPReg(), newPReg()) else (target, target)
                 (* TODO: Even if we don't actually want a result we force one in here by
-                   using "asTarget". *)
+                   using "asTarget".  Actually, because PopExceptionHandler has an non-optional
+                   resultReg we're forced to return a result. *)
                 (* The expression cannot be treated as a tail because the handler has
                    to be removed after *)
-                val (expCode, _, _) = codeToICode(exp, context, false (* Not tail *), SpecificPReg target)
-                val (handleCode, _, handleExit) = codeToICode(handler, context, isTail, SpecificPReg target)
+                val (expCode, _, _) =
+                    codeToICode(exp, context, false (* Not tail *), SpecificPReg bodyTarget)
+                val (handleCode, _, handleExit) =
+                    codeToICode(handler, context, isTail, SpecificPReg handlerTarget)
                 val saveHandle = newPReg()
                 val handlerLab = newLabel()
                 (* If this is the tail we can replace the jump at the end of the
@@ -1354,7 +1366,7 @@ struct
                    skip the handler. *)
                 val (handledJump, handledLabel) =
                     if isTail
-                    then (returnInstruction, if handleExit then [] else [returnInstruction])
+                    then (returnInstruction bodyTarget, if handleExit then [] else [returnInstruction handlerTarget])
                     else
                     let
                         val skipHandler = newLabel()
@@ -1364,7 +1376,7 @@ struct
                     end
             in
                 (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
-                [PopExceptionHandler{handlerAddr=saveHandle, resultReg=target, workReg=newPReg()},
+                [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()},
                  handledJump,
                  BeginHandler{handleStart=handlerLab, workReg=newPReg()}] @
                  handleCode @ handledLabel, target, isTail)
@@ -2214,7 +2226,7 @@ struct
 
         val (bodyCode, _, bodyExited) =
             codeToICode(body, {loopArgs=NONE}, true, SpecificPReg resultTarget)
-        val icode = pushClosureReg @ pushArgs @ bodyCode @ (if bodyExited then [] else [returnInstruction])
+        val icode = pushClosureReg @ pushArgs @ bodyCode @ (if bodyExited then [] else [returnInstruction resultTarget])
       
         open ICODETRANSFORM
         
