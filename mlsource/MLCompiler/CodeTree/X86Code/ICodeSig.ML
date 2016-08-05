@@ -31,6 +31,8 @@ sig
         GenReg of genReg
     |   FPReg of fpReg
     |   XMMReg of xmmReg
+    
+    val regRepr: reg -> string
 
     val isX64: bool and is32bit: LargeInt.int -> bool
 
@@ -261,5 +263,6 @@ sig
         and  iLabel         = iLabel
         and  x86ICode       = x86ICode
         and  branchOps      = branchOps
+        and  reg            = reg
     end
 end;

@@ -1436,7 +1436,7 @@ struct
                     context=context}
             end
 
-        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2 as PReg(oper2Reg, PRegGeneral), ccRef } :: rest,
+        |   codeICode{icode=ArithmeticFunction{ oper, resultReg, operand1=PReg(oper1Reg, PRegGeneral), operand2 as PReg(_, PRegGeneral), ccRef } :: rest,
                       state=NormalState state, code, context} =
             let
                 (* The top item should be in RAX but that is the second argument.  That's all right for
@@ -2130,7 +2130,7 @@ struct
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
         
-        val decoratedCode = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+        val (decoratedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
         
         val icodeTabs = [8, 20, 60]
         
@@ -2153,10 +2153,24 @@ struct
                     printRegs(regs, 10);
                     printStream "]\n"
                 )
+                
+                fun printRegData(i, { active, defs, refs, sourceReal, destReal, pushState }) =
+                (
+                    printStream (Int.toString i ^ "\t");
+                    printStream ("Active=" ^ Int.toString active);
+                    printStream (" Rfs=" ^ Int.toString refs);
+                    printStream (" Defs=" ^ Int.toString defs);
+                    case sourceReal of SOME r => printStream(" From=" ^ regRepr r) | NONE => ();
+                    case destReal of SOME r => printStream(" To=" ^ regRepr r) | NONE => ();
+                    case pushState of
+                        MustPush => printStream " Must push" | MustNotPush => printStream " No push" | MayPush => ();
+                    printStream "\n"
+                )
             in
                 printStream(functionName ^ "\n");
                 List.app printCode decoratedCode;
-                printStream "\n"
+                printStream "\n";
+                Vector.appi printRegData regStates
             end
             else ()
 

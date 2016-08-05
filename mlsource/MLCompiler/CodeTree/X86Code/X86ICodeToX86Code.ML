@@ -1155,6 +1155,7 @@ struct
         and  iLabel         = iLabel
         and  x86ICode       = x86ICode
         and  branchOps      = branchOps
+        and  reg            = reg
     end
 
 end;
