@@ -2130,7 +2130,107 @@ struct
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
         
+        exception TooHard
+
         val (decoratedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+        
+        fun isActive(reg, set) = List.exists(fn i => i = reg) set
+        
+        fun findInState(pr, state) = #2(valOf(List.find(fn (r, _) => r = pr) state))
+        fun removeFromState(pr, state) = List.filter(fn (r, _) => r <> pr) state
+
+        fun codeExtended([], _) = ([], [])
+
+        |   codeExtended((MoveArgument{source as RealRegister reg, dest=PReg(pr, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+            let
+                val (state, code) = codeExtended(rest, context)
+            in
+                if isActive(pr, active)
+                then
+                let
+                    (* See if we're using it from the register it's in.  Otherwise we need
+                       to move it. *)
+                    val regResult = findInState(pr, state)
+                    val c =
+                        if regResult = reg
+                        then []
+                        else [MoveArgument{source=source, dest=RealRegister regResult, kind=MoveWord}]
+                in
+                    (removeFromState(pr, state), c @ code)
+                end
+                else (state, code) (* Not needed. *)
+            end
+
+        |   codeExtended((MoveArgument{source=PReg(sreg, PRegGeneral), dest=PReg(dreg, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+            let
+                (* If the source register is active we're going to need both, or at least assume that for
+                   the moment so we only ever associate a single preg with a real register. *)
+                val (state, code) = codeExtended(rest, context)
+            in
+                if isActive(sreg, active)
+                then
+                let
+                in
+                    raise TooHard
+                end
+                else
+                let
+                    (* Since we're generating a new register and don't want the old one we can
+                       use the same real register. *)
+                    val regResult = findInState(dreg, state)
+                    val newState = (sreg, regResult) :: removeFromState(dreg, state)
+                in
+                    (newState, code)
+                end
+            end
+
+        |   codeExtended((MoveArgument{source as AddressConstant _, dest=PReg(pr, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+            let
+                val (state, code) = codeExtended(rest, context)
+            in
+                if isActive(pr, active)
+                then
+                let
+                    (* Find a register for this.  Because we're working backwards we should have this. *)
+                    val regResult = findInState(pr, state)
+                    val c = MoveArgument{source=source, dest=RealRegister regResult, kind=MoveWord}
+                in
+                    (removeFromState(pr, state), c :: code)
+                end
+                else (state, code) (* Not needed. *)
+            end
+
+        |   codeExtended((ReturnResultFromFunction { resultReg, numStackArgs }, _) :: rest, context) =
+            let
+                val (_, code) = codeExtended(rest, context)
+                (* Say we want it in rax. *)
+                val resultState = [(argToPReg resultReg, GenReg eax)]
+                val c = ReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs}
+            in
+                (resultState, c :: code)
+            end
+
+        |   codeExtended((ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=PReg(op1Reg, PRegGeneral),
+                                             operand2 as IntegerConstant _, ccRef}, active) :: rest, context) =
+            let (* The result is a tagged register.  This is used when the constant operand can be untagged. *)
+                val (state, code) = codeExtended(rest, context)
+            in
+                (* If the operand register is not used after this instruction we can reuse the result register. *)
+                if isActive(op1Reg, active)
+                then raise TooHard
+                else
+                let
+                    val regResult = findInState(resReg, state)
+                    val c =
+                        ArithmeticFunction{oper=oper, resultReg=RealRegister regResult, operand1=RealRegister regResult,
+                                           operand2=operand2, ccRef=ccRef}
+                    val newState = (op1Reg, regResult) :: removeFromState(resReg, state)
+                in
+                    (newState, c :: code)
+                end
+            end
+        
+        |   codeExtended _ = raise TooHard
         
         val icodeTabs = [8, 20, 60]
         
@@ -2174,9 +2274,21 @@ struct
             end
             else ()
 
-        val (fnState, fnCode) = codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
-        val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
-        val postTransformCode = List.rev fnCode (* Reverse the list *)
+        val postTransformCode =
+            let
+                val (_, code) = codeExtended(decoratedCode, [])
+                val _ = print("Done " ^ functionName ^ "!!!!\n")
+            in
+                code
+            end
+            handle TooHard =>
+            let
+                val (fnState, fnCode) =
+                    codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
+                val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
+            in
+                List.rev fnCode (* Reverse the list *)
+            end
         val () =
             (* Print the code after the transformation. *)
             if DEBUG.getParameter DEBUG.icodeTag debugSwitches
