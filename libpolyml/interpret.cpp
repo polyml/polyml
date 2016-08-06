@@ -242,7 +242,6 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     this->sp--;
     *(this->sp) = PolyWord::FromStackAddr(this->sp);
     *(--this->sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
-    *(--this->sp) = Zero; /* Default handler. */
     this->hr = this->sp;
 
     /* If this function takes an argument store it on the stack. */
@@ -493,20 +492,11 @@ int IntTaskData::SwitchToPoly()
             RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
                 this->exception_arg = exn; /* Get exception data */
-                this->sp = sp; /* Save this in case of trace. */
-                PolyWord *t = this->hr;  /* First handler */
-                PolyWord *endStack = this->stack->top;
-                // The legacy version pushes an identifier which is always zero.
-                if (*t == Zero) t++;
-                if (*t == SPECIAL_PC_END_THREAD)
+                sp = this->hr;
+                if (*sp == SPECIAL_PC_END_THREAD)
                     exitThread(this);  // Default handler for thread.
-                this->pc = (*t).AsCodePtr();
-                /* Now remove this handler. */
-                sp = t;
-                while ((t = (*sp).AsStackAddr()) < sp || t > endStack)
-                    sp++;
-                this->hr = t; /* Restore old handler */
-                sp++; /* Remove that entry. */
+                this->pc = (*sp++).AsCodePtr();
+                this->hr = (*sp++).AsStackAddr();
                 break;
             }
 
@@ -538,7 +528,7 @@ int IntTaskData::SwitchToPoly()
             storeWords = arg1; pc += 2;
         TUPLE: /* Common code for tupling. */
             PolyObject *p = this->allocateMemory(storeWords);
-            if (p == 0) goto RAISE_EXCEPTION;; // Exception
+            if (p == 0) goto RAISE_EXCEPTION; // Exception
             p->SetLengthWord(storeWords, 0);
             for(; storeWords > 0; ) p->Set(--storeWords, *sp++);
             *(--sp) = p;
@@ -1557,11 +1547,12 @@ int IntTaskData::SwitchToPoly()
         case INSTR_allocWordMemory:
         {
             // Allocate word segment.  This must be initialised.
-            PolyWord initialiser = *sp++;
-            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED length = UNTAGGED_UNSIGNED(*sp);
+            // We mustn't pop the initialiser until after any potential GC.
+            POLYUNSIGNED length = UNTAGGED_UNSIGNED(sp[2]);
             PolyObject *t = this->allocateMemory(length);
             if (t == 0) goto RAISE_EXCEPTION;
+            PolyWord initialiser = *sp++;
+            POLYUNSIGNED flags = UNTAGGED_UNSIGNED(*sp++);
             t->SetLengthWord(length, (byte)flags);
             *sp = t;
             // Have to initialise the data.
@@ -1572,9 +1563,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_alloc_ref:
         {
             // Allocate a single word mutable cell.  This is more common than allocWordMemory on its own.
-            PolyWord initialiser = *sp;
             PolyObject *t = this->allocateMemory(1);
             if (t == 0) goto RAISE_EXCEPTION;
+            PolyWord initialiser = *sp;
             t->SetLengthWord(1, F_MUTABLE_BIT);
             t->Set(0, initialiser);
             *sp = t;
