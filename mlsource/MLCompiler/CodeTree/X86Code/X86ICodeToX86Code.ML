@@ -82,6 +82,15 @@ struct
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument, kind: moveKind }
+
+        (* Load an entry from the real stack. *)
+    |   LoadStack of { offset: int, dest: argument }
+
+        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
+    |   LoadMemReg of { offset: int, dest: argument }
+
+        (* Start of function.  Set the register arguments. *)
+    |   BeginFunction of { regArgs: (argument * reg) list }
     
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
@@ -144,9 +153,8 @@ struct
     |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument, workReg: argument }
 
         (* Marks the start of a handler.  This sets the stack pointer and
-           restores the old handler.  As a special case it must ensure that rax is
-           preserved because that contains the exception packet. *) 
-    |   BeginHandler of { handleStart: iLabel, workReg: argument }
+           restores the old handler.  Sets the exception packet register. *) 
+    |   BeginHandler of { handleStart: iLabel, packetReg: argument, workReg: argument }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }
@@ -267,6 +275,18 @@ struct
                 printArg(dest, stream)
             )
 
+        |   printICode(LoadStack { offset, dest}, stream) =
+                ( stream "\tLoadStack\t"; stream(Int.toString offset); stream " => "; printArg(dest, stream) )
+
+        |   printICode(LoadMemReg { offset, dest}, stream) =
+                ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printArg(dest, stream) )
+
+        |   printICode(BeginFunction {regArgs}, stream) =
+            (
+                stream "\tBeginFunction\t";
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream); stream " ")) regArgs
+            )
+
         |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, isTail}, stream) =
             (
                 if isTail then stream "\tTailCall\t"
@@ -362,9 +382,30 @@ struct
         |   printICode(WordComparison{arg1, arg2, ...}, stream) =
                 (stream "\tWordComparison\t"; printArg(arg1, stream); stream ","; printArg(arg2, stream))
 
-        |   printICode(PushExceptionHandler{...}, stream) = stream "\tPushExceptionHandler\t"
-        |   printICode(PopExceptionHandler{...}, stream) = stream "\tPopExceptionHandler\t"
-        |   printICode(BeginHandler{...}, stream) = stream "\tBeginHandler\t"
+        |   printICode(PushExceptionHandler{handlerAddr, handleStart}, stream) =
+            (
+                stream "\tPushExceptionHandler\t";
+                printLabel(handleStart, stream);
+                stream "=>";
+                printArg(handlerAddr, stream)
+            )
+
+        |   printICode(PopExceptionHandler{handlerAddr, resultReg=_, workReg}, stream) =
+            (
+                stream "\tPopExceptionHandler\t";
+                printArg(handlerAddr, stream);
+                stream " with ";
+                printArg(workReg, stream)
+            )
+
+        |   printICode(BeginHandler{handleStart, packetReg, workReg}, stream) =
+            (
+                stream "\tBeginHandler\t";
+                printLabel(handleStart, stream);
+                printArg(packetReg, stream);
+                stream " with ";
+                printArg(workReg, stream)
+            )
 
         |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream) =
                 (stream "\tReturnFromFunction\t"; printArg(resultReg, stream); stream("," ^ Int.toString numStackArgs))
@@ -706,6 +747,12 @@ struct
         |   codeGenICode(MoveArgument _ :: _, _) =
                 raise InternalError "codeGenICode: TODO MoveArgument"
 
+            (* These two should have been transformed into MoveArgument. *)
+        |   codeGenICode(LoadStack _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
+        |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
+
+        |   codeGenICode(BeginFunction _ :: rest, code) = codeGenICode(rest, code) (* Don't need to do anything. *)
+
         |   codeGenICode(FunctionCall {isTail=false, callKind, ...} :: rest, code) =
                 codeGenICode(rest, CallFunction callKind :: code)
 
@@ -863,8 +910,9 @@ struct
                     ResetStack 1 :: code)
             end
  
-        |   codeGenICode(BeginHandler {handleStart=ILabel hStart, workReg} :: rest, code) =
+        |   codeGenICode(BeginHandler {handleStart=ILabel hStart, workReg, packetReg} :: rest, code) =
             let
+                val _ = asGenReg packetReg = eax orelse raise InternalError "codeGenICode: BeginHandler"
                 val wReg = asGenReg workReg
                 val labelRef =
                     case Array.sub(labelArray, hStart) of

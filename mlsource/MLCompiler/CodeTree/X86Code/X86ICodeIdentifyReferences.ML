@@ -194,10 +194,24 @@ struct
                 |   _ => ();
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source, [dReg])
             end
-        
+
         |   identify((instr as MoveArgument { source, dest, ...}) :: rest, state, labels, loopLabels) =
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source @ sourceRegs dest, [])
+
+        |   identify((instr as LoadStack { dest, ...}) :: rest, state, labels, loopLabels) =
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, [], [destReg dest])
+
+        |   identify((instr as LoadMemReg { dest, ...}) :: rest, state, labels, loopLabels) =
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, [], [destReg dest])
+
+        |   identify((instr as BeginFunction {regArgs}) :: rest, state, labels, loopLabels) =
+            let
+                val destRegs =
+                    map (fn (dest, src) => let val dReg = destReg dest in Array.update(regSourceReg, dReg, SOME src); dReg end) regArgs
+            in
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, [], destRegs)
+            end
 
         |   identify((instr as FunctionCall{regArgs, stackArgs, dest, isTail, ...}) :: rest, state, labels, loopLabels) =
             let 
@@ -463,18 +477,24 @@ struct
                 (* Pop an exception handler. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs handlerAddr, [destReg workReg])
 
-        |   identify((instr as BeginHandler{handleStart, workReg=_}) :: rest, state, labels, loopLabels) =
+        |   identify((instr as BeginHandler{handleStart, workReg=_, packetReg}) :: rest, state, labels, loopLabels) =
             let
                 (* Begin a handler.  This is similar to ForwardJumpLabel. *)
                 val (srcs, newSrcLabels) = findLabel(labels, handleStart)
                 (* Add the sources that applied at the jump to the current set.
                    In particular if we're following an unconditional jump this will
                    set the state. *)
-                val active = union(srcs, state)
+                val dReg = destReg packetReg
+                val destSet = listToSet [dReg]
+                val active = union(union(srcs, state), destSet)
                 val (tail, references, refLabels, resLoopLabels) =
                     identify(rest, active, newSrcLabels, loopLabels)
                 val current = setToList(intersect(active, references))
-                val () = List.app(fn i => incrArray(regActive, i)) current
+                (* All the active registers, apart from the exception packet, will have to be pushed
+                   to the stack so they are available if the handler is entered. *)
+                val () =
+                    List.app(
+                        fn i => (incrArray(regActive, i); if i = dReg then () else Array.update(regPushState, i, MustPush))) current
             in
                 ((instr, current) :: tail, references, (handleStart, references)::refLabels, resLoopLabels)
             end

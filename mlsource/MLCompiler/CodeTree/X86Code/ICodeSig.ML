@@ -62,7 +62,7 @@ sig
         SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
         SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
-    val memRegThreadSelf: int (* Copied from X86CodeSgig *)
+    val memRegThreadSelf: int (* Copied from X86CodeSig *)
 
     datatype callKinds =
         Recursive
@@ -103,7 +103,16 @@ sig
         (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
            are supported. *)
         MoveArgument of { source: argument, dest: argument, kind: moveKind }
-    
+
+        (* Load an entry from the real stack. *)
+    |   LoadStack of { offset: int, dest: argument }
+
+        (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
+    |   LoadMemReg of { offset: int, dest: argument }
+
+        (* Start of function.  Set the register arguments. *)
+    |   BeginFunction of { regArgs: (argument * reg) list }
+
         (* Call or jump to a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
            as one of the argument registers.  The result is stored in the destination register.
@@ -165,9 +174,8 @@ sig
     |   PopExceptionHandler of { handlerAddr: argument, resultReg: argument, workReg: argument }
 
         (* Marks the start of a handler.  This sets the stack pointer and
-           restores the old handler.  As a special case it must ensure that rax is
-           preserved because that contains the exception packet. *) 
-    |   BeginHandler of { handleStart: iLabel, workReg: argument }
+           restores the old handler.  Sets the exception packet register. *) 
+    |   BeginHandler of { handleStart: iLabel, packetReg: argument, workReg: argument }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: argument, numStackArgs: int }

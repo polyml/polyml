@@ -327,13 +327,14 @@ struct
             (* Start of a handler.  This is similar to a ForwardLabel and should only occur in an Exited state.
                The handlers form a stack so the one we want should be on the top. *)
         |   codeICode{
-                icode=(BeginHandler{handleStart, ...}) :: rest, state=Exited, code,
+                icode=(BeginHandler{handleStart, packetReg, ...}) :: rest, state=Exited, code,
                 context={forwardLabels, loopArgs, handlers=(handleLab, handlerStartState) :: otherHandlers}} =
             let
                 val _ = handleLab = handleStart orelse raise InternalError "codeICode: BeginHandler handler stack mismatch"
+                val resultState = addRaxToState(handlerStartState, argToPReg packetReg)
             in
-                codeICode{icode=rest, state=NormalState handlerStartState,
-                        code=BeginHandler{handleStart=handleStart, workReg=RealRegister(GenReg ebx)} :: code,
+                codeICode{icode=rest, state=NormalState resultState,
+                        code=BeginHandler{handleStart=handleStart, workReg=rbxAsArg, packetReg=raxAsArg} :: code,
                         context={forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=otherHandlers}}
             end
 
@@ -1086,6 +1087,51 @@ struct
             (* Other combinations of move aren't used at the moment. *)
         |   codeICode{icode=MoveArgument _ :: _, ...} =
                 raise InternalError "codeICode: MoveArgument"
+
+        |   codeICode{icode=LoadStack{ offset, dest} :: rest, state=NormalState state, code, context} =
+            (* Load from the stack *)
+            let
+                val destReg = argToPReg dest
+                val (pushedState, pushCode) = pushRax state
+                (* We have to adjust the offset. *)
+                val load = loadStack(eax, stackPtr pushedState * wordSize  + offset)
+            in
+                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    code=load @ pushCode @ code, context=context}
+            end
+
+        |   codeICode{ icode=LoadMemReg{offset, dest} :: rest, state=NormalState state, code, context} =
+            (* Load from ebp/rbp *)
+            let
+                val destReg = argToPReg dest
+                val (pushedState, pushCode) = pushRax state
+                val load = loadMemory(eax, ebp, offset)
+            in
+                (* We also generate loads from offsets in ebp. *)
+                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    code=load @ pushCode @ code, context=context}
+            end
+        
+        |   codeICode {
+                icode=BeginFunction{regArgs} :: rest, state=NormalState state, code, context} =
+            let
+                fun pushRegister([], state , code) = (state, code)
+                |   pushRegister((dest, srcReg)::others, state, code) =
+                let
+                    val destReg = argToPReg dest
+                    val sp = stackPtr state
+                    val {valueStack, ccState, untaggedRegs, ...} = state
+                    val newState =
+                        {valueStack={preg=destReg, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
+                in
+                    pushRegister(others, newState, PushValue{arg=RealRegister srcReg} :: code)
+                end
+
+                val (pushedState, pushCode) = pushRax state
+                val (resultState, resultCode) = pushRegister(regArgs, pushedState, pushCode @ code)
+            in
+                codeICode{icode=rest, state=NormalState resultState, code=resultCode, context=context}
+            end
             
         |   codeICode{icode=AllocateMemoryOperation{ size, flags, dest} :: rest, state=NormalState state, code, context} =
             let
@@ -2140,9 +2186,11 @@ struct
         fun removeFromState(pr, state) = List.filter(fn (r, _) => r <> pr) state
 
         fun codeExtended([], _) = ([], [])
-
-        |   codeExtended((MoveArgument{source as RealRegister reg, dest=PReg(pr, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+        
+        |   codeExtended((BeginFunction{regArgs=[(dest, srcReg)]}, active) :: rest, context) =
             let
+                (* For the moment deal just with a single register. *)
+                val pr = argToPReg dest
                 val (state, code) = codeExtended(rest, context)
             in
                 if isActive(pr, active)
@@ -2152,9 +2200,9 @@ struct
                        to move it. *)
                     val regResult = findInState(pr, state)
                     val c =
-                        if regResult = reg
+                        if regResult = srcReg
                         then []
-                        else [MoveArgument{source=source, dest=RealRegister regResult, kind=MoveWord}]
+                        else [MoveArgument{source=RealRegister srcReg, dest=RealRegister regResult, kind=MoveWord}]
                 in
                     (removeFromState(pr, state), c @ code)
                 end

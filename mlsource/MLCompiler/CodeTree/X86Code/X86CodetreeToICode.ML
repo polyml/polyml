@@ -81,10 +81,13 @@ struct
         val closureRegAddr = newPReg()
         val argPRegs = map (fn _ => newPReg()) argRegsUsed
 
-        val pushClosureReg =
-            case closure of [] => [] | _ => [MoveArgument{source=RealRegister(GenReg edx), dest=closureRegAddr, kind=MoveWord}]
-        val pushArgs =
-            ListPair.foldrEq (fn (r, m, l) => MoveArgument{source=RealRegister(GenReg r), dest=m, kind=MoveWord} :: l) [] (argRegsUsed, argPRegs)
+        local
+            val clReg = case closure of [] => [] | _ => [(closureRegAddr, GenReg edx)]
+            val argRegs = ListPair.zip (argPRegs, map GenReg argRegsUsed)
+        in
+            val beginInstruction = BeginFunction { regArgs = clReg @ argRegs }
+        end
+
         (* Number of arguments on the stack and not in registers. *)
         val currentStackArgs = Int.max(0, numFunctionArgs - List.length argRegs)
         
@@ -241,7 +244,7 @@ struct
             let
                 val target = asTarget destination
             in
-                ([MoveArgument{source=wordOffsetAddress(List.length argTypes - a, RealRegister(GenReg esp)), dest=target, kind=MoveWord}], target, false)
+                ([LoadStack{offset=(List.length argTypes - a)*wordSize, dest=target}], target, false)
             end
         
         |   codeToICode(BICExtract(BICLoadClosure c), _, _, destination) =
@@ -354,9 +357,7 @@ struct
             let
                 val target = asTarget destination
             in
-                ([MoveArgument{
-                    source=MemoryLocation{offset=memRegThreadSelf, base=RealRegister(GenReg ebp), index=NoMemIndex},
-                    dest=target, kind=MoveWord}], target, false)
+                ([LoadMemReg{offset=memRegThreadSelf, dest=target}], target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
@@ -1352,7 +1353,6 @@ struct
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
                 val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
-                val loadExcPacket = [MoveArgument{source=RealRegister(GenReg eax), dest=packetAddr, kind=MoveWord}]
                 val (handleCode, _, handleExit) =
                     codeToICode(handler, context, isTail, SpecificPReg handlerTarget)
                 val saveHandle = newPReg()
@@ -1375,8 +1375,8 @@ struct
                 (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
                 [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()},
                  handledJump,
-                 BeginHandler{handleStart=handlerLab, workReg=newPReg()}] @
-                 loadExcPacket @ handleCode @ handledLabel, target, isTail)
+                 BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr}] @
+                 handleCode @ handledLabel, target, isTail)
             end
 
         |   codeToICode(BICTuple fields, context, _, destination) =
@@ -2223,7 +2223,7 @@ struct
 
         val (bodyCode, _, bodyExited) =
             codeToICode(body, {loopArgs=NONE}, true, SpecificPReg resultTarget)
-        val icode = pushClosureReg @ pushArgs @ bodyCode @ (if bodyExited then [] else [returnInstruction resultTarget])
+        val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else [returnInstruction resultTarget])
       
         open ICODETRANSFORM
         
