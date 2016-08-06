@@ -1336,15 +1336,8 @@ struct
             in
                 (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}], asTarget destination, true (* Always exits *))
             end
-        
-        |   codeToICode(BICLdexc, _, _, destination) = (* The argument is in eax. *)
-            let
-                val target = asTarget destination
-            in
-                ([MoveArgument{source=RealRegister(GenReg eax), dest=target, kind=MoveWord}], target, false)
-            end
 
-        |   codeToICode(BICHandle {exp, handler}, context, isTail, destination) =
+        |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context, isTail, destination) =
             let
                 val target = asTarget destination
                 val (bodyTarget, handlerTarget) =
@@ -1356,6 +1349,10 @@ struct
                    to be removed after *)
                 val (expCode, _, _) =
                     codeToICode(exp, context, false (* Not tail *), SpecificPReg bodyTarget)
+                (* Make a register to hold the exception packet and put eax into it. *)
+                val packetAddr = newPReg()
+                val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
+                val loadExcPacket = [MoveArgument{source=RealRegister(GenReg eax), dest=packetAddr, kind=MoveWord}]
                 val (handleCode, _, handleExit) =
                     codeToICode(handler, context, isTail, SpecificPReg handlerTarget)
                 val saveHandle = newPReg()
@@ -1379,7 +1376,7 @@ struct
                 [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()},
                  handledJump,
                  BeginHandler{handleStart=handlerLab, workReg=newPReg()}] @
-                 handleCode @ handledLabel, target, isTail)
+                 loadExcPacket @ handleCode @ handledLabel, target, isTail)
             end
 
         |   codeToICode(BICTuple fields, context, _, destination) =

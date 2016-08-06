@@ -310,6 +310,16 @@ struct
                 BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength}))
         end
 
+    |   simpGeneral (context as {enterAddr, nextAddress, ...}) (Handle{exp, handler, exPacketAddr}) =
+        let (* We need to make a new binding for the exception packet. *)
+            val expBody = simplify(exp, context)
+            val newAddr = nextAddress()
+            val () = enterAddr(exPacketAddr, (EnvGenLoad(LoadLocal newAddr), EnvSpecNone))
+            val handleBody = simplify(handler, context)
+        in
+            SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
+        end
+
     |   simpGeneral _ _ = NONE
 
     (* Where we have an Indirect or Eval we want the argument as either a tuple or
@@ -1300,11 +1310,12 @@ struct
                so we don't add SetContainer nodes. *)
             mkEnv(tupleDecs, loop)
 
-    |   simpPostSetContainer(container, Handle{exp, handler}, tupleDecs, filter) =
+    |   simpPostSetContainer(container, Handle{exp, handler, exPacketAddr}, tupleDecs, filter) =
             mkEnv(tupleDecs,
                 Handle{
                     exp = simpPostSetContainer(container, exp, [], filter),
-                    handler = simpPostSetContainer(container, handler, [], filter)})
+                    handler = simpPostSetContainer(container, handler, [], filter),
+                    exPacketAddr = exPacketAddr})
 
     |   simpPostSetContainer(container, tupleGen, tupleDecs, filter) =
             mkEnv(tupleDecs, mkSetContainer(container, tupleGen, filter))

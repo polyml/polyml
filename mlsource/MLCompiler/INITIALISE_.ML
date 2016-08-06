@@ -1584,9 +1584,9 @@ struct
                     List(Int ** CodeTree) ->> CodeBinding),
                 ("mkTuple", toMachineWord (mkTuple: codetree list -> codetree), List CodeTree ->> CodeTree),
                 ("mkRaise", toMachineWord (mkRaise: codetree -> codetree), CodeTree ->> CodeTree),
-                ("mkHandle", toMachineWord (mkHandle: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
-                ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding),
-                ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree)
+                ("mkHandle", toMachineWord (mkHandle: codetree * codetree * int -> codetree),
+                        mkProductType[CodeTree, CodeTree, Int] ->> CodeTree),
+                ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding)
                 ]
         end
 
