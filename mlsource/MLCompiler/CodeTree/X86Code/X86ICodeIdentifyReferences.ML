@@ -55,21 +55,23 @@ struct
         fun incrArray(v, i) = Array.update(v, i, Array.sub(v, i)+1)
 
         (* Find the sources when the argument is used as a source. *)
-        fun sourceRegs(PReg(i, _)) = (incrArray(regRefs, i); [i])
+        fun sourceRegs(RegisterArgument rarg) = sourceReg rarg
         |   sourceRegs(MemoryLocation { base, index, ...}) =
             let
-                val bRegs = sourceRegs base
+                val bRegs = sourceReg base
                 val iRegs =
                     case index of
                         NoMemIndex => []
-                    |   MemIndex1 arg => sourceRegs arg
-                    |   MemIndex2 arg => sourceRegs arg
-                    |   MemIndex4 arg => sourceRegs arg
-                    |   MemIndex8 arg => sourceRegs arg
+                    |   MemIndex1 arg => sourceReg arg
+                    |   MemIndex2 arg => sourceReg arg
+                    |   MemIndex4 arg => sourceReg arg
+                    |   MemIndex8 arg => sourceReg arg
             in
                 bRegs @ iRegs
             end
         |   sourceRegs _ = []
+        
+        and sourceReg(PReg(i, _)) = (incrArray(regRefs, i); [i])
 
         (* Any particular argument is only ever a single destination. *)
         fun destReg(PReg(i, regKind)) =
@@ -78,8 +80,6 @@ struct
                 incrArray(regDefs, i);
                 i
             )
-            
-        |   destReg _ = raise InternalError "destRegs"
 
         (* The sets of registers are represented by lists of bits.  This is more
            efficient than BoolVector since it allows union and intersection to be
@@ -183,15 +183,11 @@ struct
 
         and identify ([], _, _, _) = ([], emptySet, [], [])
         
-        |   identify((instr as MoveArgument { source, dest as PReg _, ...}) :: rest, state, labels, loopLabels) =
+        |   identify((instr as MoveArgument { source, dest=RegisterArgument dest, ...}) :: rest, state, labels, loopLabels) =
             let
                 (* Moving to a preg, the destination. *)
                 val dReg = destReg dest
             in
-                (* If this is coming from a specific register e.g. a register argument, mark that. *)
-                case source of
-                    RealRegister reg => Array.update(regSourceReg, dReg, SOME reg)
-                |   _ => ();
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source, [dReg])
             end
 
@@ -265,7 +261,7 @@ struct
 
         |   identify((instr as AllocateMemoryVariable{size, flags, dest, initialiser}) :: rest, state, labels, loopLabels) =
             let
-                val iSrc = case initialiser of NONE => [] | SOME init => sourceRegs init
+                val iSrc = case initialiser of NONE => [] | SOME init => sourceReg init
                 val sources = sourceRegs size @ sourceRegs flags @ iSrc
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sources, [destReg dest])
@@ -351,7 +347,7 @@ struct
             let
                 (* This is rather like an unconditional branch except that we have a
                    list of destination branches rather than a single destination. *)
-                val sources = listToSet(sourceRegs testReg)
+                val sources = listToSet(sourceReg testReg)
                 val () = checkSources(sources, state)
                 (* Add all the labels to the list.  For each branch the starting
                    state is the same as the current state. *)
@@ -475,7 +471,7 @@ struct
 
         |   identify((instr as PopExceptionHandler{handlerAddr, resultReg=_, workReg}) :: rest, state, labels, loopLabels) =
                 (* Pop an exception handler. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs handlerAddr, [destReg workReg])
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceReg handlerAddr, [destReg workReg])
 
         |   identify((instr as BeginHandler{handleStart, workReg=_, packetReg}) :: rest, state, labels, loopLabels) =
             let
@@ -501,7 +497,7 @@ struct
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, state, labels, loopLabels) =
             let
-                val sRegs = sourceRegs resultReg (* Should only ever be one. *)
+                val sRegs = sourceReg resultReg (* Should only ever be one. *)
                 val sources = listToSet sRegs
                 val () = checkSources(sources, state)
                 (* This needs to go to eax. *)
@@ -528,7 +524,7 @@ struct
                 raise InternalError "identify - PushValue"
 
         |   identify((instr as TagValue{source, dest}) :: rest, state, labels, loopLabels) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source, [destReg dest])
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceReg source, [destReg dest])
 
         |   identify((instr as UntagValue{source, dest, ...}) :: rest, state, labels, loopLabels) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source, [destReg dest])
@@ -536,14 +532,14 @@ struct
         |   identify((instr as LoadEffectiveAddress{base, index, dest, ...}) :: rest, state, labels, loopLabels) =
             let
                 val bRegs =
-                    case base of NONE => [] | SOME bReg => sourceRegs bReg
+                    case base of NONE => [] | SOME bReg => sourceReg bReg
                 val iRegs =
                     case index of
                         NoMemIndex => []
-                    |   MemIndex1 arg => sourceRegs arg
-                    |   MemIndex2 arg => sourceRegs arg
-                    |   MemIndex4 arg => sourceRegs arg
-                    |   MemIndex8 arg => sourceRegs arg
+                    |   MemIndex1 arg => sourceReg arg
+                    |   MemIndex2 arg => sourceReg arg
+                    |   MemIndex4 arg => sourceReg arg
+                    |   MemIndex8 arg => sourceReg arg
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, bRegs @ iRegs, [destReg dest])
             end
@@ -573,14 +569,14 @@ struct
 
         |   identify((instr as AtomicExchangeAndAdd{destAddr, source}) :: rest, state, labels, loopLabels) =
                 (* The destination is an address so functions as a source *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs destAddr @ sourceRegs source, [])
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs destAddr @ sourceReg source, [])
 
         |   identify((instr as BoxValue{source, dest, ...}) :: rest, state, labels, loopLabels) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceRegs source, [destReg dest])
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, sourceReg source, [destReg dest])
 
         |   identify((instr as CompareByteVectors{vec1Addr, vec2Addr, length, ...}) :: rest, state, labels, loopLabels) =
             let
-                val v1Addr = sourceRegs vec1Addr and v2Addr = sourceRegs vec2Addr and len = sourceRegs length
+                val v1Addr = sourceReg vec1Addr and v2Addr = sourceReg vec2Addr and len = sourceRegs length
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg esi))) v1Addr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) v2Addr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
@@ -590,7 +586,7 @@ struct
 
         |   identify((instr as BlockMove{srcAddr, destAddr, length, ...}) :: rest, state, labels, loopLabels) =
             let
-                val sAddr = sourceRegs srcAddr and dAddr = sourceRegs destAddr and len = sourceRegs length
+                val sAddr = sourceReg srcAddr and dAddr = sourceReg destAddr and len = sourceRegs length
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg esi))) sAddr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) dAddr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
@@ -652,8 +648,9 @@ struct
 
     structure Sharing =
     struct
-        type x86ICode = x86ICode
-        and  reg = reg
+        type 'reg x86ICode = 'reg x86ICode
+        and reg = reg
         and pushState = pushState
+        and abstract = abstract
     end
 end;
