@@ -98,7 +98,7 @@ sig
     and valAccess =
         Global   of codetree
     |   Local    of { addr: int ref, level: level ref }
-    |   Selected of { addr: int,     base:  structVals }
+    |   Selected of { addr: int,     base:  valAccess }
     |   Formal   of int
     |   Overloaded of typeDependent (* Values only. *)
 
@@ -237,21 +237,12 @@ sig
     val generalisable: int
 
     (* Access to values, structures etc. *)
-
-    val isGlobal:   valAccess -> bool
-    val isLocal:    valAccess -> bool
-    val isSelected: valAccess -> bool
-    val isFormal:   valAccess -> bool
-
     val makeGlobal:   codetree -> valAccess
     val makeLocal:    unit -> valAccess
     val makeSelected: int * structVals -> valAccess
-    val makeFormal:   int -> valAccess
 
     val vaGlobal:   valAccess -> codetree
-    val vaFormal:   valAccess -> int
     val vaLocal:    valAccess -> { addr: int ref, level: level ref }
-    val vaSelected: valAccess -> { addr: int,     base:  structVals }
 
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
