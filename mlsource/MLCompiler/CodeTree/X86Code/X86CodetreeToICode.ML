@@ -1347,8 +1347,10 @@ struct
                    using "asTarget".  Actually, because PopExceptionHandler has an non-optional
                    resultReg we're forced to return a result. *)
                 (* The expression cannot be treated as a tail because the handler has
-                   to be removed after *)
-                val (expCode, _, _) =
+                   to be removed after.  It may "exit" if it has raised an unconditional
+                   exception.  If it has we mustn't generate a PopExceptionHandler because
+                   there won't be any result for resultReg. *)
+                val (expCode, _, expExit) =
                     codeToICode(exp, context, false (* Not tail *), SpecificPReg bodyTarget)
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
@@ -1361,22 +1363,25 @@ struct
                    handled code with returns.  If the handler has exited we don't need
                    a return there.  Otherwise we need to add an unconditional jump to
                    skip the handler. *)
-                val (handledJump, handledLabel) =
+                val (atExpEnd, afterHandler) =
                     if isTail
-                    then (returnInstruction bodyTarget, if handleExit then [] else [returnInstruction handlerTarget])
+                    then
+                        (if expExit then []
+                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()}, returnInstruction bodyTarget],
+                         if handleExit then [] else [returnInstruction handlerTarget])
                     else
                     let
                         val skipHandler = newLabel()
                     in
-                        (UnconditionalForwardJump{label=skipHandler},
+                        (if expExit then []
+                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()}, 
+                               UnconditionalForwardJump{label=skipHandler}],
                          [ForwardJumpLabel{label=skipHandler, result=SOME target}])
                     end
             in
-                (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @
-                [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()},
-                 handledJump,
-                 BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr}] @
-                 handleCode @ handledLabel, RegisterArgument target, isTail)
+                (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @ atExpEnd @
+                [BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr}] @
+                 handleCode @ afterHandler, RegisterArgument target, isTail)
             end
 
         |   codeToICode(BICTuple fields, context, _, destination) =
