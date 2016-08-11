@@ -1165,7 +1165,7 @@ struct
                             val load = loadSource(arg, eax, state)
                             val sp = stackPtr state
                             val newState =
-                                {valueStack={preg=0, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
+                                {valueStack={preg= ~1, loc=OnStack sp} :: valueStack, ccState=ccState, untaggedRegs=untaggedRegs}
                         in
                             pushAllArgs(args, newState, PushValue{arg=RegisterArgument raxAsArg} :: load @ code)
                         end
@@ -1214,7 +1214,7 @@ struct
                         val needExtras = numArgsToMove - (currentSp + currentStackArgs)
                         val extras = List.tabulate(needExtras, fn _ => PushValue { arg=IntegerConstant 0 })
                         and afterPush =
-                            {valueStack= {loc=OnStack(currentSp+needExtras-1), preg=0} :: # valueStack pushedState, ccState=CCIndeterminate, untaggedRegs=[]}
+                            {valueStack= {loc=OnStack(currentSp+needExtras-1), preg= ~1} :: # valueStack pushedState, ccState=CCIndeterminate, untaggedRegs=[]}
                     in
                         (0, extras, afterPush)
                     end
@@ -2141,7 +2141,181 @@ struct
         exception TooHard
 
         val (decoratedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+
+        (* Process arithmetic operations in the code.  Arithmetic operations require at least one
+           operand in a register and deliver the result in the same register.  We need to
+           check whether we can reuse an argument and copy it into a new register if
+           necessary. *)
+        local
+            val pregCounter = ref 0
+            val pregMap = Array.array(maxPRegs, NONE: int option)
+            
+            fun mapSrcReg(PReg(n, kind)) = PReg(valOf(Array.sub(pregMap, n)), kind)
+            
+            fun mapIndex NoMemIndex = NoMemIndex
+            |   mapIndex(MemIndex1 r) = MemIndex1(mapSrcReg r)
+            |   mapIndex(MemIndex2 r) = MemIndex2(mapSrcReg r)
+            |   mapIndex(MemIndex4 r) = MemIndex4(mapSrcReg r)
+            |   mapIndex(MemIndex8 r) = MemIndex8(mapSrcReg r)
+
+            fun mapSource(RegisterArgument reg) = RegisterArgument(mapSrcReg reg)
+            |   mapSource(MemoryLocation{base, offset, index}) =
+                    MemoryLocation{base=mapSrcReg base, offset=offset, index=mapIndex index}
+            |   mapSource(c as AddressConstant _) = c
+            |   mapSource(c as IntegerConstant _) = c
+
+            (* Map the destination.  If we're returning the result from a conditional
+               we can have several points that use the same destination register. *)
+            fun mapDest(PReg(n, kind)) =
+                case Array.sub(pregMap, n) of
+                    SOME newReg => PReg(newReg, kind)
+                |   NONE =>
+                    let
+                        val newReg = !pregCounter before pregCounter := !pregCounter+1
+                    in
+                        Array.update(pregMap, n, SOME newReg);
+                        PReg(newReg, kind)
+                    end
+
+            fun codeArithmetic((MoveArgument{source, dest=RegisterArgument dest, kind}, _)) =
+                    MoveArgument{source=mapSource source, dest=RegisterArgument(mapDest dest), kind=kind}
+
+            |   codeArithmetic((MoveArgument{source, dest, kind}, _)) =
+                    MoveArgument{source=mapSource source, dest=mapSource dest, kind=kind}
+
+            |   codeArithmetic((LoadStack { offset, dest}, _)) =
+                    LoadStack { offset=offset, dest=mapDest dest}
+
+            |   codeArithmetic((LoadMemReg { offset, dest}, _)) =
+                    LoadMemReg { offset=offset, dest=mapDest dest}
+
+            |   codeArithmetic((BeginFunction {regArgs}, _)) =
+                    BeginFunction {regArgs=map(fn (p, r) => (mapDest p, r)) regArgs}
+
+            |   codeArithmetic((FunctionCall{callKind, regArgs, stackArgs, dest, isTail}, _)) =
+                    FunctionCall{
+                        callKind=callKind,
+                        regArgs=map(fn (p, r) => (mapSource p, r)) regArgs,
+                        stackArgs=map mapSource stackArgs, dest=mapDest dest, isTail=isTail}
+
+            |   codeArithmetic((AllocateMemoryOperation{size, flags, dest}, _)) =
+                    AllocateMemoryOperation{size=size, flags=flags, dest=mapDest dest}
+
+            |   codeArithmetic((AllocateMemoryVariable{size, flags, dest, initialiser}, _)) =
+                    AllocateMemoryVariable{size=mapSource size, flags=mapSource flags, dest=mapDest dest, initialiser=Option.map mapSrcReg initialiser}
+
+            |   codeArithmetic((InitialisationComplete{dest}, _)) =
+                    InitialisationComplete{dest=mapSrcReg dest}
+
+            |   codeArithmetic((StartLoop{arguments, loopLabel}, _)) =
+                    StartLoop{
+                        arguments=map (fn {loopReg, source} => {loopReg=mapDest loopReg, source=mapSource source}) arguments,
+                        loopLabel=loopLabel}
+
+            |   codeArithmetic((EndLoop{loopLabel}, _)) = EndLoop{loopLabel=loopLabel}
+
+            |   codeArithmetic((JumpLoop{arguments, loopLabel}, _)) =
+                    JumpLoop{
+                        arguments=map (fn {loopReg, source} => {loopReg=mapSrcReg loopReg, source=mapSource source}) arguments,
+                        loopLabel=loopLabel}
+
+            |   codeArithmetic((RaiseExceptionPacket{packet}, _)) =
+                    RaiseExceptionPacket{packet=mapSource packet}
+
+            |   codeArithmetic((ReserveContainer{size, address}, _)) =
+                    ReserveContainer{size=size, address=mapDest address}
+
+            |   codeArithmetic((IndexedCaseOperation{testReg, workReg, cases, startValue}, _)) =
+                    IndexedCaseOperation{testReg=mapSrcReg testReg, workReg=mapDest workReg, cases=cases, startValue=startValue}
+
+            |   codeArithmetic((LockMutable{addr}, _)) =
+                    LockMutable{addr=mapSource addr}
         
+            |   codeArithmetic((ForwardJumpLabel{label, result}, _)) =
+                    ForwardJumpLabel{label=label, result=Option.map mapSrcReg result}
+
+            |   codeArithmetic((UnconditionalForwardJump{label}, _)) = UnconditionalForwardJump{label=label}
+
+            |   codeArithmetic((ConditionalForwardJump{condition, label, ccRef}, _)) =
+                    ConditionalForwardJump{condition=condition, label=label, ccRef=ccRef}
+
+            |   codeArithmetic((WordComparison{arg1, arg2, ccRef}, _)) =
+                    WordComparison{arg1=mapSource arg1, arg2=mapSource arg2, ccRef=ccRef}
+
+            |   codeArithmetic((PushExceptionHandler{handlerAddr, handleStart}, _)) =
+                    PushExceptionHandler{handlerAddr=mapDest handlerAddr, handleStart=handleStart}
+
+            |   codeArithmetic((PopExceptionHandler{handlerAddr, resultReg, workReg}, _)) =
+                    PopExceptionHandler{handlerAddr=mapSrcReg handlerAddr, resultReg=mapSrcReg resultReg, workReg=mapDest workReg}
+
+            |   codeArithmetic((BeginHandler{handleStart, packetReg, workReg}, _)) =
+                    BeginHandler{handleStart=handleStart, packetReg=mapDest packetReg, workReg=mapDest workReg}
+
+            |   codeArithmetic((ReturnResultFromFunction{resultReg, numStackArgs}, _)) =
+                    ReturnResultFromFunction{resultReg=mapSrcReg resultReg, numStackArgs=numStackArgs}
+
+            |   codeArithmetic((ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, _)) =
+                    ArithmeticFunction{oper=oper, resultReg=mapDest resultReg, operand1=mapSource operand1, operand2=mapSource operand2, ccRef=ccRef}
+
+            |   codeArithmetic((TestTagBit{arg, ccRef}, _)) =
+                    TestTagBit{arg=mapSource arg, ccRef=ccRef}
+
+            |   codeArithmetic((PushValue{arg}, _)) = PushValue{arg=mapSource arg}
+
+            |   codeArithmetic((ResetStackPtr{numWords}, _)) = ResetStackPtr{numWords=numWords}
+
+            |   codeArithmetic((TagValue{source, dest}, _)) =
+                    TagValue{source=mapSrcReg source, dest=mapDest dest}
+
+            |   codeArithmetic((UntagValue{source, dest, isSigned}, _)) =
+                    UntagValue{source=mapSource source, dest=mapDest dest, isSigned=isSigned}
+
+            |   codeArithmetic((LoadEffectiveAddress{base, offset, index, dest}, _)) =
+                    LoadEffectiveAddress{base=Option.map mapSrcReg base, offset=offset, index=mapIndex index, dest=mapDest dest}
+
+            |   codeArithmetic((ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, _)) =
+                    ShiftOperation{shift=shift, resultReg=mapDest resultReg, operand=mapSource operand, shiftAmount=mapSource shiftAmount, ccRef=ccRef}
+
+            |   codeArithmetic((Multiplication{resultReg, operand1, operand2, ccRef}, _)) =
+                    Multiplication{resultReg=mapDest resultReg, operand1=mapSource operand1, operand2=mapSource operand2, ccRef=ccRef}
+
+            |   codeArithmetic((Division{isSigned, dividend, divisor, quotient, remainder}, _)) =
+                    Division{isSigned=isSigned, dividend=mapSource dividend, divisor=mapSource divisor, quotient=mapDest quotient, remainder=mapDest remainder}
+
+            |   codeArithmetic((AtomicExchangeAndAdd{destAddr, source}, _)) =
+                    AtomicExchangeAndAdd{destAddr=mapSource destAddr, source=mapSrcReg source}
+
+            |   codeArithmetic((BoxValue{boxKind, source, dest}, _)) =
+                    BoxValue{boxKind=boxKind, source=mapSrcReg source, dest=mapDest dest}
+
+            |   codeArithmetic((CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, _)) =
+                    CompareByteVectors{vec1Addr=mapSrcReg vec1Addr, vec2Addr=mapSrcReg vec2Addr, length=mapSource length, ccRef=ccRef}
+
+            |   codeArithmetic((BlockMove{srcAddr, destAddr, length, isByteMove}, _)) =
+                    BlockMove{srcAddr=mapSrcReg srcAddr, destAddr=mapSrcReg destAddr, length=mapSource length, isByteMove=isByteMove}
+
+            |   codeArithmetic((CompareFloatingPt{arg1, arg2, ccRef}, _)) =
+                    CompareFloatingPt{arg1=mapSource arg1, arg2=mapSource arg2, ccRef=ccRef}
+
+            |   codeArithmetic((X87FPGetCondition{dest, ccRef}, _)) =
+                    X87FPGetCondition{dest=mapDest dest, ccRef=ccRef}
+
+            |   codeArithmetic((X87FPArith{opc, resultReg, arg1, arg2}, _)) =
+                    X87FPArith{opc=opc, resultReg=mapDest resultReg, arg1=mapSource arg1, arg2=mapSource arg2}
+        
+            |   codeArithmetic((X87FPUnaryOps{fpOp, dest, source}, _)) =
+                    X87FPUnaryOps{fpOp=fpOp, dest=mapDest dest, source=mapSource source}
+
+            |   codeArithmetic((FloatFixedInt{dest, source}, _)) =
+                    FloatFixedInt{dest=mapDest dest, source=mapSource source}
+        
+            |   codeArithmetic((SSE2FPArith{opc, resultReg, arg1, arg2}, _)) =
+                    SSE2FPArith{opc=opc, resultReg=mapDest resultReg, arg1=mapSource arg1, arg2=mapSource arg2}
+        in
+            val postArithCode = map codeArithmetic decoratedCode
+            val postArithPRegCount = !pregCounter
+        end
+
         fun isActive(reg, set) = List.exists(fn i => i = reg) set
         
         fun findInState(pr, state) = #2(valOf(List.find(fn (r, _) => r = pr) state))
@@ -2286,6 +2460,7 @@ struct
 
         val postTransformCode =
             let
+                val _ = raise TooHard
                 val (_, code) = codeExtended(decoratedCode, [])
                 val _ = print("Done " ^ functionName ^ "!!!!\n")
             in
@@ -2294,7 +2469,7 @@ struct
             handle TooHard =>
             let
                 val (fnState, fnCode) =
-                    codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
+                    codeICode{icode=(*icode*)postArithCode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
                 val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
             in
                 List.rev fnCode (* Reverse the list *)
