@@ -59,19 +59,21 @@ struct
         |   sourceRegs(MemoryLocation { base, index, ...}) =
             let
                 val bRegs = sourceReg base
-                val iRegs =
-                    case index of
-                        NoMemIndex => []
-                    |   MemIndex1 arg => sourceReg arg
-                    |   MemIndex2 arg => sourceReg arg
-                    |   MemIndex4 arg => sourceReg arg
-                    |   MemIndex8 arg => sourceReg arg
+                val iRegs = sourceIndex index
             in
                 bRegs @ iRegs
             end
         |   sourceRegs _ = []
         
         and sourceReg(PReg(i, _)) = (incrArray(regRefs, i); [i])
+        
+        and sourceIndex index =
+                    case index of
+                        NoMemIndex => []
+                    |   MemIndex1 arg => sourceReg arg
+                    |   MemIndex2 arg => sourceReg arg
+                    |   MemIndex4 arg => sourceReg arg
+                    |   MemIndex8 arg => sourceReg arg
 
         (* Any particular argument is only ever a single destination. *)
         fun destReg(PReg(i, regKind)) =
@@ -202,13 +204,13 @@ struct
 
         and identify ([], _, _, _, _) = ([], emptySet, [], [], CCIndeterminate)
         
-        |   identify((instr as MoveArgument { source, dest=RegisterArgument dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
+        |   identify((instr as LoadArgument { source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
             (* Moving to a preg, the destination. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest], true)
 
-        |   identify((instr as MoveArgument { source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
+        |   identify((instr as StoreArgument { source, base, index, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ sourceRegs dest, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ sourceReg base @sourceIndex index, [], false)
 
         |   identify((instr as LoadStack { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest], false)
@@ -572,13 +574,7 @@ struct
             let
                 val bRegs =
                     case base of NONE => [] | SOME bReg => sourceReg bReg
-                val iRegs =
-                    case index of
-                        NoMemIndex => []
-                    |   MemIndex1 arg => sourceReg arg
-                    |   MemIndex2 arg => sourceReg arg
-                    |   MemIndex4 arg => sourceReg arg
-                    |   MemIndex8 arg => sourceReg arg
+                val iRegs = sourceIndex index
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, bRegs @ iRegs, [destReg dest], false)
             end

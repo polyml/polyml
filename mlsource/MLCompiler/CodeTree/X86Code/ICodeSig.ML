@@ -101,9 +101,12 @@ sig
     datatype ccRef = CcRef of int
 
     datatype 'reg x86ICode =
-        (* Load, store and move, depending on the kinds of arguments.  Only certain combinations
-           are supported. *)
-        MoveArgument of { source: 'reg argument, dest: 'reg argument, kind: moveKind }
+        (* Move a value into a register. *)
+        LoadArgument of { source: 'reg argument, dest: 'reg, kind: moveKind }
+        
+        (* Store a value into memory.  The source will usually be a register but could be
+           a constant depending on the value. *)
+    |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
 
         (* Load an entry from the real stack. *)
     |   LoadStack of { offset: int, dest: 'reg }

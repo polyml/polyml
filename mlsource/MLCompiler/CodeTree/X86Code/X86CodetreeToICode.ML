@@ -134,7 +134,7 @@ struct
         in
             [
                 ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
-                MoveArgument{source=AddressConstant(toMachineWord(Overflow)), dest=RegisterArgument excReg, kind=MoveWord},
+                LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=excReg, kind=MoveWord},
                 RaiseExceptionPacket{packet=RegisterArgument excReg},
                 ForwardJumpLabel{ label=label, result=NONE }
             ]
@@ -200,7 +200,7 @@ struct
             let
                 val target = asTarget dest
             in
-                (code @ [MoveArgument{source=arg, dest=RegisterArgument target, kind=MoveWord}], RegisterArgument target, false)
+                (code @ [LoadArgument{source=arg, dest=target, kind=MoveWord}], RegisterArgument target, false)
             end
 
         fun codeToICodeTarget(instr, context, isTail, target) =
@@ -295,7 +295,7 @@ struct
                             if isRecursive
                             then ([], [], Recursive)
                             else if flags addrAsAddr <> Address.F_words
-                            then ([MoveArgument{source=AddressConstant addr, dest=RegisterArgument clPReg, kind=MoveWord}],
+                            then ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
                                       [(RegisterArgument clPReg, edx)], FullCall)
                             else
                             let
@@ -307,7 +307,7 @@ struct
                             in
                                 if addrLength = 0w1
                                 then ([], [], ConstantCode codeAddr)
-                                else ([MoveArgument{source=AddressConstant addr, dest=RegisterArgument clPReg, kind=MoveWord}],
+                                else ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
                                       [(RegisterArgument clPReg, edx)], ConstantCode codeAddr)
                             end
                         end
@@ -317,7 +317,7 @@ struct
                             (* If the closure is empty we don't need to load rdx *)
                             case closure of
                                 [] => ([], [], Recursive)
-                            |   _ => ([MoveArgument {source=RegisterArgument closureRegAddr, dest=RegisterArgument clPReg, kind=MoveWord}], [(RegisterArgument clPReg, edx)], Recursive)
+                            |   _ => ([LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord}], [(RegisterArgument clPReg, edx)], Recursive)
                         )
 
                     |   function => (* General case. *)
@@ -387,7 +387,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [MoveArgument{source=wordOffsetAddress(~1, addrReg), dest=RegisterArgument argReg1, kind=MoveWord},
+                [LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord},
                  ShiftOperation{shift=SHL, resultReg=argReg2, operand=RegisterArgument argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 },
                  ShiftOperation{shift=SHR, resultReg=argReg3, operand=RegisterArgument argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 },
                  ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument argReg3, operand2=IntegerConstant 1, ccRef=ccRef3}], RegisterArgument target, false)
@@ -400,7 +400,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [MoveArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=RegisterArgument argReg1, kind=MoveByte},
+                [LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveByte},
                  TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
             end
 
@@ -419,7 +419,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=RegisterArgument argReg1, kind=MoveWord},
+                [LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
                  TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
             end
 
@@ -430,7 +430,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                 [MoveArgument{source=IntegerConstant(semitag 1), dest=RegisterArgument incrReg, kind=MoveWord},
+                 [LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord},
                   AtomicExchangeAndAdd{ destAddr=RegisterArgument addrReg, source=incrReg },
                   (* We want the result to be the new value but we've returned the old value. *)
                   ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
@@ -443,7 +443,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                 [MoveArgument{source=IntegerConstant(semitag ~1), dest=RegisterArgument incrReg, kind=MoveWord},
+                 [LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord},
                   AtomicExchangeAndAdd{ destAddr=RegisterArgument addrReg, source=incrReg },
                   ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
             end
@@ -469,7 +469,7 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [MoveArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=RegisterArgument argReg1, kind=MoveWord},
+                [LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
                  TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
             end
 
@@ -807,7 +807,7 @@ struct
                 val code =
                     codeToICodeTarget(arg1, context, false, addrReg) @ codeToICodeTarget(arg2, context, false, lengthReg) @
                         [UntagValue{source=RegisterArgument lengthReg, dest=untagLength, isSigned=false},
-                         MoveArgument {source=RegisterArgument untagLength, dest=MemoryLocation{base=addrReg, offset=0, index=NoMemIndex}, kind=MoveWord}]
+                         StoreArgument {source=RegisterArgument untagLength, base=addrReg, offset=0, index=NoMemIndex, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1031,7 +1031,7 @@ struct
                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                 val memAddr = newPReg() and valueReg = newPReg()
                 fun initialise n =
-                    MoveArgument{ source=RegisterArgument valueReg, dest=wordOffsetAddress(n, memAddr), kind=MoveWord}
+                    StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
                     [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr}] @
@@ -1215,7 +1215,7 @@ struct
                                 val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
                             in
                                 ([
-                                    MoveArgument {source=RegisterArgument testReg, dest=RegisterArgument tReg, kind=MoveWord},
+                                    LoadArgument {source=RegisterArgument testReg, dest=tReg, kind=MoveWord},
                                     TestTagBit{arg=RegisterArgument tReg, ccRef=ccRef},
                                     (* Jump if the value is long. *)
                                     ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab}
@@ -1226,10 +1226,10 @@ struct
                         val ccRef1 = newCCRef() and ccRef2 = newCCRef()
                         val testCode =
                             [
-                                MoveArgument {source=RegisterArgument testReg, dest=RegisterArgument tReg1, kind=MoveWord},
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord},
                                 WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1},
                                 ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1},
-                                MoveArgument {source=RegisterArgument testReg, dest=RegisterArgument tReg2, kind=MoveWord},
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg2, kind=MoveWord},
                                 WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2},
                                 ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2}
                             ]
@@ -1395,7 +1395,7 @@ struct
                     let
                         val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
                         val restAndAlloc = loadFields(rest, n+1)
-                        val storeValue = [MoveArgument{ source=source, dest=wordOffsetAddress(n, memAddr), kind=MoveWord}]
+                        val storeValue = [StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}]
                     in
                         code @ restAndAlloc @ storeValue
                     end
@@ -1436,7 +1436,7 @@ struct
                 |   copyContainer(srcReg :: otherRegs, sourceWord, destWord) =
                     if sourceWord < filterLength andalso BoolVector.sub(filter, sourceWord)
                     then
-                        MoveArgument{source=srcReg, dest=wordOffsetAddress(destWord, containerTarget), kind=MoveWord} ::
+                        StoreArgument{source=srcReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord} ::
                             copyContainer(otherRegs, sourceWord+1, destWord+1)
 
                     else copyContainer(otherRegs, sourceWord+1, destWord)
@@ -1462,8 +1462,8 @@ struct
                     let
                         val loadReg = newPReg()
                     in
-                        MoveArgument{source=wordOffsetAddress(sourceWord, tupleTarget), dest=RegisterArgument loadReg, kind=MoveWord} ::
-                        MoveArgument{source=RegisterArgument loadReg, dest=wordOffsetAddress(destWord, containerTarget), kind=MoveWord} ::
+                        LoadArgument{source=wordOffsetAddress(sourceWord, tupleTarget), dest=loadReg, kind=MoveWord} ::
+                        StoreArgument{source=RegisterArgument loadReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord} ::
                             copyContainer(sourceWord+1, destWord+1)
                     end
                     else copyContainer(sourceWord+1, destWord)
@@ -1482,7 +1482,7 @@ struct
                 val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument {source=MemoryLocation memLoc, dest=RegisterArgument target, kind=MoveWord}], RegisterArgument target, false)
+                    [LoadArgument {source=MemoryLocation memLoc, dest=target, kind=MoveWord}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address}, context, _, destination) =
@@ -1492,7 +1492,7 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=MoveByte},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte},
                      TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
@@ -1505,7 +1505,7 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=MoveByte},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte},
                      TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
@@ -1517,7 +1517,7 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=Move16Bit},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move16Bit},
                      TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
@@ -1534,7 +1534,7 @@ struct
                     else (BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}, MoveWord)
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=moveKind}, boxTagCode], RegisterArgument target, false)
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}, boxTagCode], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreC64, address}, context, _, destination) =
@@ -1547,7 +1547,7 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=MoveWord},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord},
                      BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
@@ -1558,7 +1558,7 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=MoveFloat},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat},
                      BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
@@ -1569,17 +1569,17 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [MoveArgument { source=MemoryLocation memLoc, dest=RegisterArgument untaggedResReg, kind=MoveDouble},
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble},
                      BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 val code =
                     codeBaseIndex @ codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                        [MoveArgument {source=RegisterArgument valueReg, dest=MemoryLocation memLoc, kind=MoveWord}]
+                        [StoreArgument {source=RegisterArgument valueReg, base=base, offset=offset, index=index, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1588,12 +1588,12 @@ struct
             let
                 (* We have to untag the value to store. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, true, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
                     [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [MoveArgument {source=RegisterArgument valueReg1, dest=MemoryLocation memLoc, kind=MoveByte}]
+                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1602,12 +1602,12 @@ struct
             let
                 (* Store a byte to C memory.  Almost exactly the same as LoadStoreMLByte. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w1, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w1, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
                     [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [MoveArgument {source=RegisterArgument valueReg1, dest=MemoryLocation memLoc, kind=MoveByte}]
+                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1616,12 +1616,12 @@ struct
             let
                 (* Store a 16-bit value to C memory. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w2, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w2, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
                     [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [MoveArgument {source=RegisterArgument valueReg1, dest=MemoryLocation memLoc, kind=Move16Bit}]
+                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move16Bit}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1630,15 +1630,15 @@ struct
             let
                 (* Store a 32-bit value.  If this is 64-bit mode we untag it but if this is 32-bit mode we unbox it. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
                 val untagUnbox =
                     if isX64
                     then [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }]
-                    else [MoveArgument{source=wordAt valueReg, dest=RegisterArgument valueReg1, kind=MoveWord}]
+                    else [LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}]
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ untagUnbox @ codeUntag @
-                    [MoveArgument {source=RegisterArgument valueReg1, dest=MemoryLocation memLoc, kind=Move32Bit}]
+                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1648,12 +1648,12 @@ struct
                 (* Store a 64-bit value. *)
                 val _ = isX64 orelse raise InternalError "codeToICode: BICStoreOperation LoadStoreC64 in 32-bit"
                 val valueReg = newPReg() and valueReg1 = newUReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w8, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [MoveArgument{source=wordAt valueReg, dest=RegisterArgument valueReg1, kind=MoveWord},
-                     MoveArgument {source=RegisterArgument valueReg1, dest=MemoryLocation memLoc, kind=MoveWord}]
+                    [LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord},
+                     StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1661,11 +1661,11 @@ struct
         |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [MoveArgument {source=wordAt valueReg, dest=MemoryLocation memLoc, kind=MoveFloat}]
+                    [StoreArgument {source=wordAt valueReg, base=base, offset=offset, index=index, kind=MoveFloat}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1673,11 +1673,11 @@ struct
         |   codeToICode(BICStoreOperation {kind=LoadStoreCDouble, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg()
-                val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w8, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [MoveArgument {source=wordAt valueReg, dest=MemoryLocation memLoc, kind=MoveDouble}]
+                    [StoreArgument {source=wordAt valueReg, base=base, offset=offset, index=index, kind=MoveDouble}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1707,13 +1707,13 @@ struct
                     [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
                      ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
                      ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
-                     MoveArgument{ source=IntegerConstant(tag 0), dest=RegisterArgument target, kind=MoveWord },
+                     LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord },
                      UnconditionalForwardJump{ label=exitLab1 },
                      ForwardJumpLabel{ label=labLess, result=NONE },
-                     MoveArgument{ source=IntegerConstant(tag ~1), dest=RegisterArgument target, kind=MoveWord },
+                     LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=MoveWord },
                      UnconditionalForwardJump{ label=exitLab2 },
                      ForwardJumpLabel{ label=labGreater, result=NONE },
-                     MoveArgument{ source=IntegerConstant(tag 1), dest=RegisterArgument target, kind=MoveWord },
+                     LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=MoveWord },
                      ForwardJumpLabel{ label=exitLab1, result=SOME target },
                      ForwardJumpLabel{ label=exitLab2, result=SOME target }]
             in
@@ -1777,9 +1777,9 @@ struct
                             let
                                 val d = newPReg()
                             in
-                                MoveArgument{source=IntegerConstant(tag 0), dest=RegisterArgument d, kind=MoveWord} ::
+                                LoadArgument{source=IntegerConstant(tag 0), dest=d, kind=MoveWord} ::
                                     (clear (n+1) @
-                                        [MoveArgument{source=RegisterArgument d, dest=wordOffsetAddress(n, dest), kind=MoveWord}])
+                                        [StoreArgument{source=RegisterArgument d, base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
                             end
                     in
                         c @ clear 0 @ [InitialisationComplete{dest=dest}]
@@ -1792,18 +1792,18 @@ struct
                         val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
                         (* Basically the same as tuple except we load the address of
                            the closure we've made.  It's complicated because
-                           MoveArgument to MemoryLocation assumes that the top of the stack is
+                           StoreArgument to MemoryLocation assumes that the top of the stack is
                            the address of the allocated memory and the items below
                            are the values to store. *)
                         val dstCopy = newPReg()
-                        fun loadFields([], _) = [MoveArgument{source=RegisterArgument dest, dest=RegisterArgument dstCopy, kind=MoveWord}]
+                        fun loadFields([], _) = [LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord}]
                         |   loadFields(f :: rest, n) =
                             let
                                 val fReg = newPReg()
                                 val code = codeToICodeTarget(f, context, false, fReg)
                                 val restAndAlloc = loadFields(rest, n+1)
                                 val storeValue =
-                                    [MoveArgument{ source=RegisterArgument fReg, dest=wordOffsetAddress(n, dstCopy), kind=MoveWord }]
+                                    [StoreArgument{ source=RegisterArgument fReg, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
                             in
                                 code @ restAndAlloc @ storeValue
                             end
@@ -2171,7 +2171,7 @@ struct
                 val codeValues =
                     codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
                 val untagCode =
-                    [MoveArgument{source=wordAt baseReg, dest=RegisterArgument untaggedBaseReg, kind=MoveWord},
+                    [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord},
                      UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
@@ -2185,7 +2185,7 @@ struct
                 val baseReg = newPReg() and untaggedBaseReg = newUReg() and indexReg = newPReg()
                 val codeValues =
                     codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
-                val untagCode = [MoveArgument{source=wordAt baseReg, dest=RegisterArgument untaggedBaseReg, kind=MoveWord}]
+                val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
                 val memResult =
                     case size of
                         0w2 => {base=untaggedBaseReg, offset=Word.toInt offset-1, index=MemIndex1 indexReg}
@@ -2200,7 +2200,7 @@ struct
             let
                 val baseReg = newPReg() and untaggedBaseReg = newUReg()
                 val codeValues = codeToICodeTarget(base, context, false, baseReg)
-                val untagCode = [MoveArgument{source=wordAt baseReg, dest=RegisterArgument untaggedBaseReg, kind=MoveWord}]
+                val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
                 val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex}
             in
                 (codeValues, untagCode, memResult)
