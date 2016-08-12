@@ -1344,8 +1344,7 @@ struct
                 val (bodyTarget, handlerTarget) =
                     if isTail then (newPReg(), newPReg()) else (target, target)
                 (* TODO: Even if we don't actually want a result we force one in here by
-                   using "asTarget".  Actually, because PopExceptionHandler has an non-optional
-                   resultReg we're forced to return a result. *)
+                   using "asTarget".  *)
                 (* The expression cannot be treated as a tail because the handler has
                    to be removed after.  It may "exit" if it has raised an unconditional
                    exception.  If it has we mustn't generate a PopExceptionHandler because
@@ -1367,14 +1366,14 @@ struct
                     if isTail
                     then
                         (if expExit then []
-                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()}, returnInstruction bodyTarget],
+                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()}, returnInstruction bodyTarget],
                          if handleExit then [] else [returnInstruction handlerTarget])
                     else
                     let
                         val skipHandler = newLabel()
                     in
                         (if expExit then []
-                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=bodyTarget, workReg=newPReg()}, 
+                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()}, 
                                UnconditionalForwardJump{label=skipHandler}],
                          [ForwardJumpLabel{label=skipHandler, result=SOME target}])
                     end

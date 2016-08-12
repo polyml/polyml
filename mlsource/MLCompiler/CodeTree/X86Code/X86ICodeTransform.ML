@@ -496,22 +496,30 @@ struct
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised. *)
         |   codeICode{icode=PopExceptionHandler{ handlerAddr, resultReg, workReg=_ } :: rest, state=NormalState state, code, context} =
             let
-                val resReg = pRegNum resultReg and handleAddr = pRegNum handlerAddr
+                val handleAddr = pRegNum handlerAddr
                 (* handlerStartState is the state BEFORE we pushed the handler. *)
                 (* Search down the state until we find the handler. *)
                 fun popState [] = raise InternalError "codeICode: PopExceptionHandler - not found"
                 |   popState (hState as ({preg, ...} :: tail)) =
                         if preg = handleAddr then hState else popState tail
                 val handlerStartState = {valueStack=popState(#valueStack state), ccState=CCIndeterminate, untaggedRegs= []}
-                (* Reset to just above the handler. *)
-                val (_, resetCode) = resetStack(state, handlerStartState, resReg)
-                (* The result state is after the handler has been popped. *)
-                val resultState =
-                    addRaxToState({valueStack=tl(#valueStack handlerStartState), ccState=CCIndeterminate, untaggedRegs= []}, resReg)
+                (* Reset to just above the handler.
+                   The result state is after the handler has been popped. *)
+                val postPopState = {valueStack=tl(#valueStack handlerStartState), ccState=CCIndeterminate, untaggedRegs= []}
+                val (resultState, resetCode) =
+                    case resultReg of
+                        SOME(PReg(resReg, _)) =>
+                        let
+                            val (_, resetCode) = resetStack(state, handlerStartState, resReg)
+                            val resultState = addRaxToState(postPopState, resReg)
+                        in
+                            (resultState, resetCode)
+                        end
+                    |   NONE => (postPopState, [resetStackPtr(stackPtr state - stackPtr handlerStartState)])
                 val workReg = (GenReg ebx) (* Must be different from the return register. *)
             in
                 codeICode{icode=rest, state=NormalState resultState,
-                          code=PopExceptionHandler{ handlerAddr=raxAsArg (* unused*), resultReg=raxAsArg (* unused*), workReg=workReg } :: resetCode @ code,
+                          code=PopExceptionHandler{ handlerAddr=raxAsArg (* unused*), resultReg=NONE (* unused*), workReg=workReg } :: resetCode @ code,
                           context=context}
             end
 
@@ -2246,7 +2254,7 @@ struct
                     PushExceptionHandler{handlerAddr=mapDest handlerAddr, handleStart=handleStart}
 
             |   codeArithmetic((PopExceptionHandler{handlerAddr, resultReg, workReg}, _)) =
-                    PopExceptionHandler{handlerAddr=mapSrcReg handlerAddr, resultReg=mapSrcReg resultReg, workReg=mapDest workReg}
+                    PopExceptionHandler{handlerAddr=mapSrcReg handlerAddr, resultReg=Option.map mapSrcReg resultReg, workReg=mapDest workReg}
 
             |   codeArithmetic((BeginHandler{handleStart, packetReg, workReg}, _)) =
                     BeginHandler{handleStart=handleStart, packetReg=mapDest packetReg, workReg=mapDest workReg}
