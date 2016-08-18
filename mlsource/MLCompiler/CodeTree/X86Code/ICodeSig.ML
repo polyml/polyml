@@ -114,6 +114,9 @@ sig
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
 
+        (* Exchange two registers. *)
+    |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
+
         (* Start of function.  Set the register arguments. *)
     |   BeginFunction of { regArgs: ('reg * reg) list }
 

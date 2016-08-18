@@ -2153,10 +2153,13 @@ struct
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
         |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
+        |   codeICode{icode=ExchangeRegisters _ :: _, ...} = raise InternalError "codeICode: ExchangeRegisters"
         
         exception TooHard
 
         val (identifiedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+        
+        val reportSuccess = ref false
 
         (* Process arithmetic operations in the code.  Arithmetic operations require at least one
            operand in a register and deliver the result in the same register.  We need to
@@ -2345,7 +2348,9 @@ struct
                 SOME reg => reg
             |   NONE =>
                 let
-                    val {conflicts, realConflicts, sourceReal, destReal, ...} = Vector.sub(regStates, r)
+                    val {conflicts, realConflicts, sourceReal, destReal, pushState, ...} = Vector.sub(regStates, r)
+                    (* If we must push this we've got a problem. *)
+                    val _ = pushState <> MustPush orelse raise TooHard
                     (* Find the registers we've already allocated that may conflict. *)
                     val conflictingRegs =
                         List.mapPartial(fn i => Array.sub(allocatedRegs, i)) conflicts @
@@ -2394,23 +2399,60 @@ struct
         |   codeExtIndex(MemIndex4(PReg(r, _))) = MemIndex4(findGeneralReg r)
         |   codeExtIndex(MemIndex8(PReg(r, _))) = MemIndex8(findGeneralReg r)
 
+        fun moveRR{src, dst} = LoadArgument{source=RegisterArgument src, dest=dst, kind=MoveWord}
+
+        (* Where we have multiple specific registers as either source or
+           destination there is the potential that a destination register
+           if currently in use as a source.  We have to do the moves in the
+           right order and use exchanges if necessary.
+           Since we're only dealing with a very few registers there's
+           no need to avoid quadratic performance. *) 
+        fun moveMultipleRegisters regPairList =
+            (* Filter out cases where they're (now) in the right registers. *)
+            case List.filter(fn {src, dst} => src <> dst) regPairList of
+                [] => []
+            |   filtered =>
+                let
+                    (* Look for destinations that don't appear as sources.  For those
+                       we can use simple moves. *)
+                    val (simpleMove, needXchng) =
+                        List.partition(fn {dst, ...} => List.all(fn {src, ...} => src <> dst) filtered) filtered
+                    val moveInstrs = List.map moveRR simpleMove
+                    (* What's left are items that appear as both sources and destinations.  If we exchange the
+                       source and destination of an item we will set that destination as the correct value.
+                       Afterwards the old destination value is in the source register and vice versa. *)
+                    val (exchangeCode, remainder) =
+                        case needXchng of
+                            [] => ([], [])
+                        |   {src=oldSrc, dst=oldDest} :: rest =>
+                            let
+                                (* Swap the values. *)
+                                fun swapSrcs {src, dst} =
+                                    {src=if src=oldSrc then oldDest else if src=oldDest then oldSrc else src, dst=dst}
+                                val swapped = List.map swapSrcs rest
+                            in
+                                ([ExchangeRegisters{regX=oldSrc, regY=oldDest}], swapped)
+                            end
+                in
+                    moveInstrs @ exchangeCode @ moveMultipleRegisters remainder
+                end
+
         fun codeExtended([], _) = []
         
-        |   codeExtended(BeginFunction{regArgs=[(dest, srcReg)]} :: rest, context) =
+        |   codeExtended(BeginFunction{regArgs} :: rest, context) =
             let
-                (* For the moment deal just with a single register. *)
-                val pr = pRegNum dest
                 val code = codeExtended(rest, context)
+
+                (* Look up the register we need to move the argument into.
+                   If there's no register then we don't use this argument and
+                   can drop it. *)
+                fun mkPair(PReg(pr, _), rr) =
+                    case Array.sub(allocatedRegs, pr) of
+                        NONE => NONE
+                    |   SOME regResult => SOME{src=rr,dst=regResult}
+                val regPairs = List.mapPartial mkPair regArgs
             in
-                (* See if we have a register for the argument.  If we don't then we've never
-                   used it and we don't need to do anything.  Also if we're expecting it in
-                   the register it's in we don't need to do anything. *)
-                case Array.sub(allocatedRegs, pr) of
-                    SOME regResult =>
-                    if regResult = srcReg
-                    then code
-                    else LoadArgument{source=RegisterArgument srcReg, dest=regResult, kind=MoveWord} :: code
-                |   NONE => code
+                moveMultipleRegisters regPairs @ code
             end
 
         |   codeExtended(LoadArgument{source=RegisterArgument(PReg(sreg, PRegGeneral)), dest=PReg(dreg, PRegGeneral), kind=MoveWord} :: rest, context) =
@@ -2429,7 +2471,7 @@ struct
                         (* If the source is the same as the destination we don't need to do anything. *)
                         if realSrcReg = realDestReg
                         then code
-                        else LoadArgument{source=RegisterArgument realSrcReg, dest=realDestReg, kind=MoveWord} :: code
+                        else moveRR{src=realSrcReg, dst=realDestReg} :: code
                     end
             end
 
@@ -2444,41 +2486,155 @@ struct
                 |   NONE => code
             end
 
+        |   codeExtended(LoadArgument _ :: _, _) = raise TooHard
+
+        |   codeExtended(StoreArgument{ source, base=PReg(bReg, _), offset, index, kind as MoveWord } :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+            in
+                StoreArgument{
+                    source=codeExtArgument source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=kind}
+                        :: code
+            end
+
+        |   codeExtended(StoreArgument _ :: _, _) = raise TooHard
+        
+        |   codeExtended(AllocateMemoryOperation{ size, flags, dest=PReg(dReg, _)} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+            in
+                AllocateMemoryOperation{ size=size, flags=flags, dest=findGeneralReg dReg} :: code
+            end
+        
+        |   codeExtended(InitialisationComplete _ :: rest, context) =
+                InitialisationComplete{dest=raxAsArg (* unused *)} :: codeExtended(rest, context)
+            
         |   codeExtended(ReturnResultFromFunction { resultReg, numStackArgs } :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 val resultReg = findRegister(pRegNum resultReg, SOME(GenReg eax), generalRegisters)
                 (* If for some reason it's not in the right register we have to move it there. *)
                 val moveCode =
-                    if resultReg = GenReg eax
-                    then []
-                    else [LoadArgument{source=RegisterArgument resultReg, dest=raxAsArg, kind=MoveWord}]
+                    if resultReg = GenReg eax then [] else [moveRR{src=resultReg, dst=raxAsArg}]
             in
                 moveCode @
                     (ReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs} :: code)
             end
 
-        |   codeExtended(ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
-                                             operand2=IntegerConstant i, ccRef} :: rest, context) =
-            (*
-            let (* The result is a tagged register.  This is used when the constant operand can be untagged. *)
-                val (state, code) = codeExtended(rest, context)
+        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=_, isTail=true} :: rest, context) =
+            let
+                (* Currently just handle the case where neither the function being called
+                   nor this function have stack args.  That means that the return address
+                   stays where it is. *)
+                val _ = currentStackArgs = 0 orelse raise TooHard
+                val code = codeExtended(rest, context)
+                (* The register argument list contains "argument" values.  The entries are
+                   either RegisterArgument or constants.  Do the register arguments first.
+                   We may be using some of the registers that need to contain constants. *)
+                fun getRegArgs(RegisterArgument(PReg(pr, _)), reg) =
+                        SOME{dst=GenReg reg, src=findRegister(pr, SOME(GenReg reg), generalRegisters)}
+                |   getRegArgs _ = NONE
+                val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
+
+                fun getConstArgs(AddressConstant m, reg) =
+                    SOME(LoadArgument{source=AddressConstant m, dest=GenReg reg, kind=MoveWord})
+                |   getConstArgs(IntegerConstant i, reg) =
+                    SOME(LoadArgument{source=IntegerConstant i, dest=GenReg reg, kind=MoveWord})
+                |   getConstArgs(RegisterArgument _, _) = NONE
+                |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
+                val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
-                (* If the operand register is not used after this instruction we can reuse the result register. *)
-                if isActive(op1Reg, active)
-                then raise TooHard
-                else
-                let
-                    val regResult = findInState(resReg, state)
-                    val c =
-                        ArithmeticFunction{oper=oper, resultReg=regResult, operand1=RegisterArgument regResult,
-                                           operand2=IntegerConstant i, ccRef=ccRef}
-                    val newState = (op1Reg, regResult) :: removeFromState(resReg, state)
-                in
-                    (newState, c :: code)
-                end
-            end*) raise TooHard
-        
+                loadRegArgs @ loadConstArgs @
+                (FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} :: code)
+            end
+
+        |   codeExtended(ArithmeticFunction{oper=SUB, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
+                                            operand2, ccRef} :: rest, context) =
+            (* Subtraction - this is special because it can only be done one way round.  The first argument must
+               be in a register. *)
+            let
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                (* Try to put the argument into the same register as the result. *)
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
+                val op2Arg = codeExtArgument operand2
+                (* If we couldn't put it in the result register we have to copy it there. *)
+                val moveInstr =
+                    if realOp1Reg = realDestReg then [] else [moveRR{src=realOp1Reg, dst=realDestReg}]
+            in
+                moveInstr @
+                    (ArithmeticFunction{oper=SUB, resultReg=realDestReg, operand1=RegisterArgument realDestReg, operand2=op2Arg, ccRef=ccRef} :: code)
+            end
+
+        |   codeExtended(ArithmeticFunction{oper=SUB, ...} :: _, _) =
+            (* We have to load the first argument.  This really needs to be done at the higher level. *)
+                raise TooHard
+
+        |   codeExtended(ArithmeticFunction{oper, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
+                                            operand2=RegisterArgument(PReg(op2Reg, PRegGeneral)), ccRef} :: rest, context) =
+            (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
+               we can try to put either argument into the result reg and then do the operation on the other arg. *)
+            let
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                
+                (* Normally we try the first argument first but that could force that to
+                   be the same as realDestReg when the second argument would be better. *)
+                val {sourceReal=op2Src, ...} = Vector.sub(regStates, op2Reg)
+                val preferSecond = case op2Src of SOME opReg => opReg = realDestReg | NONE => false
+                (* N.B. findRegister side-effects allocatedRegs so it's the order of
+                   evaluation that matters here. *) 
+                val (realOp1Reg, realOp2Reg) =
+                    if preferSecond
+                    then (findRegister(op2Reg, SOME realDestReg, generalRegisters),
+                           findRegister(op1Reg, SOME realDestReg, generalRegisters))
+                    else (findRegister(op1Reg, SOME realDestReg, generalRegisters),
+                           findRegister(op2Reg, SOME realDestReg, generalRegisters))
+                val (operandReg, moveInstr) =
+                    if realOp1Reg = realDestReg
+                    then (realOp2Reg, [])
+                    else if realOp2Reg = realDestReg
+                    then (realOp1Reg, [])
+                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg}])
+            in
+                moveInstr @
+                    (ArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArgument realDestReg,
+                                        operand2=RegisterArgument operandReg, ccRef=ccRef} :: code)
+            end
+
+        |   codeExtended(ArithmeticFunction{oper, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
+                                            operand2, ccRef} :: rest, context) =
+            (* Arithemtic operation with the first argument in a register and the second a constant or memory location. *)
+            let
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
+                val op2Arg = codeExtArgument operand2
+                (* If we couldn't put it in the result register we have to copy it there. *)
+                val moveInstr =
+                    if realOp1Reg = realDestReg then [] else [moveRR{src=realOp1Reg, dst=realDestReg}]
+            in
+                moveInstr @
+                    (ArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArgument realDestReg, operand2=op2Arg, ccRef=ccRef} :: code)
+            end
+
+        |   codeExtended(ArithmeticFunction{oper, resultReg=PReg(resReg, PRegGeneral), operand1,
+                                            operand2=RegisterArgument(PReg(op2Reg, PRegGeneral)), ccRef} :: rest, context) =
+            (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
+            let
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+                val realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
+                val op1Arg = codeExtArgument operand1
+                val moveInstr =
+                    if realOp2Reg = realDestReg then [] else [moveRR{src=realOp2Reg, dst=realDestReg}]
+            in
+                moveInstr @
+                    (ArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArgument realDestReg, operand2=op1Arg, ccRef=ccRef} :: code)
+            end
+
+        |   codeExtended(ArithmeticFunction _ :: _, _) = (* Both in memory (probably). *) raise TooHard
+
         |   codeExtended _ = raise TooHard
         
         val icodeTabs = [8, 20, 60]
@@ -2525,7 +2681,7 @@ struct
         val postTransformCode =
             let
                 val code = codeExtended(identifiedCode, [])
-                val _ = print("Done " ^ functionName ^ "!!!!\n")
+                val _ = if !reportSuccess then print("-------Done " ^ functionName ^ "\n") else ()
             in
                 code
             end

@@ -93,6 +93,9 @@ struct
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
 
+        (* Exchange two registers. *)
+    |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
+
         (* Start of function.  Set the register arguments. *)
     |   BeginFunction of { regArgs: ('reg * reg) list }
 
@@ -298,6 +301,9 @@ struct
 
         |   printICode(LoadMemReg { offset, dest}, stream, printReg) =
                 ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
+
+        |   printICode(ExchangeRegisters { regX, regY}, stream, printReg) =
+                ( stream "\tExchangeRegs\t"; printReg(regX, stream); stream " <=> "; printReg(regY, stream) )
 
         |   printICode(BeginFunction {regArgs}, stream, printReg) =
             (
@@ -790,6 +796,10 @@ struct
             (* These two should have been transformed into MoveArgument. *)
         |   codeGenICode(LoadStack _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
         |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
+
+            (* Exchange two general registers. *)
+        |   codeGenICode(ExchangeRegisters{ regX, regY} :: rest, code) =
+                codeGenICode(rest, XChngRegisters { regX=asGenReg regX, regY=asGenReg regY } :: code)
 
         |   codeGenICode(BeginFunction _ :: rest, code) = codeGenICode(rest, code) (* Don't need to do anything. *)
 

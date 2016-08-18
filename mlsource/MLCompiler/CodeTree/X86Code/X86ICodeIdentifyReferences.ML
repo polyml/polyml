@@ -278,6 +278,10 @@ struct
         |   identify((instr as LoadMemReg { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
 
+        |   identify(ExchangeRegisters _ :: _, _, _, _, _) =
+                (* Should not occur at this stage. *)
+                raise InternalError "identify - ExchangeRegisters"
+
         |   identify((instr as BeginFunction {regArgs}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 val destRegs =

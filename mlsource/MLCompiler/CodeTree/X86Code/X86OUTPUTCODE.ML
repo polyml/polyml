@@ -816,6 +816,7 @@ struct
     |   TEST_ACC8
     |   LOCK_XADD
     |   FPESC of Word8.word
+    |   XCHNG
     |   REP (* Rep prefix *)
     |   MOVZB (* Needs escape code. *)
     |   MOVZW (* Needs escape code. *)
@@ -861,6 +862,7 @@ struct
     |   opToInt TEST_ACC8     = 0wxa8
     |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
     |   opToInt (FPESC n)     = 0wxD8 orb8 n
+    |   opToInt XCHNG         = 0wx87
     |   opToInt REP           = 0wxf3
     |   opToInt MOVZB         = 0wxb6 (* Needs escape code. *)
     |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
@@ -1352,6 +1354,7 @@ struct
             |   Arith _ => isX64
             |   MOVL_A_R => isX64 (* Needed *)
             |   MOVL_R_A => isX64 (* Needed *)
+            |   XCHNG => isX64
             |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVZB => isX64 (* Needed to ensure the result is 64-bits *)
             |   MOVZW => isX64 (* Needed to ensure the result is 64-bits *)
@@ -1910,6 +1913,7 @@ struct
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
+    |   XChngRegisters of { regX: genReg, regY: genReg }
 
     type operations = operation list
 
@@ -2134,6 +2138,7 @@ struct
                 stream "ConvertFromInt "; printGReg source; stream " => "; printXMMReg output
             )
         |   SignExtendForDivide => stream "SignExtendForDivide"
+        |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         ;
  
         stream "\n"
@@ -3108,6 +3113,13 @@ struct
                 genop(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE, code);
                 cgOp remainder
             )
+            
+       |    cgOp (XChngRegisters { regX, regY} :: remainder) =
+            (
+                (* We only use register-to-register exchange.  That doesn't cause a lock. *)
+                genOpReg(XCHNG, regX, regY, code);
+                cgOp remainder
+            )
     in
         cgOp ops
     end
@@ -3544,7 +3556,6 @@ struct
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
-
             |   0wx68 =>(print "push\t"; print32 ())
          
             |   0wx6a =>(print "push\t"; print8 ())
@@ -3600,6 +3611,18 @@ struct
                     printEA(rex, sizeFromRexW);
                     print ",";
                     print8 ()
+                end
+
+            |   0wx87 =>
+                let (* xchng *)
+                    (* Register is in next byte. *)
+                    val nb = csegGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "xchng \t";
+                    printEA(rex, sizeFromRexW);
+                    print ",";
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW))
                 end
 
             |   0wx88 =>
