@@ -27,7 +27,8 @@ struct
     type regState =
     { 
         active: int, defs: int, refs: int, sourceReal: reg option,
-        destReal: reg option, pushState: pushState
+        destReal: reg option, pushState: pushState,
+        conflicts: int list, realConflicts: reg list
     }
     
     exception InternalError = Misc.InternalError
@@ -51,6 +52,12 @@ struct
         and regDestReg = Array.array(maxPRegs, NONE: reg option)
         (* Whether the register must be saved on the stack, must not or could be. *)
         and regPushState = Array.array(maxPRegs, MayPush)
+        (* Other registers that conflict with this i.e. cannot share the same
+           real register. *)
+        and regConflicts = Array.array(maxPRegs, []: word list)
+        (* Real registers that cannot be used for this because are needed for
+           an instruction e.g. shift or block move, that requires these. *)
+        and regRealConflicts = Array.array(maxPRegs, []: reg list)
         
         fun incrArray(v, i) = Array.update(v, i, Array.sub(v, i)+1)
 
@@ -110,9 +117,6 @@ struct
         |   union([], b) = b
       
         val emptySet = []
-
-        fun emptyIntersection(r1::t1, r2::t2) = Word.andb(r1, r2) = 0w0 andalso emptyIntersection(t1, t2)
-        |   emptyIntersection _ = true
         
         fun isInSet(i, r1::t1) =
             if i < Word.wordSize
@@ -172,8 +176,34 @@ struct
            operation cannot be removed if its condition code is used even if its
            result is not. *)
         datatype ccState = CCIndeterminate | CCState of ccRef
-
-        fun addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sources, dests, removable) =
+        
+        fun addConflicts conflicts =
+        let
+            val conflictRegs = setToList conflicts
+        in
+            List.app(fn r => Array.update(regConflicts, r, union(Array.sub(regConflicts, r), conflicts))) conflictRegs
+        end
+        
+        (* If we need to use a specific register for an argument e.g. ecx for a shift,
+           we mustn't use that register for anything else. *)
+        fun addRealRegConflicts(currentSet, exclude, reg) =
+        let
+            fun checkAndAdd i =
+            if i = exclude
+            then ()
+            else
+            let
+                val currentConflicts = Array.sub(regRealConflicts, i)
+            in
+                if List.exists (fn r => r = reg) currentConflicts
+                then ()
+                else Array.update(regRealConflicts, i, reg :: currentConflicts)
+            end
+        in
+            List.app checkAndAdd currentSet
+        end
+        
+        fun identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, dests) =
         let
             val sourceSet = listToSet sources
             and destSet = listToSet dests
@@ -188,42 +218,72 @@ struct
                So we don't include registers whose last use is in this instruction or
                result registers from this instruction that are never used. (e.g. the
                remainder in a division or a work register). *)
-            val current = setToList(intersect(active, references))
-            val () = List.app(fn i => incrArray(regActive, i)) current
+            val current = intersect(active, references)
+            val currentRegs = setToList current
+            val () = List.app(fn i => incrArray(regActive, i)) currentRegs
             (* Have to add our sources to the result state. These are all the
                registers that have to have a value BEFORE this instruction. *)
             val nowActive = union(references, sourceSet)
-            (* If this can be removed and its destination is unused we can eliminate it. *)
-            val resultInstructions =
-                if removable andalso emptyIntersection(destSet, references)
-                then tail
-                else (instr, current) :: tail
+            (* The conflict set is the union of the current set and the destinations
+               The destinations will be in the current set if they are used but we
+               can have destinations, e.g. work registers or quotient/remainder
+               that need to have registers allocated that aren't then used. *)
+            val conflictSet = union(current, destSet)
         in
-            (resultInstructions, nowActive, refLabels, resLoopLabels, ccUsed)
+            (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed)
+        end 
+
+        and addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sources, dests) =
+        let
+            val (_, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, dests)
+            (* Compute the conflict set.  We don't need to do this there are no destinations. *)
+            val () = addConflicts conflictSet
+        in
+            (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+        end
+        
+        (* Move, tag and untag instructions can be eliminated if the result is never used. *)
+        and eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sources, dReg) =
+        let
+           val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, [dReg])
+        in
+            (* If the destination register is not in the set of registers that need to
+               have values after this instruction we can remove this move completely along
+               with the destination register.  Otherwise we have to mark this register as
+               conflicting with every other register that needs to have a value. *)
+            if List.exists(fn i => i = dReg) currentRegs
+            then
+            (
+                addConflicts conflictSet;
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+            )
+            else (tail, nowActive, refLabels, resLoopLabels, ccUsed)
         end
 
         and identify ([], _, _, _, _) = ([], emptySet, [], [], CCIndeterminate)
         
         |   identify((instr as LoadArgument { source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-            (* Moving to a preg, the destination. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest], true)
+                (* Moving to a preg, the destination. *)
+                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, destReg dest)
 
         |   identify((instr as StoreArgument { source, base, index, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ sourceReg base @sourceIndex index, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ sourceReg base @sourceIndex index, [])
 
         |   identify((instr as LoadStack { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
 
         |   identify((instr as LoadMemReg { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
 
         |   identify((instr as BeginFunction {regArgs}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 val destRegs =
                     map (fn (dest, src) => let val dReg = destReg dest in Array.update(regSourceReg, dReg, SOME src); dReg end) regArgs
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], destRegs, false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], destRegs)
             end
 
         |   identify((instr as FunctionCall{regArgs, stackArgs, dest, isTail, ...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -248,7 +308,7 @@ struct
                     val () = checkSources(sources, state)
                     val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
                 in
-                    ((instr, []) :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
+                    (instr :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
                 end
                 else (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
                 let
@@ -268,25 +328,32 @@ struct
                         List.app(
                             fn i => (incrArray(regActive, i); if i = dReg then () else Array.update(regPushState, i, MustPush))) current
                     val nowActive = union(references, sourceSet)
+                    (* No need for conflict sets.  Everything that could conflict must have been pushed. *)
                 in
-                    ((instr, current) :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
+                    (instr :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
                 end
             end
 
         |   identify((instr as AllocateMemoryOperation{dest, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCIndeterminate, [], [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCIndeterminate, [], [destReg dest])
 
         |   identify((instr as AllocateMemoryVariable{size, flags, dest, initialiser}) :: rest, state, labels, loopLabels, _) =
             let
                 val iSrc = case initialiser of NONE => [] | SOME init => sourceReg init
                 val sources = sourceRegs size @ sourceRegs flags @ iSrc
+                val (_, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [destReg dest])
+                (* We have to include the sources in the conflict set.  Unlike, say LoadArgument where
+                   a register in the source can be reused in the destination, we can't reuse the same
+                   register for the result as any of the arguments. *)
+                val () = addConflicts(union(conflictSet, listToSet sources))
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCIndeterminate, sources, [destReg dest], false)
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as InitialisationComplete{...}) :: rest, state, labels, loopLabels, ccIn) =
                 (* This is just a marker.  It doesn't actually generate any code. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [])
 
         |   identify((instr as StartLoop{arguments, loopLabel}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -312,7 +379,7 @@ struct
                 val () = List.app(fn i => incrArray(regActive, i)) current
             in
                 (* Add the loop entries to the result this.  They can then be added during the next pass. *)
-                ((instr, current) :: tail, nowActive, refLabels, (loopLabel, activeForLoop) :: resLoopLabels, CCIndeterminate)
+                (instr :: tail, nowActive, refLabels, (loopLabel, activeForLoop) :: resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as EndLoop{...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -320,7 +387,7 @@ struct
                 val (tail, references, refLabels, resLoopLabels, _) =
                     identify(rest, state, labels, loopLabels, ccIn)
             in
-                ((instr, setToList(intersect(state, references))) :: tail, references, refLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, references, refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as JumpLoop{arguments, loopLabel}) :: rest, state, labels, loopLabels, ccIn) =
@@ -340,7 +407,7 @@ struct
                 val nowActive = union(compositeRefs, sources)
                 val () = List.app(fn i => incrArray(regActive, i)) current
            in
-                ((instr, current) :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, state, labels, loopLabels, ccIn) =
@@ -354,13 +421,13 @@ struct
                    the exception packet. *)
                 val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
             in
-                ((instr, []) :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as ReserveContainer{address, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg address], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg address])
 
-        |   identify((instr as IndexedCaseOperation{testReg, workReg=_, cases, ...}) :: rest, state, labels, loopLabels, ccIn) =
+        |   identify((instr as IndexedCaseOperation{testReg, workReg, cases, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 (* This is rather like an unconditional branch except that we have a
                    list of destination branches rather than a single destination. *)
@@ -383,15 +450,17 @@ struct
                         in
                             (newRefLabs, union(newRefs, refs))
                         end ) (refLabels, emptySet) cases
-                val current = setToList(intersect(state, resultRefs))
+                val current = intersect(state, resultRefs)
+                val () = addConflicts(union(current, listToSet[destReg workReg]))
+                val currentRegs = setToList current
                 val nowActive = union(resultRefs, sources)
-                val () = List.app(fn i => incrArray(regActive, i)) current
+                val () = List.app(fn i => incrArray(regActive, i)) currentRegs
             in
-                ((instr, current) :: tail, nowActive, newRefLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, nowActive, newRefLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as LockMutable{addr}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs addr, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs addr, [])
 
         |   identify((ForwardJumpLabel{label, result}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -424,7 +493,7 @@ struct
                             |   SOME(r as PReg(n, _)) => if isInSet(n, current) then SOME r else NONE 
                         val newInstr = ForwardJumpLabel{label=label, result=newResult}
                     in
-                        ((newInstr, setToList current) :: tail, references, (label, references)::refLabels, resLoopLabels, CCIndeterminate)
+                        (newInstr :: tail, references, (label, references)::refLabels, resLoopLabels, CCIndeterminate)
                     end
             end
 
@@ -439,7 +508,7 @@ struct
                 val current = setToList(intersect(state, refs))
                 val () = List.app(fn i => incrArray(regActive, i)) current
             in
-                ((instr, current) :: tail, refs, newRefLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, refs, newRefLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as ConditionalForwardJump{label, ccRef, ...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -464,14 +533,14 @@ struct
                 val current = setToList(intersect(state, resultState))
                 val () = List.app(fn i => incrArray(regActive, i)) current
             in
-                ((instr,  current) :: tail, resultState,
+                (instr :: tail, resultState,
                     (* If the label was already in use when we came here leave the
                        result label in the list. *)
                     if isSome oldLabel then refLabels else newRefLabels, resLoopLabels, CCState ccRef)
             end
 
         |   identify((instr as WordComparison{arg1, arg2, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg1 @ sourceRegs arg2, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg1 @ sourceRegs arg2, [])
 
         |   identify((instr as PushExceptionHandler{handlerAddr, handleStart}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -490,7 +559,7 @@ struct
                 val current = setToList(intersect(state, nowActive))
                 val () = List.app(fn i => incrArray(regActive, i)) current
             in
-                ((instr, current) :: tail, nowActive, newRefLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, nowActive, newRefLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((PopExceptionHandler{handlerAddr, resultReg, workReg}) :: rest, state, labels, loopLabels, ccIn) =
@@ -511,7 +580,7 @@ struct
                     |   SOME(r as PReg(n, _)) => if isInSet(n, current) then SOME r else NONE
                 val newInstr = PopExceptionHandler{handlerAddr=handlerAddr, resultReg=newResultReg, workReg=workReg}
             in
-                ((newInstr, setToList current) :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+                (newInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as BeginHandler{handleStart, workReg=_, packetReg}) :: rest, state, labels, loopLabels, ccIn) =
@@ -533,7 +602,7 @@ struct
                     List.app(
                         fn i => (incrArray(regActive, i); if i = dReg then () else Array.update(regPushState, i, MustPush))) current
             in
-                ((instr, current) :: tail, references, (handleStart, references)::refLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, references, (handleStart, references)::refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -547,14 +616,14 @@ struct
                    the result. *)
                 val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
             in
-                ((instr, []) :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
+                (instr :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((instr as ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg])
 
         |   identify((instr as TestTagBit{arg, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg, [])
 
         |   identify(PushValue _ :: _, _, _, _, _) =
                 (* Should not occur at this stage. *)
@@ -565,10 +634,10 @@ struct
                 raise InternalError "identify - ResetStackPtr"
 
         |   identify((instr as TagValue{source, dest}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, [destReg dest], true)
+                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, destReg dest)
 
         |   identify((instr as UntagValue{source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest], true)
+                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, destReg dest)
 
         |   identify((instr as LoadEffectiveAddress{base, index, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -576,20 +645,34 @@ struct
                     case base of NONE => [] | SOME bReg => sourceReg bReg
                 val iRegs = sourceIndex index
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, bRegs @ iRegs, [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, bRegs @ iRegs, [destReg dest])
             end
 
-        |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
+        |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount=IntegerConstant _ , ccRef, ...}) :: rest, state, labels, loopLabels, _) =
+                (* Constant shifts don't require ecx. *)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand, [destReg resultReg])
+
+        |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef, ...}) :: rest, state, labels, loopLabels, _) =
             let
-                val shiftReg = sourceRegs shiftAmount
+                val () = incrArray(regRefs, shiftReg)
                 (* If it's variable it has to go into ecx *)
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) shiftReg
+                val () = Array.update(regDestReg, shiftReg, SOME(GenReg ecx))
+                val valueToShift = sourceRegs operand
+                val dReg = destReg resultReg
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCState ccRef, shiftReg :: valueToShift, [dReg])
+                val () = addConflicts conflictSet
+                (* We need to mark all the currentRegs except shiftReg as conflicting with ecx.
+                   We also need to mark the value to shift and the result as excluding that. *)
+                val () = addRealRegConflicts(dReg :: (currentRegs @ valueToShift), shiftReg, GenReg ecx)
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand @ shiftReg, [destReg resultReg], false)
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
+        
+        |   identify(ShiftOperation _ :: _, _, _, _, _) = raise InternalError "identify - ShiftOperation"
 
         |   identify((instr as Multiplication{resultReg, operand1, operand2, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg])
 
         |   identify((instr as Division{dividend, divisor, quotient, remainder, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -599,15 +682,15 @@ struct
                 val () = Array.update(regSourceReg, remReg, SOME(GenReg edx))
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg eax))) diviReg
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, diviReg @ sourceRegs divisor, [quotReg, remReg], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, diviReg @ sourceRegs divisor, [quotReg, remReg])
             end
 
         |   identify((instr as AtomicExchangeAndAdd{destAddr, source}) :: rest, state, labels, loopLabels, ccIn) =
                 (* The destination is an address so functions as a source *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs destAddr @ sourceReg source, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs destAddr @ sourceReg source, [])
 
         |   identify((instr as BoxValue{source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, [destReg dest], true)
+                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, destReg dest)
 
         |   identify((instr as CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
             let
@@ -616,7 +699,7 @@ struct
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) v2Addr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, v1Addr @ v2Addr @ len, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, v1Addr @ v2Addr @ len, [])
             end
 
         |   identify((instr as BlockMove{srcAddr, destAddr, length, ...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -626,11 +709,11 @@ struct
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) dAddr
                 val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sAddr @ dAddr @ len, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sAddr @ dAddr @ len, [])
             end
 
         |   identify((instr as CompareFloatingPt{arg1, arg2, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg1 @ sourceRegs arg2, [], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs arg1 @ sourceRegs arg2, [])
 
         |   identify((instr as X87FPGetCondition{dest, ccRef}) :: rest, state, labels, loopLabels, ccIn) =
             let
@@ -646,20 +729,20 @@ struct
                 val current = setToList(intersect(active, references))
                 val () = List.app(fn i => incrArray(regActive, i)) current
             in
-                ((instr, current) :: tail, references, refLabels, resLoopLabels, CCState ccRef)
+                (instr :: tail, references, refLabels, resLoopLabels, CCState ccRef)
             end
 
         |   identify((instr as X87FPArith{resultReg, arg1, arg2, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg])
 
         |   identify((instr as X87FPUnaryOps{dest, source, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest])
 
         |   identify((instr as FloatFixedInt{dest, source}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, [destReg dest])
 
         |   identify((instr as SSE2FPArith{resultReg, arg1, arg2, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg], false)
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg])
 
         val (decorated, _, _, resultLoop, _) = identify(icode, emptySet, [], loopLabels, CCIndeterminate)
         
@@ -671,7 +754,9 @@ struct
                     refs = Array.sub(regRefs, i),
                     sourceReal = Array.sub(regSourceReg, i),
                     destReal = Array.sub(regDestReg, i),
-                    pushState = Array.sub(regPushState, i)
+                    pushState = Array.sub(regPushState, i),
+                    conflicts = setToList(Array.sub(regConflicts, i)),
+                    realConflicts = Array.sub(regRealConflicts, i)
                 }
             )
     in

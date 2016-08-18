@@ -52,6 +52,12 @@ struct
     val raxAsArg = (GenReg eax) and rbxAsArg = (GenReg ebx)
     and rcxAsArg = (GenReg ecx) and rsiAsArg = (GenReg esi)
     and rdxAsArg = (GenReg edx) and rdiAsArg = (GenReg edi)
+    
+    val generalRegisters =
+        List.map GenReg
+        (if isX64
+        then [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
+        else [edi, esi, edx, ecx, ebx, eax])
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -2150,13 +2156,13 @@ struct
         
         exception TooHard
 
-        val (decoratedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+        val (identifiedCode, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
 
         (* Process arithmetic operations in the code.  Arithmetic operations require at least one
            operand in a register and deliver the result in the same register.  We need to
            check whether we can reuse an argument and copy it into a new register if
            necessary. *)
-        local
+(*        local
             val pregCounter = ref 0
             val pregMap = Array.array(maxPRegs, NONE: int option)
             
@@ -2324,88 +2330,137 @@ struct
         in
             val postArithCode = map codeArithmetic decoratedCode
             val postArithPRegCount = !pregCounter
-        end
-
-        fun isActive(reg, set) = List.exists(fn i => i = reg) set
+        end *)
         
-        fun findInState(pr, state) = #2(valOf(List.find(fn (r, _) => r = pr) state))
-        fun removeFromState(pr, state) = List.filter(fn (r, _) => r <> pr) state
+        val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
 
-        fun codeExtended([], _) = ([], [])
+        (* Find a real register for a preg.
+           1.  If a register is already allocated use that.
+           2.  Try the "preferred" register if one has been given.
+           3.  Try the destination if there is one.
+           4.  Try the source register if there is one
+           5.  Look at all the registers and find one.  What order should we use? *)
+        fun findRegister(r, pref, regSet) =
+            case Array.sub(allocatedRegs, r) of
+                SOME reg => reg
+            |   NONE =>
+                let
+                    val {conflicts, realConflicts, sourceReal, destReal, ...} = Vector.sub(regStates, r)
+                    (* Find the registers we've already allocated that may conflict. *)
+                    val conflictingRegs =
+                        List.mapPartial(fn i => Array.sub(allocatedRegs, i)) conflicts @
+                            realConflicts
+
+                    fun isFree aReg = not (List.exists(fn i => i=aReg) conflictingRegs)
+
+                    fun tryAReg NONE = NONE
+                    |   tryAReg (SOME prefReg) =
+                            if isFree prefReg
+                            then (Array.update(allocatedRegs, r, SOME prefReg); SOME prefReg)
+                            else NONE
+                    
+                    fun findAReg [] = raise TooHard
+                    |   findAReg (reg::regs) =
+                            if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
+                            else findAReg regs
+                in
+                    case tryAReg pref of
+                        SOME r => r
+                    |   NONE =>
+                        (
+                            case tryAReg destReal of
+                                SOME r => r
+                            |   NONE =>
+                                (
+                                    case tryAReg sourceReal of
+                                        SOME r => r
+                                    |   NONE => (* Look through the registers to find one that's free. *)
+                                            findAReg regSet
+                                )
+                        )
+                end
+
+        fun findGeneralReg r = findRegister(r, NONE, generalRegisters)
+
+        fun codeExtArgument(RegisterArgument(PReg(r, _))) = RegisterArgument(findGeneralReg r)
+        |   codeExtArgument(AddressConstant m) = AddressConstant m
+        |   codeExtArgument(IntegerConstant i) = IntegerConstant i
+        |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}) =
+                MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
+
+        and codeExtIndex NoMemIndex = NoMemIndex
+        |   codeExtIndex(MemIndex1(PReg(r, _))) = MemIndex1(findGeneralReg r)
+        |   codeExtIndex(MemIndex2(PReg(r, _))) = MemIndex2(findGeneralReg r)
+        |   codeExtIndex(MemIndex4(PReg(r, _))) = MemIndex4(findGeneralReg r)
+        |   codeExtIndex(MemIndex8(PReg(r, _))) = MemIndex8(findGeneralReg r)
+
+        fun codeExtended([], _) = []
         
-        |   codeExtended((BeginFunction{regArgs=[(dest, srcReg)]}, active) :: rest, context) =
+        |   codeExtended(BeginFunction{regArgs=[(dest, srcReg)]} :: rest, context) =
             let
                 (* For the moment deal just with a single register. *)
                 val pr = pRegNum dest
-                val (state, code) = codeExtended(rest, context)
+                val code = codeExtended(rest, context)
             in
-                if isActive(pr, active)
-                then
-                let
-                    (* See if we're using it from the register it's in.  Otherwise we need
-                       to move it. *)
-                    val regResult = findInState(pr, state)
-                    val c =
-                        if regResult = srcReg
-                        then []
-                        else [LoadArgument{source=RegisterArgument srcReg, dest=regResult, kind=MoveWord}]
-                in
-                    (removeFromState(pr, state), c @ code)
-                end
-                else (state, code) (* Not needed. *)
+                (* See if we have a register for the argument.  If we don't then we've never
+                   used it and we don't need to do anything.  Also if we're expecting it in
+                   the register it's in we don't need to do anything. *)
+                case Array.sub(allocatedRegs, pr) of
+                    SOME regResult =>
+                    if regResult = srcReg
+                    then code
+                    else LoadArgument{source=RegisterArgument srcReg, dest=regResult, kind=MoveWord} :: code
+                |   NONE => code
             end
 
-        |   codeExtended((LoadArgument{source=RegisterArgument(PReg(sreg, PRegGeneral)), dest=PReg(dreg, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+        |   codeExtended(LoadArgument{source=RegisterArgument(PReg(sreg, PRegGeneral)), dest=PReg(dreg, PRegGeneral), kind=MoveWord} :: rest, context) =
+            (* Register to register move.  Try to use the same register for the source as the destination
+               to eliminate the instruction. *)
             let
-                (* If the source register is active we're going to need both, or at least assume that for
-                   the moment so we only ever associate a single preg with a real register. *)
-                val (state, code) = codeExtended(rest, context)
+                val code = codeExtended(rest, context)
             in
-                if isActive(sreg, active)
-                then
-                let
-                in
-                    raise TooHard
-                end
-                else
-                let
-                    (* Since we're generating a new register and don't want the old one we can
-                       use the same real register. *)
-                    val regResult = findInState(dreg, state)
-                    val newState = (sreg, regResult) :: removeFromState(dreg, state)
-                in
-                    (newState, code)
-                end
+                case Array.sub(allocatedRegs, dreg) of
+                    NONE => (* The result was never used *) code
+                |   SOME realDestReg =>
+                    let
+                        (* Get the source register using the current destination as a preference. *)
+                        val realSrcReg = findRegister(sreg, SOME realDestReg, generalRegisters)
+                    in
+                        (* If the source is the same as the destination we don't need to do anything. *)
+                        if realSrcReg = realDestReg
+                        then code
+                        else LoadArgument{source=RegisterArgument realSrcReg, dest=realDestReg, kind=MoveWord} :: code
+                    end
             end
 
-        |   codeExtended((LoadArgument{source=AddressConstant a, dest=PReg(pr, PRegGeneral), kind=MoveWord}, active) :: rest, context) =
+        |   codeExtended(LoadArgument{source, dest=PReg(pr, PRegGeneral), kind=MoveWord} :: rest, context) =
+            (* Loads of constants or from an address. *)
             let
-                val (state, code) = codeExtended(rest, context)
+                val code = codeExtended(rest, context)
             in
-                if isActive(pr, active)
-                then
-                let
-                    (* Find a register for this.  Because we're working backwards we should have this. *)
-                    val regResult = findInState(pr, state)
-                    val c = LoadArgument{source=AddressConstant a, dest=regResult, kind=MoveWord}
-                in
-                    (removeFromState(pr, state), c :: code)
-                end
-                else (state, code) (* Not needed. *)
+                (* If we don't have a register that means the result is never used. *)
+                case Array.sub(allocatedRegs, pr) of
+                    SOME regResult => LoadArgument{source=codeExtArgument source, dest=regResult, kind=MoveWord} :: code
+                |   NONE => code
             end
 
-        |   codeExtended((ReturnResultFromFunction { resultReg, numStackArgs }, _) :: rest, context) =
+        |   codeExtended(ReturnResultFromFunction { resultReg, numStackArgs } :: rest, context) =
             let
-                val (_, code) = codeExtended(rest, context)
-                (* Say we want it in rax. *)
-                val resultState = [(pRegNum resultReg, GenReg eax)]
-                val c = ReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs}
+                val code = codeExtended(rest, context)
+                val resultReg = findRegister(pRegNum resultReg, SOME(GenReg eax), generalRegisters)
+                (* If for some reason it's not in the right register we have to move it there. *)
+                val moveCode =
+                    if resultReg = GenReg eax
+                    then []
+                    else [LoadArgument{source=RegisterArgument resultReg, dest=raxAsArg, kind=MoveWord}]
             in
-                (resultState, c :: code)
+                moveCode @
+                    (ReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs} :: code)
             end
 
-        |   codeExtended((ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
-                                             operand2=IntegerConstant i, ccRef}, active) :: rest, context) =
+        |   codeExtended(ArithmeticFunction{ oper, resultReg=PReg(resReg, PRegGeneral), operand1=RegisterArgument(PReg(op1Reg, PRegGeneral)),
+                                             operand2=IntegerConstant i, ccRef} :: rest, context) =
+            (*
             let (* The result is a tagged register.  This is used when the constant operand can be untagged. *)
                 val (state, code) = codeExtended(rest, context)
             in
@@ -2422,7 +2477,7 @@ struct
                 in
                     (newState, c :: code)
                 end
-            end
+            end*) raise TooHard
         
         |   codeExtended _ = raise TooHard
         
@@ -2440,18 +2495,17 @@ struct
                 |   printRegs([i], _) = printStream(Int.toString i)
                 |   printRegs(i::l, n) = (printStream(Int.toString i ^ ","); printRegs(l, n-1))
 
-                fun printCode(c, regs) =
+                fun printCode c =
                 (
                     printICodeAbstract(c, printStream);
-                    printStream "\t[";
-                    printRegs(regs, 10);
-                    printStream "]\n"
+                    printStream "\n"
                 )
                 
-                fun printRegData(i, { active, defs, refs, sourceReal, destReal, pushState }) =
+                fun printRegData(i, { conflicts, realConflicts=_, active, defs, refs, sourceReal, destReal, pushState }) =
                 (
                     printStream (Int.toString i ^ "\t");
-                    printStream ("Active=" ^ Int.toString active);
+                    printStream ("Conflicts="); printRegs(conflicts, 20);
+                    printStream (" Active=" ^ Int.toString active);
                     printStream (" Rfs=" ^ Int.toString refs);
                     printStream (" Defs=" ^ Int.toString defs);
                     case sourceReal of SOME r => printStream(" From=" ^ regRepr r) | NONE => ();
@@ -2462,7 +2516,7 @@ struct
                 )
             in
                 printStream(functionName ^ "\n");
-                List.app printCode decoratedCode;
+                List.app printCode identifiedCode;
                 printStream "\n";
                 Vector.appi printRegData regStates
             end
@@ -2470,8 +2524,7 @@ struct
 
         val postTransformCode =
             let
-                val _ = raise TooHard
-                val (_, code) = codeExtended(decoratedCode, [])
+                val code = codeExtended(identifiedCode, [])
                 val _ = print("Done " ^ functionName ^ "!!!!\n")
             in
                 code
@@ -2479,7 +2532,7 @@ struct
             handle TooHard =>
             let
                 val (fnState, fnCode) =
-                    codeICode{icode=(*icode*)postArithCode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
+                    codeICode{icode=icode, state=NormalState initialState, code=[], context={loopArgs=[], forwardLabels=[], handlers=[]}}
                 val _ = case fnState of Exited => () | _ => raise InternalError "fnstate not exited"
             in
                 List.rev fnCode (* Reverse the list *)
