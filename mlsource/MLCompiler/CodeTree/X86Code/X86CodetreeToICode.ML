@@ -325,9 +325,11 @@ struct
                 (* Optimise arguments.  We have to be careful with tail-recursive functions because they
                    need to save any stack arguments that could be overwritten.  This is complicated
                    because we overwrite the stack before loading the register arguments.  In some
-                   circumstances it could be safe but for the moment leave it. *)
+                   circumstances it could be safe but for the moment leave it.
+                   Currently we don't allow memory arguments at all.  There's the potential for
+                   problems later. *)
                 val allowDefer =
-                    Allowed {anyConstant=true, const32s=true, memAddr=not isTail, existingPreg=not isTail }
+                    Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
                 fun loadArgs [] = ([], [])
                 |   loadArgs((arg, _)::args) =
                     let
@@ -1859,6 +1861,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPReg(arg1, context)
                 (* Test the tag bit.  This sets the zero bit if the value is untagged. *)
+                (* TODO: The X86 supports tests with a memory argument so we don't have to
+                   load it into a register.  That's not currently supported by the rest of
+                   the code-generator. *)
             in
                 testCode @
                     [TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef},
