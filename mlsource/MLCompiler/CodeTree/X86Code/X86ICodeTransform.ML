@@ -1113,7 +1113,7 @@ struct
                 codeICode{icode=rest, state=NormalState resultState, code=resultCode, context=context}
             end
             
-        |   codeICode{icode=AllocateMemoryOperation{ size, flags, dest} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryOperation{ size, flags, dest, saveRegs=_} :: rest, state=NormalState state, code, context} =
             let
                 val destReg = pRegNum dest
                 val (pushedState, pushCode) = pushRax state
@@ -1121,17 +1121,19 @@ struct
             in
                 codeICode{
                     icode=rest, state=NormalState resultState,
-                    code=AllocateMemoryOperation{ size=size, flags=flags, dest=raxAsArg} :: pushCode @ code, context=context}
+                    code=AllocateMemoryOperation{ size=size, flags=flags, dest=raxAsArg, saveRegs=[]} :: pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=NONE} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=NONE, saveRegs=_} :: rest, state=NormalState state, code, context} =
             let
                 (* Allocate memory without initialisation.  Used for byte segments that don't need to be initialised. *)
                 val fReg = argAsPReg flags and destReg = pRegNum dest
                 val startState = checkTopInRax(state, fReg) (* Should be in eax. *)
                 val loadSize = loadSource(size, edx, startState)
                 (* We put the size in rdx, the flags in rax and the result in rdi. *)
-                val allocMem = [AllocateMemoryVariable{size=RegisterArgument rdxAsArg, flags=RegisterArgument raxAsArg, dest=rdiAsArg, initialiser=NONE}]
+                val allocMem =
+                    [AllocateMemoryVariable{size=RegisterArgument rdxAsArg, flags=RegisterArgument raxAsArg, dest=rdiAsArg,
+                        initialiser=NONE, saveRegs=[]}]
                 val moveToRAX = [LoadArgument{source=RegisterArgument rdiAsArg, dest=raxAsArg, kind=MoveWord}]
                 val resultState = clearCC(addRaxToState(startState, destReg))
             in
@@ -1140,7 +1142,7 @@ struct
                     code= moveToRAX @ allocMem @ loadSize @ code, context=context}
             end
 
-        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=SOME init} :: rest,
+        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, initialiser=SOME init, saveRegs=_} :: rest,
                       state=NormalState state, code, context} =
             let
                 (* Allocate memory and initialise.  This is needed for word segments.  We want to use
@@ -1151,7 +1153,8 @@ struct
                 val loadSize = loadSource(size, ecx, startState)
                 val loadFlags = loadSource(flags, ebx, startState)
                 val allocMem =
-                    [AllocateMemoryVariable{size=RegisterArgument rcxAsArg, flags=RegisterArgument rbxAsArg, dest=rdxAsArg, initialiser=SOME raxAsArg}]
+                    [AllocateMemoryVariable{size=RegisterArgument rcxAsArg, flags=RegisterArgument rbxAsArg, dest=rdxAsArg,
+                        initialiser=SOME raxAsArg, saveRegs=[]}]
                 val moveToRAX = [LoadArgument{source=RegisterArgument rdxAsArg, dest=raxAsArg, kind=MoveWord}]
                 val resultState = clearCC(addRaxToState(startState, destReg))
             in
@@ -1328,9 +1331,9 @@ struct
         |   codeICode{icode=RaiseExceptionPacket{packet} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
-                val load = loadSource(packet, eax, pushedState)
+                val load = loadSource(RegisterArgument packet, eax, pushedState)
             in
-                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: load @ pushCode @ code, context=context}
+                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=raxAsArg } :: load @ pushCode @ code, context=context}
             end
 
             (* Reserve a contiguous area of memory on the stack.  This is used to receive the
@@ -1790,20 +1793,20 @@ struct
                         LoadArgument { source=RegisterArgument realDividend, dest=raxAsArg, kind=MoveWord } :: pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=AtomicExchangeAndAdd{ destAddr, source } :: rest,
+        |   codeICode{icode=AtomicExchangeAndAdd{ base, source } :: rest,
                       state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 (* Load the "destination" address into rax. *)
-                val load = loadSource(destAddr, eax, pushedState)
+                val load = loadSource(RegisterArgument base, eax, pushedState)
                 (* The "source" is an untagged register. *)
                 val srcReg = getUreg(uRegNum source, pushedState)
             in
                 codeICode{icode=rest, state=NormalState pushedState,
-                    code=AtomicExchangeAndAdd{destAddr=RegisterArgument raxAsArg, source=srcReg} :: load @ pushCode @ code, context=context}
+                    code=AtomicExchangeAndAdd{base=raxAsArg, source=srcReg} :: load @ pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=BoxValue{ boxKind=BoxLargeWord, dest, source } :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=BoxValue{ boxKind=BoxLargeWord, dest, source, saveRegs=_ } :: rest, state=NormalState state, code, context} =
             let
                 (* Allocate a one word cell and store the untagged value into it. *)
                 val destReg = pRegNum dest
@@ -1835,10 +1838,10 @@ struct
                     code=
                         InitialisationComplete{dest=raxAsArg} ::
                         StoreArgument{ source=RegisterArgument newSrcReg, offset=0, base=GenReg eax, index=NoMemIndex, kind=MoveWord} ::
-                        AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
+                        AllocateMemoryOperation{ size=1, flags=0wx1, dest=raxAsArg, saveRegs=[]} :: pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=BoxValue{ boxKind=BoxFloat, dest, source } :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=BoxValue{ boxKind=BoxFloat, dest, source, saveRegs=_ } :: rest, state=NormalState state, code, context} =
             let
                 (* Allocate a one or two word cell and store the untagged value into it. *)
                 val destReg = pRegNum dest
@@ -1852,7 +1855,7 @@ struct
                     code=
                         InitialisationComplete{dest=raxAsArg} ::
                         StoreArgument{ source=RegisterArgument srcReg, offset=0, base=GenReg eax, index=NoMemIndex, kind=MoveDouble} ::
-                        AllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=raxAsArg} :: pushCode @ code, context=context}
+                        AllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=raxAsArg, saveRegs=[]} :: pushCode @ code, context=context}
             end
 
         |   codeICode{icode=CompareByteVectors { vec1Addr, vec2Addr, length, ccRef } :: rest, state=NormalState state, code, context} =
@@ -1877,24 +1880,17 @@ struct
                    case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
                    is two bytes in 32-bit but three in 64-bit. *)
                 val (lengthCode, setZeroFlag) =
-                    case length of
-                        IntegerConstant l =>
-                            (LoadArgument{ source=IntegerConstant l, dest=rcxAsArg, kind=MoveWord},
-                             (* We don't need this except if the length is zero.  Really if we know
-                                the length is zero we don't need this at all. *)
-                             if l = 0 then [WordComparison {arg1=RegisterArgument rcxAsArg, arg2=RegisterArgument rcxAsArg, ccRef=ccRef}] else [])
-                    |   length =>
-                        let
-                            val lenReg = argAsUReg length
-                            val realLenReg =
-                                case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
-                                    SOME {reg as GenReg _, ...} => reg
-                                |   _ => raise InternalError "codeICode: CompareByteVectors"
-                            val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
-                        in
-                            (LoadArgument{source=RegisterArgument realLenReg, dest=rcxAsArg, kind=MoveWord},
-                             [WordComparison {arg1=RegisterArgument rcxAsArg, arg2=RegisterArgument rcxAsArg, ccRef=ccRef}]) (* Set CC - any reg will do. *)
-                        end
+                    let
+                        val lenReg = uRegNum length
+                        val realLenReg =
+                            case List.find (fn {ureg, ...} => ureg = lenReg) untaggedRegs of
+                                SOME {reg as GenReg _, ...} => reg
+                            |   _ => raise InternalError "codeICode: CompareByteVectors"
+                        val _ = realLenReg = GenReg esi orelse raise InternalError "codeICode: lenReg"
+                    in
+                        (LoadArgument{source=RegisterArgument realLenReg, dest=rcxAsArg, kind=MoveWord},
+                         [WordComparison {arg1=RegisterArgument rcxAsArg, arg2=RegisterArgument rcxAsArg, ccRef=ccRef}]) (* Set CC - any reg will do. *)
+                    end
                 (* These aren't in the registers we want so we have to shuffle them. *)
                 val _ = realVec1Reg = GenReg edx orelse raise InternalError "codeICode: vec1Reg"
                 val _ = realVec2Reg = GenReg ecx orelse raise InternalError "codeICode: vec2Reg"
@@ -1905,7 +1901,7 @@ struct
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code =
-                        CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=RegisterArgument rcxAsArg, ccRef=ccRef} ::
+                        CompareByteVectors{vec1Addr=rsiAsArg, vec2Addr=rdiAsArg, length=rcxAsArg, ccRef=ccRef} ::
                         setZeroFlag @ (
                         LoadArgument{source=RegisterArgument realVec1Reg, dest=rsiAsArg, kind=MoveWord} ::
                         lengthCode ::
@@ -1915,7 +1911,7 @@ struct
         |   codeICode{icode=BlockMove { srcAddr, destAddr, length, isByteMove } :: rest, state=NormalState state, code, context} =
             let
                 val {untaggedRegs, ...} = state
-                val srcReg = uRegNum srcAddr and destReg = uRegNum destAddr and lenReg = argAsUReg length
+                val srcReg = uRegNum srcAddr and destReg = uRegNum destAddr and lenReg = uRegNum length
                 val realSrcReg =
                     case List.find (fn {ureg, ...} => ureg = srcReg) untaggedRegs of
                         SOME {reg as GenReg _, ...} => reg
@@ -1938,7 +1934,7 @@ struct
                 codeICode{
                     icode=rest, state=NormalState resultState,
                     code =
-                        BlockMove{srcAddr=rsiAsArg, destAddr=rdiAsArg, length=RegisterArgument rcxAsArg, isByteMove=isByteMove} ::
+                        BlockMove{srcAddr=rsiAsArg, destAddr=rdiAsArg, length=rcxAsArg, isByteMove=isByteMove} ::
                         LoadArgument{source=RegisterArgument realSrcReg, dest=rsiAsArg, kind=MoveWord} ::
                         LoadArgument{source=RegisterArgument realLenReg, dest=rcxAsArg, kind=MoveWord} ::
                         LoadArgument{source=RegisterArgument realDestReg, dest=rdiAsArg, kind=MoveWord} :: code, context=context}
@@ -2589,14 +2585,15 @@ struct
 
         |   codeExtended(FunctionCall _ :: _, _) = raise TooHard NotDoneInstr
 
-        |   codeExtended(AllocateMemoryOperation{ size, flags, dest=PReg(dReg, _)} :: rest, context) =
+        |   codeExtended(AllocateMemoryOperation{ size, flags, dest=PReg(dReg, _), saveRegs} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
+                val preserve = List.map(fn (PReg(r, _)) => findGeneralReg r) saveRegs
             in
-                AllocateMemoryOperation{ size=size, flags=flags, dest=findGeneralReg dReg} :: code
+                AllocateMemoryOperation{ size=size, flags=flags, dest=findGeneralReg dReg, saveRegs=preserve} :: code
             end
 
-        |   codeExtended(AllocateMemoryVariable{size, flags, dest, initialiser} :: rest, context) =
+        |   codeExtended(AllocateMemoryVariable{size, flags, dest, initialiser, saveRegs} :: rest, context) =
                 raise TooHard NotDoneInstr
 
         |   codeExtended(InitialisationComplete _ :: rest, context) =
@@ -2609,7 +2606,7 @@ struct
 
         |   codeExtended(JumpLoop{arguments, loopLabel} :: rest, context) =raise TooHard NotDoneInstr
 
-        |   codeExtended(RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) } :: rest, context) =
+        |   codeExtended(RaiseExceptionPacket{ packet=PReg(preg, _) } :: rest, context) =
             let
                 (* Currently the argument is always in a register.  TODO: Should it always be? *)
                 val code = codeExtended(rest, context)
@@ -2617,10 +2614,8 @@ struct
                 val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
             in
                 moveIfNecessary{src=argReg, dst=raxAsArg} @
-                    RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: code
+                    RaiseExceptionPacket {packet= raxAsArg } :: code
             end
-
-        |   codeExtended(RaiseExceptionPacket _ :: _, _) = raise InternalError "codeExtended - RaiseExceptionPacket"
 
         |   codeExtended(ReserveContainer{size, address} :: rest, context) =
                 raise TooHard NotDoneInstr
@@ -2631,7 +2626,6 @@ struct
         |   codeExtended(LockMutable{addr=RegisterArgument(PReg(pr, _))} :: rest, context) =
             (* Currently it's always a register. *)
             let
-                val _ = reportSuccess := true
                 val code = codeExtended(rest, context)
                 val argReg = findRegister(pr, NONE, generalRegisters)
             in
@@ -2811,12 +2805,22 @@ struct
         |   codeExtended(UntagValue _ :: _, _) =
                 raise InternalError "UntagValue"
 
-        |   codeExtended(LoadEffectiveAddress{base, offset, index, dest} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest} :: rest, context) =
+                (* This should be handled at the higher level. *)
+                codeExtended(LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord} :: rest, context)
+
+        |   codeExtended(LoadEffectiveAddress{base, offset, index, dest=PReg(dReg, _)} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val destReg = findGeneralReg dReg
+                val bReg = case base of SOME(PReg(br, _)) => SOME(findGeneralReg br) | NONE => NONE
+                val iReg = codeExtIndex index
+            in
+                LoadEffectiveAddress{base=bReg, offset=offset, index=iReg, dest=destReg} :: code
+            end
 
         |   codeExtended(ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)), shiftAmount=IntegerConstant i, ccRef} :: rest, context) =
             let
-                val _ = reportSuccess := true
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOpReg = findRegister(operReg, SOME realDestReg, generalRegisters)
@@ -2829,7 +2833,6 @@ struct
         |   codeExtended(ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)),
                                         shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef} :: rest, context) =
             let
-                val _ = reportSuccess := true
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realShiftReg = findRegister(shiftReg, SOME(GenReg ecx), generalRegisters)
@@ -2852,17 +2855,53 @@ struct
         |   codeExtended(Division{isSigned, dividend, divisor, quotient, remainder} :: rest, context) =
                 raise TooHard NotDoneInstr
 
-        |   codeExtended(AtomicExchangeAndAdd{destAddr, source} :: rest, context) =
+        |   codeExtended(AtomicExchangeAndAdd{base=PReg(bReg, _), source=PReg(sReg, _)} :: rest, context) =
+            let
+                val () = reportSuccess := true
+                val code = codeExtended(rest, context)
+                val srcReg = findGeneralReg sReg
+                val baseReg = findGeneralReg bReg
+            in
+                AtomicExchangeAndAdd{base=baseReg, source=srcReg} :: code
+            end
+
+        |   codeExtended(BoxValue{boxKind, source, dest, saveRegs} :: rest, context) =
                 raise TooHard NotDoneInstr
 
-        |   codeExtended(BoxValue{boxKind, source, dest} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(CompareByteVectors{vec1Addr=PReg(v1Reg, _), vec2Addr=PReg(v2Reg, _), length=PReg(lReg, _), ccRef} :: rest, context) =
+            let
+                (* Don't forget to initialise the condition code. *)
+                val code = codeExtended(rest, context)
+                val realV1Reg = findRegister(v1Reg, SOME(GenReg esi), generalRegisters)
+                val realV2Reg = findRegister(v2Reg, SOME(GenReg edi), generalRegisters)
+                val realLengthReg = findRegister(lReg, SOME(GenReg ecx), generalRegisters)
+                (* There's a complication here.  CompareByteVectors generates REPE CMPSB to compare
+                   the vectors but the condition code is only set if CMPSB is executed at least
+                   once.  If the value in RCX/ECX is zero it will never be executed and the
+                   condition code will be unchanged.  We want the result to be "equal" in that
+                   case so we need to ensure that is the case.  It's quite possible that the
+                   condition code has just been set by shifting RCX/ECX to remove the tag in which
+                   case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
+                   is two bytes in 32-bit but three in 64-bit.
+                   If we knew the length was non-zero (e.g. a constant) we could avoid this. *)
+            in
+                moveIfNecessary{src=realV1Reg, dst=GenReg esi} @ moveIfNecessary{src=realV2Reg, dst=GenReg edi} @
+                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx} @
+                    (WordComparison {arg1=RegisterArgument rcxAsArg, arg2=RegisterArgument rcxAsArg, ccRef=ccRef} ::
+                     CompareByteVectors{vec1Addr=GenReg esi, vec2Addr=GenReg edi, length=GenReg ecx, ccRef=ccRef} :: code)
+            end
 
-        |   codeExtended(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef} :: rest, context) =
-                raise TooHard NotDoneInstr
-
-        |   codeExtended(BlockMove{srcAddr, destAddr, length, isByteMove} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(BlockMove{srcAddr=PReg(sReg, _), destAddr=PReg(dReg, _), length=PReg(lReg, _), isByteMove} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val realSrcReg = findRegister(sReg, SOME(GenReg esi), generalRegisters)
+                val realDestReg = findRegister(dReg, SOME(GenReg edi), generalRegisters)
+                val realLengthReg = findRegister(lReg, SOME(GenReg ecx), generalRegisters)
+            in
+                moveIfNecessary{src=realSrcReg, dst=GenReg esi} @ moveIfNecessary{src=realDestReg, dst=GenReg edi} @
+                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx} @
+                    (BlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove} :: code)
+            end
 
         |   codeExtended(CompareFloatingPt{arg1, arg2, ccRef} :: rest, context) =
                 raise TooHard NotDoneInstr

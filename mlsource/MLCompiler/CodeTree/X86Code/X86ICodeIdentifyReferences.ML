@@ -62,25 +62,25 @@ struct
         fun incrArray(v, i) = Array.update(v, i, Array.sub(v, i)+1)
 
         (* Find the sources when the argument is used as a source. *)
-        fun sourceRegs(RegisterArgument rarg) = sourceReg rarg
+        fun sourceRegs(RegisterArgument rarg) = [sourceReg rarg]
         |   sourceRegs(MemoryLocation { base, index, ...}) =
             let
                 val bRegs = sourceReg base
                 val iRegs = sourceIndex index
             in
-                bRegs @ iRegs
+                bRegs :: iRegs
             end
         |   sourceRegs _ = []
         
-        and sourceReg(PReg(i, _)) = (incrArray(regRefs, i); [i])
+        and sourceReg(PReg(i, _)) = (incrArray(regRefs, i); i)
         
         and sourceIndex index =
                     case index of
                         NoMemIndex => []
-                    |   MemIndex1 arg => sourceReg arg
-                    |   MemIndex2 arg => sourceReg arg
-                    |   MemIndex4 arg => sourceReg arg
-                    |   MemIndex8 arg => sourceReg arg
+                    |   MemIndex1 arg => [sourceReg arg]
+                    |   MemIndex2 arg => [sourceReg arg]
+                    |   MemIndex4 arg => [sourceReg arg]
+                    |   MemIndex8 arg => [sourceReg arg]
 
         (* Any particular argument is only ever a single destination. *)
         fun destReg(PReg(i, regKind)) =
@@ -202,6 +202,21 @@ struct
         in
             List.app checkAndAdd currentSet
         end
+
+        (* If we are allocating memory we have to save the current registers if
+           they could contain an address.  We mustn't push untagged registers
+           and we mustn't push the destination. *)
+        fun getSaveSet(currentRegs, dReg) =
+        let
+            fun getSave i =
+                if i = dReg
+                then NONE
+                else case Array.sub(regPushState, i) of
+                    MustNotPush => NONE
+                |   _ => SOME(PReg(i, PRegGeneral))
+        in
+            List.mapPartial getSave currentRegs
+        end
         
         fun identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, dests) =
         let
@@ -246,7 +261,7 @@ struct
         (* Move, tag and untag instructions can be eliminated if the result is never used. *)
         and eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sources, dReg) =
         let
-           val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+            val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
                 identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, [dReg])
         in
             (* If the destination register is not in the set of registers that need to
@@ -270,7 +285,7 @@ struct
 
         |   identify((instr as StoreArgument { source, base, index, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ sourceReg base @sourceIndex index, [])
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ [sourceReg base] @sourceIndex index, [])
 
         |   identify((instr as LoadStack { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
@@ -338,21 +353,37 @@ struct
                 end
             end
 
-        |   identify((instr as AllocateMemoryOperation{dest, ...}) :: rest, state, labels, loopLabels, _) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCIndeterminate, [], [destReg dest])
-
-        |   identify((instr as AllocateMemoryVariable{size, flags, dest, initialiser}) :: rest, state, labels, loopLabels, _) =
+        |   identify(AllocateMemoryOperation{size, flags, dest, saveRegs=_} :: rest, state, labels, loopLabels, _) =
             let
-                val iSrc = case initialiser of NONE => [] | SOME init => sourceReg init
+                val dReg = destReg dest
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, [], [dReg])
+                val () = addConflicts conflictSet
+                val saveRegs = getSaveSet(currentRegs, dReg)
+                val allocInstr = AllocateMemoryOperation{size=size, flags=flags, dest=dest, saveRegs=saveRegs}
+            in
+                (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+            end
+
+        |   identify(AllocateMemoryVariable{size, flags, dest, initialiser, saveRegs=_} :: rest, state, labels, loopLabels, _) =
+            let
+                val dReg = destReg dest
+                val iSrc = case initialiser of NONE => [] | SOME init => [sourceReg init]
                 val sources = sourceRegs size @ sourceRegs flags @ iSrc
-                val (_, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
-                    identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [destReg dest])
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [dReg])
                 (* We have to include the sources in the conflict set.  Unlike, say LoadArgument where
                    a register in the source can be reused in the destination, we can't reuse the same
                    register for the result as any of the arguments. *)
                 val () = addConflicts(union(conflictSet, listToSet sources))
+                (* We need to save the registers if we can't do an allocation.
+                   The initialising value could be an address so if that's in a tagged
+                   register if has to be included. *)
+                val saveRegs = getSaveSet(currentRegs @ iSrc, dReg)
+                val allocInstr =
+                    AllocateMemoryVariable{size=size, flags=flags, dest=dest, initialiser=initialiser, saveRegs=saveRegs}
             in
-                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+                (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as InitialisationComplete{...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -416,11 +447,11 @@ struct
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                val sRegs = sourceRegs packet
-                val sources = listToSet sRegs
+                val sReg = sourceReg packet
+                val sources = listToSet [sReg]
                 val () = checkSources(sources, state)
                 (* The packet always goes into eax. *)
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg eax))) sRegs
+                val () = Array.update(regDestReg, sReg, SOME(GenReg eax))
                 (* This is an unconditional exit.  The only active register is
                    the exception packet. *)
                 val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
@@ -435,7 +466,7 @@ struct
             let
                 (* This is rather like an unconditional branch except that we have a
                    list of destination branches rather than a single destination. *)
-                val sources = listToSet(sourceReg testReg)
+                val sources = listToSet[sourceReg testReg]
                 val () = checkSources(sources, state)
                 (* Add all the labels to the list.  For each branch the starting
                    state is the same as the current state. *)
@@ -569,7 +600,7 @@ struct
         |   identify((PopExceptionHandler{handlerAddr, resultReg, workReg}) :: rest, state, labels, loopLabels, ccIn) =
             (* Pop an exception handler.  If the result register is not used we must discard it. *)
             let
-                val sourceSet = listToSet(sourceReg handlerAddr)
+                val sourceSet = listToSet[sourceReg handlerAddr]
                 and destSet = listToSet [destReg workReg]
                 val () = checkSources(sourceSet, state)
                 val active = union(state, destSet)
@@ -611,7 +642,7 @@ struct
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                val sRegs = sourceReg resultReg (* Should only ever be one. *)
+                val sRegs = [sourceReg resultReg] (* Should only ever be one. *)
                 val sources = listToSet sRegs
                 val () = checkSources(sources, state)
                 (* This needs to go to eax. *)
@@ -638,7 +669,7 @@ struct
                 raise InternalError "identify - ResetStackPtr"
 
         |   identify((instr as TagValue{source, dest}) :: rest, state, labels, loopLabels, ccIn) =
-                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, destReg dest)
+                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, [sourceReg source], destReg dest)
 
         |   identify((instr as UntagValue{source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, destReg dest)
@@ -646,7 +677,7 @@ struct
         |   identify((instr as LoadEffectiveAddress{base, index, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 val bRegs =
-                    case base of NONE => [] | SOME bReg => sourceReg bReg
+                    case base of NONE => [] | SOME bReg => [sourceReg bReg]
                 val iRegs = sourceIndex index
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, bRegs @ iRegs, [destReg dest])
@@ -656,9 +687,9 @@ struct
                 (* Constant shifts don't require ecx. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, sourceRegs operand, [destReg resultReg])
 
-        |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef, ...}) :: rest, state, labels, loopLabels, _) =
+        |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount=RegisterArgument shiftAmount, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
             let
-                val () = incrArray(regRefs, shiftReg)
+                val shiftReg = sourceReg shiftAmount
                 (* If it's variable it has to go into ecx *)
                 val () = Array.update(regDestReg, shiftReg, SOME(GenReg ecx))
                 val valueToShift = sourceRegs operand
@@ -680,7 +711,9 @@ struct
 
         |   identify((instr as Division{dividend, divisor, quotient, remainder, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                (* Division is specific as to the registers. *)
+                (* Division is specific as to the registers.  The dividend must be eax, quotient is
+                   eax and the remainder is edx.  The trouble is we also have large-word division
+                   and that uses memory arguments. *)
                 val quotReg = destReg quotient and remReg = destReg remainder and diviReg = sourceRegs dividend
                 val () = Array.update(regSourceReg, quotReg, SOME(GenReg eax))
                 val () = Array.update(regSourceReg, remReg, SOME(GenReg edx))
@@ -689,31 +722,70 @@ struct
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, diviReg @ sourceRegs divisor, [quotReg, remReg])
             end
 
-        |   identify((instr as AtomicExchangeAndAdd{destAddr, source}) :: rest, state, labels, loopLabels, ccIn) =
-                (* The destination is an address so functions as a source *)
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs destAddr @ sourceReg source, [])
+        |   identify((instr as AtomicExchangeAndAdd{base, source}) :: rest, state, labels, loopLabels, ccIn) =
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [sourceReg base, sourceReg source], [])
 
-        |   identify((instr as BoxValue{source, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceReg source, destReg dest)
+        |   identify(BoxValue{source, dest, boxKind, saveRegs=_} :: rest, state, labels, loopLabels, ccIn) =
+            let
+                val dReg = destReg dest
+                val sources = [sourceReg source]
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, sources, [dReg])
+                (* If the result is not used we can eliminate this instruction but because it
+                   allocates we have to compute the set of registers that need to be preserved. *)
+            in
+                if List.exists(fn i => i = dReg) currentRegs
+                then
+                let
+                    (* The conflict set includes the value we're going to store.  We need to
+                       allocate the memory into the destination register before we can free
+                       the source. *)
+                    val () = addConflicts(union(conflictSet, listToSet sources))
+                    (* The save set is the other registers that are active.  We don't save
+                       the destination nor the value we're boxing. *)
+                    val saveRegs = getSaveSet(currentRegs, dReg)
+                    val boxInstr = BoxValue{source=source, dest=dest, boxKind=boxKind, saveRegs=saveRegs}
+                in
+                    (boxInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+                end
+                else (tail, nowActive, refLabels, resLoopLabels, ccUsed)
+            end
 
         |   identify((instr as CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
             let
-                val v1Addr = sourceReg vec1Addr and v2Addr = sourceReg vec2Addr and len = sourceRegs length
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg esi))) v1Addr
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) v2Addr
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
+                (* We have to use specific registers. *)
+                val v1Addr = sourceReg vec1Addr and v2Addr = sourceReg vec2Addr and len = sourceReg length
+                val () = Array.update(regDestReg, v1Addr, SOME(GenReg esi))
+                val () = Array.update(regDestReg, v2Addr, SOME(GenReg edi))
+                val () = Array.update(regDestReg, len, SOME(GenReg ecx))
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCState ccRef, [v1Addr, v2Addr, len], [])
+                val () = addConflicts conflictSet
+                (* We need to add conflicts for each of the registers. *)
+                val potentialConflicts = v1Addr :: v2Addr :: len :: currentRegs
+                val () = addRealRegConflicts(potentialConflicts, v1Addr, GenReg esi)
+                val () = addRealRegConflicts(potentialConflicts, v2Addr, GenReg edi)
+                val () = addRealRegConflicts(potentialConflicts, len, GenReg ecx)
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, CCState ccRef, v1Addr @ v2Addr @ len, [])
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as BlockMove{srcAddr, destAddr, length, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                val sAddr = sourceReg srcAddr and dAddr = sourceReg destAddr and len = sourceRegs length
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg esi))) sAddr
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg edi))) dAddr
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg ecx))) len
+                val sAddr = sourceReg srcAddr and dAddr = sourceReg destAddr and len = sourceReg length
+                val () = Array.update(regDestReg, sAddr, SOME(GenReg esi))
+                val () = Array.update(regDestReg, dAddr, SOME(GenReg edi))
+                val () = Array.update(regDestReg, len, SOME(GenReg ecx))
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, [sAddr, dAddr, len], [])
+                val () = addConflicts conflictSet
+                (* We need to add conflicts for each of the registers. *)
+                val potentialConflicts = sAddr :: dAddr :: len :: currentRegs
+                val () = addRealRegConflicts(potentialConflicts, sAddr, GenReg esi)
+                val () = addRealRegConflicts(potentialConflicts, dAddr, GenReg edi)
+                val () = addRealRegConflicts(potentialConflicts, len, GenReg ecx)
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sAddr @ dAddr @ len, [])
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as CompareFloatingPt{arg1, arg2, ccRef, ...}) :: rest, state, labels, loopLabels, _) =

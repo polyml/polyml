@@ -135,7 +135,7 @@ struct
             [
                 ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
                 LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=excReg, kind=MoveWord},
-                RaiseExceptionPacket{packet=RegisterArgument excReg},
+                RaiseExceptionPacket{packet=excReg},
                 ForwardJumpLabel{ label=label, result=NONE }
             ]
         end
@@ -433,7 +433,7 @@ struct
             in
                 (argCode @
                  [LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord},
-                  AtomicExchangeAndAdd{ destAddr=RegisterArgument addrReg, source=incrReg },
+                  AtomicExchangeAndAdd{ base=addrReg, source=incrReg },
                   (* We want the result to be the new value but we've returned the old value. *)
                   ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
             end
@@ -446,7 +446,7 @@ struct
             in
                 (argCode @
                  [LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord},
-                  AtomicExchangeAndAdd{ destAddr=RegisterArgument addrReg, source=incrReg },
+                  AtomicExchangeAndAdd{ base=addrReg, source=incrReg },
                   ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
             end
 
@@ -481,7 +481,7 @@ struct
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
                     [UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=true},
-                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg}]
+                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
@@ -492,7 +492,7 @@ struct
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
                     [UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=false},
-                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg}]
+                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
@@ -511,7 +511,7 @@ struct
                             SSE2FPArith{opc=SSE2Xor, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realSignBit}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], RegisterArgument target, false)
+                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
@@ -525,7 +525,7 @@ struct
                             SSE2FPArith{opc=SSE2And, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realAbsMask}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], RegisterArgument target, false)
+                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
@@ -536,7 +536,7 @@ struct
                 (codeToICodeTarget(arg1, context, false, aReg1) @
                  [UntagValue{source=RegisterArgument aReg1, dest=untagReg, isSigned=true},
                   FloatFixedInt{ dest=fpReg, source=RegisterArgument untagReg},
-                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], RegisterArgument target, false)
+                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
@@ -870,7 +870,7 @@ struct
                 val aReg1 = newPReg() and aReg2 = newPReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=NONE},
+                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=NONE, saveRegs=[]},
                  InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
@@ -884,7 +884,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
@@ -896,7 +896,7 @@ struct
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
                     [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
@@ -906,7 +906,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [Multiplication{resultReg=resValue, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
@@ -919,7 +919,7 @@ struct
                     (* We don't test for zero here - that's done explicitly. *)
                     [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
                                 quotient=quotient, remainder=remainder },
-                     BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
@@ -932,7 +932,7 @@ struct
                     (* We don't test for zero here - that's done explicitly. *)
                     [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
                                 quotient=quotient, remainder=remainder },
-                     BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
@@ -945,7 +945,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
@@ -955,7 +955,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
@@ -965,7 +965,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
@@ -981,7 +981,7 @@ struct
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                  [UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false},
                   ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=wordAt aReg1, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() },
-                  BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target}], RegisterArgument target, false)
+                  BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
@@ -1018,7 +1018,7 @@ struct
                         end
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    arith @ [BoxValue{boxKind=BoxFloat, source=fpReg, dest=target}], RegisterArgument target, false)
+                    arith @ [BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
@@ -1036,7 +1036,7 @@ struct
                     StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
-                    [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr}] @
+                    [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]}] @
                     List.tabulate(vecLength, initialise) @
                     [InitialisationComplete{dest=memAddr}]
             in
@@ -1049,7 +1049,7 @@ struct
             in
                 (codeToICodeTarget(numWords, context, false, aReg1) @ codeToICodeTarget(flags, context, false, aReg2) @
                  codeToICodeTarget(initial, context, false, aReg3) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3},
+                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3, saveRegs=[]},
                   InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
@@ -1060,7 +1060,7 @@ struct
             in
                 (codeToICodeTarget(numWords, context, false, aReg1) @ codeToICodeTarget(flags, context, false, aReg2) @
                  codeToICodeTarget(initial, context, false, aReg3) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3},
+                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3, saveRegs=[]},
                   InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
@@ -1337,7 +1337,7 @@ struct
             let
                 val excReg = newPReg()
             in
-                (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=RegisterArgument excReg}], RegisterArgument(asTarget destination), true (* Always exits *))
+                (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}], RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
         |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context, isTail, destination) =
@@ -1392,7 +1392,7 @@ struct
                    the target when we've finished. *)
                 val memAddr = newPReg()
                 fun loadFields([], n) =
-                        [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr}]
+                        [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}]
                 |   loadFields(f :: rest, n) =
                     let
                         val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
@@ -1533,7 +1533,7 @@ struct
                 val (boxTagCode, moveKind) =
                     if isX64
                     then (TagValue {source=untaggedResReg, dest=target}, Move32Bit)
-                    else (BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}, MoveWord)
+                    else (BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}, MoveWord)
             in
                 (codeBaseIndex @ codeUntag @
                     [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}, boxTagCode], RegisterArgument target, false)
@@ -1550,7 +1550,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord},
-                     BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreCFloat, address}, context, _, destination) =
@@ -1561,7 +1561,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat},
-                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreCDouble, address}, context, _, destination) =
@@ -1572,7 +1572,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble},
-                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
@@ -1689,6 +1689,8 @@ struct
 
         |   codeToICode(BICBlockOperation {kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
+                (* TODO: If we have a short fixed length comparison we might well be better loading the value into
+                   a register and comparing with memory. *)
                 val target = asTarget destination
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
@@ -1724,6 +1726,8 @@ struct
 
         |   codeToICode(BICBlockOperation {kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
             let
+                (* TODO: If we have a short fixed length move we might well be better loading the value into
+                   a register and storing it. *)
                 val lengthReg = newPReg()
                 val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex}) =
@@ -1735,7 +1739,7 @@ struct
                     leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
                     rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
                     [UntagValue{source=RegisterArgument lengthReg, dest=lenReg, isSigned=false},
-                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=RegisterArgument lenReg, isByteMove=isByteMove }]
+                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove }]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1774,7 +1778,7 @@ struct
                         val sizeClosure = List.length closure + 1
                         fun clear n =
                             if n = sizeClosure
-                            then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest}]
+                            then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]}]
                             else
                             let
                                 val d = newPReg()
@@ -2217,9 +2221,12 @@ struct
         and codeAsUntagged(BICConstnt(value, _), isSigned, _) =
             let
                 (* Should always be short except for unreachable code. *)
+                val untagReg = newUReg()
                 val cval = if isShort value then toShort value else 0w0
+                val cArg = IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval) (* Don't tag *)
+                val untag = [LoadArgument{source=cArg, dest=untagReg, kind=MoveWord}]
             in
-                ([], [], IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval)) (* Don't tag. *)
+                ([], untag, untagReg) (* Don't tag. *)
             end
         |   codeAsUntagged(arg, isSigned, context) =
             let
@@ -2227,7 +2234,7 @@ struct
                 val code = codeToICodeTarget(arg, context, false, argReg)
                 val untag = [UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned}]
             in
-                (code, untag, RegisterArgument untagReg)
+                (code, untag, untagReg)
             end
 
         val (bodyCode, _, bodyExited) =

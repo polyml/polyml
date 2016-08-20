@@ -108,13 +108,16 @@ struct
               stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
-           required.  This sets the length word including the flags bits. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg}
+           required.  This sets the length word including the flags bits.
+           saveRegs is the list of registers that need to be saved if we
+           need to do a garbage collection. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words.  If the initialiser is provided
            each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option }
+    |   AllocateMemoryVariable of
+            { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option, saveRegs: 'reg list }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -130,8 +133,9 @@ struct
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
-    
-    |   RaiseExceptionPacket of { packet: 'reg argument }
+
+        (* Raise an exception.  The packet is always loaded into rax. *)
+    |   RaiseExceptionPacket of { packet: 'reg }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: 'reg }
@@ -206,24 +210,25 @@ struct
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
            the source contains the old value of the destination and the destination
-           has been updated with its old value added to the increment. *)
-    |   AtomicExchangeAndAdd of { destAddr: 'reg argument, source: 'reg }
+           has been updated with its old value added to the increment.
+           The destination is actually the word pointed at by "base". *)
+    |   AtomicExchangeAndAdd of { base: 'reg, source: 'reg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg }
+    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg argument, ccRef: ccRef }
+            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg argument, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg, isByteMove: bool }
 
         (* Floating point comparison. *)
     |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
@@ -264,6 +269,11 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
+            
+        fun printSaves([], _, _) = ()
+        |   printSaves([areg], printReg, stream) = printReg(areg, stream)
+        |   printSaves(areg::more, printReg, stream) =
+                (printReg(areg, stream); stream ", "; printSaves(more, printReg, stream))
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
@@ -325,20 +335,22 @@ struct
                 stream "=> "; printReg(dest, stream)
             )
 
-        |   printICode(AllocateMemoryOperation{size, flags, dest}, stream, printReg) =
+        |   printICode(AllocateMemoryOperation{size, flags, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
                 stream(concat["s=", Int.toString size, ",f=", Word8.toString flags, " => "]);
-                printReg(dest, stream)
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
-        |   printICode(AllocateMemoryVariable{size, flags, dest, initialiser}, stream, printReg) =
+        |   printICode(AllocateMemoryVariable{size, flags, dest, initialiser, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
                 stream "s="; printArg(size, stream, printReg);
                 stream "f="; printArg(flags, stream, printReg);
                 case initialiser of NONE => () | SOME init => (stream "i="; printReg(init, stream));
-                stream " => "; printReg(dest, stream)
+                stream " => "; printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
         |   printICode(InitialisationComplete{dest}, stream, printReg) = (stream "\tInitComplete\t"; printReg(dest, stream))
@@ -363,7 +375,7 @@ struct
                 printLabel(loopLabel, stream)
             )
 
-        |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
+        |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printReg(packet, stream))
 
         |   printICode(ReserveContainer{size, address}, stream, printReg) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printReg(address, stream))
@@ -505,19 +517,20 @@ struct
                 printReg(remainder, stream)
             )
 
-        |   printICode(AtomicExchangeAndAdd{destAddr, source}, stream, printReg) =
+        |   printICode(AtomicExchangeAndAdd{base, source}, stream, printReg) =
             (
                 stream "\tAtomicExchangeAndAdd\t";
-                stream "addr="; printArg(destAddr, stream, printReg);
-                stream ",with="; printReg(source, stream)
+                stream "addr=0("; printReg(base, stream);
+                stream "),with="; printReg(source, stream)
             )
 
-        |   printICode(BoxValue{boxKind, source, dest}, stream, printReg) =
+        |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream, printReg) =
             (
                 case boxKind of BoxLargeWord => stream "\tBoxLarge\t" | BoxFloat => stream "\tBoxFloat\t";
                 printReg(source, stream);
                 stream " => ";
-                printReg(dest, stream)
+                printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
         |   printICode(CompareByteVectors{vec1Addr, vec2Addr, length, ...}, stream, printReg) =
@@ -525,7 +538,7 @@ struct
                 stream "\tCompareByteVectors\t";
                 printReg(vec1Addr, stream); stream ",";
                 printReg(vec2Addr, stream); stream ",";
-                printArg(length, stream, printReg)
+                printReg(length, stream)
             )
 
         |   printICode(BlockMove{srcAddr, destAddr, length, isByteMove}, stream, printReg) =
@@ -533,7 +546,7 @@ struct
                 stream(if isByteMove then "\tBlockByteMove\t" else "\tBlockWordMove\t");
                 stream "src="; printReg(srcAddr, stream);
                 stream ",dest="; printReg(destAddr, stream);
-                stream ",len="; printArg(length, stream, printReg)
+                stream ",len="; printReg(length, stream)
             )
 
         |   printICode(CompareFloatingPt{arg1, arg2, ...}, stream, printReg) =
@@ -809,9 +822,10 @@ struct
         |   codeGenICode(FunctionCall {isTail=true, callKind, ...} :: rest, code) =
                 codeGenICode(rest, JumpToFunction callKind :: code)
 
-        |   codeGenICode(AllocateMemoryOperation { size, flags, dest} :: rest, code) =
+        |   codeGenICode(AllocateMemoryOperation { size, flags, dest, saveRegs} :: rest, code) =
             let
                 val toReg = asGenReg dest
+                val preserve = map asGenReg saveRegs
 
                 (* Allocate memory.  N.B. Instructions are in reverse order. *)
                 fun allocStore{size, flags, output, preserve} =
@@ -832,18 +846,19 @@ struct
                     (* If we need to add the profile object *)
                     if addAllocatingFunction
                     then
-                        allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=[]} @
+                        allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
                             [StoreLongConstToMemory{ toStore=profileObject, address={base=toReg, offset=size*wordSize, index=NoIndex}}]
-                    else allocStore {size=size, flags=flags, output=toReg, preserve=[]}
+                    else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
             in
                 codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser} :: rest, code) =
+        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser, saveRegs} :: rest, code) =
             let
                 val sReg = argAsGenReg size and fReg = argAsGenReg flags and dReg = asGenReg dest
                 val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
                             orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
+                val preserve = map asGenReg saveRegs
 
                 val allocCode =
                 [
@@ -857,7 +872,7 @@ struct
                     (* Untag the length *)
                     ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
                     (* Allocate the memory *)
-                    AllocStoreVariable{ output=dReg, saveRegs=[]},
+                    AllocStoreVariable{ output=dReg, saveRegs=preserve},
                     (* Compute the number of bytes into dReg. The length in sReg is the number
                        of words as a tagged value so we need to multiply it, add wordSize to
                        include one word for the header then subtract the, multiplied, tag. *)
@@ -1082,9 +1097,9 @@ struct
                 codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
             end
 
-        |   codeGenICode(AtomicExchangeAndAdd{ destAddr, source } :: rest, code) =
+        |   codeGenICode(AtomicExchangeAndAdd{ base, source } :: rest, code) =
             let
-                val baseReg = argAsGenReg destAddr and outReg = asGenReg source
+                val baseReg = asGenReg base and outReg = asGenReg source
             in
                 codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
             end
@@ -1094,7 +1109,7 @@ struct
                 (* The arguments must be in specific registers. *)
                 val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
                 val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
-                val _ = argAsGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
+                val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
             in
                 codeGenICode(rest, RepeatOperation CMPSB :: code)
             end
@@ -1104,7 +1119,7 @@ struct
                 (* The arguments must be in specific registers. *)
                 val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
                 val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
-                val _ = argAsGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
+                val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
             in
                 codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
             end

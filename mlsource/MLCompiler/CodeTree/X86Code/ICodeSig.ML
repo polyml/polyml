@@ -129,13 +129,16 @@ sig
               stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
-           required.  This sets the length word including the flags bits. *)
-    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg}
+           required.  This sets the length word including the flags bits.
+           saveRegs is the list of registers that need to be saved if we
+           need to do a garbage collection. *)
+    |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words.  If the initialiser is provided
            each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option }
+    |   AllocateMemoryVariable of
+            { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option, saveRegs: 'reg list }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -151,8 +154,9 @@ sig
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
-    
-    |   RaiseExceptionPacket of { packet: 'reg argument }
+
+        (* Raise an exception.  The packet is always loaded into rax. *)
+    |   RaiseExceptionPacket of { packet: 'reg }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: 'reg }
@@ -227,24 +231,25 @@ sig
            for atomic increment and decrement for mutexes.
            Before the operation the source contains an increment.  After the operation
            the source contains the old value of the destination and the destination
-           has been updated with its old value added to the increment. *)
-    |   AtomicExchangeAndAdd of { destAddr: 'reg argument, source: 'reg }
+           has been updated with its old value added to the increment.
+           The destination is actually the word pointed at by "base". *)
+    |   AtomicExchangeAndAdd of { base: 'reg, source: 'reg }
 
         (* Create a "box" of a single-word "byte" cell and store the source into it.
            This can be implemented using AllocateMemoryOperation but the idea is to
            allow the transform layer to recognise when a value is being boxed and
            then unboxed and remove unnecessary allocation. *)
-    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg }
+    |   BoxValue of { boxKind: boxKind, source: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Compare two vectors of bytes and set the condition code on the result.
            In general vec1Addr and vec2Addr will be pointers inside memory cells
            so have to be untagged registers. *)
     |   CompareByteVectors of
-            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg argument, ccRef: ccRef }
+            { vec1Addr: 'reg, vec2Addr: 'reg, length: 'reg, ccRef: ccRef }
 
         (* Move a block of bytes (isByteMove true) or words (isByteMove false).  The length is the
            number of items (bytes or words) to move. *)
-    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg argument, isByteMove: bool }
+    |   BlockMove of { srcAddr: 'reg, destAddr: 'reg, length: 'reg, isByteMove: bool }
 
         (* Floating point comparison. *)
     |   CompareFloatingPt of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
