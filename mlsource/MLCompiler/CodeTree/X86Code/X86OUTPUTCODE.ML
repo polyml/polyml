@@ -2201,7 +2201,7 @@ struct
             if isX64
             then
             (
-                genop(LEAL, SOME {w=true, r=false, b=rx2, x=false}, code);
+                genop(LEAL, SOME {w=true, r=rx2, b=false, x=false}, code);
                 genmodrm(Based0, rc2, 0w5 (* Immediate address. *), code)
             )
             else
@@ -2849,7 +2849,7 @@ struct
                 if isX64
                 then
                 (
-                    genop(LEAL, SOME {w=true, r=false, b=rx, x=false}, code);
+                    genop(LEAL, SOME {w=true, r=rx, b=false, x=false}, code);
                     genmodrm(Based0, rc, 0w5 (* Immediate address. *), code)
                 )
                 else
