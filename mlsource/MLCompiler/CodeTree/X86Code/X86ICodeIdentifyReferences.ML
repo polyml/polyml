@@ -23,11 +23,10 @@ struct
     open ICODE
     
     datatype pushState = MustPush | MustNotPush | MayPush
-    
+
     type regState =
     { 
-        active: int, defs: int, refs: int, sourceReal: reg option,
-        destReal: reg option, pushState: pushState,
+        active: int, defs: int, refs: int, pushState: pushState,
         conflicts: int list, realConflicts: reg list
     }
     
@@ -46,10 +45,6 @@ struct
         and regDefs = Array.array(maxPRegs, 0)
         (* Number of uses of the register. *)
         and regRefs = Array.array(maxPRegs, 0)
-        (* Whether the register comes from a specific real register. *)
-        and regSourceReg = Array.array(maxPRegs, NONE: reg option)
-        (* Whether the register goes to a specific real register. *)
-        and regDestReg = Array.array(maxPRegs, NONE: reg option)
         (* Whether the register must be saved on the stack, must not or could be. *)
         and regPushState = Array.array(maxPRegs, MayPush)
         (* Other registers that conflict with this i.e. cannot share the same
@@ -299,8 +294,7 @@ struct
 
         |   identify((instr as BeginFunction {regArgs}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                val destRegs =
-                    map (fn (dest, src) => let val dReg = destReg dest in Array.update(regSourceReg, dReg, SOME src); dReg end) regArgs
+                val destRegs = map (fn (dest, src) => destReg dest) regArgs
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], destRegs)
             end
@@ -309,15 +303,7 @@ struct
             let 
                 val stackSources = List.foldl(fn (arg, srcs) => sourceRegs arg @ srcs) [] stackArgs
                 
-                (* Where an argument is being passed as a register we want to mark this as a preferred target. *)
-                fun regSource((arg, argReg), srcs) =
-                let
-                    val sRegs = sourceRegs arg
-                    val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg argReg))) sRegs
-                in
-                    sRegs @ srcs
-                end
-
+                fun regSource((arg, argReg), srcs) = sourceRegs arg @ srcs
                 val regSources = List.foldl regSource [] regArgs
             in
                 if isTail
@@ -332,7 +318,6 @@ struct
                 else (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
                 let
                     val dReg = destReg dest
-                    val () = Array.update(regSourceReg, dReg, SOME(GenReg eax))
                     (* We don't use addSourcesAndDests because we also have to mark the
                        active registers as MustPush. *)
                     val sourceSet = listToSet(stackSources @ regSources)
@@ -450,8 +435,6 @@ struct
                 val sReg = sourceReg packet
                 val sources = listToSet [sReg]
                 val () = checkSources(sources, state)
-                (* The packet always goes into eax. *)
-                val () = Array.update(regDestReg, sReg, SOME(GenReg eax))
                 (* This is an unconditional exit.  The only active register is
                    the exception packet. *)
                 val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
@@ -645,8 +628,6 @@ struct
                 val sRegs = [sourceReg resultReg] (* Should only ever be one. *)
                 val sources = listToSet sRegs
                 val () = checkSources(sources, state)
-                (* This needs to go to eax. *)
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg eax))) sRegs
                 (* This is an unconditional exit.  The only active register is
                    the result. *)
                 val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
@@ -690,8 +671,6 @@ struct
         |   identify((instr as ShiftOperation{resultReg, operand, shiftAmount=RegisterArgument shiftAmount, ccRef, ...}) :: rest, state, labels, loopLabels, _) =
             let
                 val shiftReg = sourceReg shiftAmount
-                (* If it's variable it has to go into ecx *)
-                val () = Array.update(regDestReg, shiftReg, SOME(GenReg ecx))
                 val valueToShift = sourceRegs operand
                 val dReg = destReg resultReg
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
@@ -715,9 +694,6 @@ struct
                    eax and the remainder is edx.  The trouble is we also have large-word division
                    and that uses memory arguments. *)
                 val quotReg = destReg quotient and remReg = destReg remainder and diviReg = sourceRegs dividend
-                val () = Array.update(regSourceReg, quotReg, SOME(GenReg eax))
-                val () = Array.update(regSourceReg, remReg, SOME(GenReg edx))
-                val () = List.app(fn i => Array.update(regDestReg, i, SOME(GenReg eax))) diviReg
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, diviReg @ sourceRegs divisor, [quotReg, remReg])
             end
@@ -755,9 +731,6 @@ struct
             let
                 (* We have to use specific registers. *)
                 val v1Addr = sourceReg vec1Addr and v2Addr = sourceReg vec2Addr and len = sourceReg length
-                val () = Array.update(regDestReg, v1Addr, SOME(GenReg esi))
-                val () = Array.update(regDestReg, v2Addr, SOME(GenReg edi))
-                val () = Array.update(regDestReg, len, SOME(GenReg ecx))
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
                     identifyAndComputeSets(rest, state, labels, loopLabels, CCState ccRef, [v1Addr, v2Addr, len], [])
                 val () = addConflicts conflictSet
@@ -773,9 +746,6 @@ struct
         |   identify((instr as BlockMove{srcAddr, destAddr, length, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 val sAddr = sourceReg srcAddr and dAddr = sourceReg destAddr and len = sourceReg length
-                val () = Array.update(regDestReg, sAddr, SOME(GenReg esi))
-                val () = Array.update(regDestReg, dAddr, SOME(GenReg edi))
-                val () = Array.update(regDestReg, len, SOME(GenReg ecx))
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
                     identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, [sAddr, dAddr, len], [])
                 val () = addConflicts conflictSet
@@ -794,7 +764,6 @@ struct
         |   identify((instr as X87FPGetCondition{dest, ccRef}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 val dReg = destReg dest
-                val () = Array.update(regSourceReg, dReg, SOME(GenReg eax))
                 (* Check that we've defined the correct cc. *)
                 val _ =
                     (case ccIn of CCState s => s = ccRef | CCIndeterminate => false)
@@ -828,8 +797,6 @@ struct
                     active = Array.sub(regActive, i),
                     defs = Array.sub(regDefs, i),
                     refs = Array.sub(regRefs, i),
-                    sourceReal = Array.sub(regSourceReg, i),
-                    destReal = Array.sub(regDestReg, i),
                     pushState = Array.sub(regPushState, i),
                     conflicts = setToList(Array.sub(regConflicts, i)),
                     realConflicts = Array.sub(regRealConflicts, i)

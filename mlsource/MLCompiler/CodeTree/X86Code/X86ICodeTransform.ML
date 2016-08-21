@@ -1196,7 +1196,8 @@ struct
                 end
 
                 (* Move the register arguments into the correct real registers. *)
-                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, gr, afterArgs)) [] regArgs
+                fun asGenReg(GenReg r) = r | asGenReg _ = raise InternalError "asGenReg"
+                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, asGenReg gr, afterArgs)) [] regArgs
                 (* After the call the stack arguments will have been removed by the caller. *)
                 val returnState = addRaxToState({valueStack= #valueStack pushedState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg)
                 val functionCode =
@@ -1218,7 +1219,8 @@ struct
                    they're lower down the stack and we could overwrite them if we wait. *)
                 (* Load until we've done all the arguments or all the registers whichever is earlier.
                    This includes the closure register. *)
-                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, gr, pushedState)) [] regArgs
+                fun asGenReg(GenReg r) = r | asGenReg _ = raise InternalError "asGenReg"
+                val doLoad = List.foldl (fn ((pr, gr), l) => l @ loadSource(pr, asGenReg gr, pushedState)) [] regArgs
 
                 (* Load the return address.  This could be overwritten by an argument. *)
                 val loadReturn = loadStack(edi, currentSp * wordSize)
@@ -2335,21 +2337,68 @@ struct
             val postArithCode = map codeArithmetic decoratedCode
             val postArithPRegCount = !pregCounter
         end *)
-        
+
+        (* Allocated registers.  This is set to the real register that is used
+           for a specific pseudo-register.  Once a register is allocated that
+           is fixed. *)
         val allocatedRegs = Array.array(maxPRegs, NONE: reg option)
+        
+        (* Hint values.  The idea of hints is that by using a hinted register
+           we may avoid an unnecessary move instruction.  realHints is set when
+           a pseudo-register is going to be loaded from a specific register
+           e.g. a register argument, or moved into one e.g. ecx for a shift.
+           friends is set to the other pseudo-registers that may be associated
+           with the pseudo-register.  E.g. the argument and destination of
+           an arithmetic operation where choosing the same register for
+           each may avoid a move. *)
+        val realHints = Array.array(maxPRegs, NONE: reg option)
+        val friends = Array.array(maxPRegs, []: int list)
+        
+        fun addRealHint(r, reg) =
+            case Array.sub(realHints, r) of
+                NONE => Array.update(realHints, r, SOME reg)
+            |   SOME _ => ()
+        
+        fun addFriends friendSet =
+        let
+            fun addAFriendsTo toF =
+            let
+                (* Add all the set to this one if
+                   1. It's not the same as itself
+                   2. It doesn't conflict
+                   3. It's not there already. *)
+                val {conflicts, ...} = Vector.sub(regStates, toF)
+                fun canAdd f =
+                    if f <> toF andalso
+                        not (List.exists(fn i => i=f) conflicts)
+                    then
+                    let
+                        val currentFriends = Array.sub(friends, toF)
+                    in
+                        if List.exists(fn i => i=f) currentFriends
+                        then ()
+                        else Array.update(friends, toF, f :: currentFriends)
+                    end
+                    else ()
+            in
+                List.app canAdd friendSet
+            end
+        in
+            List.app addAFriendsTo friendSet
+        end
 
         (* Find a real register for a preg.
            1.  If a register is already allocated use that.
            2.  Try the "preferred" register if one has been given.
-           3.  Try the destination if there is one.
-           4.  Try the source register if there is one
-           5.  Look at all the registers and find one.  What order should we use? *)
+           3.  Try the realHints value if there is one.
+           4.  Look at all the registers and find one.  What order should we use?
+           TODO: Try to find a register associated with a friend. *)
         fun findRegister(r, pref, regSet) =
             case Array.sub(allocatedRegs, r) of
                 SOME reg => reg
             |   NONE =>
                 let
-                    val {conflicts, realConflicts, sourceReal, destReal, pushState, ...} = Vector.sub(regStates, r)
+                    val {conflicts, realConflicts, pushState, ...} = Vector.sub(regStates, r)
                     (* If we must push this we've got a problem. *)
                     val _ = pushState <> MustPush orelse raise TooHard MustPushReg
                     (* Find the registers we've already allocated that may conflict. *)
@@ -2374,15 +2423,10 @@ struct
                         SOME r => r
                     |   NONE =>
                         (
-                            case tryAReg destReal of
+                            case tryAReg (Array.sub(realHints, r)) of
                                 SOME r => r
-                            |   NONE =>
-                                (
-                                    case tryAReg sourceReal of
-                                        SOME r => r
-                                    |   NONE => (* Look through the registers to find one that's free. *)
-                                            findAReg regSet
-                                )
+                            |   NONE => (* Look through the registers to find one that's free. *)
+                                    findAReg regSet
                         )
                 end
 
@@ -2447,6 +2491,7 @@ struct
             (* Register to register move.  Try to use the same register for the source as the destination
                to eliminate the instruction. *)
             let
+                val () = addFriends [sreg, dreg]
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dreg) of
@@ -2516,6 +2561,7 @@ struct
 
         |   codeExtended(BeginFunction{regArgs} :: rest, context) =
             let
+                val () = List.app (fn (PReg(pr, _), reg) => addRealHint(pr, reg)) regArgs
                 val code = codeExtended(rest, context)
 
                 (* Look up the register we need to move the argument into.
@@ -2536,19 +2582,20 @@ struct
                    nor this function have stack args.  That means that the return address
                    stays where it is. *)
                 val _ = currentStackArgs = 0 orelse raise TooHard NotDoneInstr
+                val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
                 (* The register argument list contains "argument" values.  The entries are
                    either RegisterArgument or constants.  Do the register arguments first.
                    We may be using some of the registers that need to contain constants. *)
                 fun getRegArgs(RegisterArgument(PReg(pr, _)), reg) =
-                        SOME{dst=GenReg reg, src=findRegister(pr, SOME(GenReg reg), generalRegisters)}
+                        SOME{dst=reg, src=findRegister(pr, SOME reg, generalRegisters)}
                 |   getRegArgs _ = NONE
                 val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
 
                 fun getConstArgs(AddressConstant m, reg) =
-                    SOME(LoadArgument{source=AddressConstant m, dest=GenReg reg, kind=MoveWord})
+                    SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
                 |   getConstArgs(IntegerConstant i, reg) =
-                    SOME(LoadArgument{source=IntegerConstant i, dest=GenReg reg, kind=MoveWord})
+                    SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
@@ -2559,6 +2606,8 @@ struct
 
         |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=PReg(dReg, _), isTail=false} :: rest, context) =
             let
+                val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
+                val () = addRealHint(dReg, GenReg eax)
                 val code = codeExtended(rest, context)
                 val destReg = findRegister(dReg, SOME(GenReg eax), generalRegisters)
                 
@@ -2566,14 +2615,14 @@ struct
                    force them into registers.  That may be simpler especially if we can get the
                    values directly into the required register. *)
                 fun getRegArgs(RegisterArgument(PReg(pr, _)), reg) =
-                        SOME{dst=GenReg reg, src=findRegister(pr, SOME(GenReg reg), generalRegisters)}
+                        SOME{dst=reg, src=findRegister(pr, SOME reg, generalRegisters)}
                 |   getRegArgs _ = NONE
                 val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
 
                 fun getConstArgs(AddressConstant m, reg) =
-                    SOME(LoadArgument{source=AddressConstant m, dest=GenReg reg, kind=MoveWord})
+                    SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
                 |   getConstArgs(IntegerConstant i, reg) =
-                    SOME(LoadArgument{source=IntegerConstant i, dest=GenReg reg, kind=MoveWord})
+                    SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - MemoryLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
@@ -2608,7 +2657,7 @@ struct
 
         |   codeExtended(RaiseExceptionPacket{ packet=PReg(preg, _) } :: rest, context) =
             let
-                (* Currently the argument is always in a register.  TODO: Should it always be? *)
+                val () = addRealHint(preg, GenReg eax)
                 val code = codeExtended(rest, context)
                 (* The argument must be put into rax. *)
                 val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
@@ -2652,19 +2701,45 @@ struct
 
         |   codeExtended(WordComparison _ :: _, _) = raise TooHard NotDoneInstr
 
+            (* Set up an exception handler.  This requires stack space.  How do we do that? *)
         |   codeExtended(PushExceptionHandler{handlerAddr, handleStart} :: rest, context) =
-                raise TooHard NotDoneInstr
-
-        |   codeExtended(PopExceptionHandler{handlerAddr, resultReg, workReg} :: rest, context) =
-                raise TooHard NotDoneInstr
-
-        |   codeExtended(BeginHandler{handleStart, packetReg, workReg} :: rest, context) =
-                raise TooHard NotDoneInstr
-
-        |   codeExtended(ReturnResultFromFunction { resultReg, numStackArgs } :: rest, context) =
             let
+                val () = reportSuccess := true
                 val code = codeExtended(rest, context)
-                val resultReg = findRegister(pRegNum resultReg, SOME(GenReg eax), generalRegisters)
+            in
+                raise TooHard NotDoneInstr
+            end
+
+            (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised.
+               This removes items from the stack. *)
+        |   codeExtended(PopExceptionHandler{handlerAddr, resultReg, workReg} :: rest, context) =
+            let
+                val () = reportSuccess := true
+                val code = codeExtended(rest, context)
+            in
+                raise TooHard NotDoneInstr
+            end
+
+            (* Start of a handler.  Sets the address associated with PushExceptionHandler and
+               provides a register for the packet.  There is a work register but we could
+               use any register other than rax since we will have pushed anything we need. *) 
+        |   codeExtended(BeginHandler{handleStart, packetReg=PReg(pReg, _), workReg=_} :: rest, context) =
+            let
+                val () = reportSuccess := true
+                (* The exception packet is in rax. *)
+                val () = addRealHint(pReg, GenReg eax)
+                val code = codeExtended(rest, context)
+                val realPktReg = findRegister(pReg, SOME(GenReg eax), generalRegisters)
+            in
+                BeginHandler{handleStart=handleStart, workReg=GenReg ebx, packetReg=GenReg eax} ::
+                    (moveIfNecessary{src=GenReg eax, dst=realPktReg } @ code)
+            end
+
+        |   codeExtended(ReturnResultFromFunction { resultReg=PReg(resReg, _), numStackArgs } :: rest, context) =
+            let
+                val () = addRealHint(resReg, GenReg eax)
+                val code = codeExtended(rest, context)
+                val resultReg = findRegister(resReg, SOME(GenReg eax), generalRegisters)
                 (* If for some reason it's not in the right register we have to move it there. *)
                 val moveCode = moveIfNecessary{src=resultReg, dst=raxAsArg}
             in
@@ -2677,6 +2752,7 @@ struct
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
             let
+                val () = addFriends [resReg, op1Reg]
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
@@ -2697,21 +2773,13 @@ struct
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
             let
+                val () = addFriends [resReg, op1Reg]
+                val () = addFriends [resReg, op2Reg]
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 
-                (* Normally we try the first argument first but that could force that to
-                   be the same as realDestReg when the second argument would be better. *)
-                val {sourceReal=op2Src, ...} = Vector.sub(regStates, op2Reg)
-                val preferSecond = case op2Src of SOME opReg => opReg = realDestReg | NONE => false
-                (* N.B. findRegister side-effects allocatedRegs so it's the order of
-                   evaluation that matters here. *) 
-                val (realOp1Reg, realOp2Reg) =
-                    if preferSecond
-                    then (findRegister(op2Reg, SOME realDestReg, generalRegisters),
-                           findRegister(op1Reg, SOME realDestReg, generalRegisters))
-                    else (findRegister(op1Reg, SOME realDestReg, generalRegisters),
-                           findRegister(op2Reg, SOME realDestReg, generalRegisters))
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
+                and realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
                 val (operandReg, moveInstr) =
                     if realOp1Reg = realDestReg
                     then (realOp2Reg, [])
@@ -2728,6 +2796,7 @@ struct
                                             operand2, ccRef} :: rest, context) =
             (* Arithemtic operation with the first argument in a register and the second a constant or memory location. *)
             let
+                val () = addFriends [resReg, op1Reg]
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
@@ -2742,6 +2811,7 @@ struct
                                             operand2=RegisterArgument(PReg(op2Reg, _)), ccRef} :: rest, context) =
             (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
             let
+                val () = addFriends [resReg, op2Reg]
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
@@ -2788,6 +2858,7 @@ struct
         |   codeExtended(UntagValue{source=RegisterArgument(PReg(sReg, _)), dest=PReg(dReg, _), isSigned} :: rest, context) =
             (* Always generates register argument at the moment. *)
             let
+                val () = addFriends [sReg, dReg]
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dReg) of
@@ -2821,6 +2892,7 @@ struct
 
         |   codeExtended(ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)), shiftAmount=IntegerConstant i, ccRef} :: rest, context) =
             let
+                val () = addFriends [resReg, operReg]
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOpReg = findRegister(operReg, SOME realDestReg, generalRegisters)
@@ -2833,6 +2905,8 @@ struct
         |   codeExtended(ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)),
                                         shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef} :: rest, context) =
             let
+                val () = addFriends [resReg, operReg]
+                val () = addRealHint(shiftReg, GenReg ecx)
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realShiftReg = findRegister(shiftReg, SOME(GenReg ecx), generalRegisters)
@@ -2870,7 +2944,9 @@ struct
 
         |   codeExtended(CompareByteVectors{vec1Addr=PReg(v1Reg, _), vec2Addr=PReg(v2Reg, _), length=PReg(lReg, _), ccRef} :: rest, context) =
             let
-                (* Don't forget to initialise the condition code. *)
+                val () = addRealHint(v1Reg, GenReg esi)
+                val () = addRealHint(v2Reg, GenReg edi)
+                val () = addRealHint(lReg, GenReg ecx)
                 val code = codeExtended(rest, context)
                 val realV1Reg = findRegister(v1Reg, SOME(GenReg esi), generalRegisters)
                 val realV2Reg = findRegister(v2Reg, SOME(GenReg edi), generalRegisters)
@@ -2893,6 +2969,9 @@ struct
 
         |   codeExtended(BlockMove{srcAddr=PReg(sReg, _), destAddr=PReg(dReg, _), length=PReg(lReg, _), isByteMove} :: rest, context) =
             let
+                val () = addRealHint(sReg, GenReg esi)
+                val () = addRealHint(dReg, GenReg edi)
+                val () = addRealHint(lReg, GenReg ecx)
                 val code = codeExtended(rest, context)
                 val realSrcReg = findRegister(sReg, SOME(GenReg esi), generalRegisters)
                 val realDestReg = findRegister(dReg, SOME(GenReg edi), generalRegisters)
@@ -2941,15 +3020,13 @@ struct
                     printStream "\n"
                 )
                 
-                fun printRegData(i, { conflicts, realConflicts=_, active, defs, refs, sourceReal, destReal, pushState }) =
+                fun printRegData(i, { conflicts, realConflicts=_, active, defs, refs, pushState }) =
                 (
                     printStream (Int.toString i ^ "\t");
                     printStream ("Conflicts="); printRegs(conflicts, 20);
                     printStream (" Active=" ^ Int.toString active);
                     printStream (" Rfs=" ^ Int.toString refs);
                     printStream (" Defs=" ^ Int.toString defs);
-                    case sourceReal of SOME r => printStream(" From=" ^ regRepr r) | NONE => ();
-                    case destReal of SOME r => printStream(" To=" ^ regRepr r) | NONE => ();
                     case pushState of
                         MustPush => printStream " Must push" | MustNotPush => printStream " No push" | MayPush => ();
                     printStream "\n"
@@ -3008,7 +3085,7 @@ struct
     in
         (* Ccode-generate it. *)
         codeAsX86Code{icode=postTransformCode, maxLabels = !labelCounter, stackRequired = !maxStack,
-                      inputRegisters= argRegsUsed @ (if hasFullClosure then [edx] else []), debugSwitches=debugSwitches,
+                      inputRegisters= argRegsUsed @ (if hasFullClosure then [GenReg edx] else []), debugSwitches=debugSwitches,
                       functionName=functionName}
     end
 
@@ -3016,6 +3093,6 @@ struct
     struct
         type 'reg x86ICode = 'reg x86ICode
         and abstract = abstract
-        and genReg   = genReg
+        and reg   = reg
     end
 end;

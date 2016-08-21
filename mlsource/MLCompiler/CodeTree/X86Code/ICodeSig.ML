@@ -125,7 +125,7 @@ sig
            as one of the argument registers.  The result is stored in the destination register.
            If isTail is true this is tail-recursive and should be a jump. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: ('reg argument * genReg) list,
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
               stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
@@ -270,7 +270,7 @@ sig
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
-    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: genReg list,
+    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 
     val printICodeConcrete: reg x86ICode * (string -> unit) -> unit

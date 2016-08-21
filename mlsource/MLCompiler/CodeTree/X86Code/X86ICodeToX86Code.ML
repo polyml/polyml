@@ -104,7 +104,7 @@ struct
            as one of the argument registers.  The result is stored in the destination register.
            If isTail is true this is tail-recursive and should be a jump. *)
     |   FunctionCall of
-            { callKind: callKinds, regArgs: ('reg argument * genReg) list,
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
               stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
@@ -330,7 +330,7 @@ struct
                 |   ConstantCode m => (stream(stringOfWord m); stream " ")
                 |   FullCall => ()
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
-                List.app(fn (arg, r) => (stream(regRepr(GenReg r)); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printReg); stream " ")) stackArgs;
                 stream "=> "; printReg(dest, stream)
             )
@@ -615,7 +615,7 @@ struct
 
     (* Generate code from the ICode.  This assumes that all pseudo-registers have been replaced by
        real registers or locations.  Only certain patterns of arguments are accepted. *)
-    fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters, functionName, debugSwitches} =
+    fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters: reg list, functionName, debugSwitches} =
     let
         (* The profile object is a single mutable with the F_bytes bit set. *)
         local
@@ -1225,7 +1225,7 @@ struct
         let
             (* If we need to take the trap we save the argument and closure registers
                across the trap. *)
-            val saveRegs = inputRegisters
+            val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
             fun pushThenPop [] = [CallRTS entryPt]
             |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
             (* Normally we won't have a stack overflow so we will skip the check. *)

@@ -31,7 +31,7 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    val argRegs = if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx]
+    val argRegs = List.map GenReg (if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx])
     val numArgRegs = List.length argRegs
 
     (* tag a short constant *)
@@ -83,7 +83,7 @@ struct
 
         local
             val clReg = case closure of [] => [] | _ => [(closureRegAddr, GenReg edx)]
-            val argRegs = ListPair.zip (argPRegs, map GenReg argRegsUsed)
+            val argRegs = ListPair.zip (argPRegs, argRegsUsed)
         in
             val beginInstruction = BeginFunction { regArgs = clReg @ argRegs }
         end
@@ -296,7 +296,7 @@ struct
                             then ([], [], Recursive)
                             else if flags addrAsAddr <> Address.F_words
                             then ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
-                                      [(RegisterArgument clPReg, edx)], FullCall)
+                                      [(RegisterArgument clPReg, GenReg edx)], FullCall)
                             else
                             let
                             
@@ -308,7 +308,7 @@ struct
                                 if addrLength = 0w1
                                 then ([], [], ConstantCode codeAddr)
                                 else ([LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}],
-                                      [(RegisterArgument clPReg, edx)], ConstantCode codeAddr)
+                                      [(RegisterArgument clPReg, GenReg edx)], ConstantCode codeAddr)
                             end
                         end
 
@@ -317,11 +317,11 @@ struct
                             (* If the closure is empty we don't need to load rdx *)
                             case closure of
                                 [] => ([], [], Recursive)
-                            |   _ => ([LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord}], [(RegisterArgument clPReg, edx)], Recursive)
+                            |   _ => ([LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord}], [(RegisterArgument clPReg, GenReg edx)], Recursive)
                         )
 
                     |   function => (* General case. *)
-                            (codeToICodeTarget(function, context, false, clPReg), [(RegisterArgument clPReg, edx)], FullCall)
+                            (codeToICodeTarget(function, context, false, clPReg), [(RegisterArgument clPReg, GenReg edx)], FullCall)
                 (* Optimise arguments.  We have to be careful with tail-recursive functions because they
                    need to save any stack arguments that could be overwritten.  This is complicated
                    because we overwrite the stack before loading the register arguments.  In some
