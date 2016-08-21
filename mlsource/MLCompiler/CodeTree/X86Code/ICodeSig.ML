@@ -80,7 +80,9 @@ sig
         RegisterArgument of 'reg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location. *)
+        (* Offset on the stack.  The "adjustment" is a temporary hack. *)
+    |   StackLocation of { offset: int, adjustment: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -107,9 +109,6 @@ sig
         (* Store a value into memory.  The source will usually be a register but could be
            a constant depending on the value. *)
     |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
-
-        (* Load an entry from the real stack. *)
-    |   LoadStack of { offset: int, dest: 'reg }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
@@ -178,10 +177,14 @@ sig
         (* Compare two word values. *)
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
-        (* Exception handling.  - Set up an exception handler. *)
+        (* Exception handling.  - Set up an exception handler.
+           handlerAddr is really just a work register but it's currently used
+           by codeToICode to mark the entry on its value stack. *)
     |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
 
-        (* End of a handled section.  Restore the previous handler. *)
+        (* End of a handled section.  Restore the previous handler.
+           handlerAddr is not actually used.  It's currently used as a marker by
+           codeToICode. *)
     |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg option, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and

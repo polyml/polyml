@@ -282,9 +282,6 @@ struct
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ [sourceReg base] @sourceIndex index, [])
 
-        |   identify((instr as LoadStack { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
-
         |   identify((instr as LoadMemReg { dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [destReg dest])
 
@@ -294,7 +291,7 @@ struct
 
         |   identify((instr as BeginFunction {regArgs}) :: rest, state, labels, loopLabels, ccIn) =
             let
-                val destRegs = map (fn (dest, src) => destReg dest) regArgs
+                val destRegs = map (destReg o #1) regArgs
             in
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], destRegs)
             end
@@ -303,7 +300,7 @@ struct
             let 
                 val stackSources = List.foldl(fn (arg, srcs) => sourceRegs arg @ srcs) [] stackArgs
                 
-                fun regSource((arg, argReg), srcs) = sourceRegs arg @ srcs
+                fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
                 val regSources = List.foldl regSource [] regArgs
             in
                 if isTail
@@ -564,9 +561,8 @@ struct
             let
                 (* Begin an exception handler.  Similar to a conditional jump.  The current state is the
                    state at the start of the handler.  The handler itself will have been removed.
-                   We have one "destination" which is the handler entry on the stack. *)
-                val dests = listToSet([destReg handlerAddr])
-                val active = union(state, dests)
+                   handlerAddr is actually a work register. *)
+                val active = state
                 (* Find the references that are active from the body. *)
                 val (tail, references, refLabels, resLoopLabels, _) =
                     identify(rest, active, (handleStart, state) :: labels, loopLabels, ccIn)
@@ -574,24 +570,25 @@ struct
                 val (refsFromHandler, newRefLabels) = findLabel(refLabels, handleStart)
                 (* The active set is the union of the two. *)
                 val nowActive = union(references, refsFromHandler)
-                val current = setToList(intersect(state, nowActive))
-                val () = List.app(fn i => incrArray(regActive, i)) current
+                val current = intersect(state, nowActive)
+                val () = addConflicts(union(current, listToSet[destReg handlerAddr]))
+                val currentRegs = setToList current
+                val () = List.app(fn i => incrArray(regActive, i)) currentRegs
             in
                 (instr :: tail, nowActive, newRefLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify((PopExceptionHandler{handlerAddr, resultReg, workReg}) :: rest, state, labels, loopLabels, ccIn) =
-            (* Pop an exception handler.  If the result register is not used we must discard it. *)
+            (* Pop an exception handler.  If the result register is not used we must discard it.
+               handlerAddr is not actually used.  It's just there as a marker for codeToIcode. *)
             let
-                val sourceSet = listToSet[sourceReg handlerAddr]
-                and destSet = listToSet [destReg workReg]
-                val () = checkSources(sourceSet, state)
-                val active = union(state, destSet)
+                val active = state
                 val (tail, references, refLabels, resLoopLabels, ccUsed) =
                     identify(rest, active, labels, loopLabels, ccIn)
                 val current = intersect(active, references)
+                val () = addConflicts(union(current, listToSet[destReg workReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) (setToList current)
-                val nowActive = union(references, sourceSet)
+                val nowActive = references
                 val newResultReg =
                     case resultReg of
                         NONE => NONE
@@ -645,9 +642,8 @@ struct
                 (* Should not occur at this stage. *)
                 raise InternalError "identify - PushValue"
 
-        |   identify(ResetStackPtr _ :: _, _, _, _, _) =
-                (* Should not occur at this stage. *)
-                raise InternalError "identify - ResetStackPtr"
+        |   identify((instr as ResetStackPtr _) :: rest, state, labels, loopLabels, ccIn) =
+                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], [])
 
         |   identify((instr as TagValue{source, dest}) :: rest, state, labels, loopLabels, ccIn) =
                 eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, [sourceReg source], destReg dest)

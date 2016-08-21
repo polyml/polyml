@@ -59,6 +59,7 @@ struct
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
+    |   StackLocation of { offset: int, adjustment: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -86,9 +87,6 @@ struct
         (* Store a value into memory.  The source will usually be a register but could be
            a constant depending on the value. *)
     |   StoreArgument of { source: 'reg argument, base: 'reg, offset: int, index: 'reg memoryIndex, kind: moveKind }
-
-        (* Load an entry from the real stack. *)
-    |   LoadStack of { offset: int, dest: 'reg }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: 'reg }
@@ -269,6 +267,8 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
+        |   printArg(StackLocation{offset, adjustment}, stream, _) =
+                stream(Int.toString offset ^ "+" ^ Int.toString adjustment ^ "(stackptr)")
             
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
@@ -305,9 +305,6 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
-
-        |   printICode(LoadStack { offset, dest}, stream, printReg) =
-                ( stream "\tLoadStack\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
 
         |   printICode(LoadMemReg { offset, dest}, stream, printReg) =
                 ( stream "\tLoadMemReg\t"; stream(Int.toString offset); stream " => "; printReg(dest, stream) )
@@ -420,24 +417,23 @@ struct
 
         |   printICode(PushExceptionHandler{handlerAddr, handleStart}, stream, printReg) =
             (
-                stream "\tPushExceptionHandler\t";
+                stream "\tPushExcHandler\t";
                 printLabel(handleStart, stream);
-                stream "=>";
+                stream " with ";
                 printReg(handlerAddr, stream)
             )
 
-        |   printICode(PopExceptionHandler{handlerAddr, resultReg=_, workReg}, stream, printReg) =
+        |   printICode(PopExceptionHandler{handlerAddr=_, resultReg=_, workReg}, stream, printReg) =
             (
                 stream "\tPopExceptionHandler\t";
-                printReg(handlerAddr, stream);
-                stream " with ";
+                stream "with ";
                 printReg(workReg, stream)
             )
 
         |   printICode(BeginHandler{handleStart, packetReg, workReg}, stream, printReg) =
             (
-                stream "\tBeginHandler\t";
                 printLabel(handleStart, stream);
+                stream ":\tBeginHandler\t";
                 printReg(packetReg, stream);
                 stream " with ";
                 printReg(workReg, stream)
@@ -806,9 +802,8 @@ struct
 
         |   codeGenICode(StoreArgument _ :: _, _) = raise InternalError "codeGenICode: StoreArgument"
 
-            (* These two should have been transformed into MoveArgument. *)
-        |   codeGenICode(LoadStack _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
-        |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadStack"
+            (* This should have been transformed into MoveArgument. *)
+        |   codeGenICode(LoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadMemReg"
 
             (* Exchange two general registers. *)
         |   codeGenICode(ExchangeRegisters{ regX, regY} :: rest, code) =

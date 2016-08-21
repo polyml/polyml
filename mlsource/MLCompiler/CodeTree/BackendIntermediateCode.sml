@@ -184,8 +184,6 @@ struct
 
     |   BICTuple of backendIC list (* Tuple *)
 
-    |   BICContainer of int (* Create a container for a tuple on the stack. *)
-
     |   BICSetContainer of (* Copy a tuple to a container. *)
         {
             container: backendIC,
@@ -210,6 +208,7 @@ struct
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
     |   BICNullBinding of backendIC (* Just evaluate the expression and discard the result. *)
+    |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
         CaseInt
@@ -565,8 +564,6 @@ struct
          
         |   BICTuple ptl => printList("RECCONSTR", ptl, ",")
         
-        |   BICContainer size => PrettyString ("CONTAINER " ^ Int.toString size)
-        
         |   BICSetContainer{container, tuple, filter} =>
             let
                 val source = BoolVector.length filter
@@ -655,7 +652,11 @@ struct
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
         end
+
     |   prettyBinding(BICNullBinding c) = pretty c
+        
+    |   prettyBinding(BICDecContainer{addr, size}) =
+            PrettyString (concat ["CONTAINER #", Int.toString addr, "=", Int.toString size])
 
     and prettySimpleBinding{value, addr} =
         PrettyBlock (1, false, [],

@@ -735,6 +735,18 @@ struct
                     context=context}
             end
 
+        |   codeICode{icode=LoadArgument{ source=StackLocation{offset, ...}, dest, kind=MoveWord} :: rest, state=NormalState state, code, context} =
+            (* Load from the stack *)
+            let
+                val destReg = pRegNum dest
+                val (pushedState, pushCode) = pushRax state
+                (* We have to adjust the offset. *)
+                val load = loadStack(eax, stackPtr pushedState * wordSize  + offset)
+            in
+                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
+                    code=load @ pushCode @ code, context=context}
+            end
+
             (* Store a pseudo-register in a memory location. *)
         |   codeICode{
                 icode=StoreArgument{
@@ -1067,18 +1079,6 @@ struct
 
         |   codeICode{icode=StoreArgument _ :: _, ...} =
                 raise InternalError "codeICode: StoreArgument"
-
-        |   codeICode{icode=LoadStack{ offset, dest} :: rest, state=NormalState state, code, context} =
-            (* Load from the stack *)
-            let
-                val destReg = pRegNum dest
-                val (pushedState, pushCode) = pushRax state
-                (* We have to adjust the offset. *)
-                val load = loadStack(eax, stackPtr pushedState * wordSize  + offset)
-            in
-                codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
-                    code=load @ pushCode @ code, context=context}
-            end
 
         |   codeICode{ icode=LoadMemReg{offset, dest} :: rest, state=NormalState state, code, context} =
             (* Load from ebp/rbp *)
@@ -2150,10 +2150,12 @@ struct
                 codeICode{icode=rest, state=NormalState resultState, code=floatCode @ code,context=context}
             end
 
+        |   codeICode{icode=ResetStackPtr _ :: rest, state, code, context} =
+            (* This can be skipped. *)
+                codeICode{icode=rest, state=state, code=code, context=context}
 
             (* These should not occur here.  They are only added during this phase. *)
         |   codeICode{icode=PushValue _ :: _, ...} = raise InternalError "codeICode: PushValue"
-        |   codeICode{icode=ResetStackPtr _ :: _, ...} = raise InternalError "codeICode: ResetStackPtr"
         |   codeICode{icode=ExchangeRegisters _ :: _, ...} = raise InternalError "codeICode: ExchangeRegisters"
         
         datatype tooHardReason = NotEnoughRegs | MustPushReg | NotDoneInstr | OtherReason
@@ -2437,6 +2439,8 @@ struct
         |   codeExtArgument(IntegerConstant i) = IntegerConstant i
         |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}) =
                 MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
+        |   codeExtArgument(StackLocation{offset, adjustment}) =
+                MemoryLocation{base=GenReg esp, offset=offset+adjustment, index=NoMemIndex}
 
         and codeExtIndex NoMemIndex = NoMemIndex
         |   codeExtIndex(MemIndex1(PReg(r, _))) = MemIndex1(findGeneralReg r)
@@ -2530,19 +2534,6 @@ struct
 
         |   codeExtended(StoreArgument _ :: _, _) = raise TooHard NotDoneInstr
 
-        |   codeExtended(LoadStack { offset, dest=PReg(pr, _)} :: rest, context) =
-            (* Load from the stack. *)
-            let
-                val code = codeExtended(rest, context)
-            in
-                (* If we don't have a register that means the result is never used. *)
-                case Array.sub(allocatedRegs, pr) of
-                    SOME regResult =>
-                        (* Any offset for the current stack pointer should have been taken into account. *)
-                        LoadArgument{source=MemoryLocation{base=GenReg esp, offset=offset, index=NoMemIndex}, dest=regResult, kind=MoveWord} :: code
-                |   NONE => code
-            end
-
         |   codeExtended(LoadMemReg { offset, dest=PReg(pr, _)} :: rest, context) =
             (* Load from the "memory registers" pointed at by ebp. *)
             let
@@ -2598,6 +2589,7 @@ struct
                     SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
+                |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - tail - StackLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
                 loadRegArgs @ loadConstArgs @
@@ -2625,6 +2617,7 @@ struct
                     SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - MemoryLocation"
+                |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - StackLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
                 loadRegArgs @ loadConstArgs @
@@ -2666,8 +2659,15 @@ struct
                     RaiseExceptionPacket {packet= raxAsArg } :: code
             end
 
-        |   codeExtended(ReserveContainer{size, address} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(ReserveContainer{size, address=PReg(aReg, _)} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val addrReg = findRegister(aReg, NONE, generalRegisters)
+                (* The memory must be cleared in case we have a GC. *)
+                val pushAll = List.tabulate(size, fn _ => PushValue{arg=IntegerConstant(tag 0)})
+            in
+                pushAll @ LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord} :: code
+            end
 
         |   codeExtended(IndexedCaseOperation{testReg, workReg, cases, startValue} :: rest, context) =
                 raise TooHard NotDoneInstr
@@ -2701,23 +2701,26 @@ struct
 
         |   codeExtended(WordComparison _ :: _, _) = raise TooHard NotDoneInstr
 
-            (* Set up an exception handler.  This requires stack space.  How do we do that? *)
-        |   codeExtended(PushExceptionHandler{handlerAddr, handleStart} :: rest, context) =
+            (* Set up an exception handler. *)
+        |   codeExtended(PushExceptionHandler{handlerAddr=PReg(hReg, _), handleStart} :: rest, context) =
             let
+                (* handlerAddr is really a work register. *)
                 val () = reportSuccess := true
                 val code = codeExtended(rest, context)
+                val handleReg = findGeneralReg hReg
             in
-                raise TooHard NotDoneInstr
+                PushExceptionHandler{handlerAddr=handleReg, handleStart=handleStart} :: code
             end
 
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised.
                This removes items from the stack. *)
-        |   codeExtended(PopExceptionHandler{handlerAddr, resultReg, workReg} :: rest, context) =
+        |   codeExtended(PopExceptionHandler{workReg=PReg(wReg, _), ...} :: rest, context) =
             let
                 val () = reportSuccess := true
                 val code = codeExtended(rest, context)
+                val realWork = findGeneralReg wReg
             in
-                raise TooHard NotDoneInstr
+                PopExceptionHandler{handlerAddr=realWork (* Not used. *), resultReg=NONE, workReg=realWork} :: code
             end
 
             (* Start of a handler.  Sets the address associated with PushExceptionHandler and
@@ -2837,8 +2840,9 @@ struct
             (* Not currently generated. *)
         |   codeExtended(PushValue _ :: _, _) = raise InternalError "codeExtended - PushValue"
 
-            (* Not currently generated. *)
-        |   codeExtended(ResetStackPtr _ :: _, _) = raise InternalError "codeExtended - ResetStackPtr"
+        |   codeExtended(ResetStackPtr {numWords} :: rest, context) =
+            (* This is needed to remove containers on the stack. *)
+                ResetStackPtr{numWords=numWords} :: codeExtended(rest, context)
 
         |   codeExtended(TagValue{source=PReg(srcReg, _), dest=PReg(dReg, _)} :: rest, context) =
             let
@@ -2931,7 +2935,6 @@ struct
 
         |   codeExtended(AtomicExchangeAndAdd{base=PReg(bReg, _), source=PReg(sReg, _)} :: rest, context) =
             let
-                val () = reportSuccess := true
                 val code = codeExtended(rest, context)
                 val srcReg = findGeneralReg sReg
                 val baseReg = findGeneralReg bReg
@@ -3051,6 +3054,7 @@ struct
             end
             handle TooHard reason =>
             let
+                val _ = reportSuccess := false
                 val incrReg =
                     case reason of NotEnoughRegs => tooManyRegs | MustPushReg => mustPushReg | NotDoneInstr => notDoneInstr | OtherReason => anOther
                 val () = incrReg := !incrReg + 1

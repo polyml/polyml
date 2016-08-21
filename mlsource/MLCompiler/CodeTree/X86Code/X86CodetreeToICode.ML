@@ -222,12 +222,117 @@ struct
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
-        and codeToICode(BICNewenv (bindings, exp), context, isTail, target) =
+        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, target) =
             let
-                val codeBindings = codeBindingsToICode(bindings, context)
-                val (codeExp, result, haveExited) = codeToICode(exp, context, isTail, target)
+                (* Process a list of bindings.  We need to accumulate the space used by
+                   any containers and reset the stack pointer at the end if necessary. *)
+                fun doBindings([], context) = ([], context)
+                    
+                |   doBindings(BICDeclar{value, addr, ...} :: decs, context) =
+                    let
+                        val dest = newPReg()
+                        val code = codeToICodeTarget(value, context, false, dest)
+                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val (rest, resContext) = doBindings(decs, context)
+                    in
+                        (code @ rest, resContext)
+                    end
+
+                |   doBindings(BICRecDecs [{lambda, addr, ...}] :: decs, context) =
+                    (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
+                    let
+                        val dest = newPReg()
+                        val code = codeToICodeTarget(BICLambda lambda, context, false, dest)
+                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val (rest, resContext) = doBindings(decs, context)
+                    in
+                        (code @ rest, resContext)
+                    end
+
+                |   doBindings(BICRecDecs recDecs :: decs, context) =
+                    let
+                        val destRegs = map (fn _ => newPReg()) recDecs
+
+                        (* First build the closures as mutable cells containing zeros.  Set the
+                           entry in the address table to the register containing the address. *)
+                        fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
+                        let
+                            val () = Array.update(locToPregArray, addr, SOME dest)
+                            val sizeClosure = List.length closure + 1
+                            fun clear n =
+                                if n = sizeClosure
+                                then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]}]
+                                else
+                                let
+                                    val d = newPReg()
+                                in
+                                    LoadArgument{source=IntegerConstant(tag 0), dest=d, kind=MoveWord} ::
+                                        (clear (n+1) @
+                                            [StoreArgument{source=RegisterArgument d, base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
+                                end
+                        in
+                            c @ clear 0 @ [InitialisationComplete{dest=dest}]
+                        end
+                    
+                        val allocClosures = ListPair.foldlEq makeClosure [] (recDecs, destRegs)
+                    
+                        fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
+                        let
+                            val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                            (* Basically the same as tuple except we load the address of
+                               the closure we've made.  It's complicated because
+                               StoreArgument to MemoryLocation assumes that the top of the stack is
+                               the address of the allocated memory and the items below
+                               are the values to store. *)
+                            val dstCopy = newPReg()
+                            fun loadFields([], _) = [LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord}]
+                            |   loadFields(f :: rest, n) =
+                                let
+                                    val fReg = newPReg()
+                                    val code = codeToICodeTarget(f, context, false, fReg)
+                                    val restAndAlloc = loadFields(rest, n+1)
+                                    val storeValue =
+                                        [StoreArgument{ source=RegisterArgument fReg, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
+                                in
+                                    code @ restAndAlloc @ storeValue
+                                end
+                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
+                        in
+                            l @ setFields @ [LockMutable{addr=RegisterArgument dest}]
+                        end
+                        val setClosures = ListPair.foldlEq setClosure [] (recDecs, destRegs)
+                        
+                        val (rest, resContext) = doBindings(decs, context)
+                    in
+                        (allocClosures @ setClosures @ rest, resContext)
+                    end
+
+                |   doBindings(BICNullBinding exp :: decs, context) =
+                    let
+                        val (code, _, _) = codeToICode(exp, context, false, NoResult) (* And discard result. *)
+                        val (rest, resContext) = doBindings(decs, context)
+                    in
+                        (code @ rest, resContext)
+                    end
+       
+                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr}) =
+                    let
+                        val dest = newPReg()
+                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val (rest, resContext) = doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size})
+                    in
+                        (ReserveContainer{size=size, address=dest} :: rest, resContext)
+                    end
+
+                val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
+                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, target)
+                val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
+                val adjustSp =
+                    if initialSp = finalSp
+                    then []
+                    else [ResetStackPtr{numWords=finalSp-initialSp}]
             in
-                (codeBindings @ codeExp, result, haveExited)
+                (codeBindings @ codeExp @ adjustSp, result, haveExited)
             end
             
         |   codeToICode(BICConstnt(value, _), _, _, destination) =
@@ -236,7 +341,7 @@ struct
         |   codeToICode(BICExtract(BICLoadLocal l), _, _, destination) =
                 moveIfNotAllowed(destination, [], RegisterArgument(valOf(Array.sub(locToPregArray, l))))
 
-        |   codeToICode(BICExtract(BICLoadArgument a), _, _, destination) =
+        |   codeToICode(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination) =
             if a < numArgRegs
             then (* It was originally in a register.  It's now in a preg. *)
                 moveIfNotAllowed(destination, [], RegisterArgument(List.nth(argPRegs, a)))
@@ -244,7 +349,9 @@ struct
             let
                 val target = asTarget destination
             in
-                ([LoadStack{offset=(List.length argTypes - a)*wordSize, dest=target}], RegisterArgument target, false)
+                ([LoadArgument{
+                    source=StackLocation{offset=(List.length argTypes - a)*wordSize, adjustment=stackPtr*wordSize}, dest=target, kind=MoveWord}],
+                 RegisterArgument target, false)
             end
         
         |   codeToICode(BICExtract(BICLoadClosure c), _, _, destination) =
@@ -1295,7 +1402,7 @@ struct
                  RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
         
-        |   codeToICode(BICBeginLoop {loop, arguments}, context, isTail, destination) =
+        |   codeToICode(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination) =
             let
                 val target = asTarget destination
                 (* First evaluate the initial values for the arguments to new pregs.
@@ -1309,7 +1416,8 @@ struct
                     let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
                 val loopRegs = map makeLoopReg arguments
                 val loopLabel = newLabel()
-                val (loopBody, _, loopExited) = codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel) }, isTail, SpecificPReg target)
+                val (loopBody, _, loopExited) =
+                    codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel), stackPtr=stackPtr }, isTail, SpecificPReg target)
                 val args = ListPair.mapEq(fn (s, l) => {source=RegisterArgument s, loopReg=l}) (argPRegs, loopRegs)
             in
                 (codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], RegisterArgument target, loopExited)
@@ -1340,7 +1448,7 @@ struct
                 (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}], RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
-        |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context, isTail, destination) =
+        |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination) =
             let
                 val target = asTarget destination
                 val (bodyTarget, handlerTarget) =
@@ -1350,9 +1458,11 @@ struct
                 (* The expression cannot be treated as a tail because the handler has
                    to be removed after.  It may "exit" if it has raised an unconditional
                    exception.  If it has we mustn't generate a PopExceptionHandler because
-                   there won't be any result for resultReg. *)
+                   there won't be any result for resultReg.
+                   We need to add two words to the stack to account for the items pushed by
+                   PushExceptionHandler. *)
                 val (expCode, _, expExit) =
-                    codeToICode(exp, context, false (* Not tail *), SpecificPReg bodyTarget)
+                    codeToICode(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget)
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
                 val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
@@ -1405,14 +1515,7 @@ struct
             in
                 moveIfNotAllowed(destination, code, RegisterArgument memAddr)
             end
-        
-        |   codeToICode(BICContainer size , _, _, destination) =
-            let
-                val target = asTarget destination
-            in
-                ([ReserveContainer{size=size, address=target}], RegisterArgument target, false)
-            end
-
+ 
             (* Copy the source tuple into the container.  If the source is a BICTuple we simply copy
                the fields.  That saves creating the tuple at compile time. *)
         |   codeToICode(BICSetContainer{container, tuple=BICTuple cl, filter}, context, _, destination) =
@@ -1744,94 +1847,6 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        (* Process a list of bindings. *)
-        and codeBindingsToICode(bindings, context) =
-        let
-            fun doBinding(BICDeclar{value, addr, ...}, l) =
-                let
-                    val dest = newPReg()
-                    val code = codeToICodeTarget(value, context, false, dest)
-                    val () = Array.update(locToPregArray, addr, SOME dest)
-                in
-                    l @ code
-                end
-
-            |   doBinding(BICRecDecs [{lambda, addr, ...}], l) =
-                (* We shouldn't have single entries in RecDecs but it seems to occur at the moment. *)
-                let
-                    val dest = newPReg()
-                    val code = codeToICodeTarget(BICLambda lambda, context, false, dest)
-                    val () = Array.update(locToPregArray, addr, SOME dest)
-                in
-                    l @ code
-                end
-
-            |   doBinding(BICRecDecs decs, l) =
-                let
-                    val destRegs = map (fn _ => newPReg()) decs
-
-                    (* First build the closures as mutable cells containing zeros.  Set the
-                       entry in the address table to the register containing the address. *)
-                    fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
-                    let
-                        val () = Array.update(locToPregArray, addr, SOME dest)
-                        val sizeClosure = List.length closure + 1
-                        fun clear n =
-                            if n = sizeClosure
-                            then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]}]
-                            else
-                            let
-                                val d = newPReg()
-                            in
-                                LoadArgument{source=IntegerConstant(tag 0), dest=d, kind=MoveWord} ::
-                                    (clear (n+1) @
-                                        [StoreArgument{source=RegisterArgument d, base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
-                            end
-                    in
-                        c @ clear 0 @ [InitialisationComplete{dest=dest}]
-                    end
-                    
-                    val allocClosures = ListPair.foldlEq makeClosure [] (decs, destRegs)
-                    
-                    fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
-                    let
-                        val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
-                        (* Basically the same as tuple except we load the address of
-                           the closure we've made.  It's complicated because
-                           StoreArgument to MemoryLocation assumes that the top of the stack is
-                           the address of the allocated memory and the items below
-                           are the values to store. *)
-                        val dstCopy = newPReg()
-                        fun loadFields([], _) = [LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord}]
-                        |   loadFields(f :: rest, n) =
-                            let
-                                val fReg = newPReg()
-                                val code = codeToICodeTarget(f, context, false, fReg)
-                                val restAndAlloc = loadFields(rest, n+1)
-                                val storeValue =
-                                    [StoreArgument{ source=RegisterArgument fReg, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
-                            in
-                                code @ restAndAlloc @ storeValue
-                            end
-                        val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
-                    in
-                        l @ setFields @ [LockMutable{addr=RegisterArgument dest}]
-                    end
-                    val setClosures = ListPair.foldlEq setClosure [] (decs, destRegs)
-                in
-                    l @ allocClosures @ setClosures
-                end
-
-            |   doBinding(BICNullBinding exp, l) =
-                let
-                    val (code, _, _) = codeToICode(exp, context, false, NoResult) (* And discard result. *)
-                in
-                    l @ code
-                end
-            in
-                List.foldl doBinding [] bindings
-            end
-
         (* Code a branch condition.  This is really meant for andalso/orelse. *)
         and codeCondition(BICConstnt(value, _), _, jumpOn, jumpLabel) =
             (* Constant - typically part of andalso/orelse.  Either an unconditional branch
@@ -1839,9 +1854,6 @@ struct
             if jumpOn = (toShort value <> 0w0)
             then [UnconditionalForwardJump{label=jumpLabel}]
             else []
-
-        |   codeCondition(BICNewenv(decs, exp), context, jumpOn, jumpLabel) =
-                codeBindingsToICode(decs, context) @ codeCondition(exp, context, jumpOn, jumpLabel)
 
         |   codeCondition(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel) =
             (* Check the "tag" word of a union (datatype).  N.B.  Not the same as testing the
@@ -2238,7 +2250,7 @@ struct
             end
 
         val (bodyCode, _, bodyExited) =
-            codeToICode(body, {loopArgs=NONE}, true, SpecificPReg resultTarget)
+            codeToICode(body, {loopArgs=NONE, stackPtr=0}, true, SpecificPReg resultTarget)
         val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else [returnInstruction resultTarget])
       
         open ICODETRANSFORM
