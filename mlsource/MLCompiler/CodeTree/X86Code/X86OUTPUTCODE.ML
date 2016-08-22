@@ -1216,7 +1216,11 @@ struct
        branch. *)
     val maxInstrSize = if isX64 then 15 else 12
     
-    (* A few instructions require an escape. *)
+    fun genPrefix(LOCK_XADD, cvec) = gen8u(0wxF0, cvec) (* Requires LOCK prefix. *)
+    |   genPrefix(MOVL_R_A16, cvec) = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
+    |   genPrefix _ = ()
+    
+    (* A few instructions require an escape.  Escapes come after the REX. *)
     fun genEscape(MOVZB, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
@@ -1229,13 +1233,13 @@ struct
     |   genEscape(SSE2Ops SSE2MoveSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops _, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(CVTSI2SD, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
-    |   genEscape(MOVL_R_A16, cvec) = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
     |   genEscape _ = ()
 
     (* Generate an opCode byte after doing any pending operations. *)
     fun genop(opb:opCode, rx, cvec) =
     (
         doPending (cvec, maxInstrSize);
+        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
         case rx of
             NONE => ()
         |   SOME rxx =>
@@ -1388,8 +1392,8 @@ struct
             val (rbC, rbX) = getReg rb
         in
             doPending (cvec, maxInstrSize);
-            (* Any lock prefix comes before any REX prefix. *)
-            case opb of LOCK_XADD => gen8u(0wxF0, cvec) | _ => ();
+            (* Any lock or opsize prefix comes before any REX prefix. *)
+            genPrefix(opb, cvec);
             (* Add any necessary prefix. *)
             genRex(opb, rrX, rbX, false, cvec);
             (* Generate the escape codes for the opcodes that need them. *)
@@ -1415,6 +1419,7 @@ struct
         val (rrC, rrX) = getReg rd
     in
         doPending (cvec, maxInstrSize);
+        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
         genRex(opb, rrX, rbX, false, cvec);
         genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
@@ -1463,8 +1468,8 @@ struct
                 end
         in
             doPending (cvec, maxInstrSize);
+            genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
             genRex(opb, rrX, rbX, riX, cvec);
-
             genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
             gen8u(opToInt opb, cvec);
 
@@ -3070,7 +3075,7 @@ struct
                 val oper = SSE2Ops opc
             in
                 doPending (code, maxInstrSize);
-                (* We don't currently need a REX byte but if we did it would sandwiched in here. *)
+                (* We don't currently need a REX byte but if we did it would be sandwiched in here. *)
                 genEscape(oper, code);
                 gen8u(opToInt oper, code);
                 genmodrm(Register, rrC, rrS, code);
