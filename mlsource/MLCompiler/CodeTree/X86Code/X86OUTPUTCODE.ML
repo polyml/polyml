@@ -2669,11 +2669,9 @@ struct
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
                    must use a REX prefix.  This isn't possible in 32-bit mode. *)
-                val opcode = MOVB_R_A{forceRex= rrC >= 0w4} 
+                val opcode = MOVB_R_A{forceRex= rrC >= 0w4}
+                val _ = isX64 orelse rrC < 0w4 orelse raise InternalError "High byte register"
             in
-                case toStore of
-                    GeneralReg (r, false) => if r >= 0w4 then raise InternalError "High byte register" else ()
-                |   _ => ();
                 case address of
                     {offset, base, index=NoIndex} =>
                         genOpEA(opcode, LargeInt.fromInt offset, base, toStore, code) 
