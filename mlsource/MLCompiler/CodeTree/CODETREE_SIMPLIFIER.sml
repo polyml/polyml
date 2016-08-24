@@ -882,6 +882,23 @@ struct
                 (resultCode, decArgs, EnvSpecNone)
             end
 
+            (* Addition and subtraction of zero.  These can arise as a result of
+               inline expansion of more general functions. *)
+        |   (FixedPrecisionArith ArithAdd, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (FixedPrecisionArith ArithAdd, Constnt(v1, _), arg2) =>
+            if isShort v1 andalso toShort v1 = 0w0
+            then (arg2, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (FixedPrecisionArith ArithSub, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
         |   (WordArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
             if not(isShort v1) orelse not(isShort v2)
             then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
@@ -903,6 +920,23 @@ struct
             in
                (resultCode, decArgs, EnvSpecNone)
             end
+
+        |   (WordArith ArithAdd, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordArith ArithAdd, Constnt(v1, _), arg2) =>
+            if isShort v1 andalso toShort v1 = 0w0
+            then (arg2, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordArith ArithSub, arg1, Constnt(v2, _)) =>
+            if isShort v2 andalso toShort v2 = 0w0
+            then (arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+        
+            (* TODO: Constant folding of logical operations. *)
 
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
