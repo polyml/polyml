@@ -134,10 +134,13 @@ sig
     |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
-           argument is the number of words.  If the initialiser is provided
-           each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of
-            { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option, saveRegs: 'reg list }
+           argument is the number of words. *)
+    |   AllocateMemoryVariable of { size: 'reg, flags: 'reg argument, dest: 'reg, saveRegs: 'reg list }
+
+        (* Initialise a piece of memory.  N.B. The size is an untagged value containing
+           the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
+           rcx and init must be rax. *)
+    |   InitialiseMem of { size: 'reg, addr: 'reg, init: 'reg }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -227,8 +230,8 @@ sig
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
-           these by pRegs. *)
-    |   Division of { isSigned: bool, dividend: 'reg argument, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
+           these by pRegs.  The divisor can be either a register or a memory location. *)
+    |   Division of { isSigned: bool, dividend: 'reg, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.

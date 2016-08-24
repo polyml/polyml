@@ -180,17 +180,21 @@ struct
         end
         
         (* If we need to use a specific register for an argument e.g. ecx for a shift,
-           we mustn't use that register for anything else. *)
+           we mustn't use that register for anything else.
+           We need to pass an exclude set because it's possible that the
+           register could be in the current active set because it's needed
+           later on. *)
         fun addRealRegConflicts(currentSet, exclude, reg) =
         let
+            fun isInset reg set = List.exists (fn r => r = reg) set
             fun checkAndAdd i =
-            if i = exclude
+            if isInset i exclude
             then ()
             else
             let
                 val currentConflicts = Array.sub(regRealConflicts, i)
             in
-                if List.exists (fn r => r = reg) currentConflicts
+                if isInset reg currentConflicts
                 then ()
                 else Array.update(regRealConflicts, i, reg :: currentConflicts)
             end
@@ -278,6 +282,24 @@ struct
                 (* Moving to a preg, the destination. *)
                 eliminateableInstruction(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source, destReg dest)
 
+        |   identify((instr as StoreArgument { source as RegisterArgument sReg, base, index, kind=MoveByte, ...}) :: rest, state, labels, loopLabels, ccIn) =
+                (* Storing a byte value.  This is messy on X86/32 because we can't use edi or esi as the register
+                   to store.  To get round this we reserve ecx as a possible register as with shifts.
+                   We don't actually need to use this but it is available if necessary. *)
+                if isX64
+                then addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ [sourceReg base] @sourceIndex index, [])
+                else
+                let
+                    val storeReg = sourceReg sReg
+                    val addrRegs = sourceReg base :: sourceIndex index
+                    val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                        identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, storeReg :: addrRegs, [])
+                    val () = addConflicts conflictSet
+                    val () = addRealRegConflicts(currentRegs @ addrRegs, [storeReg], GenReg ecx)
+                in
+                    (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+                end
+
         |   identify((instr as StoreArgument { source, base, index, ...}) :: rest, state, labels, loopLabels, ccIn) =
                 (* Moving to memory.  The base and index registers are sources not destinations. *)
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, sourceRegs source @ [sourceReg base] @sourceIndex index, [])
@@ -347,25 +369,43 @@ struct
                 (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
-        |   identify(AllocateMemoryVariable{size, flags, dest, initialiser, saveRegs=_} :: rest, state, labels, loopLabels, _) =
+        |   identify(AllocateMemoryVariable{size, flags, dest, ...} :: rest, state, labels, loopLabels, _) =
             let
+                (* Simpler case where there is no initialiser. *)
                 val dReg = destReg dest
-                val iSrc = case initialiser of NONE => [] | SOME init => [sourceReg init]
-                val sources = sourceRegs size @ sourceRegs flags @ iSrc
+                val sources = sourceReg size :: sourceRegs flags
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
                     identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [dReg])
                 (* We have to include the sources in the conflict set.  Unlike, say LoadArgument where
                    a register in the source can be reused in the destination, we can't reuse the same
                    register for the result as any of the arguments. *)
                 val () = addConflicts(union(conflictSet, listToSet sources))
-                (* We need to save the registers if we can't do an allocation.
-                   The initialising value could be an address so if that's in a tagged
-                   register if has to be included. *)
-                val saveRegs = getSaveSet(currentRegs @ iSrc, dReg)
+                (* We need to save the registers if we can't do an allocation. *)
+                val saveRegs = getSaveSet(currentRegs, dReg)
                 val allocInstr =
-                    AllocateMemoryVariable{size=size, flags=flags, dest=dest, initialiser=initialiser, saveRegs=saveRegs}
+                    AllocateMemoryVariable{size=size, flags=flags, dest=dest, saveRegs=saveRegs}
             in
                 (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
+            end
+
+        |   identify((instr as InitialiseMem{size, addr, init}) :: rest, state, labels, loopLabels, _) =
+            let
+                (* We are going to use rep stosl/q to set the memory.
+                   That requires the length to be in ecx, the initialiser to be in eax and
+                   the destination to be edi. *)
+                val aReg = destReg addr
+                val iReg = sourceReg init
+                val sReg = sourceReg size
+                val sources = [aReg, iReg, sReg]
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [])
+                val () = addConflicts(union(conflictSet, listToSet sources))
+                val potentialConflicts = sources @ currentRegs
+                val () = addRealRegConflicts(potentialConflicts, [aReg], GenReg edi)
+                val () = addRealRegConflicts(potentialConflicts, [iReg], GenReg eax)
+                val () = addRealRegConflicts(potentialConflicts, [sReg], GenReg ecx)
+            in
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as InitialisationComplete{...}) :: rest, state, labels, loopLabels, ccIn) =
@@ -674,7 +714,7 @@ struct
                 val () = addConflicts conflictSet
                 (* We need to mark all the currentRegs except shiftReg as conflicting with ecx.
                    We also need to mark the value to shift and the result as excluding that. *)
-                val () = addRealRegConflicts(dReg :: (currentRegs @ valueToShift), shiftReg, GenReg ecx)
+                val () = addRealRegConflicts(dReg :: (currentRegs @ valueToShift), [shiftReg], GenReg ecx)
             in
                 (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
@@ -687,11 +727,16 @@ struct
         |   identify((instr as Division{dividend, divisor, quotient, remainder, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 (* Division is specific as to the registers.  The dividend must be eax, quotient is
-                   eax and the remainder is edx.  The trouble is we also have large-word division
-                   and that uses memory arguments. *)
-                val quotReg = destReg quotient and remReg = destReg remainder and diviReg = sourceRegs dividend
+                   eax and the remainder is edx. *)
+                val quotReg = destReg quotient and remReg = destReg remainder and diviReg = sourceReg dividend
+                val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
+                    identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, diviReg :: sourceRegs divisor, [quotReg, remReg])
+                val () = addConflicts conflictSet
+                (* We need to add conflicts for each of the registers. *)
+                val () = addRealRegConflicts(remReg :: currentRegs, [quotReg, diviReg], GenReg eax)
+                val () = addRealRegConflicts(quotReg :: diviReg :: currentRegs, [remReg], GenReg edx)
             in
-                addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, diviReg @ sourceRegs divisor, [quotReg, remReg])
+                (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
         |   identify((instr as AtomicExchangeAndAdd{base, source}) :: rest, state, labels, loopLabels, ccIn) =
@@ -732,9 +777,9 @@ struct
                 val () = addConflicts conflictSet
                 (* We need to add conflicts for each of the registers. *)
                 val potentialConflicts = v1Addr :: v2Addr :: len :: currentRegs
-                val () = addRealRegConflicts(potentialConflicts, v1Addr, GenReg esi)
-                val () = addRealRegConflicts(potentialConflicts, v2Addr, GenReg edi)
-                val () = addRealRegConflicts(potentialConflicts, len, GenReg ecx)
+                val () = addRealRegConflicts(potentialConflicts, [v1Addr], GenReg esi)
+                val () = addRealRegConflicts(potentialConflicts, [v2Addr], GenReg edi)
+                val () = addRealRegConflicts(potentialConflicts, [len], GenReg ecx)
             in
                 (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
@@ -747,9 +792,9 @@ struct
                 val () = addConflicts conflictSet
                 (* We need to add conflicts for each of the registers. *)
                 val potentialConflicts = sAddr :: dAddr :: len :: currentRegs
-                val () = addRealRegConflicts(potentialConflicts, sAddr, GenReg esi)
-                val () = addRealRegConflicts(potentialConflicts, dAddr, GenReg edi)
-                val () = addRealRegConflicts(potentialConflicts, len, GenReg ecx)
+                val () = addRealRegConflicts(potentialConflicts, [sAddr], GenReg esi)
+                val () = addRealRegConflicts(potentialConflicts, [dAddr], GenReg edi)
+                val () = addRealRegConflicts(potentialConflicts, [len], GenReg ecx)
             in
                 (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end

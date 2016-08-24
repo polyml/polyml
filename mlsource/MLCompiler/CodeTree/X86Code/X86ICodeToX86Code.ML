@@ -112,10 +112,13 @@ struct
     |   AllocateMemoryOperation of { size: int, flags: Word8.word, dest: 'reg, saveRegs: 'reg list }
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
-           argument is the number of words.  If the initialiser is provided
-           each word of the new memory is set to the value. *)
-    |   AllocateMemoryVariable of
-            { size: 'reg argument, flags: 'reg argument, dest: 'reg, initialiser: 'reg option, saveRegs: 'reg list }
+           argument is the number of words. *)
+    |   AllocateMemoryVariable of { size: 'reg, flags: 'reg argument, dest: 'reg, saveRegs: 'reg list }
+
+        (* Initialise a piece of memory.  N.B. The size is an untagged value containing
+           the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
+           rcx and init must be rax. *)
+    |   InitialiseMem of { size: 'reg, addr: 'reg, init: 'reg }
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
@@ -201,8 +204,8 @@ struct
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
-           these by pRegs. *)
-    |   Division of { isSigned: bool, dividend: 'reg argument, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
+           these by pRegs.  The divisor can be either a register or a memory location. *)
+    |   Division of { isSigned: bool, dividend: 'reg, divisor: 'reg argument, quotient: 'reg, remainder: 'reg }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
@@ -273,7 +276,7 @@ struct
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
         |   printSaves(areg::more, printReg, stream) =
-                (printReg(areg, stream); stream ", "; printSaves(more, printReg, stream))
+                (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
@@ -340,25 +343,32 @@ struct
                 stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
-        |   printICode(AllocateMemoryVariable{size, flags, dest, initialiser, saveRegs}, stream, printReg) =
+        |   printICode(AllocateMemoryVariable{size, flags, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
-                stream "s="; printArg(size, stream, printReg);
-                stream "f="; printArg(flags, stream, printReg);
-                case initialiser of NONE => () | SOME init => (stream "i="; printReg(init, stream));
+                stream "s="; printReg(size, stream);
+                stream ",f="; printArg(flags, stream, printReg);
                 stream " => "; printReg(dest, stream);
                 stream " save="; printSaves(saveRegs, printReg, stream)
+            )
+
+        |   printICode(InitialiseMem{size, addr, init}, stream, printReg) =
+            (
+                stream "\tInitialiseMem\t";
+                stream "s="; printReg(size, stream);
+                stream ",i="; printReg(init, stream);
+                stream ",a="; printReg(addr, stream)
             )
 
         |   printICode(InitialisationComplete{dest}, stream, printReg) = (stream "\tInitComplete\t"; printReg(dest, stream))
 
         |   printICode(StartLoop{arguments, loopLabel}, stream, printReg) =
             (
-                stream "\tStartLoop\t";
+                printLabel(loopLabel, stream);
+                stream ":\tStartLoop\t";
                 List.app(
                     fn {source, loopReg} => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
-                    ) arguments;
-                printLabel(loopLabel, stream)
+                    ) arguments
             )
 
         |   printICode(EndLoop{loopLabel}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
@@ -474,7 +484,7 @@ struct
 
         |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream, printReg) =
             (
-                stream "\tLoadEffectiveAddress\t"; 
+                stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
                 case base of NONE => stream "_" | SOME b => printReg(b, stream);
                 stream ")";
@@ -507,7 +517,7 @@ struct
         |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream, printReg) =
             (
                 stream "\tDivision"; stream(if isSigned then "Signed\t" else "Unsigned\t");
-                printArg(dividend, stream, printReg); stream " by ";
+                printReg(dividend, stream); stream " by ";
                 printArg(divisor, stream, printReg); stream " => ";
                 printReg(quotient, stream); stream " rem ";
                 printReg(remainder, stream)
@@ -848,9 +858,9 @@ struct
                 codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, initialiser, saveRegs} :: rest, code) =
+        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, saveRegs} :: rest, code) =
             let
-                val sReg = argAsGenReg size and fReg = argAsGenReg flags and dReg = asGenReg dest
+                val sReg = asGenReg size and fReg = argAsGenReg flags and dReg = asGenReg dest
                 val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
                             orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
                 val preserve = map asGenReg saveRegs
@@ -875,27 +885,19 @@ struct
                     then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
                     else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
                 ]
-                
-                (* Initialiser *)
-                val initCode =
-                    case initialiser of
-                        NONE => [] (* Byte segments are not initialised - Should we clear last word? Length could be zero. *)
-                    |   SOME init =>
-                        let
-                            (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
-                            val iReg = asGenReg init
-                            val _ = sReg = ecx orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
-                            val _ = iReg = eax orelse raise InternalError "codeGenICode: AllocateMemoryVariable"
-                        in
-                            [
-                                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and edi is free. *)
-                                RepeatOperation STOSL,
-                                (* Move the base address to edi.  It will be updated by the move. *)
-                                MoveToRegister { source=RegisterArg dReg, output=edi }
-                            ]
-                        end
             in
-                codeGenICode(rest, initCode @ allocCode @ code)
+                codeGenICode(rest, allocCode @ code)
+            end
+
+        |   codeGenICode(InitialiseMem{size, addr, init} :: rest, code) =
+            let
+                val sReg = asGenReg size and iReg = asGenReg init and aReg = asGenReg addr
+                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and aReg = edi. *)
+                val _ = sReg = ecx orelse raise InternalError "codeGenICode: InitialiseMem"
+                val _ = iReg = eax orelse raise InternalError "codeGenICode: InitialiseMem"
+                val _ = aReg = edi orelse raise InternalError "codeGenICode: InitialiseMem"
+            in
+                codeGenICode(rest, RepeatOperation STOSL :: code)
             end
 
         |   codeGenICode(InitialisationComplete _ :: rest, code) =
@@ -1077,7 +1079,7 @@ struct
 
         |   codeGenICode(Division { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
             let
-                val dividendReg = argAsGenReg dividend and divisorReg = argAsGenReg divisor
+                val dividendReg = asGenReg dividend and divisorReg = argAsGenReg divisor
                 and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
                 val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
                 val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"

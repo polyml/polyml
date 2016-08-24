@@ -325,7 +325,7 @@ struct
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
-                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, target)
+                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail andalso initialSp = finalSp, target)
                 val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
                 val adjustSp =
                     if initialSp = finalSp
@@ -762,7 +762,7 @@ struct
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
                     [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
                      UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=RegisterArgument arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder },
                      TagValue { source=quotient, dest=target }], RegisterArgument target, false)
             end
@@ -779,7 +779,7 @@ struct
                     (* Shift both of the arguments to remove the tags. *)
                     [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
                      UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=RegisterArgument arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder },
                      TagValue { source=remainder, dest=target }], RegisterArgument target, false)
             end
@@ -884,7 +884,7 @@ struct
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
                     [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false},
                      UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false},
-                     Division { isSigned = false, dividend=RegisterArgument arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                     Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder },
                      TagValue { source=quotient, dest=target }], RegisterArgument target, false)
             end
@@ -901,7 +901,7 @@ struct
                     (* Shift both of the arguments to remove the tags. *)
                     [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false},
                      UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false},
-                     Division { isSigned = false, dividend=RegisterArgument arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                     Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder },
                      TagValue { source=remainder, dest=target }], RegisterArgument target, false)
             end
@@ -977,7 +977,7 @@ struct
                 val aReg1 = newPReg() and aReg2 = newPReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=NONE, saveRegs=[]},
+                 [AllocateMemoryVariable{size=aReg1, flags=RegisterArgument aReg2, dest=target, saveRegs=[]},
                  InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
@@ -988,9 +988,11 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                     ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -998,11 +1000,11 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
-                       since we don't need to check for overflow. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                     ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1010,9 +1012,13 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and resValue = newUReg()
+                val argReg1 = newUReg() and argReg2 = newUReg()
+                (* Temporarily load both arguments into untagged regs.  It's simpler. *)
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [Multiplication{resultReg=resValue, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord},
+                     LoadArgument{source=wordAt aReg2, dest=argReg2, kind=MoveWord},
+                     Multiplication{resultReg=resValue, operand1=RegisterArgument argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1021,10 +1027,13 @@ struct
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
                 val quotient = newUReg() and remainder = newUReg()
+                val dividendReg = newUReg() and divisorReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* We don't test for zero here - that's done explicitly. *)
-                    [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
+                    [LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord},
+                     LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord},
+                     Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
                                 quotient=quotient, remainder=remainder },
                      BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
@@ -1034,10 +1043,13 @@ struct
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
                 val quotient = newUReg() and remainder = newUReg()
+                val dividendReg = newUReg() and divisorReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* We don't test for zero here - that's done explicitly. *)
-                    [Division { isSigned = false, dividend=wordAt aReg1, divisor=wordAt aReg2,
+                    [LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord},
+                     LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord},
+                     Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
                                 quotient=quotient, remainder=remainder },
                      BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
@@ -1049,9 +1061,11 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                     ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1059,9 +1073,11 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                     ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1069,9 +1085,11 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=wordAt aReg1, operand2=wordAt aReg2, ccRef=newCCRef()},
+                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                     ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
                      BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1084,10 +1102,12 @@ struct
                 val aReg1 = newPReg() and aReg2 = newPReg()
                 val aReg2Untagged = newUReg() and aReg3 = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
+                val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false},
-                  ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=wordAt aReg1, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() },
+                 [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
+                  UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false},
+                  ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=RegisterArgument argReg, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() },
                   BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
@@ -1152,22 +1172,36 @@ struct
             else (* If it's longer use the full run-time form. *)
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                (* With the exception of flagReg all these registers are modified by the code. *)
+                val sizeReg = newPReg() and flagReg = newPReg() and initReg = newPReg()
+                val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
             in
-                (codeToICodeTarget(numWords, context, false, aReg1) @ codeToICodeTarget(flags, context, false, aReg2) @
-                 codeToICodeTarget(initial, context, false, aReg3) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3, saveRegs=[]},
+                (codeToICodeTarget(numWords, context, false, sizeReg) @ codeToICodeTarget(flags, context, false, flagReg) @
+                 codeToICodeTarget(initial, context, false, initReg) @
+                 [AllocateMemoryVariable{size=sizeReg, flags=RegisterArgument flagReg, dest=allocReg, saveRegs=[]},
+                  (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
+                  LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
+                  UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
+                  InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
+                  LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
                   InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICAllocateWordMemory {numWords, flags, initial}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
+                (* With the exception of flagReg all these registers are modified by the code. *)
+                val sizeReg = newPReg() and flagReg = newPReg() and initReg = newPReg()
+                val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
             in
-                (codeToICodeTarget(numWords, context, false, aReg1) @ codeToICodeTarget(flags, context, false, aReg2) @
-                 codeToICodeTarget(initial, context, false, aReg3) @
-                 [AllocateMemoryVariable{size=RegisterArgument aReg1, flags=RegisterArgument aReg2, dest=target, initialiser=SOME aReg3, saveRegs=[]},
+                (codeToICodeTarget(numWords, context, false, sizeReg) @ codeToICodeTarget(flags, context, false, flagReg) @
+                 codeToICodeTarget(initial, context, false, initReg) @
+                 [AllocateMemoryVariable{size=sizeReg, flags=RegisterArgument flagReg, dest=allocReg, saveRegs=[]},
+                  (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
+                  LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
+                  UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
+                  InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
+                  LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
                   InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
@@ -1933,9 +1967,11 @@ struct
                 val ccRef = newCCRef()
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
+                val argReg = newUReg()
             in
                 arg1Code @ arg2Code @
-                    [WordComparison{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef},
+                    [LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord},
+                     WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef},
                      ConditionalForwardJump{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), label=jumpLabel}]
             end
