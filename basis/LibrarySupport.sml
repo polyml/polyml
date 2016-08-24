@@ -70,8 +70,7 @@ struct
     end
 
     (* This is always a short non-negative integer so can be cast as word or int. *)
-    fun sizeAsWord(s: string): word =
-        if RunCall.isShort s then 0w1 else String.lengthWordAsWord s
+    fun sizeAsWord(s: string): word = String.lengthWordAsWord s
 
     (* Provide the implementation of CharArray.array, Word8Array.array
        and Word8Array.vector (= Word8Vector.vector) here so that they
