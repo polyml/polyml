@@ -119,13 +119,24 @@ sig
         (* Start of function.  Set the register arguments. *)
     |   BeginFunction of { regArgs: ('reg * reg) list }
 
-        (* Call or jump to a function.  If the code address is a constant it is passed here.
+        (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
-           as one of the argument registers.  The result is stored in the destination register.
-           If isTail is true this is tail-recursive and should be a jump. *)
+           as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
             { callKind: callKinds, regArgs: ('reg argument * reg) list,
-              stackArgs: 'reg argument list, dest: 'reg, isTail: bool}
+              stackArgs: 'reg argument list, dest: 'reg}
+
+        (* Jump to a tail-recursive function.  This is similar to FunctionCall
+           but complicated for stack arguments because the stack and the return
+           address need to be overwritten.  We could actually include the
+           return address among the stackArgs but leave that for the moment.
+           stackAdjust is the number of words to remove (positive) or add
+           (negative) to the stack before the call. *)
+    |   TailRecursiveCall of
+            { callKind: callKinds, regArgs: ('reg argument * reg) list,
+              stackArgs: {src: 'reg argument, stack: int} list,
+              returnAddr: {srcStack: int, stack: int},
+              stackAdjust: int }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.

@@ -318,43 +318,45 @@ struct
                 addSourcesAndDests(instr, rest, state, labels, loopLabels, ccIn, [], destRegs)
             end
 
-        |   identify((instr as FunctionCall{regArgs, stackArgs, dest, isTail, ...}) :: rest, state, labels, loopLabels, ccIn) =
+        |   identify((instr as FunctionCall{regArgs, stackArgs, dest, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let 
+                (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
                 val stackSources = List.foldl(fn (arg, srcs) => sourceRegs arg @ srcs) [] stackArgs
                 
                 fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
                 val regSources = List.foldl regSource [] regArgs
+                val dReg = destReg dest
+                (* We don't use addSourcesAndDests because we also have to mark the
+                   active registers as MustPush. *)
+                val sourceSet = listToSet(stackSources @ regSources)
+                and destSet = listToSet [dReg]
+                val () = checkSources(sourceSet, state)
+                val active = union(state, destSet)
+                val (tail, references, refLabels, resLoopLabels, _) =
+                    identify(rest, active, labels, loopLabels, ccIn)
+                val current = setToList(intersect(active, references))
+                (* The push set, though, excludes the result register. *)
+                val () =
+                    List.app(
+                        fn i => (incrArray(regActive, i); if i = dReg then () else Array.update(regPushState, i, MustPush))) current
+                val nowActive = union(references, sourceSet)
+                (* No need for conflict sets.  Everything that could conflict must have been pushed. *)
             in
-                if isTail
-                then (* Tail recursive call.  References the argument sources but exits. *)
-                let
-                    val sources = listToSet(stackSources @ regSources)
-                    val () = checkSources(sources, state)
-                    val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
-                in
-                    (instr :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
-                end
-                else (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
-                let
-                    val dReg = destReg dest
-                    (* We don't use addSourcesAndDests because we also have to mark the
-                       active registers as MustPush. *)
-                    val sourceSet = listToSet(stackSources @ regSources)
-                    and destSet = listToSet [dReg]
-                    val () = checkSources(sourceSet, state)
-                    val active = union(state, destSet)
-                    val (tail, references, refLabels, resLoopLabels, _) =
-                        identify(rest, active, labels, loopLabels, ccIn)
-                    val current = setToList(intersect(active, references))
-                    (* The push set, though, excludes the result register. *)
-                    val () =
-                        List.app(
-                            fn i => (incrArray(regActive, i); if i = dReg then () else Array.update(regPushState, i, MustPush))) current
-                    val nowActive = union(references, sourceSet)
-                    (* No need for conflict sets.  Everything that could conflict must have been pushed. *)
-                in
-                    (instr :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
-                end
+                (instr :: tail, nowActive, refLabels, resLoopLabels, CCIndeterminate)
+            end
+
+        |   identify((instr as TailRecursiveCall{regArgs, stackArgs, ...}) :: rest, state, labels, loopLabels, ccIn) =
+            let 
+                (* Tail recursive call.  References the argument sources but exits. *)
+                val stackSources = List.foldl(fn ({src, ...}, srcs) => sourceRegs src @ srcs) [] stackArgs
+                
+                fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
+                val regSources = List.foldl regSource [] regArgs
+                val sources = listToSet(stackSources @ regSources)
+                val () = checkSources(sources, state)
+                val (tail, _, refLabels, resLoopLabels, _) = identify(rest, emptySet, labels, loopLabels, ccIn)
+            in
+                (instr :: tail, sources, refLabels, resLoopLabels, CCIndeterminate)
             end
 
         |   identify(AllocateMemoryOperation{size, flags, dest, saveRegs=_} :: rest, state, labels, loopLabels, _) =

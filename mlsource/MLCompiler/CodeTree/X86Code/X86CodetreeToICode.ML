@@ -455,10 +455,14 @@ struct
                     if numArgs > List.length argRegs
                     then List.drop(argPRegs, List.length argRegs)
                     else []
+                (* Temporarily just set the stack values all to zero. *)
+                val callInstr =
+                    if isTail
+                    then TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=map(fn r => {src=r, stack=0}) stackArgs,
+                                  returnAddr={srcStack=0, stack=0}, stackAdjust = 0, callKind=callKind}
+                    else FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
             in
-                (functionCode @ codeArgs @
-                   [FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, isTail=isTail, callKind=callKind}], RegisterArgument target,
-                   isTail (* We've exited if this was a tail jump *))
+                (functionCode @ codeArgs @ [callInstr], RegisterArgument target, isTail (* We've exited if this was a tail jump *))
             end
 
         |   codeToICode(BICGetThreadId, _, _, destination) =

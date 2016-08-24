@@ -1168,7 +1168,7 @@ struct
                 codeICode{icode=rest, state=state, code=InitialisationComplete{dest=raxAsArg (* unused *)} :: code, context=context}
 
             (* Function call. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, isTail=false, callKind} :: rest,
+        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest, callKind} :: rest,
                       state=NormalState state, code, context} =
             let
                 val destReg = pRegNum dest
@@ -1199,7 +1199,7 @@ struct
                 (* After the call the stack arguments will have been removed by the caller. *)
                 val returnState = addRaxToState({valueStack= #valueStack pushedState, ccState= CCIndeterminate, untaggedRegs=[]}, destReg)
                 val functionCode =
-                    FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
+                    FunctionCall{regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
                         doLoad @ argCode @ pushCode @ code
             in
                 codeICode{icode=rest, state=NormalState returnState, code=functionCode, context=context}
@@ -1208,7 +1208,7 @@ struct
             (* Jump to a function.  The arguments have to be moved into the space currently used
                by the arguments to this function.  That could result in values being overwritten
                so we have to save them, especially the return address. *)
-        |   codeICode{icode=FunctionCall{ regArgs, stackArgs, dest= _, isTail=true, callKind} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=TailRecursiveCall{ regArgs, stackArgs, callKind, ...} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
                 val currentSp = stackPtr pushedState
@@ -1242,7 +1242,7 @@ struct
                     end
 
                 fun copyArgs (_, nil) = []
-                |   copyArgs (n, r :: rl) =
+                |   copyArgs (n, {src=r, ...} :: rl) =
                     let
                         (* N.B. This is reversed *)
                         fun storeToDest src =
@@ -1271,7 +1271,7 @@ struct
                 val moveArgs = copyArgs(numArgsToMove, stackArgs)
                 val storeReturn = storeMemory(edi, esp, argOffset*wordSize)
                 val functionCode =
-                        FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
+                        TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0} ::
                                       resetStackPtr argOffset :: (storeReturn @ moveArgs @ extraPushes @ loadReturn @ doLoad @ pushCode @ code)
             in
                 codeICode{icode=rest, state=Exited, code=functionCode, context=context}
@@ -2609,7 +2609,7 @@ struct
                 moveMultipleRegisters regPairs @ code
             end
 
-        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=_, isTail=true} :: rest, context) =
+        |   codeExtended(TailRecursiveCall{callKind, regArgs, stackArgs=[], returnAddr as {srcStack, stack}, stackAdjust} :: rest, context) =
             let
                 (* Currently just handle the case where neither the function being called
                    nor this function have stack args.  That means that the return address
@@ -2635,10 +2635,12 @@ struct
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
                 loadRegArgs @ loadConstArgs @
-                (FunctionCall{isTail=true, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} :: code)
+                (TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0} :: code)
             end
 
-        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=PReg(dReg, _), isTail=false} :: rest, context) =
+        |   codeExtended(TailRecursiveCall _ :: _, _) = raise TooHard NotDoneInstr
+
+        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=PReg(dReg, _)} :: rest, context) =
             let
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val () = addRealHint(dReg, GenReg eax)
@@ -2663,11 +2665,11 @@ struct
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
                 loadRegArgs @ loadConstArgs @
-                    (FunctionCall{isTail=false, regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
+                    (FunctionCall{regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
                         moveIfNecessary{dst=destReg, src=GenReg eax}) @ code
             end
 
-        |   codeExtended(FunctionCall _ :: _, _) = raise TooHard NotDoneInstr
+        |   codeExtended(FunctionCall _ :: _, _) = raise TooHard OtherReason
 
         |   codeExtended(AllocateMemoryOperation{ size, flags, dest=PReg(dReg, _), saveRegs} :: rest, context) =
             let
