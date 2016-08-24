@@ -135,7 +135,7 @@ sig
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words. *)
-    |   AllocateMemoryVariable of { size: 'reg, flags: 'reg argument, dest: 'reg, saveRegs: 'reg list }
+    |   AllocateMemoryVariable of { size: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Initialise a piece of memory.  N.B. The size is an untagged value containing
            the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be

@@ -1121,22 +1121,21 @@ struct
                     code=AllocateMemoryOperation{ size=size, flags=flags, dest=raxAsArg, saveRegs=[]} :: pushCode @ code, context=context}
             end
 
-        |   codeICode{icode=AllocateMemoryVariable{ size, flags, dest, saveRegs=_} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=AllocateMemoryVariable{ size, dest, saveRegs=_} :: rest, state=NormalState state, code, context} =
             let
                 (* Allocate memory without initialisation.  Used for byte segments that don't need to be initialised. *)
                 val destReg = pRegNum dest
                 val (pushedState, pushCode) = pushRax state
-                val loadFlags = loadSource(flags, eax, pushedState)
                 val loadSize = loadSource(RegisterArgument size, edx, pushedState)
                 (* We put the size in rdx, the flags in rax and the result in rdi. *)
                 val allocMem =
-                    [AllocateMemoryVariable{size=rdxAsArg, flags=RegisterArgument raxAsArg, dest=rdiAsArg, saveRegs=[]}]
+                    [AllocateMemoryVariable{size=rdxAsArg, dest=rdiAsArg, saveRegs=[]}]
                 val moveToRAX = [LoadArgument{source=RegisterArgument rdiAsArg, dest=raxAsArg, kind=MoveWord}]
                 val resultState = clearCC(addRaxToState(pushedState, destReg))
             in
                 codeICode{
                     icode=rest, state=NormalState resultState,
-                    code= moveToRAX @ allocMem @ loadSize @ loadFlags @ pushCode @ code, context=context}
+                    code= moveToRAX @ allocMem @ loadSize @ pushCode @ code, context=context}
             end
 
         |   codeICode{icode=InitialiseMem{ size, addr, init} :: rest, state=NormalState state, code, context} =
@@ -2678,15 +2677,14 @@ struct
                 AllocateMemoryOperation{ size=size, flags=flags, dest=findGeneralReg dReg, saveRegs=preserve} :: code
             end
 
-        |   codeExtended(AllocateMemoryVariable{size=PReg(sReg, _), flags, dest=PReg(dReg, _), saveRegs} :: rest, context) =
+        |   codeExtended(AllocateMemoryVariable{size=PReg(sReg, _), dest=PReg(dReg, _), saveRegs} :: rest, context) =
             let
                 (* Simple case - no initialiser. *)
                 val code = codeExtended(rest, context)
                 val preserve = List.map(fn (PReg(r, _)) => findGeneralReg r) saveRegs
                 val destReg = findGeneralReg dReg
             in
-                AllocateMemoryVariable{size=findGeneralReg sReg, flags=codeExtArgument flags,
-                     dest=destReg, saveRegs=preserve} :: code
+                AllocateMemoryVariable{size=findGeneralReg sReg, dest=destReg, saveRegs=preserve} :: code
             end
 
         |   codeExtended(InitialiseMem{size=PReg(sReg, _), addr=PReg(aReg, _), init=PReg(iReg, _)} :: rest, context) =

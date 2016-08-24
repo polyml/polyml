@@ -974,11 +974,16 @@ struct
         |   codeToICode(BICBinary {oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and aReg2 = newPReg()
+                val sizeReg = newPReg() and baseReg = newPReg()
+                val sizeCode = codeToICodeTarget(arg1, context, false, sizeReg)
+                val (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(arg2, false, context)
             in
-                (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [AllocateMemoryVariable{size=aReg1, flags=RegisterArgument aReg2, dest=target, saveRegs=[]},
-                 InitialisationComplete{dest=target}], RegisterArgument target, false)
+                (sizeCode @ flagsCode @
+                 [AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]}] @
+                  flagUntag @
+                  [StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
+                  LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord},
+                  InitialisationComplete{dest=target}], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
@@ -1173,12 +1178,17 @@ struct
             let
                 val target = asTarget destination
                 (* With the exception of flagReg all these registers are modified by the code. *)
-                val sizeReg = newPReg() and flagReg = newPReg() and initReg = newPReg()
+                val sizeReg = newPReg() and initReg = newPReg()
                 val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
+                val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
+                and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
+                and initCode = codeToICodeTarget(initial, context, false, initReg)
             in
-                (codeToICodeTarget(numWords, context, false, sizeReg) @ codeToICodeTarget(flags, context, false, flagReg) @
-                 codeToICodeTarget(initial, context, false, initReg) @
-                 [AllocateMemoryVariable{size=sizeReg, flags=RegisterArgument flagReg, dest=allocReg, saveRegs=[]},
+                (sizeCode @ flagsCode @ initCode
+                  @
+                 [AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
+                  flagUntag @
+                  [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
                   (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
                   LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
                   UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
@@ -1191,12 +1201,17 @@ struct
             let
                 val target = asTarget destination
                 (* With the exception of flagReg all these registers are modified by the code. *)
-                val sizeReg = newPReg() and flagReg = newPReg() and initReg = newPReg()
+                val sizeReg = newPReg() and initReg = newPReg()
                 val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
+                val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
+                and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
+                and initCode = codeToICodeTarget(initial, context, false, initReg)
             in
-                (codeToICodeTarget(numWords, context, false, sizeReg) @ codeToICodeTarget(flags, context, false, flagReg) @
-                 codeToICodeTarget(initial, context, false, initReg) @
-                 [AllocateMemoryVariable{size=sizeReg, flags=RegisterArgument flagReg, dest=allocReg, saveRegs=[]},
+                (sizeCode @ flagsCode @ initCode
+                  @
+                 [AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
+                  flagUntag @
+                  [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
                   (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
                   LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
                   UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
@@ -1838,7 +1853,7 @@ struct
                 val labLess = newLabel() and labGreater = newLabel()
                 and exitLab1 = newLabel() and exitLab2 = newLabel()
                 
-                val (lengthCode, lengthUntag, lengthArg) = codeAsUntagged(length, false (* unsigned *), context)
+                val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
 
                 val code =
                     leftCode @ rightCode @ lengthCode @
@@ -2125,7 +2140,7 @@ struct
                     codeAddress(sourceLeft, true, context)
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
                     codeAddress(destRight, true, context)
-                val (lengthCode, lengthUntag, lengthArg) = codeAsUntagged(length, false (* unsigned *), context)
+                val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
             in
                 leftCode @ rightCode @ lengthCode @
                 leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
@@ -2266,7 +2281,7 @@ struct
         (* Return an untagged value.  If we have a constant just return it.  Otherwise
            return the code to evaluate the argument, the code to untag it and the
            reference to the untagged register. *)
-        and codeAsUntagged(BICConstnt(value, _), isSigned, _) =
+        and codeAsUntaggedToReg(BICConstnt(value, _), isSigned, _) =
             let
                 (* Should always be short except for unreachable code. *)
                 val untagReg = newUReg()
@@ -2276,13 +2291,32 @@ struct
             in
                 ([], untag, untagReg) (* Don't tag. *)
             end
-        |   codeAsUntagged(arg, isSigned, context) =
+        |   codeAsUntaggedToReg(arg, isSigned, context) =
             let
                 val argReg = newPReg() and untagReg = newUReg()
                 val code = codeToICodeTarget(arg, context, false, argReg)
                 val untag = [UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned}]
             in
                 (code, untag, untagReg)
+            end
+
+        (* Return the argument as an untagged value.  We separate evaluating the argument from
+           untagging because we may have to evaluate other arguments and that could involve a
+           function call and we can't save the value to the stack after we've untagged it. *)
+        and codeAsUntaggedValue(BICConstnt(value, _), isSigned, _) =
+            let
+                val cval = if isShort value then toShort value else 0w0
+                val cArg = IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval) (* Don't tag *)
+            in
+                ([], [], cArg)
+            end
+        |   codeAsUntaggedValue(arg, isSigned, context) =
+            let
+                val argReg = newPReg() and untagReg = newUReg()
+                val code = codeToICodeTarget(arg, context, false, argReg)
+                val untag = [UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned}]
+            in
+                (code, untag, RegisterArgument untagReg)
             end
 
         val (bodyCode, _, bodyExited) =

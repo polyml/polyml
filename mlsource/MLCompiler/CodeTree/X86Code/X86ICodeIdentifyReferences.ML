@@ -369,11 +369,11 @@ struct
                 (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
 
-        |   identify(AllocateMemoryVariable{size, flags, dest, ...} :: rest, state, labels, loopLabels, _) =
+        |   identify(AllocateMemoryVariable{size, dest, ...} :: rest, state, labels, loopLabels, _) =
             let
                 (* Simpler case where there is no initialiser. *)
                 val dReg = destReg dest
-                val sources = sourceReg size :: sourceRegs flags
+                val sources = [sourceReg size]
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
                     identifyAndComputeSets(rest, state, labels, loopLabels, CCIndeterminate, sources, [dReg])
                 (* We have to include the sources in the conflict set.  Unlike, say LoadArgument where
@@ -383,7 +383,7 @@ struct
                 (* We need to save the registers if we can't do an allocation. *)
                 val saveRegs = getSaveSet(currentRegs, dReg)
                 val allocInstr =
-                    AllocateMemoryVariable{size=size, flags=flags, dest=dest, saveRegs=saveRegs}
+                    AllocateMemoryVariable{size=size, dest=dest, saveRegs=saveRegs}
             in
                 (allocInstr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end
@@ -727,14 +727,16 @@ struct
         |   identify((instr as Division{dividend, divisor, quotient, remainder, ...}) :: rest, state, labels, loopLabels, ccIn) =
             let
                 (* Division is specific as to the registers.  The dividend must be eax, quotient is
-                   eax and the remainder is edx. *)
+                   eax and the remainder is edx.  The divisor must not be in either edx or eax because
+                   we need to sign extend the dividend before the division. *)
                 val quotReg = destReg quotient and remReg = destReg remainder and diviReg = sourceReg dividend
+                val divisorRegs = sourceRegs divisor
                 val (currentRegs, conflictSet, tail, nowActive, refLabels, resLoopLabels, ccUsed) =
-                    identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, diviReg :: sourceRegs divisor, [quotReg, remReg])
+                    identifyAndComputeSets(rest, state, labels, loopLabels, ccIn, diviReg :: divisorRegs, [quotReg, remReg])
                 val () = addConflicts conflictSet
                 (* We need to add conflicts for each of the registers. *)
-                val () = addRealRegConflicts(remReg :: currentRegs, [quotReg, diviReg], GenReg eax)
-                val () = addRealRegConflicts(quotReg :: diviReg :: currentRegs, [remReg], GenReg edx)
+                val () = addRealRegConflicts(remReg :: divisorRegs @ currentRegs, [quotReg, diviReg], GenReg eax)
+                val () = addRealRegConflicts(quotReg :: divisorRegs @ diviReg :: currentRegs, [remReg], GenReg edx)
             in
                 (instr :: tail, nowActive, refLabels, resLoopLabels, ccUsed)
             end

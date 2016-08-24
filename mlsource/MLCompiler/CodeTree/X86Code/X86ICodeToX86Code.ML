@@ -113,7 +113,7 @@ struct
 
         (* Allocate a piece of memory whose size is not known at compile-time.  The size
            argument is the number of words. *)
-    |   AllocateMemoryVariable of { size: 'reg, flags: 'reg argument, dest: 'reg, saveRegs: 'reg list }
+    |   AllocateMemoryVariable of { size: 'reg, dest: 'reg, saveRegs: 'reg list }
 
         (* Initialise a piece of memory.  N.B. The size is an untagged value containing
            the number of words.  This uses REP STOSL/Q so addr must be rdi, size must be
@@ -343,11 +343,10 @@ struct
                 stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
-        |   printICode(AllocateMemoryVariable{size, flags, dest, saveRegs}, stream, printReg) =
+        |   printICode(AllocateMemoryVariable{size, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tAllocateMemory\t";
                 stream "s="; printReg(size, stream);
-                stream ",f="; printArg(flags, stream, printReg);
                 stream " => "; printReg(dest, stream);
                 stream " save="; printSaves(saveRegs, printReg, stream)
             )
@@ -749,6 +748,11 @@ struct
                 codeGenICode(rest,
                     StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
+        |   codeGenICode(
+                StoreArgument{ source=IntegerConstant srcValue, base, offset, index, kind=MoveByte} :: rest, code) =
+                codeGenICode(rest,
+                    StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
+
                 (* Store a long constant to memory *)
         |   codeGenICode(
                 StoreArgument{ source=AddressConstant srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
@@ -858,19 +862,15 @@ struct
                 codeGenICode(rest, allocCode @ code)
             end
 
-        |   codeGenICode(AllocateMemoryVariable{ size, flags, dest, saveRegs} :: rest, code) =
+        |   codeGenICode(AllocateMemoryVariable{ size, dest, saveRegs} :: rest, code) =
             let
-                val sReg = asGenReg size and fReg = argAsGenReg flags and dReg = asGenReg dest
-                val _ = sReg <> fReg andalso sReg <> dReg andalso fReg <> dReg
+                val sReg = asGenReg size and dReg = asGenReg dest
+                val _ = sReg <> dReg
                             orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
                 val preserve = map asGenReg saveRegs
 
                 val allocCode =
                 [
-                    (* Store in the top byte *)
-                    StoreNonWord{size=Size8Bit, toStore=fReg, address={base=dReg, offset= ~1, index=NoIndex}},
-                    (* Untag the flags. *)
-                    ShiftConstant{ shiftType=SHR, output=fReg, shift=0w1},
                     (* Store it as the length field. *)
                     StoreRegToMemory{toStore=sReg,
                         address={base=dReg, offset= ~wordSize, index=NoIndex}},
