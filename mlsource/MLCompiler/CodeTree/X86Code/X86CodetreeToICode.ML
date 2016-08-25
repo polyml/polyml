@@ -328,7 +328,7 @@ struct
                 val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail andalso initialSp = finalSp, target)
                 val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
                 val adjustSp =
-                    if initialSp = finalSp
+                    if initialSp = finalSp orelse haveExited
                     then []
                     else [ResetStackPtr{numWords=finalSp-initialSp}]
             in
@@ -1470,13 +1470,13 @@ struct
                 val loopRegs = map makeLoopReg arguments
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
-                    codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel), stackPtr=stackPtr }, isTail, SpecificPReg target)
+                    codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
                 val args = ListPair.mapEq(fn (s, l) => {source=RegisterArgument s, loopReg=l}) (argPRegs, loopRegs)
             in
                 (codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], RegisterArgument target, loopExited)
             end
         
-        |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel), ...}, _, destination) =
+        |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination) =
             let
                 val target = asTarget destination
                 (* Registers to receive the evaluated arguments.  We can't put the
@@ -1487,8 +1487,12 @@ struct
                     ListPair.foldlEq(fn ((arg, _), pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
                         (args, argPRegs)
                 val jumpArgs = ListPair.mapEq(fn (s, l) => {source=RegisterArgument s, loopReg=l}) (argPRegs, loopRegs)
+                (* If we've allocated a container in the loop we have to remove it before jumping back. *)
+                val stackReset =
+                    if loopSp = stackPtr then []
+                    else [ResetStackPtr{numWords=stackPtr-loopSp}]
             in
-                (codeArgs @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}], RegisterArgument target, true)
+                (codeArgs @ stackReset @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}], RegisterArgument target, true)
             end
 
         |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =
