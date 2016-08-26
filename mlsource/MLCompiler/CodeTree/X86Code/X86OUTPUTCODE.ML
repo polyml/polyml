@@ -805,6 +805,7 @@ struct
     |   RET
     |   RET_16
     |   CondJump of branchOps
+    |   CondJump32 of branchOps
     |   Arith of arithOp * Word8.word
     |   Group3_A
     |   Group3_a
@@ -851,6 +852,7 @@ struct
     |   opToInt RET           = 0wxc3
     |   opToInt RET_16        = 0wxc2
     |   opToInt (CondJump opc) = 0wx70 + branchOpToWord opc
+    |   opToInt (CondJump32 opc) = 0wx80 + branchOpToWord opc (* Needs 0F prefix *)
     |   opToInt (Arith (ao,dw)) = arithOpToWord ao * 0w8 + dw
     |   opToInt Group3_A      = 0wxf7
     |   opToInt Group3_a      = 0wxf6
@@ -1225,6 +1227,7 @@ struct
     |   genEscape(MOVZW, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(LOCK_XADD, cvec) = gen8u(0wx0f, cvec)
     |   genEscape(IMUL, cvec) = gen8u(0wx0f, cvec)
+    |   genEscape(CondJump32 _ , cvec) = gen8u(0wx0f, cvec)
     |   genEscape(SSE2StoreSingle, cvec) = (gen8u(0wxf3, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2StoreDouble, cvec) = (gen8u(0wxf2, cvec); gen8u(0wx0f, cvec))
     |   genEscape(SSE2Ops SSE2Comp, cvec) = (gen8u(0wx66, cvec); gen8u(0wx0f, cvec))
@@ -2547,12 +2550,29 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse, ...}, ... } :: remainder) =
+        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse=ref reverse, ...}, ... } :: remainder) =
             (
-                !reverse = addrUnsetLabel orelse raise InternalError "Conditional jump back";
-                genop(CondJump opc, NONE, code);
-                gen8u(0w0, code);
-                forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward;
+                (* Almost always conditional branches are forward but it is possible that a
+                   conditional branch has been combined with a loop jump to give a backwards jump. *)
+                if reverse = addrUnsetLabel (* Destination is after this. *)
+                then
+                (
+                    genop(CondJump opc, NONE, code);
+                    gen8u(0w0, code);
+                    forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward
+                )
+                else
+                let
+                    (* Do any pending instructions before calculating the offset, just
+                       in case we put in some instructions first. *)
+                    val () = doPending (code, maxInstrSize)
+                    val offset  = reverse addrMinus (!ic); (* Negative *)
+                    val offset2 = offset - 2;
+                in
+                    if is8Bit offset2
+                    then ( genop (CondJump opc, NONE, code); gen8s (offset2, code) )
+                    else ( genop (CondJump32 opc, NONE, code); gen32s (LargeInt.fromInt(offset - 6), code) )
+                end;
                 cgOp remainder
             )
 
