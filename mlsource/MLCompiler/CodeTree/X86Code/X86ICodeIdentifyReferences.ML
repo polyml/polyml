@@ -479,16 +479,16 @@ struct
                 val (tail, refLabels, resLoopLabels, _, currentRegs) =
                     identify(rest, labels, loopLabels, ccIn)
                 (* These variables are live at the start of the loop.  They have to be
-                   live everywhere in the loop.  Do the loop variables have to be live?
-                   If we use the current value and then compute a new value we don't
-                   actually need them to be live between these two. *)
+                   live everywhere in the loop.  We do not include the loop variables
+                   in the set.  They are recomputed by JumpLoop. *)
+                val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
+                val loopRegs = removeDests(destRegs, currentRegs)
                 (* Finally we need to add the sources.  They are used to initialise the
                    loop variables so aren't required within the loop itself. *)
-                val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
-                val newNewActive = addSourcesToActive(sourceAsRegs, removeDests(destRegs, currentRegs))
+                val newNewActive = addSourcesToActive(sourceAsRegs, loopRegs)
             in
                 (* Add the loop entries to the result this.  They can then be added during the next pass. *)
-                (instr :: tail, refLabels, (loopLabel, currentRegs) :: resLoopLabels, CCIndeterminate, newNewActive)
+                (instr :: tail, refLabels, (loopLabel, loopRegs) :: resLoopLabels, CCIndeterminate, newNewActive)
             end
 
         |   identify((instr as EndLoop{loopLabel}) :: rest, labels, loopLabels, ccIn) =
