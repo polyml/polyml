@@ -2615,6 +2615,8 @@ struct
                    nor this function have stack args.  That means that the return address
                    stays where it is. *)
                 val _ = currentStackArgs = 0 orelse raise TooHard NotDoneInstr
+                val _ = stackAdjust >= 0 orelse raise InternalError "codeExtended - stack adjust"
+                val _ = if stackAdjust > 0 then reportSuccess := true else ()
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
                 (* The register argument list contains "argument" values.  The entries are
@@ -2633,8 +2635,12 @@ struct
                 |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
                 |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - tail - StackLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
+                val adjustStack =
+                    if stackAdjust = 0
+                    then []
+                    else [ResetStackPtr{numWords=stackAdjust}]
             in
-                loadRegArgs @ loadConstArgs @
+                loadRegArgs @ loadConstArgs @ adjustStack @
                 (TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0} :: code)
             end
 
@@ -3103,7 +3109,7 @@ struct
         |   codeExtended(BoxValue{boxKind, source, dest, saveRegs} :: rest, context) =
             let
             in
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
             end
 
         |   codeExtended(CompareByteVectors{vec1Addr=PReg(v1Reg, _), vec2Addr=PReg(v2Reg, _), length=PReg(lReg, _), ccRef} :: rest, context) =
@@ -3234,7 +3240,7 @@ struct
             else ()
         val () =
             (* Print the code after the transformation. *)
-            if DEBUG.getParameter DEBUG.icodeTag debugSwitches orelse !reportSuccess
+            if DEBUG.getParameter DEBUG.icodeTag debugSwitches
             then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)

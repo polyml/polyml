@@ -93,8 +93,11 @@ struct
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
-        fun returnInstruction target =
-            ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}
+        fun returnInstruction({stackPtr, ...}, target) =
+            (if stackPtr <> 0
+            then [ResetStackPtr{numWords=stackPtr}]
+            else []) @
+            [ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}]
 
         fun constantAsArgument value =
             if isShort value
@@ -325,7 +328,7 @@ struct
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
-                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail andalso initialSp = finalSp, target)
+                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, target)
                 val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
                 val adjustSp =
                     if initialSp = finalSp orelse haveExited
@@ -458,8 +461,17 @@ struct
                 (* Temporarily just set the stack values all to zero. *)
                 val callInstr =
                     if isTail
-                    then TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=map(fn r => {src=r, stack=0}) stackArgs,
-                                  returnAddr={srcStack=0, stack=0}, stackAdjust = 0, callKind=callKind}
+                    then
+                    let
+                        val {stackPtr, ...} = context
+                        (* The stack adjustment is the number of words to remove from the stack.
+                           It may be negative if there are more stack arguments to pass than this
+                           function has. *)
+                        val stackAdjust = stackPtr + Int.max(0, numFunctionArgs - numArgRegs) - List.length stackArgs
+                    in
+                        TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=map(fn r => {src=r, stack=0}) stackArgs,
+                                  returnAddr={srcStack=0, stack=0}, stackAdjust = stackAdjust, callKind=callKind}
+                    end
                     else FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
             in
                 (functionCode @ codeArgs @ [callInstr], RegisterArgument target, isTail (* We've exited if this was a tail jump *))
@@ -1292,7 +1304,7 @@ struct
                    return.  The then-part could have exited e.g. with a raise or a loop. *)
                 val (exitThen, thenLabel) =
                     if thenExited then ([], [])
-                    else if isTail then ([returnInstruction thenTarget], [])
+                    else if isTail then (returnInstruction(context, thenTarget), [])
                     else
                     let
                         val skipElse = newLabel()
@@ -1302,7 +1314,7 @@ struct
                 val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg elseTarget)
                 (* Add a return to the else-part if necessary so we will always exit on a tail. *)
                 val exitElse =
-                    if isTail andalso not elseExited then [returnInstruction elseTarget] else []
+                    if isTail andalso not elseExited then returnInstruction(context, elseTarget) else []
             in
                 (testCode @
                     thenCode @ exitThen @ [ForwardJumpLabel{label=startElse, result=NONE}] @
@@ -1409,7 +1421,7 @@ struct
                         val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg caseTarget)
                         val (exitThisCase, exitLabel) =
                             if caseExited then ([], [])
-                            else if isTail then ([returnInstruction caseTarget], [])
+                            else if isTail then (returnInstruction(context, caseTarget), [])
                             else
                             let
                                 val exitLabel = newLabel()
@@ -1443,7 +1455,7 @@ struct
                            we put in a return.  That way the case will always have
                            exited if this is a tail. *)
                          defLabels @ defaultCode @
-                            (if isTail andalso not defaultExited then [returnInstruction defaultTarget] else [])
+                            (if isTail andalso not defaultExited then returnInstruction(context, defaultTarget) else [])
                     end
                     
                 val codedCases = codeCases fullCaseRange
@@ -1535,8 +1547,10 @@ struct
                     if isTail
                     then
                         (if expExit then []
-                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()}, returnInstruction bodyTarget],
-                         if handleExit then [] else [returnInstruction handlerTarget])
+                         else
+                            PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()} ::
+                             returnInstruction(context, bodyTarget),
+                         if handleExit then [] else returnInstruction(context, handlerTarget))
                     else
                     let
                         val skipHandler = newLabel()
@@ -2327,9 +2341,10 @@ struct
                 (code, untag, RegisterArgument untagReg)
             end
 
+        val bodyContext = {loopArgs=NONE, stackPtr=0}
         val (bodyCode, _, bodyExited) =
-            codeToICode(body, {loopArgs=NONE, stackPtr=0}, true, SpecificPReg resultTarget)
-        val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else [returnInstruction resultTarget])
+            codeToICode(body, bodyContext, true, SpecificPReg resultTarget)
+        val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else returnInstruction(bodyContext, resultTarget))
       
         open ICODETRANSFORM
         
