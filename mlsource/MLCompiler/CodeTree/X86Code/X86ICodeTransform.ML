@@ -20,6 +20,8 @@ functor X86ICodeTransform(
     structure DEBUG: DEBUGSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure PRETTY: PRETTYSIG
+    structure STRONGLY: sig type node val stronglyConnectedComponents: node list -> node list list end
+        where type node = {src: ICODE.reg ICODE.argument, stack: int}
     sharing ICODE.Sharing = IDENTIFY.Sharing
 ) : X86ICODETRANSFORMSIG
 =
@@ -732,13 +734,13 @@ struct
                     context=context}
             end
 
-        |   codeICode{icode=LoadArgument{ source=StackLocation{offset, ...}, dest, kind=MoveWord} :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=LoadArgument{ source=StackLocation{wordOffset, ...}, dest, kind=MoveWord} :: rest, state=NormalState state, code, context} =
             (* Load from the stack *)
             let
                 val destReg = pRegNum dest
                 val (pushedState, pushCode) = pushRax state
                 (* We have to adjust the offset. *)
-                val load = loadStack(eax, stackPtr pushedState * wordSize  + offset)
+                val load = loadStack(eax, (stackPtr pushedState + wordOffset) * wordSize)
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
                     code=load @ pushCode @ code, context=context}
@@ -2440,8 +2442,8 @@ struct
         |   codeExtArgument(IntegerConstant i) = IntegerConstant i
         |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}) =
                 MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(StackLocation{offset, adjustment}) =
-                MemoryLocation{base=GenReg esp, offset=offset+adjustment, index=NoMemIndex}
+        |   codeExtArgument(StackLocation{wordOffset, adjustment}) =
+                MemoryLocation{base=GenReg esp, offset=(wordOffset+adjustment)*wordSize, index=NoMemIndex}
 
         and codeExtIndex NoMemIndex = NoMemIndex
         |   codeExtIndex(MemIndex1(PReg(r, _))) = MemIndex1(findGeneralReg r)
@@ -2489,6 +2491,81 @@ struct
                 in
                     moveInstrs @ exchangeCode @ moveMultipleRegisters remainder
                 end
+
+        (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
+           That means storing the arguments in the right order to avoid overwriting a
+           value that we are using for a different argument. *)
+        fun codeTailCall(callKind, regArgs, stackArgs, stackAdjust) =
+        if stackAdjust < 0
+        then
+        let
+            (* If the function we're calling takes more arguments on the stack than the
+               current function we will have to extend the stack.  Do that by pushing the
+               argument whose offset is at -1.  Then adjust all the offsets and repeat. *)
+            val {src=argM1, ...} = valOf(List.find(fn {stack= ~1, ...} => true | _ => false) stackArgs)
+            fun renumberArgs [] = []
+            |   renumberArgs ({stack= ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
+            |   renumberArgs ({stack, src=StackLocation{wordOffset, adjustment}} :: args) =
+                    {stack=stack+1, src=StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}} :: renumberArgs args
+            |   renumberArgs ({stack, src} :: args) = {stack=stack+1, src=src} :: renumberArgs args
+        in
+            PushValue{arg=argM1} :: codeTailCall(callKind, regArgs, renumberArgs stackArgs, stackAdjust+1)
+        end
+        else
+        let
+            (* Now deal with the stack arguments.  The worst case is when all the arguments are
+               permuted.  It's unlikely with hand-written code but quite possible with machine-
+               generated code.
+               At this point we have space on the stack for all the stack arguments.
+               We may also have arguments in registers and some of these will go into
+               the argument registers.
+               At the moment we don't save p-registers to the stack but eventually we
+               could also find that some of our register arguments have stack addresses. *)
+            local
+                (* Remove cases where we're storing to the same location. *)
+                fun filterCopy {src=StackLocation{wordOffset, adjustment}, stack} =
+                    stack <> wordOffset+adjustment
+                |   filterCopy _ = true
+            in
+                val filteredCopies = List.filter filterCopy stackArgs
+            end
+
+            (* stronglyConnectedComponents does two things.  It detects loops where
+               it's not possible to move items without breaking the loop but more
+               importantly it orders the dependencies so that if there are no loops we
+               can load the source and store it in the destination knowing that
+               we won't overwrite anything we might later need. *)
+            (*val getConnections = STRONGLY.stronglyConnectedComponents filteredCopies*)
+            
+            fun storeStack{src as RegisterArgument _, stack} =
+                    StoreArgument{source=src, base=GenReg esp, index=NoMemIndex, offset = stack*wordSize, kind=MoveWord}
+            |   storeStack _ = raise TooHard OtherReason
+
+            val storeStackArgs = List.map storeStack filteredCopies
+
+            (* The register argument list contains "argument" values.  The entries are
+               either RegisterArgument or constants.  Do the register arguments first.
+               We may be using some of the registers that need to contain constants. *)
+            fun getRegArgs((RegisterArgument src, reg)) = SOME{dst=reg, src=src}
+            |   getRegArgs _ = NONE
+            val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
+
+            fun getConstArgs(RegisterArgument _, _) = NONE (* Already done. *)
+            |   getConstArgs(AddressConstant m, reg) =
+                SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
+            |   getConstArgs(IntegerConstant i, reg) =
+                SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
+            |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
+            |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - tail - StackLocation"
+            val loadConstArgs = List.mapPartial getConstArgs regArgs
+            val adjustStack =
+                if stackAdjust = 0
+                then []
+                else [ResetStackPtr{numWords=stackAdjust}]
+        in
+            storeStackArgs @ loadRegArgs @ loadConstArgs @ adjustStack @
+            [TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0}]
+        end
 
         fun codeExtended([], _) = []
 
@@ -2609,53 +2686,48 @@ struct
                 moveMultipleRegisters regPairs @ code
             end
 
-        |   codeExtended(TailRecursiveCall{callKind, regArgs, stackArgs=[], returnAddr as {srcStack, stack}, stackAdjust} :: rest, context) =
+        |   codeExtended(TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust} :: rest, context) =
             let
-                (* Currently just handle the case where neither the function being called
-                   nor this function have stack args.  That means that the return address
-                   stays where it is. *)
-                val _ = currentStackArgs = 0 orelse raise TooHard NotDoneInstr
-                val _ = stackAdjust >= 0 orelse raise InternalError "codeExtended - stack adjust"
-                val _ = if stackAdjust > 0 then reportSuccess := true else ()
+                val _ = case stackArgs of [] => () | _ => reportSuccess := true
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
-                (* The register argument list contains "argument" values.  The entries are
-                   either RegisterArgument or constants.  Do the register arguments first.
-                   We may be using some of the registers that need to contain constants. *)
-                fun getRegArgs(RegisterArgument(PReg(pr, _)), reg) =
-                        SOME{dst=reg, src=findRegister(pr, SOME reg, generalRegisters)}
-                |   getRegArgs _ = NONE
-                val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
-
-                fun getConstArgs(AddressConstant m, reg) =
-                    SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
-                |   getConstArgs(IntegerConstant i, reg) =
-                    SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
-                |   getConstArgs(RegisterArgument _, _) = NONE
-                |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
-                |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - tail - StackLocation"
-                val loadConstArgs = List.mapPartial getConstArgs regArgs
-                val adjustStack =
-                    if stackAdjust = 0
-                    then []
-                    else [ResetStackPtr{numWords=stackAdjust}]
+                (* Add the return address as an extra argument.  This is a temporary hack because codeICode doesn't
+                   do it that way. *)
+                val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, stack=stack}
+                val extStackArgs = map (fn {stack, src} => {stack=stack, src=codeExtArgument src}) stackArgs
+                val extRegArgs = map (fn (a, r) => (codeExtArgument a, r)) regArgs
             in
-                loadRegArgs @ loadConstArgs @ adjustStack @
-                (TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0} :: code)
+                codeTailCall(callKind, extRegArgs, returnEntry :: extStackArgs, stackAdjust) @ code
             end
 
-        |   codeExtended(TailRecursiveCall _ :: _, _) = raise TooHard NotDoneInstr
-
-        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs=[], dest=PReg(dReg, _)} :: rest, context) =
+        |   codeExtended(FunctionCall{callKind, regArgs, stackArgs, dest=PReg(dReg, _)} :: rest, context) =
             let
+                val () = case stackArgs of [] => () | _ => reportSuccess := true
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val () = addRealHint(dReg, GenReg eax)
                 val code = codeExtended(rest, context)
                 val destReg = findRegister(dReg, SOME(GenReg eax), generalRegisters)
                 
+                fun pushStackArgs [] = []
+                |   pushStackArgs (arg ::args) =
+                    let
+                        (* We don't currently generate MemoryLocations or StackLocations.
+                           If we have stack locations we'll need to adjust the stack
+                           pointer to account for items we've already pushed. *)
+                        val _ =
+                            case arg of
+                                MemoryLocation _ => raise InternalError "FunctionCall - MemoryLocation"
+                            |   StackLocation _ => raise InternalError "FunctionCall - StackLocation"
+                            |   _ => ()
+                    in
+                        PushValue {arg=codeExtArgument arg} :: pushStackArgs args
+                    end
+                val pushedArgs = pushStackArgs stackArgs
+                
                 (* We don't currently allow the arguments to be memory locations and instead
                    force them into registers.  That may be simpler especially if we can get the
-                   values directly into the required register. *)
+                   values directly into the required register.
+                   If we allow stack arguments we'll have to adjust the stack pointer here. *)
                 fun getRegArgs(RegisterArgument(PReg(pr, _)), reg) =
                         SOME{dst=reg, src=findRegister(pr, SOME reg, generalRegisters)}
                 |   getRegArgs _ = NONE
@@ -2670,12 +2742,10 @@ struct
                 |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - StackLocation"
                 val loadConstArgs = List.mapPartial getConstArgs regArgs
             in
-                loadRegArgs @ loadConstArgs @
+                pushedArgs @ loadRegArgs @ loadConstArgs @
                     (FunctionCall{regArgs=[], stackArgs=[], dest=raxAsArg, callKind=callKind} ::
                         moveIfNecessary{dst=destReg, src=GenReg eax}) @ code
             end
-
-        |   codeExtended(FunctionCall _ :: _, _) = raise TooHard OtherReason
 
         |   codeExtended(AllocateMemoryOperation{ size, flags, dest=PReg(dReg, _), saveRegs} :: rest, context) =
             let

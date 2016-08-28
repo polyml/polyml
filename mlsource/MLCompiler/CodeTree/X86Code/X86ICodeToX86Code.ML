@@ -59,7 +59,7 @@ struct
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
-    |   StackLocation of { offset: int, adjustment: int }
+    |   StackLocation of { wordOffset: int, adjustment: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -281,8 +281,8 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
-        |   printArg(StackLocation{offset, adjustment}, stream, _) =
-                stream(Int.toString offset ^ "+" ^ Int.toString adjustment ^ "(stackptr)")
+        |   printArg(StackLocation{wordOffset, adjustment}, stream, _) =
+                stream(Int.toString wordOffset ^ "+" ^ Int.toString adjustment ^ "(stackptr)")
             
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
@@ -1041,6 +1041,13 @@ struct
 
         |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
                 codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
+
+        |   codeGenICode(PushValue { arg = AddressConstant v } :: rest, code) =
+                codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
+
+        |   codeGenICode(PushValue { arg = StackLocation {adjustment, wordOffset} } :: rest, code) =
+                (* The X86 manual says that the address is computed before the push. *)
+                codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}) :: code)
 
         |   codeGenICode(PushValue _ :: _, _) =
                 raise InternalError "codeGenICode: TODO PushValue"

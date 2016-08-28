@@ -48,12 +48,24 @@ local
             structure ICODE         = X86ICode
         )
         
+    structure Strongly =
+        StronglyConnected (
+            structure Graph =
+            struct
+                open X86ICode
+                type node = {src: reg argument, stack: int}
+                fun nodeAddress({stack, ...}: node) = stack
+                fun arcs({src=StackLocation{wordOffset, ...}, ...}: node) = [wordOffset] | arcs _ = []
+            end
+        )
+        
     structure X86ICodeTransform =
         X86ICodeTransform (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
             structure PRETTY        = Pretty
+            structure STRONGLY      = Strongly
         )
 in
 
