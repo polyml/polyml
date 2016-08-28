@@ -3711,21 +3711,21 @@ struct
             |   0wx8f => (print "pop \t"; printEA(rex, sz32_64))
             |   0wx90 => print "nop"
             
-            |   0wx99 => if rexW then print "cqo\n" else print "cdq\n"
+            |   0wx99 => if rexW then print "cqo" else print "cdq"
             
             |   0wx9e => print "sahf\n"
 
-            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb\n")
-            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl\n")
-            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb\n")
+            |   0wxa4 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsb")
+            |   0wxa5 => (if legacyPrefix = 0wxf3 then print "rep " else (); print "movsl")
+            |   0wxa6 => (if legacyPrefix = 0wxf3 then print "repe " else (); print "cmpsb")
 
             |   0wxa8 => (print "test\tal,"; print8 ())
 
-            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb\n")
+            |   0wxaa => (if legacyPrefix = 0wxf3 then print "rep " else (); print "stosb")
             |   0wxab =>
                 (
                     if legacyPrefix = 0wxf3 then print "rep " else ();
-                    if rexW then print "stosq\n" else print "stosl\n"
+                    if rexW then print "stosq" else print "stosl"
                 )
 
             |   0wxb8 => printMovCToR (opByte, sizeFromRexW, rexB)
