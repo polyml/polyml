@@ -165,6 +165,10 @@ struct
             { anyConstant=false, const32s=true, memAddr=false, existingPreg=true }
         and allowInPReg =
             { anyConstant=false, const32s=false, memAddr=false, existingPreg=true }
+        (* AllowDefer can be used to ensure that any side-effects are done before
+           something else but otherwise we only evaluate afterwards. *)
+        and allowDefer =
+            { anyConstant=true, const32s=true, memAddr=true, existingPreg=true }
 
         datatype destination =
             SpecificPReg of abstract
@@ -353,7 +357,7 @@ struct
                 val target = asTarget destination
             in
                 ([LoadArgument{
-                    source=StackLocation{offset=(List.length argTypes - a)*wordSize, adjustment=stackPtr*wordSize}, dest=target, kind=MoveWord}],
+                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord}],
                  RegisterArgument target, false)
             end
         
@@ -437,7 +441,9 @@ struct
                    because we overwrite the stack before loading the register arguments.  In some
                    circumstances it could be safe but for the moment leave it.
                    Currently we don't allow memory arguments at all.  There's the potential for
-                   problems later. *)
+                   problems later.  Memory arguments could possibly lead to aliasing of the stack
+                   if the memory actually refers to a container on the stack.  That would mess
+                   up the code that ensures that stack arguments are stored in the right order. *)
                 val allowDefer =
                     Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
                 fun loadArgs [] = ([], [])
@@ -458,19 +464,30 @@ struct
                     if numArgs > List.length argRegs
                     then List.drop(argPRegs, List.length argRegs)
                     else []
-                (* Temporarily just set the stack values all to zero. *)
                 val callInstr =
                     if isTail
                     then
                     let
                         val {stackPtr, ...} = context
-                        (* The stack adjustment is the number of words to remove from the stack.
-                           It may be negative if there are more stack arguments to pass than this
-                           function has. *)
-                        val stackAdjust = stackPtr + Int.max(0, numFunctionArgs - numArgRegs) - List.length stackArgs
+                        (* The number of arguments currently on the stack. *)
+                        val currentStackArgCount = Int.max(0, numFunctionArgs - numArgRegs)
+                        val newStackArgCount = List.length stackArgs
+                        (* The offset of the first argument or the return address if there are
+                           no stack arguments.  N.B. We actually have currentStackArgCount+1
+                           items on the stack including the return address.  Offsets can be
+                           negative. *)
+                        val firstArgumentAddr = stackPtr + currentStackArgCount
+                        fun makeStackArgs([], _) = []
+                        |   makeStackArgs(arg::args, offset) = {src=arg, stack=offset} :: makeStackArgs(args, offset-1)
+                        val stackArgs = makeStackArgs(stackArgs, firstArgumentAddr)
+                        (* The stack adjustment needed to compensate for any items that have been pushed
+                           and the differences in the number of arguments.  May be positive or negative.
+                           This is also the destination address of the return address so when we enter
+                           the new function the return address will be the first item on the stack. *)
+                        val stackAdjust = firstArgumentAddr - newStackArgCount
                     in
-                        TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=map(fn r => {src=r, stack=0}) stackArgs,
-                                  returnAddr={srcStack=0, stack=0}, stackAdjust = stackAdjust, callKind=callKind}
+                        TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
+                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, callKind=callKind}
                     end
                     else FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
             in
@@ -1191,50 +1208,10 @@ struct
                 moveIfNotAllowed(destination, code, RegisterArgument memAddr)
             end
             else (* If it's longer use the full run-time form. *)
-            let
-                val target = asTarget destination
-                (* With the exception of flagReg all these registers are modified by the code. *)
-                val sizeReg = newPReg() and initReg = newPReg()
-                val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
-                val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
-                and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
-                and initCode = codeToICodeTarget(initial, context, false, initReg)
-            in
-                (sizeCode @ flagsCode @ initCode
-                  @
-                 [AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
-                  flagUntag @
-                  [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
-                  (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
-                  LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
-                  UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
-                  InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
-                  LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
-                  InitialisationComplete{dest=target}], RegisterArgument target, false)
-            end
+                allocateMemoryVariable(numWords, flags, initial, context, destination)
 
         |   codeToICode(BICAllocateWordMemory {numWords, flags, initial}, context, _, destination) =
-            let
-                val target = asTarget destination
-                (* With the exception of flagReg all these registers are modified by the code. *)
-                val sizeReg = newPReg() and initReg = newPReg()
-                val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
-                val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
-                and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
-                and initCode = codeToICodeTarget(initial, context, false, initReg)
-            in
-                (sizeCode @ flagsCode @ initCode
-                  @
-                 [AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
-                  flagUntag @
-                  [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
-                  (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
-                  LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
-                  UntagValue{source=RegisterArgument sizeReg, dest=untagSizeReg, isSigned=false},
-                  InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
-                  LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
-                  InitialisationComplete{dest=target}], RegisterArgument target, false)
-            end
+                allocateMemoryVariable(numWords, flags, initial, context, destination)
 
         |   codeToICode(BICLambda(lambda as { closure = [], ...}), _, _, destination) =
             (* Empty closure - create a constant closure for any recursive calls. *)
@@ -2340,6 +2317,41 @@ struct
             in
                 (code, untag, RegisterArgument untagReg)
             end
+
+        (* Allocate memory.  This is used both for true variable length cells and also
+           for longer constant length cells. *)
+        and allocateMemoryVariable(numWords, flags, initial, context, destination) =
+        let
+            val target = asTarget destination
+            (* With the exception of flagReg all these registers are modified by the code.
+               So, we have to copy the size value into a new register. *)
+            val sizeReg = newPReg() and initReg = newPReg()
+            val sizeReg2 = newPReg()
+            val untagSizeReg = newUReg() and initAddrReg = newPReg() and allocReg = newPReg()
+            val sizeCode = codeToICodeTarget(numWords, context, false, sizeReg)
+            and (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(flags, false, context)
+            (* We're better off deferring the initialiser if possible.  If the value is
+               a constant we don't have to save it. *)
+            val (initCode, initResult, _) = codeToICode(initial, context, false, Allowed allowDefer)
+         in
+            (sizeCode @ flagsCode @ initCode
+              @
+             [(* We need to copy the size here because AllocateMemoryVariable modifies the
+                 size in order to store the length word.  This is unfortunate especially as
+                 we're going to untag it anyway. *)
+              LoadArgument{source=RegisterArgument sizeReg, dest=sizeReg2, kind=MoveWord},
+              AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
+              flagUntag @
+              [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
+              (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
+              LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
+              UntagValue{source=RegisterArgument sizeReg2, dest=untagSizeReg, isSigned=false},
+              LoadArgument{source=initResult, dest=initReg, kind=MoveWord},
+              InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
+              LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
+              InitialisationComplete{dest=target}], RegisterArgument target, false)
+        end
+
 
         val bodyContext = {loopArgs=NONE, stackPtr=0}
         val (bodyCode, _, bodyExited) =
