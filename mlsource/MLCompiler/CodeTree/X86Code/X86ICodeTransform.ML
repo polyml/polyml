@@ -20,8 +20,12 @@ functor X86ICodeTransform(
     structure DEBUG: DEBUGSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure PRETTY: PRETTYSIG
-    structure STRONGLY: sig type node val stronglyConnectedComponents: node list -> node list list end
-        where type node = {src: ICODE.reg ICODE.argument, stack: int}
+    structure STRONGLY:
+        sig
+            type node
+            val stronglyConnectedComponents: node list -> node list list
+        end
+        where type node = {src: ICODE.reg ICODE.argument, dst: ICODE.destinations}
     sharing ICODE.Sharing = IDENTIFY.Sharing
 ) : X86ICODETRANSFORMSIG
 =
@@ -2455,115 +2459,182 @@ struct
 
         fun moveIfNecessary{src, dst} =
             if src = dst then [] else [moveRR{src=src, dst=dst}]
+        
+        (* This is a general function for moving values into registers or to the stack
+           where it is possible that the source values might also be in use as destinations.
+           The stack is used for destinations only for tail recursive calls. *)
+        fun moveMultipleValues(moves, reservedRegs) =
+        let
+            fun moveValues([], _) = [] (* We're done. *)
+
+            |   moveValues(arguments, reservedRegs) =
+                let
+                    (* stronglyConnectedComponents does two things.  It detects loops where
+                       it's not possible to move items without breaking the loop but more
+                       importantly it orders the dependencies so that if there are no loops we
+                       can load the source and store it in the destination knowing that
+                       we won't overwrite anything we might later need. *)
+                    val ordered = STRONGLY.stronglyConnectedComponents arguments
+                    
+                    fun moveEachValue ([], _) = []
+
+                    |   moveEachValue ([{dst=RegDest reg, src as RegisterArgument r}] :: rest, reserved) =
+                            (* Source and dest are both regs - only move if they're different. *)
+                            if r = reg
+                            then moveEachValue(rest, reg :: reserved)
+                            else LoadArgument{source=src, dest=reg, kind=MoveWord} ::
+                                    moveEachValue(rest, reg :: reserved)
+
+                    |   moveEachValue ([{dst=RegDest reg, src}] :: rest, reserved) =
+                            (* Load from store or a constant. *)
+                            LoadArgument{source=src, dest=reg, kind=MoveWord} ::
+                                moveEachValue(rest, reg :: reserved)
+
+                    |   moveEachValue ([{dst=StackDest _, src=MemoryLocation _ }] :: _, _) =
+                            raise InternalError "moveEachValue - MemoryArgument"
+
+                    |   moveEachValue ([{dst=StackDest addr, src as StackLocation{ wordOffset, adjustment}}] :: rest, reserved) =
+                            (* Copy a stack location - needs a load and store unless the address is the same. *)
+                            if addr = wordOffset + adjustment
+                            then moveEachValue(rest, reserved)
+                            else
+                            let
+                                (* Find a free register.  We cannot use any reserved register, which
+                                   includes those we've loaded, or any source register that we
+                                   haven't yet used.  We start with all the registers, after filtering
+                                   those we can't use, and remove a source register from the list.  *)
+                                val filteredInUse =
+                                    List.filter (fn r => not(List.exists (fn i => i = r) reserved)) generalRegisters
+                                
+                                fun filterASet(_, []) = [] (* Stop if there's nothing there. *)
+                                |   filterASet([], regs) = regs
+                                |   filterASet({src=RegisterArgument srcReg, ...} :: rest, regs) =
+                                        filterASet(rest, List.filter(fn r => r <> srcReg) regs)
+                                |   filterASet({src=MemoryLocation _, ...} :: _, _) = raise InternalError "filterASet - Memory"
+                                |   filterASet(_ :: rest, regs) = filterASet(rest, regs)
+                                
+                                fun filterList(_, []) = []
+                                |   filterList([], regs) = regs
+                                |   filterList(set::rest, regs) = filterList(rest, filterASet(set, regs))
+                                
+                                (* So far it seems we always find a register this way if we need one.
+                                   Just in case, fall back to pushing a register, using it and popping it
+                                   again. *)
+                                val (workReg, pushReg, destAddress, popReg) =
+                                    case filterList(rest, filteredInUse) of
+                                        areg :: _ => (areg, [], addr, [])
+                                    |   [] =>
+                                        let
+                                            val workReg = GenReg eax
+                                            val workRegAsArg = RegisterArgument workReg
+                                            val pushCode = [PushValue{arg=workRegAsArg}]
+                                            and popCode =
+                                                [LoadArgument{source=StackLocation{wordOffset=0, adjustment=0}, dest=workReg, kind=MoveWord},
+                                                 ResetStackPtr{numWords=1} ]
+                                        in
+                                            (workReg, pushCode, addr+1, popCode)
+                                        end
+                            in
+                                pushReg @
+                                    LoadArgument{source=src, dest=workReg, kind=MoveWord} ::
+                                        StoreArgument{
+                                            source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
+                                            offset = destAddress*wordSize, kind=MoveWord} :: popReg @ moveEachValue(rest, reserved)
+                            end
+
+                    |   moveEachValue ([{dst=StackDest addr, src}] :: rest, reserved) =
+                            (* Store from a register or a constant. *)
+                            StoreArgument{
+                                source=src, base=GenReg esp, index=NoMemIndex, offset = addr*wordSize, kind=MoveWord} ::
+                                    moveEachValue(rest, reserved)
+
+                    |   moveEachValue(({dst=RegDest regA, src=RegisterArgument regB} :: (cycle as _ :: _)) :: rest, reserved) =
+                        (* Only do registers at the moment.  It may be possible in the future to get loops as a result
+                           of spilling registers onto the stack and then finding that a tail call to a
+                           function with more stack arguments needs to overwrite those addresses. *)
+                        let
+                            (* We need to exchange some of the arguments.  Doing an exchange here will
+                               set the destination with the correct source.  However we have to process
+                               every subsequent entry with the swapped registers.  That may well mean that
+                               one of those entries becomes trivial.
+                               We also need to rerun stronglyConnectedComponents on at least the rest of
+                               this cycle.  It's easiest to flatten the rest and do everything. *)
+                            val flattened = List.foldl(fn (a, b) => a @ b) [] (cycle :: rest)
+                            fun swapRegs r = if r = regA then regB else if r = regB then regA else r
+                            fun swapSources{src=RegisterArgument r, dst} =
+                                    {src=RegisterArgument(swapRegs r), dst=dst}
+                            |   swapSources{src=MemoryLocation _, ...} =
+                                    raise InternalError "swapSources: MemoryLocation"
+                            |   swapSources sd = sd
+                        in
+                            ExchangeRegisters{regX=regA, regY=regB} ::
+                                moveValues(List.map swapSources flattened, regA :: regB :: reserved)
+                        end
+
+                    |   moveEachValue((_ :: _ :: _) :: _, _) =
+                            raise InternalError "moveEachValue - TODO cycle"
+
+                    |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
+                            raise InternalError "moveEachValue - empty set"
+                in
+                    moveEachValue(ordered, reservedRegs)
+                end
+        in
+            moveValues(moves, reservedRegs)
+        end
 
         (* Where we have multiple specific registers as either source or
            destination there is the potential that a destination register
-           if currently in use as a source.  We have to do the moves in the
-           right order and use exchanges if necessary.
-           Since we're only dealing with a very few registers there's
-           no need to avoid quadratic performance. *) 
+           if currently in use as a source. *) 
         fun moveMultipleRegisters regPairList =
-            (* Filter out cases where they're (now) in the right registers. *)
-            case List.filter(fn {src, dst} => src <> dst) regPairList of
-                [] => []
-            |   filtered =>
-                let
-                    (* Look for destinations that don't appear as sources.  For those
-                       we can use simple moves. *)
-                    val (simpleMove, needXchng) =
-                        List.partition(fn {dst, ...} => List.all(fn {src, ...} => src <> dst) filtered) filtered
-                    val moveInstrs = List.map moveRR simpleMove
-                    (* What's left are items that appear as both sources and destinations.  If we exchange the
-                       source and destination of an item we will set that destination as the correct value.
-                       Afterwards the old destination value is in the source register and vice versa. *)
-                    val (exchangeCode, remainder) =
-                        case needXchng of
-                            [] => ([], [])
-                        |   {src=oldSrc, dst=oldDest} :: rest =>
-                            let
-                                (* Swap the values. *)
-                                fun swapSrcs {src, dst} =
-                                    {src=if src=oldSrc then oldDest else if src=oldDest then oldSrc else src, dst=dst}
-                                val swapped = List.map swapSrcs rest
-                            in
-                                ([ExchangeRegisters{regX=oldSrc, regY=oldDest}], swapped)
-                            end
-                in
-                    moveInstrs @ exchangeCode @ moveMultipleRegisters remainder
-                end
+        let
+            val regPairsAsDests =
+                List.map(fn {src, dst} => {src=RegisterArgument src, dst=RegDest dst}) regPairList
+            (* We don't need a work register so this doesn't matter. *)
+            val reserveRegs = generalRegisters (* Consider all registers to be in use. *)
+        in
+            moveMultipleValues(regPairsAsDests, reserveRegs)
+        end
 
         (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
            That means storing the arguments in the right order to avoid overwriting a
            value that we are using for a different argument. *)
-        fun codeTailCall(callKind, regArgs, stackArgs, stackAdjust) =
+        type tailCopy = STRONGLY.node
+
+        fun codeTailCall(callKind, arguments: tailCopy list, stackAdjust) =
         if stackAdjust < 0
         then
         let
             (* If the function we're calling takes more arguments on the stack than the
                current function we will have to extend the stack.  Do that by pushing the
                argument whose offset is at -1.  Then adjust all the offsets and repeat. *)
-            val {src=argM1, ...} = valOf(List.find(fn {stack= ~1, ...} => true | _ => false) stackArgs)
+            val {src=argM1, ...} = valOf(List.find(fn {dst=StackDest ~1, ...} => true | _ => false) arguments)
             fun renumberArgs [] = []
-            |   renumberArgs ({stack= ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
-            |   renumberArgs ({stack, src=StackLocation{wordOffset, adjustment}} :: args) =
-                    {stack=stack+1, src=StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}} :: renumberArgs args
-            |   renumberArgs ({stack, src} :: args) = {stack=stack+1, src=src} :: renumberArgs args
+            |   renumberArgs ({dst=StackDest ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
+            |   renumberArgs ({dst, src} :: args) =
+                let
+                    val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
+                    val newSrc =
+                        case src of
+                            StackLocation{wordOffset, adjustment} =>
+                                StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}
+                        |   other => other
+                in
+                    {dst=newDest, src=newSrc} :: renumberArgs args
+                end
         in
-            PushValue{arg=argM1} :: codeTailCall(callKind, regArgs, renumberArgs stackArgs, stackAdjust+1)
+            PushValue{arg=argM1} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1)
         end
         else
         let
-            (* Now deal with the stack arguments.  The worst case is when all the arguments are
-               permuted.  It's unlikely with hand-written code but quite possible with machine-
-               generated code.
-               At this point we have space on the stack for all the stack arguments.
-               We may also have arguments in registers and some of these will go into
-               the argument registers.
-               At the moment we don't save p-registers to the stack but eventually we
-               could also find that some of our register arguments have stack addresses. *)
-            local
-                (* Remove cases where we're storing to the same location. *)
-                fun filterCopy {src=StackLocation{wordOffset, adjustment}, stack} =
-                    stack <> wordOffset+adjustment
-                |   filterCopy _ = true
-            in
-                val filteredCopies = List.filter filterCopy stackArgs
-            end
+            val loadArgs = moveMultipleValues(arguments, [] (* We only need argument registers. *))
 
-            (* stronglyConnectedComponents does two things.  It detects loops where
-               it's not possible to move items without breaking the loop but more
-               importantly it orders the dependencies so that if there are no loops we
-               can load the source and store it in the destination knowing that
-               we won't overwrite anything we might later need. *)
-            (*val getConnections = STRONGLY.stronglyConnectedComponents filteredCopies*)
-            
-            fun storeStack{src as RegisterArgument _, stack} =
-                    StoreArgument{source=src, base=GenReg esp, index=NoMemIndex, offset = stack*wordSize, kind=MoveWord}
-            |   storeStack _ = raise TooHard OtherReason
-
-            val storeStackArgs = List.map storeStack filteredCopies
-
-            (* The register argument list contains "argument" values.  The entries are
-               either RegisterArgument or constants.  Do the register arguments first.
-               We may be using some of the registers that need to contain constants. *)
-            fun getRegArgs((RegisterArgument src, reg)) = SOME{dst=reg, src=src}
-            |   getRegArgs _ = NONE
-            val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
-
-            fun getConstArgs(RegisterArgument _, _) = NONE (* Already done. *)
-            |   getConstArgs(AddressConstant m, reg) =
-                SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
-            |   getConstArgs(IntegerConstant i, reg) =
-                SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
-            |   getConstArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - tail - MemoryLocation"
-            |   getConstArgs(StackLocation _, _) = raise InternalError "FunctionCall - tail - StackLocation"
-            val loadConstArgs = List.mapPartial getConstArgs regArgs
             val adjustStack =
                 if stackAdjust = 0
                 then []
                 else [ResetStackPtr{numWords=stackAdjust}]
         in
-            storeStackArgs @ loadRegArgs @ loadConstArgs @ adjustStack @
+            loadArgs @ adjustStack @
             [TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0}]
         end
 
@@ -2688,21 +2759,19 @@ struct
 
         |   codeExtended(TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust} :: rest, context) =
             let
-                val _ = case stackArgs of [] => () | _ => reportSuccess := true
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
                 (* Add the return address as an extra argument.  This is a temporary hack because codeICode doesn't
                    do it that way. *)
-                val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, stack=stack}
-                val extStackArgs = map (fn {stack, src} => {stack=stack, src=codeExtArgument src}) stackArgs
-                val extRegArgs = map (fn (a, r) => (codeExtArgument a, r)) regArgs
+                val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, dst=StackDest stack}
+                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeExtArgument src}) stackArgs
+                val extRegArgs = map (fn (a, r) => {src=codeExtArgument a, dst=RegDest r}) regArgs
             in
-                codeTailCall(callKind, extRegArgs, returnEntry :: extStackArgs, stackAdjust) @ code
+                codeTailCall(callKind, returnEntry :: extStackArgs @ extRegArgs, stackAdjust) @ code
             end
 
         |   codeExtended(FunctionCall{callKind, regArgs, stackArgs, dest=PReg(dReg, _)} :: rest, context) =
             let
-                val () = case stackArgs of [] => () | _ => reportSuccess := true
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val () = addRealHint(dReg, GenReg eax)
                 val code = codeExtended(rest, context)

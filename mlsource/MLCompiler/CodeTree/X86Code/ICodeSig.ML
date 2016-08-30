@@ -33,6 +33,7 @@ sig
     |   XMMReg of xmmReg
     
     val regRepr: reg -> string
+    val nReg:   reg -> int
 
     val isX64: bool and is32bit: LargeInt.int -> bool
 
@@ -292,6 +293,11 @@ sig
 
     val printICodeConcrete: reg x86ICode * (string -> unit) -> unit
     and printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
+    
+    val indexRegister: 'reg memoryIndex -> 'reg option
+    
+    (* Destinations used in move. *)
+    datatype destinations = RegDest of reg | StackDest of int
 
     structure Sharing:
     sig
@@ -302,5 +308,6 @@ sig
         and  branchOps      = branchOps
         and  reg            = reg
         and abstract        = abstract
+        and destinations    = destinations
     end
 end;

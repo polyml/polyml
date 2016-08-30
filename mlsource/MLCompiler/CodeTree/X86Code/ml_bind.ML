@@ -53,9 +53,17 @@ local
             structure Graph =
             struct
                 open X86ICode
-                type node = {src: reg argument, stack: int}
-                fun nodeAddress({stack, ...}: node) = stack
-                fun arcs({src=StackLocation{wordOffset, ...}, ...}: node) = [wordOffset] | arcs _ = []
+                (* The registers are numbered from 0.  Choose values that don't conflict with
+                   the stack addresses. *)
+                fun regNo r = ~1 - nReg r
+                type node = {src: reg argument, dst: destinations }
+                fun nodeAddress({dst=RegDest r, ...}: node) = regNo r
+                |   nodeAddress({dst=StackDest a, ...}) = a
+                fun arcs({src=StackLocation{wordOffset, ...}, ...}: node) = [wordOffset]
+                |   arcs{src=RegisterArgument r, ...} = [regNo r]
+                |   arcs{src=MemoryLocation{base, index, ...}, ...} =
+                        (case indexRegister index of NONE => [regNo base] | SOME r => [regNo base, regNo r])
+                |   arcs _ = []
             end
         )
         

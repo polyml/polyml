@@ -260,7 +260,7 @@ struct
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
-
+ 
     local
 
         fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
@@ -639,6 +639,13 @@ struct
         fun printICodeConcrete(icode, stream) = printICode(icode, stream, printConcreteReg)
         and printICodeAbstract(icode, stream) = printICode(icode, stream, printAbstractReg)
     end
+
+    (* We frequently just want to know the register. *)
+    fun indexRegister NoMemIndex = NONE
+    |   indexRegister (MemIndex1 r) = SOME r
+    |   indexRegister (MemIndex2 r) = SOME r
+    |   indexRegister (MemIndex4 r) = SOME r
+    |   indexRegister (MemIndex8 r) = SOME r
     
     exception InternalError = Misc.InternalError
 
@@ -711,6 +718,8 @@ struct
         and sourceAsGenRegOrMem(RegisterArgument((GenReg r))) = RegisterArg r
         |   sourceAsGenRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsGenRegOrMem(StackLocation{adjustment, wordOffset}) =
+                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
         |   sourceAsGenRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsGenRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -718,6 +727,8 @@ struct
         and sourceAsXMMRegOrMem(RegisterArgument((XMMReg r))) = RegisterArg r
         |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
+        |   sourceAsXMMRegOrMem(StackLocation{adjustment, wordOffset}) =
+                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
         |   sourceAsXMMRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -1288,6 +1299,8 @@ struct
     in
         createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ List.rev ops), newCode)
     end
+    
+    datatype destinations = RegDest of reg | StackDest of int
 
     structure Sharing =
     struct
@@ -1298,6 +1311,7 @@ struct
         and  branchOps      = branchOps
         and  reg            = reg
         and abstract        = abstract
+        and destinations    = destinations
     end
 
 end;

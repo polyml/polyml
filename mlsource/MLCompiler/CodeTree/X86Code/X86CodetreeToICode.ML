@@ -439,13 +439,16 @@ struct
                 (* Optimise arguments.  We have to be careful with tail-recursive functions because they
                    need to save any stack arguments that could be overwritten.  This is complicated
                    because we overwrite the stack before loading the register arguments.  In some
-                   circumstances it could be safe but for the moment leave it.
+                   circumstances it could be safe but for the moment leave it.  This should be safe
+                   in the new code-transform but not the old codeICode.
                    Currently we don't allow memory arguments at all.  There's the potential for
                    problems later.  Memory arguments could possibly lead to aliasing of the stack
                    if the memory actually refers to a container on the stack.  That would mess
-                   up the code that ensures that stack arguments are stored in the right order. *)
+                   up the code that ensures that stack arguments are stored in the right order.
+                   Don't allow long constants in tail calls.  We may move arguments directly
+                   to their stack location so we're dealing with a memory move there.  *)
                 val allowDefer =
-                    Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
+                    Allowed {anyConstant=not isTail, const32s=true, memAddr=false, existingPreg=not isTail }
                 fun loadArgs [] = ([], [])
                 |   loadArgs((arg, _)::args) =
                     let
