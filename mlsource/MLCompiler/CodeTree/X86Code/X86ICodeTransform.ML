@@ -2932,8 +2932,15 @@ struct
                 pushAll @ LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord} :: code
             end
 
-        |   codeExtended(IndexedCaseOperation{testReg, workReg, cases, startValue} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(IndexedCaseOperation{testReg=PReg(tReg, _), workReg=PReg(wReg, _), cases, startValue} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val testReg = findRegister(tReg, NONE, generalRegisters)
+                val workReg = findRegister(wReg, NONE, generalRegisters)
+                val _ = testReg <> workReg orelse raise InternalError "IndexedCaseOperation - same registers"
+            in
+                IndexedCaseOperation{ testReg=testReg, workReg=workReg, cases=cases, startValue=startValue} :: code
+            end
 
         |   codeExtended(LockMutable{addr=RegisterArgument(PReg(pr, _))} :: rest, context) =
             (* Currently it's always a register. *)
@@ -3302,22 +3309,22 @@ struct
             end
 
         |   codeExtended(CompareFloatingPt{arg1, arg2, ccRef} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
 
         |   codeExtended(X87FPGetCondition{dest, ccRef} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
 
         |   codeExtended(X87FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
     
         |   codeExtended(X87FPUnaryOps{fpOp, dest, source} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
 
         |   codeExtended(FloatFixedInt{dest, source} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
     
         |   codeExtended(SSE2FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard OtherReason
+                raise TooHard NotDoneInstr
         
         val icodeTabs = [8, 20, 60]
         

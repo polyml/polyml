@@ -558,8 +558,9 @@ struct
                         in
                             (newRefLabs, mergeRegSets(acts, newActive))
                         end ) (refLabels, emptySet) cases
-                (* Current active set is resultActive *)
-                val () = addNewConflicts(currentRegs, [destReg workReg])
+                (* We have to add both the work register and the test register to the
+                   conflict set so that we will get different registers. *)
+                val () = addNewConflicts(currentRegs, [destReg workReg, tReg])
                 val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
                 val newNewActive = addSourcesToActive([tReg], currentRegs)
             in

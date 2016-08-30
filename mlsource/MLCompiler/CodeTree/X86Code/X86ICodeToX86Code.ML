@@ -953,6 +953,7 @@ struct
         |   codeGenICode(IndexedCaseOperation { testReg, workReg, cases, startValue} :: rest, code) =
             let
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
+                val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
                 val caseLabels = map findLabelRef cases
             in
                 codeGenICode(rest, IndexedCase{testReg=rReg, workReg=wReg, min=startValue, cases=caseLabels} :: code)
