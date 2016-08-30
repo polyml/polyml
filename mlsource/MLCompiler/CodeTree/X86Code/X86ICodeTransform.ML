@@ -2520,26 +2520,36 @@ struct
                                 (* So far it seems we always find a register this way if we need one.
                                    Just in case, fall back to pushing a register, using it and popping it
                                    again. *)
-                                val (workReg, pushReg, destAddress, popReg) =
+                                val loadAndStoreCode =
                                     case filterList(rest, filteredInUse) of
-                                        areg :: _ => (areg, [], addr, [])
+                                        workReg :: _ =>
+                                            [LoadArgument{source=src, dest=workReg, kind=MoveWord},
+                                             StoreArgument{
+                                                    source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
+                                                    offset = addr*wordSize, kind=MoveWord}]
                                     |   [] =>
                                         let
                                             val workReg = GenReg eax
                                             val workRegAsArg = RegisterArgument workReg
-                                            val pushCode = [PushValue{arg=workRegAsArg}]
-                                            and popCode =
-                                                [LoadArgument{source=StackLocation{wordOffset=0, adjustment=0}, dest=workReg, kind=MoveWord},
-                                                 ResetStackPtr{numWords=1} ]
+                                            val destAddr = addr+1
+                                            val newSrc =
+                                                case src of
+                                                    StackLocation{wordOffset, adjustment} =>
+                                                        StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}
+                                                |   src => src
                                         in
-                                            (workReg, pushCode, addr+1, popCode)
+                                            [
+                                            PushValue{arg=workRegAsArg},
+                                            LoadArgument{source=newSrc, dest=workReg, kind=MoveWord},
+                                            StoreArgument{
+                                                source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
+                                                offset = destAddr*wordSize, kind=MoveWord},
+                                            LoadArgument{source=StackLocation{wordOffset=0, adjustment=0}, dest=workReg, kind=MoveWord},
+                                            ResetStackPtr{numWords=1}
+                                            ]
                                         end
                             in
-                                pushReg @
-                                    LoadArgument{source=src, dest=workReg, kind=MoveWord} ::
-                                        StoreArgument{
-                                            source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
-                                            offset = destAddress*wordSize, kind=MoveWord} :: popReg @ moveEachValue(rest, reserved)
+                                loadAndStoreCode @ moveEachValue(rest, reserved)
                             end
 
                     |   moveEachValue ([{dst=StackDest addr, src}] :: rest, reserved) =
@@ -3292,22 +3302,22 @@ struct
             end
 
         |   codeExtended(CompareFloatingPt{arg1, arg2, ccRef} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
 
         |   codeExtended(X87FPGetCondition{dest, ccRef} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
 
         |   codeExtended(X87FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
     
         |   codeExtended(X87FPUnaryOps{fpOp, dest, source} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
 
         |   codeExtended(FloatFixedInt{dest, source} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
     
         |   codeExtended(SSE2FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard NotDoneInstr
+                raise TooHard OtherReason
         
         val icodeTabs = [8, 20, 60]
         
