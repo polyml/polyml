@@ -3334,6 +3334,7 @@ struct
             (
                 case (escNo, nnn, opByte2 andb8 0wx7 (* modrm *)) of
                     (0w1, 0w4, 0w0) => print "fchs"
+                |   (0w1, 0w4, 0w1) => print "fabs"
                 |   (0w1, 0w5, 0w6) => print "fldz"
                 |   (0w1, 0w5, 0w1) => print "flf1"
                 |   (0w7, 0w4, 0w0) => print "fnstsw\tax"

@@ -845,6 +845,7 @@ struct
 
         |   identify((instr as X87FPGetCondition{dest, ccRef}) :: rest, labels, loopLabels, ccIn) =
             let
+                (* This can only put the result in rax. *)
                 val dReg = destReg dest
                 (* Check that we've defined the correct cc. *)
                 val _ =
@@ -853,6 +854,8 @@ struct
                 val (tail, refLabels, resLoopLabels, _, currentRegs) =
                     identify(rest, labels, loopLabels, ccIn)
                 val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
+                (* Mark all the current registers as conflicting with eax except the destination. *)
+                val () = addRealRegConflicts(setToList currentRegs, [dReg], GenReg eax)
             in
                 (instr :: tail, refLabels, resLoopLabels, CCState ccRef, removeDest(dReg, currentRegs))
             end

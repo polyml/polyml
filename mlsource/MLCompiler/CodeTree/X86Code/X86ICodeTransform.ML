@@ -67,6 +67,11 @@ struct
         (if isX64
         then [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
         else [edi, esi, edx, ecx, ebx, eax])
+    
+    val floatingPtRegisters =
+        case fpMode of
+            FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
+        |   FPModeX87 => List.map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6, fp7]
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -593,9 +598,23 @@ struct
                 val (pushedState, pushCode) = pushRax state
                 val load = loadSource(RegisterArgument base, eax, pushedState)
                 val (resultState, resultReg) =
-                    case dType of
-                        PRegGeneral => (addRaxToState(pushedState, destReg), raxAsArg)
-                    |   PRegUntagged => newUreg(destReg, pushedState)
+                    case (dType, kind, fpMode) of
+                        (PRegUntagged, MoveFloat, FPModeX87) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, (FPReg fp0))
+                    |   (PRegUntagged, MoveFloat, FPModeSSE2) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, (XMMReg xmm0))
+                    |   (PRegUntagged, MoveDouble, FPModeX87) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=FPReg fp0}]}, (FPReg fp0))
+                    |   (PRegUntagged, MoveDouble, FPModeSSE2) =>
+                            ({valueStack= #valueStack pushedState, ccState= #ccState pushedState,
+                                untaggedRegs =[{ureg=destReg, reg=XMMReg xmm0}]}, (XMMReg xmm0))
+                    |   (PRegGeneral, MoveFloat, _) => raise InternalError "MoveFloat to normal register"
+                    |   (PRegGeneral, MoveDouble, _) => raise InternalError "MoveDouble to normal register"
+                    |   (PRegGeneral, _, _) => (addRaxToState(pushedState, destReg), raxAsArg)
+                    |   (PRegUntagged, _, _) => newUreg(destReg, pushedState)
             in
                 codeICode{icode=rest, state=NormalState resultState,
                     code=LoadArgument{ source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex}, dest=resultReg, kind=kind} :: 
@@ -1929,26 +1948,20 @@ struct
 
         |   codeICode{
                 icode=CompareFloatingPt{
-                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg1=RegisterArgument arg1Reg,
                         arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}, ccRef} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* Load the first argument into an SSE2 register or the X87 stack.
                    Compare with the second. *)
-                val (startState as { valueStack, ...}, arg2Code) = loadToRax(state, RegisterArgument bReg2)
-                val arg1Code = loadRegister(bReg1, ebx, startState)
-                val floatingPointReg =
-                    case fpMode of
-                        FPModeX87 => FPReg fp0
-                    |   FPModeSSE2 => XMMReg xmm0
+                val srcReg = getFPreg(uRegNum arg1Reg, state)
+                val ({ valueStack, ...}, arg2Code) = loadToRax(state, RegisterArgument bReg2)
                 val checkState = {valueStack= valueStack, ccState=CCState(ccRef, fn c => c), untaggedRegs= []}
             in
                 codeICode{icode=rest, state=NormalState checkState,
                           code=
-                            CompareFloatingPt{arg1=RegisterArgument floatingPointReg, arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef} ::
-                            LoadArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
-                                dest=floatingPointReg, kind=MoveDouble} ::
-                            arg1Code @ arg2Code @ code,
+                            CompareFloatingPt{arg1=RegisterArgument srcReg, arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}, ccRef=ccRef} ::
+                            arg2Code @ code,
                           context=context}
             end
 
@@ -1979,28 +1992,28 @@ struct
         |   codeICode{
                 icode=X87FPArith{
                         opc, resultReg,
-                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg1=RegisterArgument arg1Reg,
                         arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* The address of the first argument will be on the stack.  The second
                    will be in Rax. *)
-                val startState as {valueStack, ...} = checkTopInRax(state, pRegNum bReg2)
-                val loadArgAddr = loadRegister(bReg1, ebx, startState)
+                val (pushedState as {valueStack, ...}, pushCode) = pushRax state
+                (* Load the argument address into rax. *)
+                val load = loadSource(RegisterArgument bReg2, eax, pushedState)
+                val srcReg = getFPreg(uRegNum arg1Reg, pushedState)
 
-                val floatingPointReg = FPReg fp0
+                val destFPReg = FPReg fp0
                 val destReg = uRegNum resultReg
                 val resultState =
-                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=destFPReg}]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
                             X87FPArith{
-                                opc=opc, resultReg=floatingPointReg, arg1=RegisterArgument floatingPointReg,
+                                opc=opc, resultReg=destFPReg, arg1=RegisterArgument srcReg,
                                 arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
-                            LoadArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
-                                dest=floatingPointReg, kind=MoveDouble} ::
-                            loadArgAddr @ code,
+                            load @ pushCode @ code,
                           context=context}
             end
 
@@ -2010,19 +2023,17 @@ struct
         |   codeICode{
                 icode=SSE2FPArith{
                         opc, resultReg,
-                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg1=RegisterArgument arg1Reg,
                         arg2=MemoryLocation{offset=offset2, base=bReg2, index=NoMemIndex}} :: rest,
                       state=NormalState state, code, context=context} =
             let
-                (* The address of the first argument will be on the stack.  The second
-                   will be in Rax. *)
-                val startState as {valueStack, ...} = checkTopInRax(state, pRegNum bReg2)
-                val loadArgAddr = loadRegister(bReg1, ebx, startState)
-
-                val floatingPointReg = XMMReg xmm0
+                val (pushedState as {valueStack, ...}, pushCode) = pushRax state
+                (* Load the argument address into rax. *)
+                val load = loadSource(RegisterArgument bReg2, eax, pushedState)
+                val srcReg = getFPreg(uRegNum arg1Reg, pushedState)
                 val destReg = uRegNum resultReg
                 val resultState =
-                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=srcReg}]}
                 (* We can't use this for the logical operations since they require 128-bit args. *)
                 val () =
                     case opc of
@@ -2033,39 +2044,34 @@ struct
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
                             SSE2FPArith{
-                                opc=opc, resultReg=floatingPointReg, arg1=RegisterArgument floatingPointReg,
-                                arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} ::
-                            LoadArgument{source=MemoryLocation{offset=offset1, base=rbxAsArg, index=NoMemIndex},
-                                dest=floatingPointReg, kind=MoveDouble} ::
-                            loadArgAddr @ code,
+                                opc=opc, resultReg=srcReg, arg1=RegisterArgument srcReg,
+                                arg2=MemoryLocation{offset=offset2, base=raxAsArg, index=NoMemIndex}} :: 
+                            load @ pushCode @ code,
                           context=context}
             end
 
         |   codeICode{
                 icode=SSE2FPArith{
                         opc, resultReg,
-                        arg1=MemoryLocation{offset=offset1, base=bReg1, index=NoMemIndex},
+                        arg1=RegisterArgument arg1Reg,
                         arg2=AddressConstant a} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* This is used for the logical operations to invert or mask the sign bit.
                    Both arguments need to be loaded into registers because any memory
                    argument must be a 128-bit value. *)
-                val {valueStack, ...} = checkTopInRax(state, pRegNum bReg1)
-                val floatingPointReg0 = XMMReg xmm0
+                val srcReg = getFPreg(uRegNum arg1Reg, state)
                 val floatingPointReg1 = XMMReg xmm1
                 val destReg = uRegNum resultReg
                 val resultState =
-                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg0}]}
+                    {valueStack= #valueStack state, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=srcReg}]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
                             SSE2FPArith{
-                                opc=opc, resultReg=floatingPointReg0, arg1=RegisterArgument floatingPointReg0,
+                                opc=opc, resultReg=srcReg, arg1=RegisterArgument srcReg,
                                 arg2=RegisterArgument floatingPointReg1} ::
                             LoadArgument{source=AddressConstant a, dest=floatingPointReg1, kind=MoveDouble} ::
-                            LoadArgument{source=MemoryLocation{offset=offset1, base=raxAsArg, index=NoMemIndex},
-                                dest=floatingPointReg0, kind=MoveDouble} ::
                             code,
                           context=context}
             end
@@ -2074,22 +2080,18 @@ struct
                 raise InternalError "codeICode: SSE2FPArith"
 
         |   codeICode{
-                icode=X87FPUnaryOps{ fpOp, dest, source=MemoryLocation{offset=offset, base=bReg, index=NoMemIndex}} :: rest,
+                icode=X87FPUnaryOps{ fpOp, dest, source=RegisterArgument arg1Reg} :: rest,
                       state=NormalState state, code, context=context} =
             let
-                (* The address of the argument will be on the stack. *)
-                val {valueStack, ...} = checkTopInRax(state, pRegNum bReg)
-
-                val floatingPointReg = FPReg fp0
+                val srcReg = getFPreg(uRegNum arg1Reg, state)
+                val destFPReg = FPReg fp0
                 val destReg = uRegNum dest
                 val resultState =
-                    {valueStack=valueStack, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=floatingPointReg}]}
+                    {valueStack= #valueStack state, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=destFPReg}]}
             in
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
-                            X87FPUnaryOps{fpOp=fpOp, dest=floatingPointReg, source=RegisterArgument floatingPointReg} ::
-                            LoadArgument{source=MemoryLocation{offset=offset, base=raxAsArg, index=NoMemIndex},
-                                dest=floatingPointReg, kind=MoveDouble} ::
+                            X87FPUnaryOps{fpOp=fpOp, dest=destFPReg, source=RegisterArgument srcReg} ::
                             code,
                           context=context}
             end
@@ -2440,14 +2442,18 @@ struct
                 end
 
         fun findGeneralReg r = findRegister(r, NONE, generalRegisters)
+        and findFloatReg r = findRegister(r, NONE, floatingPtRegisters)
 
-        fun codeExtArgument(RegisterArgument(PReg(r, _))) = RegisterArgument(findGeneralReg r)
-        |   codeExtArgument(AddressConstant m) = AddressConstant m
-        |   codeExtArgument(IntegerConstant i) = IntegerConstant i
-        |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}) =
+        fun codeExtArgument(RegisterArgument(PReg(r, _)), regSet) = RegisterArgument(findRegister(r, NONE, regSet))
+        |   codeExtArgument(AddressConstant m, _) = AddressConstant m
+        |   codeExtArgument(IntegerConstant i, _) = IntegerConstant i
+        |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}, _) =
                 MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(StackLocation{wordOffset, adjustment}) =
+        |   codeExtArgument(StackLocation{wordOffset, adjustment}, _) =
                 MemoryLocation{base=GenReg esp, offset=(wordOffset+adjustment)*wordSize, index=NoMemIndex}
+        
+        and codeExtArgGeneral arg = codeExtArgument(arg, generalRegisters)
+        and codeExtArgFloat arg = codeExtArgument(arg, floatingPtRegisters)
 
         and codeExtIndex NoMemIndex = NoMemIndex
         |   codeExtIndex(MemIndex1(PReg(r, _))) = MemIndex1(findGeneralReg r)
@@ -2650,10 +2656,7 @@ struct
 
         fun codeExtended([], _) = []
 
-        |   codeExtended(LoadArgument{ kind=MoveFloat, ... } :: _, _) = raise TooHard NotDoneInstr
-        |   codeExtended(LoadArgument{ kind=MoveDouble, ... } :: _, _) = raise TooHard NotDoneInstr
-
-        |   codeExtended(LoadArgument{source=RegisterArgument(PReg(sreg, _)), dest=PReg(dreg, _), kind=MoveWord} :: rest, context) =
+        |   codeExtended(LoadArgument{source=RegisterArgument(PReg(sreg, _)), dest=PReg(dreg, _), kind} :: rest, context) =
             (* Register to register move.  Try to use the same register for the source as the destination
                to eliminate the instruction. *)
             let
@@ -2664,8 +2667,13 @@ struct
                     NONE => (* The result was never used *) code
                 |   SOME realDestReg =>
                     let
+                        val regset =
+                            case kind of
+                                MoveFloat => floatingPtRegisters
+                            |   MoveDouble => floatingPtRegisters
+                            |   _ => generalRegisters
                         (* Get the source register using the current destination as a preference. *)
-                        val realSrcReg = findRegister(sreg, SOME realDestReg, generalRegisters)
+                        val realSrcReg = findRegister(sreg, SOME realDestReg, regset)
                     in
                         (* If the source is the same as the destination we don't need to do anything. *)
                         moveIfNecessary{src=realSrcReg, dst=realDestReg} @ code
@@ -2676,15 +2684,14 @@ struct
             (* Loads of constants or from an address. *)
             let
                 val code = codeExtended(rest, context)
+                val regSet =
+                    case kind of MoveFloat => floatingPtRegisters | MoveDouble => floatingPtRegisters | _ => generalRegisters
             in
                 (* If we don't have a register that means the result is never used. *)
                 case Array.sub(allocatedRegs, pr) of
-                    SOME regResult => LoadArgument{source=codeExtArgument source, dest=regResult, kind=kind} :: code
+                    SOME regResult => LoadArgument{source=codeExtArgument(source, regSet), dest=regResult, kind=kind} :: code
                 |   NONE => code
             end
-
-        |   codeExtended(StoreArgument{ kind=MoveFloat, ... } :: _, _) = raise TooHard NotDoneInstr
-        |   codeExtended(StoreArgument{ kind=MoveDouble, ... } :: _, _) = raise TooHard NotDoneInstr
 
         |   codeExtended(
                 StoreArgument{
@@ -2695,7 +2702,7 @@ struct
                 val code = codeExtended(rest, context)
             in
                 StoreArgument{
-                    source=codeExtArgument source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=MoveByte}
+                    source=codeExtArgGeneral source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=MoveByte}
                         :: code
             end
             else
@@ -2716,21 +2723,14 @@ struct
                         :: code)
             end
 
-        |   codeExtended(StoreArgument{ source, base=PReg(bReg, _), offset, index, kind as MoveWord } :: rest, context) =
-            let
-                val code = codeExtended(rest, context)
-            in
-                StoreArgument{
-                    source=codeExtArgument source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=kind}
-                        :: code
-            end
-
         |   codeExtended(StoreArgument{ source, base=PReg(bReg, _), offset, index, kind } :: rest, context) =
             let
                 val code = codeExtended(rest, context)
+                val regSet =
+                    case kind of MoveFloat => floatingPtRegisters | MoveDouble => floatingPtRegisters | _ => generalRegisters
             in
                 StoreArgument{
-                    source=codeExtArgument source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=kind}
+                    source=codeExtArgument(source, regSet), base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=kind}
                         :: code
             end
 
@@ -2774,8 +2774,8 @@ struct
                 (* Add the return address as an extra argument.  This is a temporary hack because codeICode doesn't
                    do it that way. *)
                 val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, dst=StackDest stack}
-                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeExtArgument src}) stackArgs
-                val extRegArgs = map (fn (a, r) => {src=codeExtArgument a, dst=RegDest r}) regArgs
+                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeExtArgGeneral src}) stackArgs
+                val extRegArgs = map (fn (a, r) => {src=codeExtArgGeneral a, dst=RegDest r}) regArgs
             in
                 codeTailCall(callKind, returnEntry :: extStackArgs @ extRegArgs, stackAdjust) @ code
             end
@@ -2799,7 +2799,7 @@ struct
                             |   StackLocation _ => raise InternalError "FunctionCall - StackLocation"
                             |   _ => ()
                     in
-                        PushValue {arg=codeExtArgument arg} :: pushStackArgs args
+                        PushValue {arg=codeExtArgGeneral arg} :: pushStackArgs args
                     end
                 val pushedArgs = pushStackArgs stackArgs
                 
@@ -2966,7 +2966,7 @@ struct
             let
                 val code = codeExtended(rest, context)
             in
-                WordComparison{ arg1=codeExtArgument arg1, arg2=codeExtArgument arg2, ccRef=ccRef } :: code
+                WordComparison{ arg1=codeExtArgGeneral arg1, arg2=codeExtArgGeneral arg2, ccRef=ccRef } :: code
             end
 
         |   codeExtended(WordComparison _ :: _, _) = raise InternalError "codeExtended - WordComparison"
@@ -3027,7 +3027,7 @@ struct
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
-                val op2Arg = codeExtArgument operand2
+                val op2Arg = codeExtArgGeneral operand2
                 (* If we couldn't put it in the result register we have to copy it there. *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
@@ -3068,7 +3068,7 @@ struct
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
-                val op2Arg = codeExtArgument operand2
+                val op2Arg = codeExtArgGeneral operand2
                 (* If we couldn't put it in the result register we have to copy it there. *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
@@ -3083,7 +3083,7 @@ struct
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
-                val op1Arg = codeExtArgument operand1
+                val op1Arg = codeExtArgGeneral operand1
             in
                 moveIfNecessary{src=realOp2Reg, dst=realDestReg} @
                     (ArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArgument realDestReg, operand2=op1Arg, ccRef=ccRef} :: code)
@@ -3098,7 +3098,7 @@ struct
                    operand is perfectly possible. *)
                 val code = codeExtended(rest, context)
             in
-                TestTagBit{ arg=codeExtArgument arg, ccRef=ccRef } :: code
+                TestTagBit{ arg=codeExtArgGeneral arg, ccRef=ccRef } :: code
             end
 
         |   codeExtended(TestTagBit _ :: _, _) = raise InternalError "codeExtended - TestTagBit"
@@ -3230,7 +3230,7 @@ struct
                 val realDiviReg = findRegister(regDivid, SOME(GenReg eax), generalRegisters)
                 val realQuotReg = findRegister(regQuot, SOME(GenReg eax), generalRegisters)
                 val realRemReg = findRegister(regRem, SOME(GenReg edx), generalRegisters)
-                val divisorArg = codeExtArgument divisor
+                val divisorArg = codeExtArgGeneral divisor
             in
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
@@ -3250,22 +3250,19 @@ struct
                 AtomicExchangeAndAdd{base=baseReg, source=srcReg} :: code
             end
 
-        |   codeExtended(BoxValue{boxKind=BoxLargeWord, source=PReg(sReg, _), dest=PReg(dReg, _), saveRegs} :: rest, context) =
+        |   codeExtended(BoxValue{boxKind, source=PReg(sReg, _), dest=PReg(dReg, _), saveRegs} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 val preserve = List.map(fn (PReg(r, _)) => findGeneralReg r) saveRegs
-                val srcReg = findGeneralReg sReg
-                and dstReg = findGeneralReg dReg
+                val (srcReg, boxSize, moveKind) =
+                    case boxKind of
+                        BoxLargeWord => (findGeneralReg sReg, 1, MoveWord)
+                    |   BoxFloat => (findFloatReg sReg, Int.quot(8, wordSize), MoveDouble)
+                val dstReg = findGeneralReg dReg
             in
-                AllocateMemoryOperation{ size=1, flags=0wx1, dest=dstReg, saveRegs=preserve} ::
-                StoreArgument{ source=RegisterArgument srcReg, offset=0, base=dstReg, index=NoMemIndex, kind=MoveWord} ::
+                AllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve} ::
+                StoreArgument{ source=RegisterArgument srcReg, offset=0, base=dstReg, index=NoMemIndex, kind=moveKind} ::
                 InitialisationComplete{dest=dstReg (* unused *)} :: code
-            end
-
-        |   codeExtended(BoxValue{boxKind, source, dest, saveRegs} :: rest, context) =
-            let
-            in
-                raise TooHard NotDoneInstr
             end
 
         |   codeExtended(CompareByteVectors{vec1Addr=PReg(v1Reg, _), vec2Addr=PReg(v2Reg, _), length=PReg(lReg, _), ccRef} :: rest, context) =
@@ -3308,23 +3305,87 @@ struct
                     (BlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove} :: code)
             end
 
-        |   codeExtended(CompareFloatingPt{arg1, arg2, ccRef} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(CompareFloatingPt{arg1 as RegisterArgument _, arg2, ccRef} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+            in
+                CompareFloatingPt{ arg1=codeExtArgFloat arg1, arg2=codeExtArgFloat arg2, ccRef=ccRef } :: code
+            end
 
-        |   codeExtended(X87FPGetCondition{dest, ccRef} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(CompareFloatingPt _ :: _, _) = raise InternalError "codeExtended - CompareFloatingPt"
 
-        |   codeExtended(X87FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(X87FPGetCondition{dest=PReg(dReg, _), ccRef} :: rest, context) =
+            let
+                (* We can only use RAX here. *)
+                val () = addRealHint(dReg, GenReg eax)
+                val code = codeExtended(rest, context)
+                val destReg = findRegister(dReg, SOME(GenReg eax), generalRegisters)
+            in
+                X87FPGetCondition{dest=raxAsArg, ccRef=ccRef} ::
+                    moveIfNecessary{dst=destReg, src=GenReg eax} @ code
+            end
+
+        |   codeExtended(X87FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2} :: rest, context) =
+            let
+                val () = addFriends (resReg, op1Reg)
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
+                val op2Arg = codeExtArgFloat arg2
+            in
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                    (X87FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArgument realDestReg, arg2=op2Arg} :: code)
+            end
+
+        |   codeExtended(X87FPArith _ :: _, _) = raise InternalError "codeExtended - X87FPArith"
     
-        |   codeExtended(X87FPUnaryOps{fpOp, dest, source} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(X87FPUnaryOps{fpOp, dest=PReg(resReg, _), source=RegisterArgument(PReg(op1Reg, _))} :: rest, context) =
+            let
+                val () = addFriends (resReg, op1Reg)
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
+            in
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                    (X87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArgument realDestReg} :: code)
+            end
 
-        |   codeExtended(FloatFixedInt{dest, source} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(X87FPUnaryOps _ :: _, _) = raise InternalError "codeExtended - X87FPArith"
+
+        |   codeExtended(FloatFixedInt{dest=PReg(resReg, _), source} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val intSource = codeExtArgGeneral source
+                val fpReg = findRegister(resReg, NONE, floatingPtRegisters)
+                val floatCode =
+                    case fpMode of
+                        FPModeX87 => 
+                            (* This is complicated.  The integer value has to be in memory not in a
+                               register so we have to push it to the stack and then make sure it is
+                               popped afterwards.  Because it is untagged it is unsafe to leave it. *)
+                            [
+                                PushValue{arg=intSource},
+                                FloatFixedInt{dest=fpReg, source=wordOffsetAddress(0, esp)},
+                                ResetStackPtr {numWords=1}
+                            ]
+                    |   FPModeSSE2 => [FloatFixedInt{dest=fpReg, source=RegisterArgument fpReg}]
+            in
+                floatCode @ code
+            end
     
-        |   codeExtended(SSE2FPArith{opc, resultReg, arg1, arg2} :: rest, context) =
-                raise TooHard NotDoneInstr
+        |   codeExtended(SSE2FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2} :: rest, context) =
+            let
+                val () = addFriends (resReg, op1Reg)
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
+                val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
+                val op2Arg = codeExtArgFloat arg2
+            in
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                    (SSE2FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArgument realDestReg, arg2=op2Arg} :: code)
+            end
+    
+        |   codeExtended(SSE2FPArith _ :: _, _) = raise InternalError "codeExtended - SSE2FPArith"
         
         val icodeTabs = [8, 20, 60]
         

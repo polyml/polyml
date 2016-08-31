@@ -310,7 +310,7 @@ struct
                 |   MoveByte => stream "\tStoreByte\t"
                 |   Move16Bit => stream "\tStore16Bit\t"
                 |   Move32Bit => stream "\tStore32Bit\t"
-                |   MoveFloat => stream "\tStoreeFloat\t"
+                |   MoveFloat => stream "\tStoreFloat\t"
                 |   MoveDouble => stream "\tStoreDouble\t";
                 printArg(source,  stream, printReg);
                 stream " => ";

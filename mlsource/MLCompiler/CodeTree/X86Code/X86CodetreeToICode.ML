@@ -643,32 +643,35 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and fpReg = newUReg()
+                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg()
                 (* The SSE2 code uses an SSE2 logical operation to flip the sign bit.  This
                    requires the values to be loaded into registers first because the logical
                    operations require 128-bit operands. *)
+                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
                 val code =
                     case fpMode of
-                        FPModeX87 => X87FPUnaryOps{ fpOp=FCHS, dest=fpReg, source=wordAt aReg1}
+                        FPModeX87 =>
+                            X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc}
                     |   FPModeSSE2 =>
-                            SSE2FPArith{opc=SSE2Xor, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realSignBit}
+                            SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=AddressConstant realSignBit}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load, code, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and fpReg = newUReg()
+                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg()
+                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
                 val code =
                     case fpMode of
-                        FPModeX87 => X87FPUnaryOps{ fpOp=FABS, dest=fpReg, source=wordAt aReg1}
+                        FPModeX87 => X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc}
                     |   FPModeSSE2 =>
-                            SSE2FPArith{opc=SSE2And, resultReg=fpReg, arg1=wordAt aReg1, arg2=AddressConstant realAbsMask}
+                            SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=AddressConstant realAbsMask}
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [code, BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load, code, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
@@ -1156,7 +1159,8 @@ struct
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
-                val fpReg = newUReg()
+                val fpRegSrc = newUReg() and fpRegDest = newUReg()
+                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
                 open BuiltIns
                 val arith =
                     case fpMode of
@@ -1170,7 +1174,7 @@ struct
                                 |   ArithDiv => FDIV
                                 |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
                         in
-                            [X87FPArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2}]
+                            X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2}
                         end
                     |   FPModeSSE2 =>
                         let
@@ -1182,11 +1186,11 @@ struct
                                 |   ArithDiv => SSE2Div
                                 |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
                         in
-                            [SSE2FPArith{ opc=fpOp, resultReg=fpReg, arg1=wordAt aReg1, arg2=wordAt aReg2}]
+                            SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2}
                         end
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    arith @ [BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [load, arith, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
@@ -1816,24 +1820,26 @@ struct
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
             let
-                val valueReg = newPReg()
+                val valueReg = newPReg() and floatReg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [StoreArgument {source=wordAt valueReg, base=base, offset=offset, index=index, kind=MoveFloat}]
+                    [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
+                     StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveFloat}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreCDouble, address, value}, context, _, destination) =
             let
-                val valueReg = newPReg()
+                val valueReg = newPReg() and floatReg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w8, context)
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [StoreArgument {source=wordAt valueReg, base=base, offset=offset, index=index, kind=MoveDouble}]
+                    [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
+                     StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2003,6 +2009,7 @@ struct
                     context, jumpOn, jumpLabel) =
             let
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg() and testReg3 = newUReg()
                 val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
                 val (arg2Code, arg2Reg) = codeToPReg(arg2, context)
@@ -2034,7 +2041,8 @@ struct
                         ]
             in
                 arg1Code @ arg2Code @
-                    (CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: getResultCode)
+                    (LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} ::
+                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: getResultCode)
             end
 
         |   codeCondition(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
@@ -2042,6 +2050,7 @@ struct
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
                 val testCode =
                     codeToICodeTarget(arg1, context, false, arg1Reg) @
@@ -2057,7 +2066,8 @@ struct
                             [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
             in
                 testCode @
-                    [CompareFloatingPt{arg1=wordAt arg2Reg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
+                    [LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble},
+                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
                         getResultCode
             end
 
@@ -2066,6 +2076,7 @@ struct
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
                 val testCode =
                     codeToICodeTarget(arg1, context, false, arg1Reg) @
@@ -2081,7 +2092,8 @@ struct
                             [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel}]
             in
                 testCode @
-                    [CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
+                    [LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble},
+                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
                      getResultCode
             end
 
@@ -2090,6 +2102,7 @@ struct
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
                 val testCode =
                     codeToICodeTarget(arg1, context, false, arg1Reg) @
@@ -2105,7 +2118,8 @@ struct
                             [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
             in
                 testCode @
-                    [CompareFloatingPt{arg1=wordAt arg2Reg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
+                    [LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble},
+                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}] @ (* Reverse *)
                      getResultCode
             end
 
@@ -2114,6 +2128,7 @@ struct
             let
                 val arg1Reg = newPReg() and arg2Reg = newPReg()
                 val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                val fpReg = newUReg()
                 val testReg1 = newUReg() and testReg2 = newUReg()
                 val testCode =
                     codeToICodeTarget(arg1, context, false, arg1Reg) @
@@ -2129,7 +2144,8 @@ struct
                             [ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel}]
             in
                 testCode @
-                    [CompareFloatingPt{arg1=wordAt arg1Reg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
+                    [LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble},
+                     CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}] @ (* Not reversed. *)
                      getResultCode
             end
 
