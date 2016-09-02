@@ -717,9 +717,8 @@ struct
         |   identify((instr as TestTagBit{arg, ccRef, ...}) :: rest, labels, loopLabels, _) =
                 addSourcesAndDests(instr, rest, labels, loopLabels, CCState ccRef, sourceRegs arg, [])
 
-        |   identify(PushValue _ :: _, _, _, _) =
-                (* Should not occur at this stage. *)
-                raise InternalError "identify - PushValue"
+        |   identify((instr as PushValue {arg}) :: rest, labels, loopLabels, ccIn) =
+                addSourcesAndDests(instr, rest, labels, loopLabels, ccIn, sourceRegs arg, [])
 
         |   identify((instr as ResetStackPtr _) :: rest, labels, loopLabels, ccIn) =
                 addSourcesAndDests(instr, rest, labels, loopLabels, ccIn, [], [])

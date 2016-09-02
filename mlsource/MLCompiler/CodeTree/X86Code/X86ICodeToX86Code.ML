@@ -1048,8 +1048,8 @@ struct
         |   codeGenICode(TestTagBit {arg, ...} :: rest, code) =
                 codeGenICode(rest, TestTagR(argAsGenReg arg) :: code)
 
-        |   codeGenICode(PushValue { arg = RegisterArgument(GenReg r) } :: rest, code) =
-                codeGenICode(rest, PushToStack(RegisterArg r) :: code)
+        |   codeGenICode(PushValue { arg = RegisterArgument reg } :: rest, code) =
+                codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)
 
         |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
                 codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
@@ -1061,8 +1061,8 @@ struct
                 (* The X86 manual says that the address is computed before the push. *)
                 codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}) :: code)
 
-        |   codeGenICode(PushValue _ :: _, _) =
-                raise InternalError "codeGenICode: TODO PushValue"
+        |   codeGenICode(PushValue { arg = MemoryLocation {offset, base, index} } :: rest, code) =
+                codeGenICode(rest, PushToStack(MemoryArg{base=asGenReg base, offset=offset, index=memoryIndexAsIndex index}) :: code)
 
         |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =
             (
