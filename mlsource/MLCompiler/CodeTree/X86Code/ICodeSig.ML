@@ -179,7 +179,7 @@ sig
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: 'reg argument }
+    |   LockMutable of { addr: 'reg }
 
         (* Forward branches. *)
     |   ForwardJumpLabel of { label: iLabel, result: 'reg option }

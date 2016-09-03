@@ -156,7 +156,7 @@ struct
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
-    |   LockMutable of { addr: 'reg argument }
+    |   LockMutable of { addr: 'reg }
 
         (* Forward branches. *)
     |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
@@ -419,7 +419,7 @@ struct
                 List.app(fn l => (stream " "; printLabel(l, stream))) cases
             )
 
-        |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printArg(addr, stream, printReg))
+        |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
         
         |   printICode(ForwardJumpLabel{label, ...}, stream, _) = (printLabel(label, stream); stream ":\t\t")
 
@@ -960,7 +960,7 @@ struct
             end
 
         |   codeGenICode(LockMutable { addr } :: rest, code) =
-                codeGenICode(rest, LockMutableSegment (argAsGenReg addr) :: code)
+                codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
 
         |   codeGenICode(ForwardJumpLabel { label, ... } :: rest, code) =
                 codeGenICode(rest, JumpLabel(findLabelDef label) :: code)

@@ -568,7 +568,7 @@ struct
             end
 
         |   identify((instr as LockMutable{addr}) :: rest, labels, loopLabels, ccIn) =
-                addSourcesAndDests(instr, rest, labels, loopLabels, ccIn, sourceRegs addr, [])
+                addSourcesAndDests(instr, rest, labels, loopLabels, ccIn, [sourceReg addr], [])
 
         |   identify((ForwardJumpLabel{label, result}) :: rest, labels, loopLabels, ccIn) =
             let

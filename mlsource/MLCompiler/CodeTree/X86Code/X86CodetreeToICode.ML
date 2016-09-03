@@ -305,7 +305,7 @@ struct
                                 end
                             val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
                         in
-                            l @ setFields @ [LockMutable{addr=RegisterArgument dest}]
+                            l @ setFields @ [LockMutable{addr=dest}]
                         end
                         val setClosures = ListPair.foldlEq setClosure [] (recDecs, destRegs)
                         
@@ -552,7 +552,7 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
             let
                 val (argCode, addrReg) = codeToPReg(arg1, context)
-                val code = argCode @ [LockMutable{addr=RegisterArgument addrReg}]
+                val code = argCode @ [LockMutable{addr=addrReg}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -600,7 +600,7 @@ struct
                    mutex to interlock clearing a mutex.  On the X86 we use hardware locking and
                    the hardware guarantees that an assignment of a word will be atomic. *)
                 val (argCode, addrReg) = codeToPReg(arg1, context)
-                val code = argCode @ [LockMutable{addr=RegisterArgument addrReg}]
+                val code = argCode @ [LockMutable{addr=addrReg}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
