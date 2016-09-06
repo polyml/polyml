@@ -2335,10 +2335,12 @@ struct
             val mapSaveRegs = List.foldl mapSaveReg [] 
         end
         
-        fun badSource (_: abstract argument) = raise TooHard NotDoneInstr
-        and badDest (_: abstract) = raise TooHard NotDoneInstr
-        and badSrcReg (_: abstract) = raise TooHard NotDoneInstr
-
+        (* Record the current state against the label.  In almost all cases the label
+           will not previously have been set.  The one exception is that floating
+           point comparisons sometimes have different jumps to check the parity bit
+           and the zero bit. The context will be the same for both so it's safe. *)
+        fun addNewLabel(ILabel lab, context) = Array.update(labelState, lab, SOME context)
+        
         (* Rewrite the code, replacing any registers that need to be pushed with references to
            the stack.  The result is built up in reverse order and then reversed. *)
         fun pushRegisters([]: abstract x86ICode list, code: abstract x86ICode list, _: context) = code
@@ -2512,7 +2514,7 @@ struct
                     InitialisationComplete{dest=destVal} :: destCode @ code, context)
             end
 
-        |   pushRegisters(StartLoop{arguments, loopLabel as ILabel lab} :: rest, code, context) =
+        |   pushRegisters(StartLoop{arguments, loopLabel} :: rest, code, context) =
             let
                 (* At the moment the arguments are always in registers. *)
                 (* Load the sources before the label.  *)
@@ -2527,10 +2529,7 @@ struct
                 val (sourceVals, sourceLoads) = loadSources arguments
                 (* Set up the state.  Every jump has to reset to this.  Only the
                    stack pointer is needed. *)
-                val _ =
-                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
-                val () = Array.update(labelState, lab, SOME context)
-                
+                val () = addNewLabel(loopLabel, context)                
                 (* If the destinations have to be pushed we do this after the label. We
                    need to create the new context for the body. *)
                 fun loadDests([], ctxt) = ([], [], ctxt)
@@ -2593,7 +2592,15 @@ struct
             end
 
         |   pushRegisters(IndexedCaseOperation{testReg, workReg, cases, startValue} :: rest, code, context) =
-                pushRegisters(rest, IndexedCaseOperation{testReg=badSrcReg testReg, workReg=badDest workReg, cases=cases, startValue=startValue} :: code, context)
+            let
+                val (srcVal, srcCode) = mapSrcReg(testReg, context)
+                val newWorkReg = mapWorkReg workReg
+                (* Set the incoming state for each of the cases. *)
+                val () = List.app (fn caseLab => addNewLabel(caseLab, context)) cases
+            in
+                (* This is an unconditional branch. *)
+                skipToLabel(rest, IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases, startValue=startValue} :: srcCode @ code)
+            end
 
         |   pushRegisters(LockMutable{addr} :: rest, code, context) =
             let
@@ -2660,25 +2667,19 @@ struct
                     end
             )
 
-        |   pushRegisters(UnconditionalForwardJump{label as ILabel lab} :: rest, code, context) =
-            let
+        |   pushRegisters(UnconditionalForwardJump{label} :: rest, code, context) =
+            (
                 (* Save the state.  Then enter the "unconditional transfer" state. *)
-                val _ =
-                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
-                val () = Array.update(labelState, lab, SOME context)
-            in
+                addNewLabel(label, context);
                 skipToLabel(rest, UnconditionalForwardJump{label=label} :: code)
-            end
+            )
 
-        |   pushRegisters(ConditionalForwardJump{condition, label as ILabel lab, ccRef} :: rest, code, context) =
-            let
+        |   pushRegisters(ConditionalForwardJump{condition, label, ccRef} :: rest, code, context) =
+            (
                 (* Save the state but continue. *)
-                val _ =
-                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
-                val () = Array.update(labelState, lab, SOME context)
-            in
+                addNewLabel(label, context);
                 pushRegisters(rest, ConditionalForwardJump{condition=condition, label=label, ccRef=ccRef} :: code, context)
-            end
+            )
 
         |   pushRegisters(WordComparison{arg1, arg2, ccRef} :: rest, code, context) =
             let
@@ -2692,13 +2693,10 @@ struct
                 pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
             end
 
-        |   pushRegisters(PushExceptionHandler{workReg, handleStart as ILabel lab} :: rest, code, context as {oldCount, newCount, stack}) =
+        |   pushRegisters(PushExceptionHandler{workReg, handleStart} :: rest, code, context as {oldCount, newCount, stack}) =
             let
-                val _ = reportSuccess := true
                 (* Save the state. This is a bit like a conditional jump *)
-                val _ =
-                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
-                val () = Array.update(labelState, lab, SOME context)
+                val () = addNewLabel(handleStart, context)
                 val newWorkReg = mapWorkReg workReg
                 (* Add a handler entry to the stack. *)
                 val newContext = {oldCount=oldCount+2, newCount=newCount+2, stack=HandlerEntry :: stack}
@@ -2830,40 +2828,123 @@ struct
             end
 
         |   pushRegisters(Multiplication{resultReg, operand1, operand2, ccRef} :: rest, code, context) =
-                pushRegisters(rest, Multiplication{resultReg=badDest resultReg, operand1=badSource operand1, operand2=badSource operand2, ccRef=ccRef} :: code, context)
+            let
+                val (op1Val, op1Code) = mapSource(operand1, context)
+                val (op2Val, op2Code) = mapSource(operand2, context)
+                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
+            in
+                pushRegisters(rest,
+                    destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code, newContext)
+            end
 
         |   pushRegisters(Division{isSigned, dividend, divisor, quotient, remainder} :: rest, code, context) =
-                pushRegisters(rest, Division{isSigned=isSigned, dividend=badSrcReg dividend, divisor=badSource divisor, quotient=badDest quotient, remainder=badDest remainder} :: code, context)
+            let
+                val (dividendVal, dividendCode) = mapSrcReg(dividend, context)
+                val (divisorVal, divisorCode) = mapSource(divisor, context)
+                val (quotVal, quotCode, quotContext) = mapDestReg(quotient, context)
+                val (remVal, remCode, newContext) = mapDestReg(remainder, quotContext)
+            in
+                pushRegisters(rest,
+                    remCode @ quotCode @
+                        Division{isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, quotient=quotVal, remainder=remVal} ::
+                            divisorCode @ dividendCode @ code, newContext)
+            end
 
         |   pushRegisters(AtomicExchangeAndAdd{base, source} :: rest, code, context) =
-                pushRegisters(rest, AtomicExchangeAndAdd{base=badSrcReg base, source=badSrcReg source} :: code, context)
+            let
+                val (baseVal, baseCode) = mapSrcReg(base, context)
+                val (sourceVal, sourceCode) = mapSrcReg(source, context)
+                (* The "source" is also a result and must be in a register.  It's an untagged reg
+                   so it shouldn't have been marked as to be pushed. *)
+                val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
+            in
+                pushRegisters(rest, AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code, context)
+            end
 
         |   pushRegisters(BoxValue{boxKind, source, dest, saveRegs} :: rest, code, context) =
-                pushRegisters(rest, BoxValue{boxKind=boxKind, source=badSrcReg source, dest=badDest dest, saveRegs=mapSaveRegs saveRegs} :: code, context)
+            let
+                val (sourceVal, sourceCode) = mapSrcReg(source, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest,
+                    destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: sourceCode @ code, newContext)
+            end
 
         |   pushRegisters(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef} :: rest, code, context) =
-                pushRegisters(rest, CompareByteVectors{vec1Addr=badSrcReg vec1Addr, vec2Addr=badSrcReg vec2Addr, length=badSrcReg length, ccRef=ccRef} :: code, context)
+            let
+                val (vec1Val, vec1Code) = mapSrcReg(vec1Addr, context)
+                val (vec2Val, vec2Code) = mapSrcReg(vec2Addr, context)
+                val (lengthVal, lengthCode) = mapSrcReg(length, context)
+            in
+                pushRegisters(rest,
+                    CompareByteVectors{vec1Addr=vec1Val, vec2Addr=vec2Val, length=lengthVal, ccRef=ccRef} ::
+                        lengthCode @ vec2Code @ vec1Code @ code, context)
+            end
 
         |   pushRegisters(BlockMove{srcAddr, destAddr, length, isByteMove} :: rest, code, context) =
-                pushRegisters(rest, BlockMove{srcAddr=badSrcReg srcAddr, destAddr=badSrcReg destAddr, length=badSrcReg length, isByteMove=isByteMove} :: code, context)
+            let
+                val (srcVal, srcCode) = mapSrcReg(srcAddr, context)
+                val (destVal, destCode) = mapSrcReg(destAddr, context)
+                val (lengthVal, lengthCode) = mapSrcReg(length, context)
+            in
+                pushRegisters(rest,
+                    BlockMove{srcAddr=srcVal, destAddr=destVal, length=lengthVal, isByteMove=isByteMove} ::
+                        lengthCode @ destCode @ srcCode @ code, context)
+            end
 
         |   pushRegisters(CompareFloatingPt{arg1, arg2, ccRef} :: rest, code, context) =
-                pushRegisters(rest, CompareFloatingPt{arg1=badSource arg1, arg2=badSource arg2, ccRef=ccRef} :: code, context)
+            let
+                val (arg1Val, arg1Code) = mapSource(arg1, context)
+                val (arg2Val, arg2Code) = mapSource(arg2, context)
+            in
+                pushRegisters(rest, CompareFloatingPt{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code, context)
+            end
 
         |   pushRegisters(X87FPGetCondition{dest, ccRef} :: rest, code, context) =
-                pushRegisters(rest, X87FPGetCondition{dest=badDest dest, ccRef=ccRef} :: code, context)
+            let
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest, destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code, newContext)
+            end
 
         |   pushRegisters(X87FPArith{opc, resultReg, arg1, arg2} :: rest, code, context) =
-                pushRegisters(rest, X87FPArith{opc=opc, resultReg=badDest resultReg, arg1=badSource arg1, arg2=badSource arg2} :: code, context)
+            let
+                val (arg1Val, arg1Code) = mapSource(arg1, context)
+                val (arg2Val, arg2Code) = mapSource(arg2, context)
+                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
+            in
+                pushRegisters(rest,
+                    destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                        arg2Code @ arg1Code @ code, newContext)
+            end
     
         |   pushRegisters(X87FPUnaryOps{fpOp, dest, source} :: rest, code, context) =
-                pushRegisters(rest, X87FPUnaryOps{fpOp=fpOp, dest=badDest dest, source=badSource source} :: code, context)
+            let
+                val (sourceVal, sourceCode) = mapSource(source, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest,
+                    destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code, newContext)
+            end
 
         |   pushRegisters(FloatFixedInt{dest, source} :: rest, code, context) =
-                pushRegisters(rest, FloatFixedInt{dest=badDest dest, source=badSource source} :: code, context)
+            let
+                val (sourceVal, sourceCode) = mapSource(source, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest, destCode @ FloatFixedInt{dest=destVal, source=sourceVal} :: sourceCode @ code, newContext)
+            end
     
         |   pushRegisters(SSE2FPArith{opc, resultReg, arg1, arg2} :: rest, code, context) =
-                pushRegisters(rest, SSE2FPArith{opc=opc, resultReg=badDest resultReg, arg1=badSource arg1, arg2=badSource arg2} :: code, context)
+            let
+                val (arg1Val, arg1Code) = mapSource(arg1, context)
+                val (arg2Val, arg2Code) = mapSource(arg2, context)
+                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
+            in
+                pushRegisters(rest,
+                    destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                        arg2Code @ arg1Code @ code, newContext)
+            end
         
         and skipToLabel([], code) = code
 
