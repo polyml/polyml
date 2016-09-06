@@ -1302,35 +1302,36 @@ struct
             end
 
             (* Start of a loop.  The loop body contains one or more tail jumps to the start. *)
-        |   codeICode{icode=StartLoop{arguments, loopLabel} :: rest, state=NormalState state, code,
+        |   codeICode{icode=StartLoop{regArgs, loopLabel} :: rest, state=NormalState state, code,
                       context={forwardLabels, handlers, loopArgs}} =
             let
                 (* The arguments have been evaluated to the stack.  Replace
                    the preg entries in the state with those of the loop variables. *)
                 val (pushedState, pushCode) = pushRax state
-                val numArgs = List.length arguments
+                val numArgs = List.length regArgs
                 val headList = List.take(#valueStack pushedState, numArgs)
-                fun repSourceWithDest({source, loopReg}, {preg, loc}) =
+                fun repSourceWithDest((source, loopReg), {preg, loc}) =
                      if argAsPReg source = preg then {preg=pRegNum loopReg, loc=loc} else raise InternalError "codeICode: StartLoop"
-                val newHead = ListPair.mapEq repSourceWithDest (List.rev arguments, headList)
+                val newHead = ListPair.mapEq repSourceWithDest (List.rev regArgs, headList)
                 val tailList = List.drop(#valueStack pushedState, numArgs)
                 (* The CCstate is indeterminate because we may have looped. *)
                 val bodyState = {valueStack=newHead @ tailList, ccState= CCIndeterminate, untaggedRegs= []}
                 val newContext = {loopArgs=(bodyState, loopLabel) :: loopArgs, forwardLabels=forwardLabels, handlers=handlers}
             in
-                codeICode{icode=rest, state=NormalState bodyState, code=StartLoop{arguments=[], loopLabel=loopLabel} :: pushCode @ code,
+                codeICode{icode=rest, state=NormalState bodyState, code=StartLoop{regArgs=[], loopLabel=loopLabel} :: pushCode @ code,
                           context=newContext}
             end
 
             (* A loop tail jump.  The arguments have been evaluated to the stack. *)
-        |   codeICode{icode=(JumpLoop{arguments, loopLabel}) :: rest, state=NormalState state, code,
+        |   codeICode{icode=(JumpLoop{regArgs, stackArgs, loopLabel, ...}) :: rest, state=NormalState state, code,
                       context=context as {loopArgs=(startState, lab) :: _, ...}} =
             let
                 val _ = loopLabel = lab orelse raise InternalError "codeICode: JumpLoop - mismatched labels"
+                val _ = null stackArgs orelse raise InternalError "codeICode: JumpLoop - stack args"
                 val (pushedState, pushCode) = pushRax state
                 (* Move each argument from the source to the loop variable.  This isn't the same as
                    MoveArgument because the destination already exists. *)
-                fun moveArg{source, loopReg} =
+                fun moveArg(source, loopReg) =
                 let
                     val load = loadSource(source, eax, pushedState)
                     val store =
@@ -1340,9 +1341,9 @@ struct
                 in
                     store @ load
                 end
-                val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] arguments
+                val storeAll = List.foldl(fn (arg, l) => l @ moveArg arg) [] regArgs
                 val instrs =
-                    JumpLoop{arguments=[], loopLabel=loopLabel} :: resetStackPtr(stackPtr pushedState - stackPtr startState) :: storeAll
+                    JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust=0} :: resetStackPtr(stackPtr pushedState - stackPtr startState) :: storeAll
             in
                 codeICode{icode=rest, state=Exited, code=instrs @ pushCode @ code, context=context}
             end
@@ -2514,65 +2515,66 @@ struct
                     InitialisationComplete{dest=destVal} :: destCode @ code, context)
             end
 
-        |   pushRegisters(StartLoop{arguments, loopLabel} :: rest, code, context) =
+        |   pushRegisters(StartLoop{regArgs, loopLabel} :: rest, code, context) =
             let
-                (* At the moment the arguments are always in registers. *)
-                (* Load the sources before the label.  *)
-                fun loadSources [] = ([], [])
-                |   loadSources({source, ...}:: rest) =
+                fun loadArguments ([], ctxt) = ([], [], ctxt)
+                |   loadArguments ((source, dest as PReg(n, _)) :: rest, ctxt) =
                     let
-                        val (sourceVal, sourceCode) = mapSource(source, context)
-                        val (otherVals, otherCode) = loadSources rest
+                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
+                        val (destVal, destCode, newContext) = mapDestReg(dest, ctxt)
+                        val (codeRest, otherRegArgs, resContext) =
+                            loadArguments(rest, newContext)
                     in
-                        (sourceVal :: otherVals, sourceCode @ otherCode)
+                        (* Did we push this? *)
+                        case Array.sub(pregMap, n) of
+                            ToStack => (* Yes.  This will become a stack argument. *)
+                            let
+                                val move = [LoadArgument{source=sourceVal, dest=destVal, kind=MoveWord}]
+                            in
+                                (codeRest @ destCode @ move @ sourceCode, otherRegArgs, resContext)
+                            end
+                        |   ToPReg newReg =>
+                                (codeRest @ destCode @ sourceCode, (sourceVal, newReg) :: otherRegArgs, resContext)
+                       |    Unset => raise InternalError "pushRegisters - StartLoop - unset"
                     end
-                val (sourceVals, sourceLoads) = loadSources arguments
+                val (loadCode, newRegArgs, newContext) = loadArguments(regArgs, context)
+
                 (* Set up the state.  Every jump has to reset to this.  Only the
                    stack pointer is needed. *)
-                val () = addNewLabel(loopLabel, context)                
-                (* If the destinations have to be pushed we do this after the label. We
-                   need to create the new context for the body. *)
-                fun loadDests([], ctxt) = ([], [], ctxt)
-                |   loadDests({loopReg, ...} :: rest, ctxt) =
-                    let
-                        val (loopReg, loopCode, regCtxt) = mapDestReg(loopReg, ctxt)
-                        val (otherRegs, otherCode, newContext) = loadDests(rest, regCtxt)
-                    in
-                        (loopReg :: otherRegs, loopCode @ otherCode, newContext)
-                    end
-                
-                val (destRegs, destCode, newContext) = loadDests(arguments, context)
-                val newArguments = ListPair.mapEq(fn (s, d) => {source=s, loopReg=d}) (sourceVals, destRegs)
+                val () = addNewLabel(loopLabel, newContext)                
             in
                 pushRegisters(rest,
-                    destCode @ (StartLoop{arguments=newArguments, loopLabel=loopLabel} :: sourceLoads @ code), newContext)
+                    StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ code, newContext)
             end
 
         |   pushRegisters(EndLoop{loopLabel} :: rest, code, context) =
                 pushRegisters(rest, EndLoop{loopLabel=loopLabel} :: code, context)
 
-        |   pushRegisters(JumpLoop{arguments, loopLabel as ILabel lab} :: rest, code, context as {newCount, ...}) =
+        |   pushRegisters(JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, stackAdjust} :: rest, code, context as {newCount, ...}) =
             let
+                val _ = null stackArgs orelse raise InternalError "pushRegisters - JumpLoop - stackArgs"
                 val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
-                fun getValues [] = ([], [])
-                |   getValues ({loopReg=PReg(n, _), source} :: rest) =
+                fun getValues [] = ([], [], [])
+                |   getValues ((source, PReg(n, _)) :: rest) =
                     let
-                        val (otherArgs, otherCode) = getValues rest
-                        val lReg =
-                            case Array.sub(pregMap, n) of
-                                ToPReg preg => preg
-                            |   _ => raise TooHard OtherReason
+                        val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
                         val (sourceVal, sourceCode) = mapSource(source, context)
                     in
-                        ({loopReg=lReg, source=sourceVal} :: otherArgs, sourceCode @ otherCode)
+                        case Array.sub(pregMap, n) of
+                            ToPReg lReg => ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                        |   ToStack =>
+                            let
+                                val stackOff = getStackOffset(n, context)
+                            in
+                                (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
+                            end
+                        |   Unset => raise InternalError "pushRegisters - JumpLoop - unset"
                     end
-                val (newArguments, sourceCode) = getValues arguments
-                val resetCode =
-                    if newCount = labNewCount
-                    then []
-                    else [ResetStackPtr{numWords=newCount-labNewCount}]
+                val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
             in
-                skipToLabel(rest, JumpLoop{ arguments=newArguments, loopLabel=loopLabel} :: resetCode @ sourceCode @ code)
+                skipToLabel(rest,
+                    JumpLoop{ regArgs=newRegArguments, stackArgs=newStackArgs, loopLabel=loopLabel,
+                              stackAdjust=stackAdjust + newCount-labNewCount} :: sourceCode @ code)
             end
 
         |   pushRegisters(RaiseExceptionPacket{packet} :: rest, code, context) =
@@ -3530,50 +3532,32 @@ struct
         |   codeExtended(InitialisationComplete _ :: rest, context) =
                 InitialisationComplete{dest=raxAsArg (* unused *)} :: codeExtended(rest, context)
 
-        |   codeExtended(StartLoop{arguments, loopLabel} :: rest, context) =
+        |   codeExtended(StartLoop{regArgs, loopLabel} :: rest, context) =
             let
                 (* Make the loop arguments and the sources "friends". *)
-                fun makeFriends {loopReg=PReg(dReg, _), source=RegisterArgument(PReg(sReg, _))} = addFriends(dReg, sReg)
+                fun makeFriends (RegisterArgument(PReg(sReg, _)), PReg(dReg, _)) = addFriends(dReg, sReg)
                 |   makeFriends _ = ()
-                val () = List.app makeFriends arguments
+                val () = List.app makeFriends regArgs
                 val code = codeExtended(rest, context)
-                (* Evaluate the arguments.  We currently just generate register arguments
-                   and that may be simpler anyway.  *)
-                fun moveArg {loopReg=PReg(dReg, _), source=RegisterArgument(PReg(sReg, _))} =
-                let
-                    val destReg = findGeneralReg dReg
-                    val srcReg = findRegister(sReg, SOME destReg, generalRegisters)
-                in
-                    {src=srcReg, dst=destReg}
-                end
-                |   moveArg _ = raise InternalError "moveArg"
-
-                val moveList = List.map moveArg arguments
+                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
             in
-                moveMultipleRegisters moveList @ (StartLoop{arguments=[], loopLabel=loopLabel} :: code)
+                moveMultipleValues(extRegArgs, generalRegisters) @ (StartLoop{regArgs=[], loopLabel=loopLabel} :: code)
             end
 
         |   codeExtended(EndLoop _ :: rest, context) = (* Don't need to do anything. *)
                 codeExtended(rest, context)
 
-        |   codeExtended(JumpLoop{arguments, loopLabel} :: rest, context) =
+        |   codeExtended(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust} :: rest, context) =
             let
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
-                (* Evaluate the arguments.  We currently just generate register arguments
-                   and that may be simpler anyway.  *)
-                fun moveArg {loopReg=PReg(dReg, _), source=RegisterArgument(PReg(sReg, _))} =
-                let
-                    val destReg = findGeneralReg dReg
-                    val srcReg = findRegister(sReg, SOME destReg, generalRegisters)
-                in
-                    {src=srcReg, dst=destReg}
-                end
-                |   moveArg _ = raise InternalError "moveArg"
-
-                val moveList = List.map moveArg arguments
+                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeExtArgGeneral src}) stackArgs
+                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
+                val resetCode =
+                    if stackAdjust = 0 then [] else [ResetStackPtr{numWords=stackAdjust}]
             in
-                moveMultipleRegisters moveList @ (JumpLoop{arguments=[], loopLabel=loopLabel} :: code)
+                moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @ resetCode @
+                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0} :: code)
             end
 
         |   codeExtended(RaiseExceptionPacket{ packet=PReg(preg, _) } :: rest, context) =

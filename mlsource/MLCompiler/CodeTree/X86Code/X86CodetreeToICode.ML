@@ -1478,9 +1478,9 @@ struct
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
-                val args = ListPair.mapEq(fn (s, l) => {source=RegisterArgument s, loopReg=l}) (argPRegs, loopRegs)
+                val args = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
             in
-                (codeArgs @ [StartLoop{arguments=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], RegisterArgument target, loopExited)
+                (codeArgs @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], RegisterArgument target, loopExited)
             end
         
         |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination) =
@@ -1493,13 +1493,13 @@ struct
                 val codeArgs =
                     ListPair.foldlEq(fn ((arg, _), pr, l) => l @ codeToICodeTarget(arg, context, false, pr)) []
                         (args, argPRegs)
-                val jumpArgs = ListPair.mapEq(fn (s, l) => {source=RegisterArgument s, loopReg=l}) (argPRegs, loopRegs)
+                val jumpArgs = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
                 (* If we've allocated a container in the loop we have to remove it before jumping back. *)
                 val stackReset =
                     if loopSp = stackPtr then []
                     else [ResetStackPtr{numWords=stackPtr-loopSp}]
             in
-                (codeArgs @ stackReset @ [JumpLoop{arguments=jumpArgs, loopLabel=loopLabel}], RegisterArgument target, true)
+                (codeArgs @ stackReset @ [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0}], RegisterArgument target, true)
             end
 
         |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =

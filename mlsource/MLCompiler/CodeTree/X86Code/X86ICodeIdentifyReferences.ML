@@ -477,11 +477,11 @@ struct
                 (* This is just a marker.  It doesn't actually generate any code. *)
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, [], [])
 
-        |   identify((instr as StartLoop{arguments, loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((instr as StartLoop{regArgs, loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 val sourceAsRegs =
-                    List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments
-                val destRegs = List.foldl(fn ({loopReg, ...}, dests) => destReg loopReg :: dests) [] arguments
+                    List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) [] regArgs
+                val destRegs = List.foldl(fn ((_, loopReg), dests) => destReg loopReg :: dests) [] regArgs
                 (* The active set is the environment plus the loop variables. *)
                 val (tail, refLabels, resLoopLabels, _, currentRegs) =
                     identify(rest, labels, loopLabels, loopLabel :: loopNest, ccIn)
@@ -514,11 +514,13 @@ struct
                 (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, newActive)
             end
 
-        |   identify((instr as JumpLoop{arguments, loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((instr as JumpLoop{regArgs, stackArgs, loopLabel, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 val _ = hd loopNest = loopLabel orelse raise InternalError "identify - loop nesting"
+                val regSourceAsRegs =
+                    List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) [] regArgs
                 val sourceAsRegs =
-                    List.foldl(fn ({source, ...}, srcs) => sourceRegs source @ srcs) [] arguments
+                    List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) regSourceAsRegs stackArgs
                 (* Because this is an unconditional branch the state afterwards is empty. *)
                 val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
                 (* If this is the second pass we need to add the extra active registers

@@ -159,15 +159,16 @@ sig
     |   InitialisationComplete of { dest: 'reg}
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel in all of these is for checking only, at least at the moment. *)
-    |   StartLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
+           The loopLabel is the start of the loop and all jumps come back to it. *)
+    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
 
         (* End a loop.  Causes the loop stack to be popped. *)
     |   EndLoop of { loopLabel: iLabel }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { arguments: {source: 'reg argument, loopReg: 'reg} list, loopLabel: iLabel }
+    |   JumpLoop of
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg }
