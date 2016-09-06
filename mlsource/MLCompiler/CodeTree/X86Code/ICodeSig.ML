@@ -192,15 +192,11 @@ sig
         (* Compare two word values. *)
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
-        (* Exception handling.  - Set up an exception handler.
-           handlerAddr is really just a work register but it's currently used
-           by codeToICode to mark the entry on its value stack. *)
-    |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
+        (* Exception handling.  - Set up an exception handler. *)
+    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
 
-        (* End of a handled section.  Restore the previous handler.
-           handlerAddr is not actually used.  It's currently used as a marker by
-           codeToICode. *)
-    |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg option, workReg: 'reg }
+        (* End of a handled section.  Restore the previous handler. *)
+    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 

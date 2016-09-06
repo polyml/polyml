@@ -495,9 +495,9 @@ struct
             end
 
             (* Set up an exception handler. *)
-        |   codeICode{icode=PushExceptionHandler{ handlerAddr, handleStart } :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
+        |   codeICode{icode=PushExceptionHandler{ handleStart, ... } :: rest, state=NormalState state, code, context={forwardLabels, loopArgs, handlers}} =
             let
-                val sHandle = pRegNum handlerAddr
+                val sHandle = ~9999 (* Use this as a temporary marker. *)
                 val (pushedState, pushCode) = pushRax state
                 val sp = stackPtr pushedState
                 val thisHandler = (handleStart, pushedState)
@@ -507,18 +507,17 @@ struct
                 val newContext = {forwardLabels=forwardLabels, loopArgs=loopArgs, handlers=thisHandler :: handlers}
             in
                 codeICode{icode=rest, state=NormalState startState,
-                          code=PushExceptionHandler{handlerAddr=raxAsArg, handleStart=handleStart} :: pushCode @ code, context=newContext}
+                          code=PushExceptionHandler{workReg=raxAsArg, handleStart=handleStart} :: pushCode @ code, context=newContext}
             end
 
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised. *)
-        |   codeICode{icode=PopExceptionHandler{ handlerAddr, resultReg, workReg=_ } :: rest, state=NormalState state, code, context} =
+        |   codeICode{icode=PopExceptionHandler{ resultReg, workReg=_, ... } :: rest, state=NormalState state, code, context} =
             let
-                val handleAddr = pRegNum handlerAddr
                 (* handlerStartState is the state BEFORE we pushed the handler. *)
                 (* Search down the state until we find the handler. *)
                 fun popState [] = raise InternalError "codeICode: PopExceptionHandler - not found"
                 |   popState (hState as ({preg, ...} :: tail)) =
-                        if preg = handleAddr then hState else popState tail
+                        if preg = ~9999 then hState else popState tail
                 val handlerStartState = {valueStack=popState(#valueStack state), ccState=CCIndeterminate, untaggedRegs= []}
                 (* Reset to just above the handler.
                    The result state is after the handler has been popped. *)
@@ -536,7 +535,7 @@ struct
                 val workReg = (GenReg ebx) (* Must be different from the return register. *)
             in
                 codeICode{icode=rest, state=NormalState resultState,
-                          code=PopExceptionHandler{ handlerAddr=raxAsArg (* unused*), resultReg=NONE (* unused*), workReg=workReg } :: resetCode @ code,
+                          code=PopExceptionHandler{ resultReg=NONE (* unused*), workReg=workReg } :: resetCode @ code,
                           context=context}
             end
 
@@ -2261,6 +2260,26 @@ struct
                     (newReg, [], context)
                 end
         end
+        
+        (* A work register must be a normal register. *)
+        fun mapWorkReg(PReg(n, kind)) =
+        let
+            val currentLocation = Array.sub(pregMap, n)
+            val {pushState, ...} = Vector.sub(regStates, n)
+            val _ = case pushState of MustPush => raise InternalError "mapWorkReg - MustPush" | _ => ()
+        in
+            case currentLocation of
+                Unset =>
+                let
+                    val newReg = newPReg kind
+                    val () = Array.update(pregMap, n, ToPReg newReg)
+                in
+                    newReg
+                end
+            |   ToPReg preg => preg
+            |   ToStack => raise InternalError "mapWorkReg - on stack"
+                
+        end
 
         fun mapIndex(NoMemIndex, _) = (NoMemIndex, [])
         |   mapIndex(MemIndex1 r, context) =
@@ -2673,15 +2692,37 @@ struct
                 pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
             end
 
-        |   pushRegisters(PushExceptionHandler{handlerAddr, handleStart} :: rest, code, context) =
+        |   pushRegisters(PushExceptionHandler{workReg, handleStart as ILabel lab} :: rest, code, context as {oldCount, newCount, stack}) =
             let
-                val _ = raise TooHard NotDoneInstr
+                val _ = reportSuccess := true
+                (* Save the state. This is a bit like a conditional jump *)
+                val _ =
+                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
+                val () = Array.update(labelState, lab, SOME context)
+                val newWorkReg = mapWorkReg workReg
+                (* Add a handler entry to the stack. *)
+                val newContext = {oldCount=oldCount+2, newCount=newCount+2, stack=HandlerEntry :: stack}
             in
-                pushRegisters(rest, PushExceptionHandler{handlerAddr=badDest handlerAddr, handleStart=handleStart} :: code, context)
+                pushRegisters(rest, PushExceptionHandler{workReg=newWorkReg, handleStart=handleStart} :: code, newContext)
             end
 
-        |   pushRegisters(PopExceptionHandler{handlerAddr, resultReg, workReg} :: rest, code, context) =
-                pushRegisters(rest, PopExceptionHandler{handlerAddr=badSrcReg handlerAddr, resultReg=Option.map badSrcReg resultReg, workReg=badDest workReg} :: code, context)
+        |   pushRegisters(PopExceptionHandler{workReg, ...} :: rest, code, {oldCount, newCount, stack}) =
+            let
+                val newWorkReg = mapWorkReg workReg
+                (* Get the state after removing the handler. *)
+                fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
+                |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
+                |   popContext (ContainerEntry _ :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
+                |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
+                val newContext as { newCount=newNewCount, ...} = popContext(stack, oldCount, newCount)
+                (* Reset the stack to just above the two words of the handler. *)
+                val resetCode =
+                    if newCount <> newNewCount+2
+                    then [ResetStackPtr{numWords=newCount-newNewCount-2}]
+                    else []
+            in
+                pushRegisters(rest, PopExceptionHandler{resultReg=NONE, workReg=newWorkReg} :: resetCode @ code, newContext)
+            end
 
         |   pushRegisters(BeginHandler _ :: _, _, _) =
                 (* This should only ever happen after an unconditional jump. *)
@@ -2836,10 +2877,15 @@ struct
                 |   SOME state => pushRegisters(rest, ForwardJumpLabel{label=label, result=NONE} :: code, state)
             )
         
-        |   skipToLabel(BeginHandler{handleStart, packetReg, ...} :: rest, code) =
+        |   skipToLabel(BeginHandler{handleStart as ILabel lab, packetReg, workReg, ...} :: rest, code) =
                 (* A handler should only ever occur after an unconditional transfer. *)
-                (*pushRegisters(rest, BeginHandler{handleStart=handleStart, packetReg=badDest packetReg, workReg=badDest workReg} :: code, context) *)
-                raise TooHard OtherReason
+            let
+                val context = valOf(Array.sub(labelState, lab))
+                val newWorkReg = mapWorkReg workReg
+                val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
+            in
+                pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
+            end
         
         |   skipToLabel(EndLoop{loopLabel} :: rest, code) =
                 (* Normally we will have at least one branch that exits the loop
@@ -3507,13 +3553,12 @@ struct
         |   codeExtended(WordComparison _ :: _, _) = raise InternalError "codeExtended - WordComparison"
 
             (* Set up an exception handler. *)
-        |   codeExtended(PushExceptionHandler{handlerAddr=PReg(hReg, _), handleStart} :: rest, context) =
+        |   codeExtended(PushExceptionHandler{workReg=PReg(hReg, _), handleStart} :: rest, context) =
             let
-                (* handlerAddr is really a work register. *)
                 val code = codeExtended(rest, context)
                 val handleReg = findGeneralReg hReg
             in
-                PushExceptionHandler{handlerAddr=handleReg, handleStart=handleStart} :: code
+                PushExceptionHandler{workReg=handleReg, handleStart=handleStart} :: code
             end
 
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised.
@@ -3523,7 +3568,7 @@ struct
                 val code = codeExtended(rest, context)
                 val realWork = findGeneralReg wReg
             in
-                PopExceptionHandler{handlerAddr=realWork (* Not used. *), resultReg=NONE, workReg=realWork} :: code
+                PopExceptionHandler{resultReg=NONE, workReg=realWork} :: code
             end
 
             (* Start of a handler.  Sets the address associated with PushExceptionHandler and

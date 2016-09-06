@@ -649,7 +649,7 @@ struct
         |   identify((instr as WordComparison{arg1, arg2, ccRef, ...}) :: rest, labels, loopLabels, loopNest, _) =
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, CCState ccRef, sourceRegs arg1 @ sourceRegs arg2, [])
 
-        |   identify((instr as PushExceptionHandler{handlerAddr, handleStart}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((instr as PushExceptionHandler{workReg, handleStart}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 (* Begin an exception handler.  Similar to a conditional jump.  The current state is the
                    state at the start of the handler.  The handler itself will have been removed.
@@ -661,12 +661,12 @@ struct
                 val (activeFromHandler, newRefLabels) = findLabel(refLabels, handleStart)
                 val currentRegs = mergeRegSets(newActive, activeFromHandler)
                 (* The current set is after doing the merge. *)
-                val () = addNewConflicts(currentRegs, [destReg handlerAddr])
+                val () = addNewConflicts(currentRegs, [destReg workReg])
             in
                 (instr :: tail, newRefLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end
 
-        |   identify((PopExceptionHandler{handlerAddr, resultReg, workReg}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((PopExceptionHandler{ resultReg, workReg}) :: rest, labels, loopLabels, loopNest, ccIn) =
             (* Pop an exception handler.  If the result register is not used we must discard it.
                handlerAddr is not actually used.  It's just there as a marker for codeToIcode. *)
             let
@@ -677,7 +677,7 @@ struct
                     case resultReg of
                         NONE => NONE
                     |   SOME(r as PReg(n, _)) => if inSet(n, currentRegs) then SOME r else NONE
-                val newInstr = PopExceptionHandler{handlerAddr=handlerAddr, resultReg=newResultReg, workReg=workReg}
+                val newInstr = PopExceptionHandler{resultReg=newResultReg, workReg=workReg}
             in
                 (newInstr :: tail, refLabels, resLoopLabels, ccUsed, currentRegs)
             end

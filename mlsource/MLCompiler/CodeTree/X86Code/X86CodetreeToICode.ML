@@ -1534,7 +1534,6 @@ struct
                 val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
                 val (handleCode, _, handleExit) =
                     codeToICode(handler, context, isTail, SpecificPReg handlerTarget)
-                val saveHandle = newPReg()
                 val handlerLab = newLabel()
                 (* If this is the tail we can replace the jump at the end of the
                    handled code with returns.  If the handler has exited we don't need
@@ -1546,7 +1545,7 @@ struct
                     then
                         (if expExit then []
                          else
-                            PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()} ::
+                            PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} ::
                              returnInstruction(context, bodyTarget),
                          if handleExit then [] else returnInstruction(context, handlerTarget))
                     else
@@ -1554,13 +1553,13 @@ struct
                         val skipHandler = newLabel()
                     in
                         (if expExit then []
-                         else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()}, 
+                         else [PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()}, 
                                UnconditionalForwardJump{label=skipHandler}],
                          [ForwardJumpLabel{label=skipHandler, result=SOME handleResult},
                           LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord}])
                     end
             in
-                (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @ atExpEnd @
+                (PushExceptionHandler{workReg=newPReg(), handleStart=handlerLab} :: expCode @ atExpEnd @
                 [BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr}] @
                  handleCode @ afterHandler, RegisterArgument target, isTail)
             end

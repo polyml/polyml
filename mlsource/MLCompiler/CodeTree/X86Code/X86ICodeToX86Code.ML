@@ -170,10 +170,10 @@ struct
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { handlerAddr: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { handlerAddr: 'reg, resultReg: 'reg option, workReg: 'reg }
+    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
@@ -448,15 +448,15 @@ struct
         |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
                 (stream "\tWordComparison\t"; printArg(arg1, stream, printReg); stream ","; printArg(arg2, stream, printReg))
 
-        |   printICode(PushExceptionHandler{handlerAddr, handleStart}, stream, printReg) =
+        |   printICode(PushExceptionHandler{workReg, handleStart}, stream, printReg) =
             (
                 stream "\tPushExcHandler\t";
                 printLabel(handleStart, stream);
                 stream " with ";
-                printReg(handlerAddr, stream)
+                printReg(workReg, stream)
             )
 
-        |   printICode(PopExceptionHandler{handlerAddr=_, resultReg=_, workReg}, stream, printReg) =
+        |   printICode(PopExceptionHandler{resultReg=_, workReg}, stream, printReg) =
             (
                 stream "\tPopExceptionHandler\t";
                 stream "with ";
@@ -977,9 +977,11 @@ struct
         |   codeGenICode(WordComparison _ :: _, _) =
                 raise InternalError "codeGenICode: TODO WordComparison"
 
-        |   codeGenICode(PushExceptionHandler { handlerAddr, handleStart=ILabel hStart, ... } :: rest, code) =
+        |   codeGenICode(PushExceptionHandler { workReg, handleStart=ILabel hStart, ... } :: rest, code) =
             let (* Set up an exception handler. *)
-                val handleReg = asGenReg handlerAddr
+                (* Although we're pushing this to the stack we need to use LEA on the
+                   X86/64 and some arithmetic on the X86/32.  We need a work reg for that. *)
+                val handleReg = asGenReg workReg
                 val labelRef =
                     case Array.sub(labelArray, hStart) of
                         HandlerLab addr => addr
