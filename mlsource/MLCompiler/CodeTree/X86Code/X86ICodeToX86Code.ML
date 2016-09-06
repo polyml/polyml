@@ -1045,8 +1045,17 @@ struct
         |   codeGenICode(ArithmeticFunction _ :: _, _) =
                 raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
 
-        |   codeGenICode(TestTagBit {arg, ...} :: rest, code) =
-                codeGenICode(rest, TestTagR(argAsGenReg arg) :: code)
+        |   codeGenICode(TestTagBit {arg = RegisterArgument reg, ...} :: rest, code) =
+                codeGenICode(rest, TestTagR(asGenReg reg) :: code)
+
+        |   codeGenICode(TestTagBit {arg = StackLocation {adjustment, wordOffset}, ...} :: rest, code) =
+                (* Since the X86 is little-endian we check the addressed byte. *)
+                codeGenICode(rest, TestByteMem{base=esp, offset=(adjustment+wordOffset)*wordSize, bits=0w1} :: code)
+
+        |   codeGenICode(TestTagBit {arg = MemoryLocation {offset, base, index=NoMemIndex}, ...} :: rest, code) =
+                codeGenICode(rest, TestByteMem{base=asGenReg base, offset=offset, bits=0w1} :: code)
+
+        |   codeGenICode(TestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
 
         |   codeGenICode(PushValue { arg = RegisterArgument reg } :: rest, code) =
                 codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)

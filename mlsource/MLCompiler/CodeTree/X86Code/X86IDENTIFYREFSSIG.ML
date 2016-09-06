@@ -23,7 +23,7 @@ sig
 
     type regState =
     { 
-        active: int, defs: int, refs: int, pushState: pushState,
+        defs: int, refs: int, pushState: pushState,
         conflicts: int list, realConflicts: reg list
     }
     

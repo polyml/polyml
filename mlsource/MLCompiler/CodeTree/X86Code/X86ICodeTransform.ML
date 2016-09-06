@@ -2166,6 +2166,7 @@ struct
         datatype pregMapType = Unset | ToPReg of abstract | ToStack
         val pregMap = Array.array(maxPRegs, Unset)
         
+        
         (* The stack contains both entries in the input code and entries added here. *)
         datatype stackEntry =
             NewEntry of {pregNo: int}
@@ -2178,6 +2179,8 @@ struct
             newCount: int,      (* The total number of items on the stack. *)
             stack: stackEntry list
         }
+
+        val labelState = Array.array(maxLabels, NONE: context option)
 
         val emptyContext: context = { oldCount=0, newCount=0, stack=[]}
 
@@ -2314,7 +2317,7 @@ struct
         end
         
         fun badSource (_: abstract argument) = raise TooHard NotDoneInstr
-        and badDest (_: abstract) = raise TooHard NotDoneInstr and badIndex _ = raise TooHard NotDoneInstr
+        and badDest (_: abstract) = raise TooHard NotDoneInstr
         and badSrcReg (_: abstract) = raise TooHard NotDoneInstr
 
         (* Rewrite the code, replacing any registers that need to be pushed with references to
@@ -2448,10 +2451,10 @@ struct
 
                 val returnAddr = {srcStack=mapOldStackOffset(srcStack, context), stack=stack+newCount-oldCount}
             in
-                pushRegisters(rest,
+                skipToLabel(rest,
                     TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
                         stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=stackAdjust+newCount-oldCount} ::
-                            regArgLoads @ stackArgLoads @ code, context)
+                            regArgLoads @ stackArgLoads @ code)
             end
 
         |   pushRegisters(AllocateMemoryOperation{size, flags, dest, saveRegs} :: rest, code, context) =
@@ -2490,37 +2493,75 @@ struct
                     InitialisationComplete{dest=destVal} :: destCode @ code, context)
             end
 
-        |   pushRegisters(StartLoop{arguments, loopLabel} :: rest, code, context) =
+        |   pushRegisters(StartLoop{arguments, loopLabel as ILabel lab} :: rest, code, context) =
             let
-                val _ = raise TooHard NotDoneInstr
+                (* At the moment the arguments are always in registers. *)
+                (* Load the sources before the label.  *)
+                fun loadSources [] = ([], [])
+                |   loadSources({source, ...}:: rest) =
+                    let
+                        val (sourceVal, sourceCode) = mapSource(source, context)
+                        val (otherVals, otherCode) = loadSources rest
+                    in
+                        (sourceVal :: otherVals, sourceCode @ otherCode)
+                    end
+                val (sourceVals, sourceLoads) = loadSources arguments
+                (* Set up the state.  Every jump has to reset to this.  Only the
+                   stack pointer is needed. *)
+                val _ =
+                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
+                val () = Array.update(labelState, lab, SOME context)
+                
+                (* If the destinations have to be pushed we do this after the label. We
+                   need to create the new context for the body. *)
+                fun loadDests([], ctxt) = ([], [], ctxt)
+                |   loadDests({loopReg, ...} :: rest, ctxt) =
+                    let
+                        val (loopReg, loopCode, regCtxt) = mapDestReg(loopReg, ctxt)
+                        val (otherRegs, otherCode, newContext) = loadDests(rest, regCtxt)
+                    in
+                        (loopReg :: otherRegs, loopCode @ otherCode, newContext)
+                    end
+                
+                val (destRegs, destCode, newContext) = loadDests(arguments, context)
+                val newArguments = ListPair.mapEq(fn (s, d) => {source=s, loopReg=d}) (sourceVals, destRegs)
             in
                 pushRegisters(rest,
-                StartLoop{
-                    arguments=map (fn {loopReg, source} => {loopReg=badDest loopReg, source=badSource source}) arguments,
-                    loopLabel=loopLabel} :: code, context)
+                    destCode @ (StartLoop{arguments=newArguments, loopLabel=loopLabel} :: sourceLoads @ code), newContext)
             end
 
         |   pushRegisters(EndLoop{loopLabel} :: rest, code, context) =
-            let
-                val _ = raise TooHard NotDoneInstr
-            in
                 pushRegisters(rest, EndLoop{loopLabel=loopLabel} :: code, context)
-            end
 
-        |   pushRegisters(JumpLoop{arguments, loopLabel} :: rest, code, context) =
+        |   pushRegisters(JumpLoop{arguments, loopLabel as ILabel lab} :: rest, code, context as {newCount, ...}) =
             let
-                val _ = raise TooHard NotDoneInstr
+                val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
+                fun getValues [] = ([], [])
+                |   getValues ({loopReg=PReg(n, _), source} :: rest) =
+                    let
+                        val (otherArgs, otherCode) = getValues rest
+                        val lReg =
+                            case Array.sub(pregMap, n) of
+                                ToPReg preg => preg
+                            |   _ => raise TooHard OtherReason
+                        val (sourceVal, sourceCode) = mapSource(source, context)
+                    in
+                        ({loopReg=lReg, source=sourceVal} :: otherArgs, sourceCode @ otherCode)
+                    end
+                val (newArguments, sourceCode) = getValues arguments
+                val resetCode =
+                    if newCount = labNewCount
+                    then []
+                    else [ResetStackPtr{numWords=newCount-labNewCount}]
             in
-                pushRegisters(rest, JumpLoop{
-                    arguments=map (fn {loopReg, source} => {loopReg=badSrcReg loopReg, source=badSource source}) arguments,
-                    loopLabel=loopLabel} :: code, context)
+                skipToLabel(rest, JumpLoop{ arguments=newArguments, loopLabel=loopLabel} :: resetCode @ sourceCode @ code)
             end
 
         |   pushRegisters(RaiseExceptionPacket{packet} :: rest, code, context) =
             let
                 val (packetVal, packetCode) = mapSrcReg(packet, context)
             in
-                pushRegisters(rest, RaiseExceptionPacket{packet=packetVal} :: packetCode @ code, emptyContext)
+                skipToLabel(rest, RaiseExceptionPacket{packet=packetVal} :: packetCode @ code)
             end
 
         |   pushRegisters(ReserveContainer{size, address} :: rest, code, {oldCount, newCount, stack}) =
@@ -2542,32 +2583,94 @@ struct
                 pushRegisters(rest, LockMutable{addr=addrVal} :: addrCode @ code, context)
             end
     
-        |   pushRegisters(ForwardJumpLabel{label, result} :: rest, code, context) =
+        |   pushRegisters(ForwardJumpLabel{label as ILabel lab, result} :: rest, code,
+                          context as {newCount=currentNewCount, stack=currentStack, ...}) =
+            (* This is a forward jump label after other code.  We have to merge the states. *)
+            (
+                (* Get the state.  The label may never have been jumped to. *)
+                case Array.sub(labelState, lab) of
+                    NONE => pushRegisters(rest, code, context)
+                |   SOME {newCount=jumpNewCount, stack=jumpStack, ...} =>
+                    let
+                        (* Merge the common entries. Stop as soon as we find a difference. *)
+                        fun matchStacks((entry as NewEntry {pregNo=reg1}) :: tl1, NewEntry {pregNo=reg2} :: tl2, combined, old, new) =
+                            if reg1 = reg2
+                            then matchStacks(tl1, tl2, entry :: combined, old, new+1)
+                            else {newCount=new, oldCount=old, stack=combined}
+
+                        |   matchStacks((entry as ContainerEntry {size=size1}) :: tl1, ContainerEntry {size=size2} :: tl2, combined, old, new) =
+                            if size1 = size2
+                            then matchStacks(tl1, tl2, entry :: combined, old+size1, new+size1)
+                            else {newCount=new, oldCount=old, stack=combined}
+                            
+                        |   matchStacks(HandlerEntry :: tl1, HandlerEntry :: tl2, combined, old, new) =
+                                matchStacks(tl1, tl2, HandlerEntry :: combined, old+2, new+2)
+
+                        |   matchStacks(_, _, combined, old, new) = {newCount=new, oldCount=old, stack=combined}
+
+                        val newContext as {newCount=newSp, ...} = matchStacks(List.rev currentStack, List.rev jumpStack, [], 0, 0)
+
+                        val adjustStack =
+                            if newSp = currentNewCount
+                            then []
+                            else [ResetStackPtr{numWords=currentNewCount-newSp}]
+                        (* If there is a result register it should not have been pushed to the stack. *)
+                        val resultReg =
+                            case result of
+                                NONE => NONE
+                            |   SOME(PReg(dReg, _)) =>
+                                    case Array.sub(pregMap, dReg) of
+                                        ToPReg preg => SOME preg
+                                    |   _ => raise InternalError "pushRegisters merge register"
+                        val resultCode =
+                            if newSp = jumpNewCount
+                            then (* We don't need to do anything to the incoming branch. *)
+                                ForwardJumpLabel{label=label, result=resultReg} :: adjustStack  @ code
+                            else (* We're going to have to adjust the stack pointer on the incoming branch.
+                                    This requires an extra label and branch. *)
+                            let
+                                val extraLabel = ILabel(! labelCounter) before labelCounter := !labelCounter+1
+                           in
+                                ForwardJumpLabel{label=extraLabel, result=resultReg} ::
+                                ResetStackPtr{numWords=jumpNewCount-newSp} ::
+                                ForwardJumpLabel{label=label, result=resultReg} :: (* Come in here. *)
+                                UnconditionalForwardJump{label=extraLabel} :: adjustStack  @ code
+                            end
+                    in
+                        pushRegisters(rest, resultCode, newContext)
+                    end
+            )
+
+        |   pushRegisters(UnconditionalForwardJump{label as ILabel lab} :: rest, code, context) =
             let
-                val _ = raise TooHard NotDoneInstr
+                (* Save the state.  Then enter the "unconditional transfer" state. *)
+                val _ =
+                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
+                val () = Array.update(labelState, lab, SOME context)
             in
-                pushRegisters(rest, ForwardJumpLabel{label=label, result=Option.map badSrcReg result} :: code, context)
+                skipToLabel(rest, UnconditionalForwardJump{label=label} :: code)
             end
 
-        |   pushRegisters(UnconditionalForwardJump{label} :: rest, code, context) =
+        |   pushRegisters(ConditionalForwardJump{condition, label as ILabel lab, ccRef} :: rest, code, context) =
             let
-                val _ = raise TooHard NotDoneInstr
-            in
-                pushRegisters(rest, UnconditionalForwardJump{label=label} :: code, context)
-            end
-
-        |   pushRegisters(ConditionalForwardJump{condition, label, ccRef} :: rest, code, context) =
-            let
-                val _ = raise TooHard NotDoneInstr
+                (* Save the state but continue. *)
+                val _ =
+                    case Array.sub(labelState, lab) of NONE => () | SOME _ => raise InternalError "pushRegisters - state already set"
+                val () = Array.update(labelState, lab, SOME context)
             in
                 pushRegisters(rest, ConditionalForwardJump{condition=condition, label=label, ccRef=ccRef} :: code, context)
             end
 
         |   pushRegisters(WordComparison{arg1, arg2, ccRef} :: rest, code, context) =
             let
-                val _ = raise TooHard NotDoneInstr
+                (* codeExtended expects the first argument to be in a register.
+                   We may be able to do something clever if the second is actually in the
+                   register but for the moment just force a load. *)
+                val (op1Val, op1Code) = mapSource(arg1, context)
+                val (loadedOp1, loadCode) = loadStack op1Val
+                val (op2Val, op2Code) = mapSource(arg2, context)
             in
-                pushRegisters(rest, WordComparison{arg1=badSource arg1, arg2=badSource arg2, ccRef=ccRef} :: code, context)
+                pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
             end
 
         |   pushRegisters(PushExceptionHandler{handlerAddr, handleStart} :: rest, code, context) =
@@ -2580,8 +2683,9 @@ struct
         |   pushRegisters(PopExceptionHandler{handlerAddr, resultReg, workReg} :: rest, code, context) =
                 pushRegisters(rest, PopExceptionHandler{handlerAddr=badSrcReg handlerAddr, resultReg=Option.map badSrcReg resultReg, workReg=badDest workReg} :: code, context)
 
-        |   pushRegisters(BeginHandler{handleStart, packetReg, workReg} :: rest, code, context) =
-                pushRegisters(rest, BeginHandler{handleStart=handleStart, packetReg=badDest packetReg, workReg=badDest workReg} :: code, context)
+        |   pushRegisters(BeginHandler _ :: _, _, _) =
+                (* This should only ever happen after an unconditional jump. *)
+                raise InternalError "pushRegisters - BeginHandler"
 
         |   pushRegisters(ReturnResultFromFunction{resultReg, numStackArgs} :: rest, code, context as {newCount, ...}) =
             let
@@ -2589,19 +2693,23 @@ struct
                 val resetCode =
                     if newCount = 0 then [] else [ResetStackPtr{numWords=newCount}]
             in
-                pushRegisters(rest,
-                    ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code, emptyContext)
+                skipToLabel(rest,
+                    ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code)
             end
 
         |   pushRegisters(ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef} :: rest, code, context) =
             let
+                (* codeExtended expects the first argument to be in a register.
+                   We may be able to do something clever if the second is actually in the
+                   register but for the moment just force a load. *)
                 val (op1Val, op1Code) = mapSource(operand1, context)
+                val (loadedOp1, loadCode) = loadStack op1Val
                 val (op2Val, op2Code) = mapSource(operand2, context)
                 val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
             in
                 pushRegisters(rest,
-                    destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} ::
-                        op2Code @ op1Code @ code, newContext)
+                    destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
+                        op2Code @ loadCode @ op1Code @ code, newContext)
             end
 
         |   pushRegisters(TestTagBit{arg, ccRef} :: rest, code, context) =
@@ -2639,19 +2747,45 @@ struct
             end
 
         |   pushRegisters(TagValue{source, dest} :: rest, code, context) =
-                pushRegisters(rest, TagValue{source=badSrcReg source, dest=badDest dest} :: code, context)
+            let
+                val (sourceVal, sourceCode) = mapSrcReg(source, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest, destCode @ TagValue{source=sourceVal, dest=destVal} :: sourceCode @ code, newContext)
+            end
 
         |   pushRegisters(UntagValue{source, dest, isSigned} :: rest, code, context) =
-                pushRegisters(rest, UntagValue{source=badSource source, dest=badDest dest, isSigned=isSigned} :: code, context)
+            let
+                val (sourceVal, sourceCode) = mapSource(source, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest,
+                    destCode @ UntagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code, newContext)
+            end
 
         |   pushRegisters(LoadEffectiveAddress{base, offset, index, dest} :: rest, code, context) =
-                pushRegisters(rest, LoadEffectiveAddress{base=Option.map badSrcReg base, offset=offset, index=badIndex index, dest=badDest dest} :: code, context)
+            let
+                val (baseVal, baseCode) =
+                    case base of
+                        NONE => (NONE, [])
+                    |   SOME bReg =>
+                            let val (newBReg, regCode) = mapSrcReg(bReg, context) in (SOME newBReg, regCode) end
+                val (indexVal, indexCode) = mapIndex(index, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest,
+                    destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code, newContext)
+            end
 
         |   pushRegisters(ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef} :: rest, code, context) =
             let
-                val _ = raise TooHard NotDoneInstr
+                val (opVal, opCode) = mapSource(operand, context)
+                val (shiftVal, shiftCode) = mapSource(shiftAmount, context)
+                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
             in
-                pushRegisters(rest, ShiftOperation{shift=shift, resultReg=badDest resultReg, operand=badSource operand, shiftAmount=badSource shiftAmount, ccRef=ccRef} :: code, context)
+                pushRegisters(rest,
+                    destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef} ::
+                        shiftCode @ opCode @ code, newContext)
             end
 
         |   pushRegisters(Multiplication{resultReg, operand1, operand2, ccRef} :: rest, code, context) =
@@ -2689,6 +2823,34 @@ struct
     
         |   pushRegisters(SSE2FPArith{opc, resultReg, arg1, arg2} :: rest, code, context) =
                 pushRegisters(rest, SSE2FPArith{opc=opc, resultReg=badDest resultReg, arg1=badSource arg1, arg2=badSource arg2} :: code, context)
+        
+        and skipToLabel([], code) = code
+
+        |   skipToLabel(ForwardJumpLabel{label as ILabel lab, ...} :: rest, code) =
+            (* Label after unconditional transfer.  No need to merge the states. *)
+            (
+                (* Look at the state.  We may never have branched to this label.  This sometimes
+                   happens with andalso/orelse.  In that case just continue. *)
+                case Array.sub(labelState, lab) of
+                    NONE => skipToLabel(rest, code)
+                |   SOME state => pushRegisters(rest, ForwardJumpLabel{label=label, result=NONE} :: code, state)
+            )
+        
+        |   skipToLabel(BeginHandler{handleStart, packetReg, ...} :: rest, code) =
+                (* A handler should only ever occur after an unconditional transfer. *)
+                (*pushRegisters(rest, BeginHandler{handleStart=handleStart, packetReg=badDest packetReg, workReg=badDest workReg} :: code, context) *)
+                raise TooHard OtherReason
+        
+        |   skipToLabel(EndLoop{loopLabel} :: rest, code) =
+                (* Normally we will have at least one branch that exits the loop
+                   but it could be that the loop is exited by raising an exception.
+                   This may be needed if we have to pop loop state. *)
+                skipToLabel(rest, EndLoop{loopLabel=loopLabel} :: code)
+
+            (* Any other Exited conditions. Skip the instructions.  There are various situations where this
+               can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
+               until it eventually exits by calling a "stop" function. *)
+        |   skipToLabel(_ :: rest, code) = skipToLabel(rest, code)
 
         val pushedCode = pushRegisters(code, [], emptyContext)
         val resultCode = List.rev pushedCode
@@ -3465,16 +3627,12 @@ struct
         |   codeExtended(ArithmeticFunction _ :: _, _) =
                 raise InternalError "codeExtended - ArithmeticFunction"
 
-        |   codeExtended(TestTagBit{arg as RegisterArgument _, ccRef} :: rest, context) =
+        |   codeExtended(TestTagBit{arg, ccRef} :: rest, context) =
             let
-                (* We currently only handle register arguments but testing a memory
-                   operand is perfectly possible. *)
                 val code = codeExtended(rest, context)
             in
                 TestTagBit{ arg=codeExtArgGeneral arg, ccRef=ccRef } :: code
             end
-
-        |   codeExtended(TestTagBit _ :: _, _) = raise InternalError "codeExtended - TestTagBit"
 
         |   codeExtended(PushValue {arg} :: rest, context) =
             let
@@ -3791,11 +3949,10 @@ struct
                     printStream "\n"
                 )
                 
-                fun printRegData(i, { conflicts, realConflicts=_, active, defs, refs, pushState }) =
+                fun printRegData(i, { conflicts, realConflicts=_, defs, refs, pushState }) =
                 (
                     printStream (Int.toString i ^ "\t");
                     printStream ("Conflicts="); printRegs(conflicts, 20);
-                    printStream (" Active=" ^ Int.toString active);
                     printStream (" Rfs=" ^ Int.toString refs);
                     printStream (" Defs=" ^ Int.toString defs);
                     case pushState of

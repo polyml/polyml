@@ -2631,6 +2631,12 @@ struct
                 cgOp remainder
             )
 
+        |   cgOp(PushToStack(MemoryArg{base, offset, index}) :: remainder) =
+            (
+                genOpIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false), code);
+                cgOp remainder
+            )
+
         |   cgOp(PushToStack(NonAddressConstArg constnt) :: remainder) = 
             (
                 if is8BitL constnt
@@ -2655,9 +2661,6 @@ struct
 		        );
                 cgOp remainder
             )
-            
-        |   cgOp(PushToStack _ :: _) =
-                raise InternalError "cgOp: PushToStack"
 
         |   cgOp(PopR reg :: remainder) = (genPushPop(POP_R, reg, code); cgOp remainder)
 

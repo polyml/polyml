@@ -1274,26 +1274,29 @@ struct
 
         |   codeToICode(BICCond(test, thenPt, elsePt), context, isTail, destination) =
             let
-                val target = asTarget destination
+                (* Because we may push the result onto the stack we have to create a new preg to
+                   hold the result and then copy that to the final result. *)
                 (* If this is a tail each arm will exit separately and neither will return a result. *)
-                val (thenTarget, elseTarget) =
-                    if isTail
-                    then (newPReg(), newPReg())
-                    else (target, target)
+                val target = asTarget destination
+                val condResult = newPReg()
+                val thenTarget = if isTail then newPReg() else condResult
                 val startElse = newLabel()
                 val testCode = codeCondition(test, context, false, startElse)
                 (* Put the result in the target register. *)
                 val (thenCode, _, thenExited) = codeToICode(thenPt, context, isTail, SpecificPReg thenTarget)
                 (* Add a jump round the else-part except that if this is a tail we
                    return.  The then-part could have exited e.g. with a raise or a loop. *)
-                val (exitThen, thenLabel) =
-                    if thenExited then ([], [])
-                    else if isTail then (returnInstruction(context, thenTarget), [])
+                val (exitThen, thenLabel, elseTarget) =
+                    if thenExited then ([], [], target (* Can use original target. *))
+                    else if isTail then (returnInstruction(context, thenTarget), [], newPReg())
                     else
                     let
                         val skipElse = newLabel()
                     in
-                        ([UnconditionalForwardJump{label=skipElse}], [ForwardJumpLabel{label=skipElse, result=SOME target}])
+                        ([UnconditionalForwardJump{label=skipElse}],
+                         [ForwardJumpLabel{label=skipElse, result=SOME condResult},
+                          LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord}],
+                         condResult)
                     end
                 val (elseCode, _, elseExited) = codeToICode(elsePt, context, isTail, SpecificPReg elseTarget)
                 (* Add a return to the else-part if necessary so we will always exit on a tail. *)
@@ -1307,7 +1310,9 @@ struct
        
         |   codeToICode(BICCase { cases, test, caseType, default}, context, isTail, destination) =
             let
-                val target = asTarget destination
+                (* We have to create a new preg for the result in case we need to push
+                   it to the stack. *)
+                val targetReg = newPReg()
                 (* Sort the cases into ascending order.  It's possible that we may have
                    duplicates if this came from an if-then-else construction so we
                    need to retain the ordering for items with the same case label. *)
@@ -1400,7 +1405,7 @@ struct
                    TODO: This could be replaced by "returns" if we're at the tail. *)
                 fun codeCases ((startLabel, SOME c, _) :: otherCases) =
                     let
-                        val caseTarget = if isTail then newPReg() else target
+                        val caseTarget = if isTail then newPReg() else targetReg
                         (* Put in the case with a jump to the end of the sequence. *)
                         val (codeThisCase, _, caseExited) = codeToICode(c, context, isTail, SpecificPReg caseTarget)
                         val (exitThisCase, exitLabel) =
@@ -1411,7 +1416,7 @@ struct
                                 val exitLabel = newLabel()
                             in
                                 ([UnconditionalForwardJump{label=exitLabel}],
-                                 [ForwardJumpLabel{label=exitLabel, result=SOME target}])
+                                 [ForwardJumpLabel{label=exitLabel, result=SOME targetReg}])
                             end
                         val codeRest = codeCases otherCases
                     in
@@ -1430,7 +1435,7 @@ struct
                         fun asForward l = ForwardJumpLabel{label=l, result=NONE}
                         val dLabs = map asForward extraDefaults
                         val defLabels = List.foldl addDefault dLabs fullCaseRange
-                        val defaultTarget = if isTail then newPReg() else target
+                        val defaultTarget = if isTail then newPReg() else targetReg
                         val (defaultCode, _, defaultExited) =
                             codeToICode(default, context, isTail, SpecificPReg defaultTarget)
                     in
@@ -1445,9 +1450,15 @@ struct
                 val codedCases = codeCases fullCaseRange
 
                 val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
+                (* We can now copy to the target.  If we need to push the result this load
+                   will be converted into a push. *)
+                val target = asTarget destination
+                val copyToTarget =
+                    if isTail then []
+                    else [LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord}]
             in
                 (testCode @ rangeChecks @ [IndexedCaseOperation{testReg=testReg, workReg=workReg,
-                                        cases=codeLabels, startValue=min}] @ codedCases,
+                                        cases=codeLabels, startValue=min}] @ codedCases @ copyToTarget,
                  RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
         
@@ -1503,9 +1514,11 @@ struct
 
         |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination) =
             let
-                val target = asTarget destination
+                (* As with BICCond and BICCase we need to create a new register for the
+                   result in case we need to push it to the stack. *)
+                val handleResult = newPReg()
                 val (bodyTarget, handlerTarget) =
-                    if isTail then (newPReg(), newPReg()) else (target, target)
+                    if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
                 (* TODO: Even if we don't actually want a result we force one in here by
                    using "asTarget".  *)
                 (* The expression cannot be treated as a tail because the handler has
@@ -1527,6 +1540,7 @@ struct
                    handled code with returns.  If the handler has exited we don't need
                    a return there.  Otherwise we need to add an unconditional jump to
                    skip the handler. *)
+                val target = asTarget destination
                 val (atExpEnd, afterHandler) =
                     if isTail
                     then
@@ -1542,7 +1556,8 @@ struct
                         (if expExit then []
                          else [PopExceptionHandler{handlerAddr=saveHandle, resultReg=SOME bodyTarget, workReg=newPReg()}, 
                                UnconditionalForwardJump{label=skipHandler}],
-                         [ForwardJumpLabel{label=skipHandler, result=SOME target}])
+                         [ForwardJumpLabel{label=skipHandler, result=SOME handleResult},
+                          LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord}])
                     end
             in
                 (PushExceptionHandler{handlerAddr=saveHandle, handleStart=handlerLab} :: expCode @ atExpEnd @
