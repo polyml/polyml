@@ -3707,7 +3707,7 @@ struct
 
         |   codeExtended(ArithmeticFunction{oper, resultReg=PReg(resReg, _), operand1=RegisterArgument(PReg(op1Reg, _)),
                                             operand2, ccRef} :: rest, context) =
-            (* Arithemtic operation with the first argument in a register and the second a constant or memory location. *)
+            (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
                 val () = addFriends (resReg, op1Reg)
                 val code = codeExtended(rest, context)
@@ -3715,6 +3715,9 @@ struct
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
                 val op2Arg = codeExtArgGeneral operand2
                 (* If we couldn't put it in the result register we have to copy it there. *)
+                (* TODO: Is there the potential for a problem?  We don't worry about a conflict
+                   between the result register and the arguments.  What if the second argument is a memory
+                   location with the result reg as a base or index? *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
                     (ArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArgument realDestReg, operand2=op2Arg, ccRef=ccRef} :: code)

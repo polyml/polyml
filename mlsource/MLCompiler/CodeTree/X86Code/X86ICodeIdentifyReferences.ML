@@ -714,6 +714,20 @@ struct
                 (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet sRegs)
             end
 
+        |   identify((instr as ArithmeticFunction{oper=SUB, resultReg, operand1, operand2, ccRef, ...}) :: rest, labels, loopLabels, loopNest, _) =
+            let
+                (* Special case for SUB - we can't use the same register for the result as we do for the second argument
+                   so we have to make a conflict between them. *)
+                val (instrs, refLabels, resLoopLabels, ccUsed, newActive, _) =
+                    addSourcesAndDestsExt(instr, rest, labels, loopLabels, loopNest, CCState ccRef,
+                        sourceRegs operand1, sourceRegs operand2, [destReg resultReg])
+            in
+                (instrs, refLabels, resLoopLabels, ccUsed, newActive)
+            end
+
+            (* Other arithmetic operations - we can do them either way round but we may have to move an argument into the result
+               reg before we do the operation.  That could overwrite a value if the other argument is using the register as
+               a memory base.  If it's actually holding the argument we'd use it.  Leave this as a known problem. *)
         |   identify((instr as ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) :: rest, labels, loopLabels, loopNest, _) =
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, CCState ccRef, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg])
 
