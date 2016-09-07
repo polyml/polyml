@@ -3105,6 +3105,7 @@ struct
                 val oper = SSE2Ops opc
             in
                 doPending (code, maxInstrSize);
+                genPrefix(oper, code);
                 (* We don't currently need a REX byte but if we did it would be sandwiched in here. *)
                 genEscape(oper, code);
                 gen8u(opToInt oper, code);

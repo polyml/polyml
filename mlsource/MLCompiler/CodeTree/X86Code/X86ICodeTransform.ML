@@ -242,6 +242,25 @@ struct
             ({valueStack=valueStack, ccState=ccState, untaggedRegs={ureg=iReg, reg=GenReg newReg}::untaggedRegs}, (GenReg newReg))
         end
 
+        local
+            open RunCall
+            val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
+            fun makeRealConst l =
+            let
+                val r = allocateByteMemory(0wx8 div bytesPerWord, F_mutable_bytes)
+                fun setBytes([], _) = ()
+                |   setBytes(hd::tl, n) = (storeByte(r, n, hd); setBytes(tl, n+0wx1))
+                val () = setBytes(l, 0w0)
+                val () = clearMutableBit r
+            in
+                r
+            end
+        in
+            (* These are floating point constants used to change and mask the sign bit. *)
+            val realSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx80]
+            and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
+        end
+
         (* Process the code until the end.  The code list is built up in reverse order. *)
         (* If we reach the end we haven't exited or reached a JumpLoop so we just return the
            final state. *)
@@ -766,6 +785,16 @@ struct
             in
                 codeICode{icode=rest, state=NormalState(addRaxToState(pushedState, destReg)),
                     code=load @ pushCode @ code, context=context}
+            end
+
+        |   codeICode{
+                icode=LoadArgument{ source=AddressConstant _, dest=PReg _, kind=MoveDouble} :: rest,
+                state=NormalState state, code, context} =
+            let
+                (* This is just used for abs and ~ for reals. Handle that later. *)
+            in
+                codeICode{icode=rest, state=NormalState state,
+                    code=code, context=context}
             end
 
             (* Store a pseudo-register in a memory location. *)
@@ -2054,7 +2083,7 @@ struct
                 icode=SSE2FPArith{
                         opc, resultReg,
                         arg1=RegisterArgument arg1Reg,
-                        arg2=AddressConstant a} :: rest,
+                        arg2=RegisterArgument _} :: rest,
                       state=NormalState state, code, context=context} =
             let
                 (* This is used for the logical operations to invert or mask the sign bit.
@@ -2065,13 +2094,18 @@ struct
                 val destReg = uRegNum resultReg
                 val resultState =
                     {valueStack= #valueStack state, ccState=CCIndeterminate, untaggedRegs=[{ureg=destReg, reg=srcReg}]}
+                val addrConstant =
+                    case opc of
+                        SSE2Xor => realSignBit
+                    |   SSE2And => realAbsMask
+                    |   _ => raise InternalError "codeICode - SSE2FPArith"
             in
                 codeICode{icode=rest, state=NormalState resultState,
                           code=
                             SSE2FPArith{
                                 opc=opc, resultReg=srcReg, arg1=RegisterArgument srcReg,
                                 arg2=RegisterArgument floatingPointReg1} ::
-                            LoadArgument{source=AddressConstant a, dest=floatingPointReg1, kind=MoveDouble} ::
+                            LoadArgument{source=AddressConstant addrConstant, dest=floatingPointReg1, kind=MoveDouble} ::
                             code,
                           context=context}
             end

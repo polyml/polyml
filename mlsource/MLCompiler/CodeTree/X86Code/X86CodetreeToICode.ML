@@ -643,7 +643,7 @@ struct
         |   codeToICode(BICUnary{oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg()
+                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
                 (* The SSE2 code uses an SSE2 logical operation to flip the sign bit.  This
                    requires the values to be loaded into registers first because the logical
                    operations require 128-bit operands. *)
@@ -651,27 +651,29 @@ struct
                 val code =
                     case fpMode of
                         FPModeX87 =>
-                            X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc}
+                            [X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc}]
                     |   FPModeSSE2 =>
-                            SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=AddressConstant realSignBit}
+                            [LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble},
+                             SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg}]
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [load, code, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load] @ code @ [BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg()
+                val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
                 val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
                 val code =
                     case fpMode of
-                        FPModeX87 => X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc}
+                        FPModeX87 => [X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc}]
                     |   FPModeSSE2 =>
-                            SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=AddressConstant realAbsMask}
+                            [LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble},
+                            SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg}]
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [load, code, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load] @ code @ [BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =

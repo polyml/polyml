@@ -1225,6 +1225,14 @@ struct
                     opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArgument(XMMReg xmmArgReg), arg2 } :: rest, code) =
             let
                 val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
+                (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
+                val _ =
+                    case (opc, arg2) of
+                        (SSE2Xor, RegisterArgument _) => ()
+                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                    |   (SSE2And, RegisterArgument _) => ()
+                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                    |   _ => ()
             in
                 codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
             end
