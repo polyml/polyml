@@ -65,35 +65,42 @@ struct
                 if a = b
                 then
                 let
-                    val tail = mergeLists(tlA, tlB)
+                    val (tail, tailEq) = mergeLists(tlA, tlB)
                 in
                     if PolyML.pointerEq(tlA, tail)
-                    then listA
+                    then (listA, tailEq)
                     else if PolyML.pointerEq(tlB, tail)
-                    then listB
-                    else a :: tail
+                    then (listB, tailEq)
+                    else (a :: tail, false)
                 end
                 else if a < b
                 then
                 let
-                    val tail = mergeLists(tlA, listB)
+                    val (tail, tailEq) = mergeLists(tlA, listB)
                 in
-                    if PolyML.pointerEq(tail, tlA)
-                    then listA
-                    else a :: tail
+                    if PolyML.pointerEq(tail, tlA) orelse tailEq
+                    then (listA, false)
+                    else (a :: tail, false)
                 end
                 else
                 let
-                    val tail = mergeLists(listA, tlB)
+                    val (tail, tailEq) = mergeLists(listA, tlB)
                 in
-                    if PolyML.pointerEq(tail, tlB)
-                    then listB
-                    else b :: tail
+                    if PolyML.pointerEq(tail, tlB) orelse tailEq
+                    then (listB, false)
+                    else (b :: tail, false)
                 end
-            |   mergeLists([], b) = b
-            |   mergeLists(a, []) = a
+            |   mergeLists([], []) = ([], true)
+            |   mergeLists([], b) = (b, false)
+            |   mergeLists(a, []) = (a, false)
+            
         in
-            fun union(IntSet setA, IntSet setB) = IntSet(mergeLists(setA, setB))
+            fun union(IntSet setA, IntSet setB) =
+            let
+                val (result, _) = mergeLists(setA, setB)
+            in
+                IntSet result
+            end
         end
 
         local
