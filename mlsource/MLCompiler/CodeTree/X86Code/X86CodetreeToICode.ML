@@ -133,12 +133,11 @@ struct
     
         fun checkOverflow (ccRef, _ (* No longer used *)) =
         let
-            val label = newLabel() and excReg = newPReg()
+            val label = newLabel()
         in
             [
                 ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
-                LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=excReg, kind=MoveWord},
-                RaiseExceptionPacket{packet=excReg},
+                RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))},
                 ForwardJumpLabel{ label=label, result=NONE }
             ]
         end
@@ -270,13 +269,8 @@ struct
                                 if n = sizeClosure
                                 then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]}]
                                 else
-                                let
-                                    val d = newPReg()
-                                in
-                                    LoadArgument{source=IntegerConstant(tag 0), dest=d, kind=MoveWord} ::
-                                        (clear (n+1) @
-                                            [StoreArgument{source=RegisterArgument d, base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
-                                end
+                                    (clear (n+1) @
+                                        [StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
                         in
                             c @ clear 0 @ [InitialisationComplete{dest=dest}]
                         end
@@ -295,11 +289,10 @@ struct
                             fun loadFields([], _) = [LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord}]
                             |   loadFields(f :: rest, n) =
                                 let
-                                    val fReg = newPReg()
-                                    val code = codeToICodeTarget(f, context, false, fReg)
+                                    val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
                                     val restAndAlloc = loadFields(rest, n+1)
                                     val storeValue =
-                                        [StoreArgument{ source=RegisterArgument fReg, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
+                                        [StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
@@ -1509,9 +1502,9 @@ struct
 
         |   codeToICode(BICRaise exc, context, _, destination) =
             let
-                val excReg = newPReg()
+                val (code, dest, _) = codeToICode(exc, context, false, Allowed allowDefer)
             in
-                (codeToICodeTarget(exc, context, false, excReg) @ [RaiseExceptionPacket{packet=excReg}], RegisterArgument(asTarget destination), true (* Always exits *))
+                (code @ [RaiseExceptionPacket{packet=dest}], RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
         |   codeToICode(BICHandle {exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination) =
@@ -1568,19 +1561,22 @@ struct
 
         |   codeToICode(BICTuple fields, context, _, destination) =
             let
-                (* We want the result address to be on the top of the stack when we've
-                   finished.  Allocate the memory to a new register and copy it over to
-                   the target when we've finished. *)
+                (* TODO: This is a relic of the old fall-back code-generator.  It required
+                   the result of a tuple to be at the top of the stack.  It should be changed. *)
                 val memAddr = newPReg()
                 fun loadFields([], n) =
                         [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}]
                 |   loadFields(f :: rest, n) =
                     let
-                        val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
+                        (* Defer the evaluation if possible.  We may have a constant that we can't move
+                           directly but it's better to load it after the allocation otherwise we will
+                           have to push the register if we need to GC. *)
+                        val (code1, source1, _) = codeToICode(f, context, false, Allowed allowDefer)
                         val restAndAlloc = loadFields(rest, n+1)
+                        val (code2, source, _)  = moveIfNotAllowed(Allowed allowInMemMove, [], source1)
                         val storeValue = [StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}]
                     in
-                        code @ restAndAlloc @ storeValue
+                        code1 @ restAndAlloc @ code2 @ storeValue
                     end
                 val code = loadFields(fields, 0) @ [InitialisationComplete{dest=memAddr}]
             in
@@ -2216,8 +2212,8 @@ struct
             (* General case.  Load the value into a register and compare it with 1 (true) *)
         |   codeCondition(condition, context, jumpOn, jumpLabel) =
             let
-                val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICodeTarget(condition, context, false, testReg)
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPReg(condition, context)
             in
                 testCode @
                     [WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef},
@@ -2235,37 +2231,35 @@ struct
         and codeAddress({base, index=SOME index, offset}, true (* byte move *), context) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
-                val baseReg = newPReg() and indexReg = newPReg() and indexReg1 = newUReg()
-                val codeValues =
-                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val indexReg1 = newUReg()
+                val (codeBase, baseReg) = codeToPReg(base, context)
+                and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode = [UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
                 val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
-                (codeValues, untagCode, memResult)
+                (codeBase @ codeIndex, untagCode, memResult)
             end
 
         |   codeAddress({base, index=SOME index, offset}, false (* word move *), context) =
             let
                 (* Word address with index.  We can avoid untagging the index by adjusting the
                    multiplier and offset *) 
-                val baseReg = newPReg() and indexReg = newPReg()
-                val codeValues =
-                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val (codeBase, baseReg) = codeToPReg(base, context)
+                and (codeIndex, indexReg) = codeToPReg(index, context)
                 val memResult =
                     if isX64
                     then {base=baseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg}
                     else {base=baseReg, offset=Word.toInt offset-2, index=MemIndex2 indexReg}
             in
-                (codeValues, [], memResult)
+                (codeBase @ codeIndex, [], memResult)
             end
 
         |   codeAddress({base, index=NONE, offset}, _, context) =
             let
-                val baseReg = newPReg()
-                val codeValues = codeToICodeTarget(base, context, false, baseReg)
+                val (codeBase, baseReg) = codeToPReg(base, context)
                 val memResult = {offset=Word.toInt offset, base=baseReg, index=NoMemIndex}
             in
-                (codeValues, [], memResult)
+                (codeBase, [], memResult)
             end
 
         (* C-memory operations are slightly different.  The base address is a LargeWord.word value.
@@ -2273,24 +2267,24 @@ struct
         and codeCAddress({base, index=SOME index, offset}, 0w1, context) =
             let
                 (* Byte address with index.  The index needs to be untagged. *)
-                val baseReg = newPReg() and untaggedBaseReg = newUReg() and indexReg = newPReg() and indexReg1 = newUReg()
-                val codeValues =
-                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val untaggedBaseReg = newUReg() and indexReg1 = newUReg()
+                val (codeBase, baseReg) = codeToPReg(base, context)
+                and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode =
                     [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord},
                      UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
-                (codeValues, untagCode, memResult)
+                (codeBase @ codeIndex, untagCode, memResult)
             end
 
         |   codeCAddress({base, index=SOME index, offset}, size, context) =
             let
                 (* Non-byte address with index.  By using an appropriate multiplier we can avoid
                    having to untag the index. *)
-                val baseReg = newPReg() and untaggedBaseReg = newUReg() and indexReg = newPReg()
-                val codeValues =
-                    codeToICodeTarget(base, context, false, baseReg) @ codeToICodeTarget(index, context, false, indexReg)
+                val untaggedBaseReg = newUReg()
+                val (codeBase, baseReg) = codeToPReg(base, context)
+                and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
                 val memResult =
                     case size of
@@ -2299,17 +2293,17 @@ struct
                     |   0w8 => {base=untaggedBaseReg, offset=Word.toInt offset-4, index=MemIndex4 indexReg}
                     |   _ => raise InternalError "codeCAddress: unknown size"
             in
-                (codeValues, untagCode, memResult)
+                (codeBase @ codeIndex, untagCode, memResult)
             end
 
         |   codeCAddress({base, index=NONE, offset}, _, context) =
             let
-                val baseReg = newPReg() and untaggedBaseReg = newUReg()
-                val codeValues = codeToICodeTarget(base, context, false, baseReg)
+                val untaggedBaseReg = newUReg()
+                val (codeBase, baseReg) = codeToPReg(base, context)
                 val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
                 val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex}
             in
-                (codeValues, untagCode, memResult)
+                (codeBase, untagCode, memResult)
             end
 
         (* Return an untagged value.  If we have a constant just return it.  Otherwise
@@ -2327,9 +2321,9 @@ struct
             end
         |   codeAsUntaggedToReg(arg, isSigned, context) =
             let
-                val argReg = newPReg() and untagReg = newUReg()
-                val code = codeToICodeTarget(arg, context, false, argReg)
-                val untag = [UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned}]
+                val untagReg = newUReg()
+                val (code, srcReg) = codeToPReg(arg, context)
+                val untag = [UntagValue{source=RegisterArgument srcReg, dest=untagReg, isSigned=isSigned}]
             in
                 (code, untag, untagReg)
             end
@@ -2395,7 +2389,7 @@ struct
       
         open ICODETRANSFORM
         
-        (*val () = if !pregCounter > 300 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()*)
+        val () = if !pregCounter > 1000 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()
     in
         codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,

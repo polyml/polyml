@@ -171,7 +171,7 @@ sig
             { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
-    |   RaiseExceptionPacket of { packet: 'reg }
+    |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: 'reg }

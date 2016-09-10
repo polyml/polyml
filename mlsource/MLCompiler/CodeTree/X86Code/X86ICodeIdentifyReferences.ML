@@ -533,12 +533,12 @@ struct
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
-                val sReg = sourceReg packet
+                val sReg = sourceRegs packet
                 (* This is an unconditional exit.  The only active register is
                    the exception packet. *)
                 val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
             in
-                (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet [sReg])
+                (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet sReg)
             end
 
         |   identify((instr as ReserveContainer{address, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =

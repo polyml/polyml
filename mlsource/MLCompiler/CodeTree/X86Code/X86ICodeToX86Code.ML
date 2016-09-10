@@ -147,7 +147,7 @@ struct
     |   JumpLoop of { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
-    |   RaiseExceptionPacket of { packet: 'reg }
+    |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, address: 'reg }
@@ -409,7 +409,7 @@ struct
                 stream "adj="; stream(Int.toString stackAdjust)
             )
 
-        |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printReg(packet, stream))
+        |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
 
         |   printICode(ReserveContainer{size, address}, stream, printReg) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printReg(address, stream))

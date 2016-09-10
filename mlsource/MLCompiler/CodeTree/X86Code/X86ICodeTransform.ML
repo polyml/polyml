@@ -1385,9 +1385,9 @@ struct
         |   codeICode{icode=RaiseExceptionPacket{packet} :: rest, state=NormalState state, code, context} =
             let
                 val (pushedState, pushCode) = pushRax state
-                val load = loadSource(RegisterArgument packet, eax, pushedState)
+                val load = loadSource(packet, eax, pushedState)
             in
-                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=raxAsArg } :: load @ pushCode @ code, context=context}
+                codeICode{icode=rest, state=Exited, code=RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: load @ pushCode @ code, context=context}
             end
 
             (* Reserve a contiguous area of memory on the stack.  This is used to receive the
@@ -2613,7 +2613,7 @@ struct
 
         |   pushRegisters(RaiseExceptionPacket{packet} :: rest, code, context) =
             let
-                val (packetVal, packetCode) = mapSrcReg(packet, context)
+                val (packetVal, packetCode) = mapSource(packet, context)
             in
                 skipToLabel(rest, RaiseExceptionPacket{packet=packetVal} :: packetCode @ code)
             end
@@ -2832,10 +2832,11 @@ struct
         |   pushRegisters(UntagValue{source, dest, isSigned} :: rest, code, context) =
             let
                 val (sourceVal, sourceCode) = mapSource(source, context)
+                val (loadedSource, loadCode) = loadStack sourceVal
                 val (destVal, destCode, newContext) = mapDestReg(dest, context)
             in
                 pushRegisters(rest,
-                    destCode @ UntagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code, newContext)
+                    destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: loadCode @ sourceCode @ code, newContext)
             end
 
         |   pushRegisters(LoadEffectiveAddress{base, offset, index, dest} :: rest, code, context) =
@@ -3594,7 +3595,7 @@ struct
                     (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0} :: code)
             end
 
-        |   codeExtended(RaiseExceptionPacket{ packet=PReg(preg, _) } :: rest, context) =
+        |   codeExtended(RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) } :: rest, context) =
             let
                 val () = addRealHint(preg, GenReg eax)
                 val code = codeExtended(rest, context)
@@ -3602,7 +3603,16 @@ struct
                 val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
             in
                 moveIfNecessary{src=argReg, dst=raxAsArg} @
-                    RaiseExceptionPacket {packet= raxAsArg } :: code
+                    RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: code
+            end
+
+        |   codeExtended(RaiseExceptionPacket{ packet } :: rest, context) =
+            let
+                (* Because we're exiting we don't have to worry about conflicts - just load it. *)
+                val code = codeExtended(rest, context)
+            in
+                LoadArgument{source=codeExtArgument(packet, generalRegisters), dest=raxAsArg, kind=MoveWord} ::
+                    RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: code
             end
 
         |   codeExtended(ReserveContainer{size, address=PReg(aReg, _)} :: rest, context) =
@@ -3808,7 +3818,7 @@ struct
             end
 
         |   codeExtended(UntagValue{source=RegisterArgument(PReg(sReg, _)), dest=PReg(dReg, _), isSigned} :: rest, context) =
-            (* Always generates register argument at the moment. *)
+            (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
             let
                 val () = addFriends (sReg, dReg)
                 val code = codeExtended(rest, context)
