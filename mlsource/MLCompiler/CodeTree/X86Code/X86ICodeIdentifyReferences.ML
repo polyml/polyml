@@ -46,8 +46,6 @@ struct
                     else if i < hd then i :: hd :: tl
                     else hd :: addItem(i, tl)
         in
-            fun addItemToList(item, IntSet toSet) = IntSet(addItem(item, toSet))
-        
             fun addToList(items, IntSet toSet) = IntSet(List.foldl(fn (d, l) => addItem(d, l)) toSet items)
             
             fun listToSet items = addToList(items, IntSet [])
@@ -159,48 +157,18 @@ struct
            result is not. *)
         datatype ccState = CCIndeterminate | CCState of ccRef
         
-        local
-            fun addAConflictTo(addTo, aConflict) =
-            let
-                val current = Array.sub(regConflicts, addTo)
-            in
-                if inSet(aConflict, current)
-                then ()
-                else Array.update(regConflicts, addTo, addItemToList(aConflict, current))
-            end
-        
+        local        
             fun addConflictsTo(aReg, conflicts) =
                 Array.update(regConflicts, aReg, union(Array.sub(regConflicts, aReg), conflicts))
-         in
-        
+        in
             (* Registers are allocated from the end back so we only need to consider conflicts
                when a register is first encountered (i.e. the last use).  We don't need to
-               add new registers to the existing set. *)
-            fun addNewConflicts(_, []) = ()
-            |   addNewConflicts(currentSet, newItem :: newItems) =
-                if inSet(newItem, currentSet)
-                then addNewConflicts(currentSet, newItems)
-                else
-                let
-                    (* This item conflicts with everything in the set. *)
-                    val () = addConflictsTo(newItem, currentSet)
-                    (* All the elements of the set conflict with this. *)
-                    val () = List.app (fn r => addAConflictTo(r, newItem)) (setToList currentSet)
-                in
-                    (* Now add this to the set for the remainder of the list. *)
-                    addNewConflicts(addItemToList(newItem, currentSet), newItems)
-                end
-           
+               add new registers to the conflict sets for registers in the currentSet. *)           
             fun addNewConflicts(currentSet, newItems) =
             let
                 (* We have to establish conflicts in both directions for new items. *)
                 val united = union(currentSet, listToSet newItems)
-                val () =
-                    List.app(fn i =>
-                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) newItems
-                (*val () =
-                    List.app(fn i =>
-                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) (setToList currentSet)*)
+                val () = List.app(fn i => addConflictsTo(i, united))  newItems
             in
                 ()
             end
@@ -209,9 +177,7 @@ struct
             let
                 val united = union(al, bl)
                 (* Each element of the set has to be set to the union. *)
-                val () =
-                    List.app(fn i =>
-                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) (setToList united)
+                val () = List.app(fn i => addConflictsTo(i, united)) (setToList united)
             in
                 united
             end
