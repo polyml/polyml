@@ -1475,7 +1475,8 @@ struct
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
                 val args = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
             in
-                (codeArgs @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @ [EndLoop {loopLabel=loopLabel}], RegisterArgument target, loopExited)
+                (codeArgs @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @
+                    [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
             end
         
         |   codeToICode(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination) =

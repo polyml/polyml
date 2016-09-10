@@ -386,7 +386,7 @@ struct
         |   codeICode{icode=BeginHandler _ :: _, ...} =
                 raise InternalError "codeICode: BeginHandler not preceded by jump or not in handler"
                 
-        |   codeICode{icode=EndLoop{loopLabel} :: rest, state, code, context={forwardLabels, loopArgs=(_, lab)::otherLoops, handlers}} =
+        |   codeICode{icode=EndLoop{loopLabel, ...} :: rest, state, code, context={forwardLabels, loopArgs=(_, lab)::otherLoops, handlers}} =
             let
                 val _ = lab = loopLabel orelse raise InternalError "codeICode: EndLoop - mismatched labels"
             in
@@ -2581,8 +2581,9 @@ struct
                     StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ code, newContext)
             end
 
-        |   pushRegisters(EndLoop{loopLabel} :: rest, code, context) =
-                pushRegisters(rest, EndLoop{loopLabel=loopLabel} :: code, context)
+        |   pushRegisters(EndLoop{loopLabel, staticRegs} :: rest, code, context) =
+                (* We don't really need to map the static regs since we'll call "Identify" again after this. *)
+                pushRegisters(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code, context)
 
         |   pushRegisters(JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, stackAdjust} :: rest, code, context as {newCount, ...}) =
             let
@@ -3005,11 +3006,10 @@ struct
                 pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
             end
         
-        |   skipToLabel(EndLoop{loopLabel} :: rest, code) =
+        |   skipToLabel(EndLoop{loopLabel, staticRegs} :: rest, code) =
                 (* Normally we will have at least one branch that exits the loop
-                   but it could be that the loop is exited by raising an exception.
-                   This may be needed if we have to pop loop state. *)
-                skipToLabel(rest, EndLoop{loopLabel=loopLabel} :: code)
+                   but it could be that the loop is exited by raising an exception. *)
+                skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
 
             (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
@@ -3579,8 +3579,16 @@ struct
                 moveMultipleValues(extRegArgs, generalRegisters) @ (StartLoop{regArgs=[], loopLabel=loopLabel} :: code)
             end
 
-        |   codeExtended(EndLoop _ :: rest, context) = (* Don't need to do anything. *)
+        |   codeExtended(EndLoop {staticRegs, ...} :: rest, context) =
+            let
+                (* staticRegs in EndLoop is a list of the registers that are used within the loop
+                   but aren't loop variables.  They have to retain their values throughout the loop
+                   and are treated as having been last used after the loop.  We have to ensure
+                   that registers are allocated for them before we enter the loop. *)
+                val () = List.app(fn PReg(r, _) => (findRegister(r, NONE, generalRegisters); ())) staticRegs
+            in
                 codeExtended(rest, context)
+            end
 
         |   codeExtended(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust} :: rest, context) =
             let

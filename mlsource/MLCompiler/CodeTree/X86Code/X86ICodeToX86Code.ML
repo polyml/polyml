@@ -139,8 +139,9 @@ struct
            The loopLabel is the start of the loop and all jumps come back to it. *)
     |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
 
-        (* End a loop.  Causes the loop stack to be popped. *)
-    |   EndLoop of { loopLabel: iLabel }
+        (* End a loop.  This is a marker that is used at the higher levels.
+           It doesn't generate any code. *)
+    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
@@ -394,7 +395,7 @@ struct
                     ) regArgs
             )
 
-        |   printICode(EndLoop{loopLabel}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
+        |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
 
         |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust }, stream, printReg) =
             (
@@ -406,7 +407,7 @@ struct
                     fn (source, stack) => (stream("sp" ^ Int.toString stack); stream "="; printArg(source, stream, printReg); stream " ")
                     ) stackArgs;
                 printLabel(loopLabel, stream);
-                stream "adj="; stream(Int.toString stackAdjust)
+                stream " adj="; stream(Int.toString stackAdjust)
             )
 
         |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))

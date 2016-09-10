@@ -171,27 +171,11 @@ struct
         
             fun addConflictsTo(aReg, conflicts) =
                 Array.update(regConflicts, aReg, union(Array.sub(regConflicts, aReg), conflicts))
-
-            (*fun verifyExisting currentSet =
-            let
-                val () =
-                    case setToList currentSet of
-                        first :: (tl as _ :: _) =>
-                        let
-                            val current = Array.sub(regConflicts, first)
-                            val _ = List.all (fn i => inSet(i, current)) tl orelse raise InternalError "verifyExisting"
-                        in
-                            ()
-                        end
-                    |   _ => ()
-            in
-                currentSet
-            end*)
-        in
+         in
         
-            (* If we have already added a set of items as conflicts within the set
-               we only need to add new items as conflicts with each item of the set
-               and the set together with the new items as conflicts with those items. *)
+            (* Registers are allocated from the end back so we only need to consider conflicts
+               when a register is first encountered (i.e. the last use).  We don't need to
+               add new registers to the existing set. *)
             fun addNewConflicts(_, []) = ()
             |   addNewConflicts(currentSet, newItem :: newItems) =
                 if inSet(newItem, currentSet)
@@ -207,7 +191,30 @@ struct
                     addNewConflicts(addItemToList(newItem, currentSet), newItems)
                 end
            
-            (*val addNewConflicts = fn (c, i) => addNewConflicts(verifyExisting c, i)*)
+            fun addNewConflicts(currentSet, newItems) =
+            let
+                (* We have to establish conflicts in both directions for new items. *)
+                val united = union(currentSet, listToSet newItems)
+                val () =
+                    List.app(fn i =>
+                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) newItems
+                (*val () =
+                    List.app(fn i =>
+                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) (setToList currentSet)*)
+            in
+                ()
+            end
+
+            fun mergeRegSets(al, bl) =
+            let
+                val united = union(al, bl)
+                (* Each element of the set has to be set to the union. *)
+                val () =
+                    List.app(fn i =>
+                        Array.update(regConflicts, i, union(united, Array.sub(regConflicts, i)))) (setToList united)
+            in
+                united
+            end
         end
         
         (* If we need to use a specific register for an argument e.g. ecx for a shift,
@@ -253,15 +260,6 @@ struct
         val removeDest = removeFromSet
         
         fun removeDests(dests, fromSet) = List.foldl (fn (d, l) => removeDest(d, l)) fromSet dests
-
-        fun mergeRegSets(al, bl) =
-        let
-            (* If we're merging register sets we have to set the conflict set to
-               the union of the sets. *)
-            val () = addNewConflicts(al, setToList bl)
-        in
-            union(al, bl)
-        end
         
         (* Add sources to the active set.  We also need to mark them as conflicts. *)
         fun addSourcesToActive(sources, existing) =
@@ -497,7 +495,7 @@ struct
                 (instr :: tail, refLabels, (loopLabel, loopRegs) :: resLoopLabels, CCIndeterminate, newNewActive)
             end
 
-        |   identify((instr as EndLoop{loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify(EndLoop{loopLabel, ...} :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 (* At the end of the loop we should have the label as the head of the list. *)
                 val _ = hd loopNest = loopLabel orelse raise InternalError "identify - loop nesting"
@@ -510,8 +508,14 @@ struct
                    loops. *)
                 val loopRegs = mergedLoopRegs(loopLabels, loopNest)
                 val () = addNewConflicts(emptySet, setToList loopRegs)
+                (* We have to pass these to the next stage.  They are treated as part of the active
+                   set in each JumpLoop.  We assume that when we come to allocate real registers
+                   anything in the active set has already been allocated (working back from the end).
+                   We have to ensure that is the case by allocating them at the EndLoop.  Then any
+                   new registers we allocate will be correctly found as conflicts. *)
+                val staticRegs = List.map (fn r => PReg(r, PRegGeneral)) (setToList loopRegs)
             in
-                (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, newActive)
+                (EndLoop{loopLabel=loopLabel, staticRegs=staticRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, newActive)
             end
 
         |   identify((instr as JumpLoop{regArgs, stackArgs, loopLabel, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -528,7 +532,8 @@ struct
                 val loopRegs = mergedLoopRegs(loopLabels, loopNest)
                 val newNewActive = addSourcesToActive(sourceAsRegs, loopRegs)
            in
-                (instr :: tail, refLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                (instr :: tail,
+                       refLabels, resLoopLabels, CCIndeterminate, newNewActive)
             end
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, labels, loopLabels, loopNest, ccIn) =
