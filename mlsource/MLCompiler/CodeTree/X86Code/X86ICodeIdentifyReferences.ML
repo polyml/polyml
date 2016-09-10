@@ -59,11 +59,37 @@ struct
         end
         
         local
-            (* If the lists are already sorted we can merge them. *)
+            (* If the lists are already sorted we can merge them.
+               This is an allocation hot-spot.  Avoid recreating the list if possible. *)
             fun mergeLists(listA as a::tlA, listB as b::tlB) =
-                if a = b then a :: mergeLists(tlA, tlB)
-                else if a < b then a :: mergeLists(tlA, listB)
-                else b :: mergeLists(listA, tlB)
+                if a = b
+                then
+                let
+                    val tail = mergeLists(tlA, tlB)
+                in
+                    if PolyML.pointerEq(tlA, tail)
+                    then listA
+                    else if PolyML.pointerEq(tlB, tail)
+                    then listB
+                    else a :: tail
+                end
+                else if a < b
+                then
+                let
+                    val tail = mergeLists(tlA, listB)
+                in
+                    if PolyML.pointerEq(tail, tlA)
+                    then listA
+                    else a :: tail
+                end
+                else
+                let
+                    val tail = mergeLists(listA, tlB)
+                in
+                    if PolyML.pointerEq(tail, tlB)
+                    then listB
+                    else b :: tail
+                end
             |   mergeLists([], b) = b
             |   mergeLists(a, []) = a
         in
