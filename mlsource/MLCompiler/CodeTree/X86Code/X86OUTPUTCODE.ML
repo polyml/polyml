@@ -3671,7 +3671,7 @@ struct
                     print "mov \t";
                     printEA(rex, SZByte);
                     print ",";
-                    if rexX
+                    if rexR
                     then print ("r" ^ Int.toString(reg+8) ^ "B")
                     else case reg of
                         0 => print "al"
