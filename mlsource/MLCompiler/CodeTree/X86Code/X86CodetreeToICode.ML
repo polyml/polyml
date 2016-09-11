@@ -1748,6 +1748,7 @@ struct
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
+                (* TODO: We can store constants directly.  This has problems with the back-up code generator. *)
                 val valueReg = newPReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 val code =
@@ -1757,6 +1758,20 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
+            (* Comment this next bit out.  It doesn't work with the back-up code-generator. *)
+(*
+        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value=BICConstnt(constByte, _)}, context, _, destination) =
+            let
+                val valueToStore = if isShort constByte then toShort constByte else 0w0
+                (* Storing a constant. *)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, true, context)
+                val code =
+                    codeBaseIndex @ codeUntag @
+                    [StoreArgument {source=IntegerConstant(Word.toLargeInt valueToStore), base=base, offset=offset, index=index, kind=MoveByte}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+*)
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
