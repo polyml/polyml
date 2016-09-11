@@ -3431,7 +3431,6 @@ struct
         
             val rexW = (rex andb8 0wx8) <> 0w0
             val rexR = (rex andb8 0wx4) <> 0w0
-            val rexX = (rex andb8 0wx2) <> 0w0
             val rexB = (rex andb8 0wx1) <> 0w0
 
             val opByte = get8u (!ptr, seg) before ptr +:= 0w1

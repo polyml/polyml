@@ -23,12 +23,12 @@ sig
 
     type regState =
     { 
-        defs: int, refs: int, pushState: pushState,
+        active: int, defs: int, refs: int, pushState: pushState,
         conflicts: int list, realConflicts: reg list
     }
     
     val identifyRegisters:
-        {icode: abstract x86ICode list, maxPRegs: int} -> abstract x86ICode list * regState vector
+        {icode: abstract x86ICode list, maxPRegs: int} -> (abstract x86ICode * int list) list * regState vector
 
     structure Sharing:
     sig

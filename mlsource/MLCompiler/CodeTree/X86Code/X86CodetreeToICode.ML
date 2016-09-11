@@ -2404,8 +2404,6 @@ struct
         val icode = beginInstruction :: bodyCode @ (if bodyExited then [] else returnInstruction(bodyContext, resultTarget))
       
         open ICODETRANSFORM
-        
-        val () = if !pregCounter > 1000 then print("Maxpregs=" ^ Int.toString(!pregCounter) ^ " in " ^ name ^ "\n") else ()
     in
         codeICodeFunctionToX86{icode = icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,

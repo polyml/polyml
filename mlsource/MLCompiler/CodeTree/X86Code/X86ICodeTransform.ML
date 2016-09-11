@@ -2190,7 +2190,7 @@ struct
        
     exception TooHard of tooHardReason
 
-    fun addRegisterPushes(code, regStates, maxPRegs, maxLabels) =
+    fun addRegisterPushes(code, pushVec: bool vector, maxPRegs, maxLabels) =
     let
         val reportSuccess = ref false
         val labelCounter = ref maxLabels
@@ -2262,10 +2262,9 @@ struct
         fun mapDestReg(PReg(n, kind), context: context as {stack, oldCount, newCount}) =
         let
             val currentLocation = Array.sub(pregMap, n)
-            val {pushState, ...} = Vector.sub(regStates, n)
         in
-            case pushState of
-                MustPush =>
+            if Vector.sub(pushVec, n)
+            then
                 let
                     (* This should not have been seen before. *)
                     val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
@@ -2275,7 +2274,7 @@ struct
                 in
                     (newReg, [PushValue{arg=RegisterArgument newReg}], newContext)
                 end
-            |   _ =>
+            else
                 let
                 (* See if we already have a number for it.  We may encounter the same preg
                    as a destination when returning the result from a conditional in which
@@ -2300,8 +2299,7 @@ struct
         fun mapWorkReg(PReg(n, kind)) =
         let
             val currentLocation = Array.sub(pregMap, n)
-            val {pushState, ...} = Vector.sub(regStates, n)
-            val _ = case pushState of MustPush => raise InternalError "mapWorkReg - MustPush" | _ => ()
+            val _ = Vector.sub(pushVec, n) andalso raise InternalError "mapWorkReg - MustPush"
         in
             case currentLocation of
                 Unset =>
@@ -2384,12 +2382,11 @@ struct
             let
                 val (sourceVal, sourceCode) = mapSource(source, context)
                 (* If we have to push the value we don't have to first load it into a register. *)
-                val {pushState, ...} = Vector.sub(regStates, dReg)
                 val currentLocation = Array.sub(pregMap, dReg)
 
                 val (destCode, newContext) =
-                    case pushState of
-                        MustPush =>
+                    if Vector.sub(pushVec, dReg)
+                    then
                         let
                             val _ = case currentLocation of Unset => () | _ => raise InternalError "LoadArgument - already set"
                             val () = Array.update(pregMap, dReg, ToStack)
@@ -2397,7 +2394,7 @@ struct
                         in
                             (PushValue{arg=sourceVal}, newContext)
                         end
-                    |   _ =>
+                    else
                         let
                             val destReg =
                                 case currentLocation of
@@ -3472,8 +3469,12 @@ struct
                 (* Add the return address as an extra argument.  This is a temporary hack because codeICode doesn't
                    do it that way. *)
                 val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, dst=StackDest stack}
-                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeExtArgGeneral src}) stackArgs
-                val extRegArgs = map (fn (a, r) => {src=codeExtArgGeneral a, dst=RegDest r}) regArgs
+                (* We must leave stack entries as stack entries for the moment. *)
+                fun codeArg(StackLocation stack) = StackLocation stack
+                |   codeArg arg = codeExtArgGeneral arg
+
+                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeArg src}) stackArgs
+                val extRegArgs = map (fn (a, r) => {src=codeArg a, dst=RegDest r}) regArgs
             in
                 codeTailCall(callKind, returnEntry :: extStackArgs @ extRegArgs, stackAdjust) @ code
             end
@@ -4090,7 +4091,76 @@ struct
     in
         codeExtended(identifiedCode, [])
     end
+    
+    fun spillRegisters(instrsAndActive, regStates: regState vector, maxPRegs) =
+    let
+        val pushArray = Array.array(maxPRegs, false)
+        (* Mark anything already marked as "must push" *)
+        val () = Vector.appi(fn (i, {pushState=MustPush, ...}) => Array.update(pushArray, i, true) | _ => ()) regStates
+        val nGenRegs = List.length generalRegisters
+        (* Make a list of all the active sets ignoring those marked to be pushed.
+           Do that first because we need to know how many sets each register is in. *)
+        fun nowActive regs =
+            List.foldl (fn (r, l) => if Array.sub(pushArray, r) then l else r :: l) [] regs
+        fun getSets((_, active), l) =
+        let
+            val set = nowActive active
+        in
+            if List.length set > nGenRegs
+            then set :: l
+            else l
+        end
+        val activeSets = List.foldl getSets [] instrsAndActive
+    in
+        if null activeSets then ()
+        else
+        let
+            (* See how many times each register appears in a set. *)
+            val activeIn = Array.array(maxPRegs, 0)
+            val () =
+                List.app (fn regs => List.app(fn r => Array.update(activeIn, r, Array.sub(activeIn, r)+1)) regs) activeSets
+            (* We want to choose the best registers to spill. *)
+            fun spillSomeRegs activeSet =
+            let
+                (* We may have already marked some of these to push. *)
+                val currentActive = nowActive activeSet
+                val regCount = List.length currentActive
+                fun addCosts r =
+                let
+                    val {active, pushState, ...} = Vector.sub(regStates, r)
+                in
+                    case pushState of
+                        MustNotPush => (r, ~1, ~1)
+                    |   _ => (r, Array.sub(activeIn, r), active)
+                end
+                val withCosts = List.map addCosts currentActive
+                (* Order so that the earlier items are those that appear in more sets and
+                   if items appear in the same number of sets those that are active
+                   longer come earlier. *)
+                fun compare (_, in1, a1)  (_, in2, a2) = if in1 > in2 then true else if in1 < in2 then false else a1 > a2
+                val sorted = Misc.quickSort compare withCosts
 
+                fun markAsPush([], _) = ()
+                |   markAsPush((reg, _, _) :: regs, n) =
+                    if n <= 0
+                    then ()
+                    else
+                    let
+                        val {pushState, ...} = Vector.sub(regStates, reg)
+                        val _ = case pushState of MustNotPush => raise InternalError "markAsPush" | _ => ()
+                    in
+                        Array.update(pushArray, reg, true);
+                        markAsPush(regs, n-1)
+                    end
+            in
+                markAsPush(sorted, regCount-nGenRegs)
+            end
+        in
+            List.app spillSomeRegs activeSets
+        end;
+        (* Return the vector showing those that must be pushed. *)
+        Array.vector pushArray
+    end
 
     fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs, argRegsUsed, hasFullClosure, currentStackArgs, debugSwitches} =
     let
@@ -4114,7 +4184,7 @@ struct
                     printStream "\n"
                 )
                 
-                fun printRegData(i, { conflicts, realConflicts=_, defs, refs, pushState }) =
+                fun printRegData(i, { conflicts, defs, refs, pushState, ... }) =
                 (
                     printStream (Int.toString i ^ "\t");
                     printStream ("Conflicts="); printRegs(conflicts, 20);
@@ -4138,35 +4208,51 @@ struct
 
         val (postTransformCode, maxLabels, stackRequired) =
             let
+                fun maxActive l =
+                    List.foldl(fn ((_, a), n) => Int.max(List.length a, n)) 0 l
                 (* First pass - identify register use patterns *)
-                val (identifiedPhase1, regStatesPhase1) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+                val (idAndActivePhase1, regStatesPhase1) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
+                val identifiedPhase1 = List.map #1 idAndActivePhase1
                 val () = printCodeAndStates(identifiedPhase1, regStatesPhase1)
                 
                 (* If we have a "must-push" entry we'll have to reprocess. *)
-                val needPhase2 =
-                    Vector.exists(fn {pushState=MustPush, ...} => true | _ => false) regStatesPhase1
-                val (identifiedCode, regStates, maxLabels, maxPRegs) =
+                val regsToSpill = spillRegisters(idAndActivePhase1, regStatesPhase1, maxPRegs)
+                val needPhase2 = Vector.exists(fn t => t) regsToSpill
+                
+                val (idAndActive, identifiedCode, regStates, maxLabels, maxPRegs) =
                     if needPhase2
                     then
                     let
                         (* Push those registers we need to.  This also adds and renumbers pregs
                            and may add labels. *)
                         val (postPushCode, maxPRegsPhase2, maxLabelsPhase2, repSuccess) =
-                            addRegisterPushes(identifiedPhase1, regStatesPhase1, maxPRegs, maxLabels)
-                        val (identifiedPhase2, regStatesPhase2) =
+                            addRegisterPushes(identifiedPhase1, regsToSpill, maxPRegs, maxLabels)
+                        val (idAndActivePhase2, regStatesPhase2) =
                             identifyRegisters {icode=postPushCode, maxPRegs=maxPRegsPhase2}
+                        val identifiedPhase2 = List.map #1 idAndActivePhase2
                         val () = printCodeAndStates(identifiedPhase2, regStatesPhase2)
                         
                         val () = if repSuccess then reportSuccess := true else ()
 
                         val () = afterPush := !afterPush + 1
                     in
-                        (identifiedPhase2, regStatesPhase2, maxLabelsPhase2, maxPRegsPhase2)
+                        (idAndActivePhase2, identifiedPhase2, regStatesPhase2, maxLabelsPhase2, maxPRegsPhase2)
                     end
-                    else (identifiedPhase1, regStatesPhase1, maxLabels, maxPRegs)
+                    else (idAndActivePhase1, identifiedPhase1, regStatesPhase1, maxLabels, maxPRegs)
                 
-                val code = codeAbstractToConcrete(identifiedCode, regStates, maxPRegs)
+                val code =
+                    codeAbstractToConcrete(identifiedCode, regStates, maxPRegs)
+                        handle exn as TooHard _ =>
+                            (
+                                print(concat["---Failed ", functionName, " max=", Int.toString(maxActive idAndActive), "\n"]);
+                                raise exn
+                            )
                 val _ = if ! reportSuccess then print("-------Done " ^ functionName ^ "\n") else ()
+                val maxAc = maxActive idAndActive
+                val _ =
+                    if maxAc > List.length generalRegisters
+                    then print(concat["+++Succeeded ", functionName, " max=", Int.toString maxAc, "\n"])
+                    else ()
                 val () = successFns := !successFns + 1
             in
                 (code, maxLabels, 0)
