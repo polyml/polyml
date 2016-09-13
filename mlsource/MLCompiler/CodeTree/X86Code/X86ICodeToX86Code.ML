@@ -133,7 +133,7 @@ struct
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
-    |   InitialisationComplete of { dest: 'reg}
+    |   InitialisationComplete
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel is the start of the loop and all jumps come back to it. *)
@@ -384,7 +384,7 @@ struct
                 stream ",a="; printReg(addr, stream)
             )
 
-        |   printICode(InitialisationComplete{dest}, stream, printReg) = (stream "\tInitComplete\t"; printReg(dest, stream))
+        |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
 
         |   printICode(StartLoop{regArgs, loopLabel}, stream, printReg) =
             (
@@ -940,7 +940,7 @@ struct
                 codeGenICode(rest, RepeatOperation STOSL :: code)
             end
 
-        |   codeGenICode(InitialisationComplete _ :: rest, code) =
+        |   codeGenICode(InitialisationComplete :: rest, code) =
                 codeGenICode(rest, StoreInitialised :: code)
 
         |   codeGenICode(StartLoop {loopLabel, ...} :: rest, code) = (* Same as ForwardLabel. *)

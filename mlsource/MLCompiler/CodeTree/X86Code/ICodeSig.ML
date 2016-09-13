@@ -156,7 +156,7 @@ sig
 
         (* Signal that a tuple has been fully initialised.  Really a check in the
            low-level code-generator. *)
-    |   InitialisationComplete of { dest: 'reg}
+    |   InitialisationComplete
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel is the start of the loop and all jumps come back to it. *)

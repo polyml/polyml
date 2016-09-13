@@ -272,7 +272,7 @@ struct
                                     (clear (n+1) @
                                         [StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
                         in
-                            c @ clear 0 @ [InitialisationComplete{dest=dest}]
+                            c @ clear 0 @ [InitialisationComplete]
                         end
                     
                         val allocClosures = ListPair.foldlEq makeClosure [] (recDecs, destRegs)
@@ -1016,8 +1016,8 @@ struct
                  [AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]}] @
                   flagUntag @
                   [StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
-                  LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord},
-                  InitialisationComplete{dest=target}], RegisterArgument target, false)
+                  InitialisationComplete,
+                  LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord}], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
@@ -1196,6 +1196,7 @@ struct
             if  isShort length andalso isShort flagValue andalso toShort length = 0w1
             then
             let
+                val target = asTarget destination (* Force a different register. *)
                 val vecLength = Word.toInt(toShort length)
                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                 val memAddr = newPReg() and valueReg = newPReg()
@@ -1205,9 +1206,10 @@ struct
                     codeToICodeTarget(initial, context, false, valueReg) @
                     [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]}] @
                     List.tabulate(vecLength, initialise) @
-                    [InitialisationComplete{dest=memAddr}]
+                    [InitialisationComplete,
+                     LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord}]
             in
-                moveIfNotAllowed(destination, code, RegisterArgument memAddr)
+                (code, RegisterArgument target, false)
             end
             else (* If it's longer use the full run-time form. *)
                 allocateMemoryVariable(numWords, flags, initial, context, destination)
@@ -1564,6 +1566,7 @@ struct
             let
                 (* TODO: This is a relic of the old fall-back code-generator.  It required
                    the result of a tuple to be at the top of the stack.  It should be changed. *)
+                val target = asTarget destination (* Actually we want this. *)
                 val memAddr = newPReg()
                 fun loadFields([], n) =
                         [AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}]
@@ -1579,9 +1582,10 @@ struct
                     in
                         code1 @ restAndAlloc @ code2 @ storeValue
                     end
-                val code = loadFields(fields, 0) @ [InitialisationComplete{dest=memAddr}]
+                val code = loadFields(fields, 0) @
+                    [InitialisationComplete, LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord}]
             in
-                moveIfNotAllowed(destination, code, RegisterArgument memAddr)
+                (code, RegisterArgument target, false)
             end
  
             (* Copy the source tuple into the container.  If the source is a BICTuple we simply copy
@@ -2393,8 +2397,8 @@ struct
               UntagValue{source=RegisterArgument sizeReg2, dest=untagSizeReg, isSigned=false},
               LoadArgument{source=initResult, dest=initReg, kind=MoveWord},
               InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
-              LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord},
-              InitialisationComplete{dest=target}], RegisterArgument target, false)
+              InitialisationComplete,
+              LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord}], RegisterArgument target, false)
         end
 
 

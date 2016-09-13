@@ -307,7 +307,11 @@ struct
                destinations whether they are used or not and also sources but only
                if they need to be active until the instruction is complete.
                Sources whose last use is in this instruction are not
-               included. *)
+               included.
+               TailRecursiveCall and FunctionCall are different.  The active sets
+               there are the arguments because we need to know the sets of
+               registers that have to be loaded in order to evaluate all the
+               arguments. *)
             val active = setToList(union(currentRegs, listToSet(dests @ sourcesPost)))
             val () = List.app(fn i => incrArray(regActive, i)) active
         in
@@ -421,7 +425,7 @@ struct
                 val active = setToList(union(currentRegs, listToSet[dReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
-                ((instr, active) :: tail, refLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                ((instr, setToList newNewActive) :: tail, refLabels, resLoopLabels, CCIndeterminate, newNewActive)
             end
 
         |   identify((instr as TailRecursiveCall{regArgs, stackArgs, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -432,8 +436,9 @@ struct
                 fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
                 val regSources = List.foldl regSource [] regArgs
                 val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
+                val active = stackSources @ regSources
             in
-                ((instr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, addSourcesToActive(stackSources @ regSources, emptySet))
+                ((instr, active) :: tail, refLabels, resLoopLabels, CCIndeterminate, addSourcesToActive(active, emptySet))
             end
 
         |   identify((instr as AllocateMemoryOperation{size, flags, dest, saveRegs=_}) :: rest, labels, loopLabels, loopNest, _) =
@@ -493,7 +498,7 @@ struct
                 (instrs, refLabels, resLoopLabels, ccUsed, newActive)
             end
 
-        |   identify((instr as InitialisationComplete{...}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((instr as InitialisationComplete) :: rest, labels, loopLabels, loopNest, ccIn) =
                 (* This is just a marker.  It doesn't actually generate any code. *)
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, [], [])
 
