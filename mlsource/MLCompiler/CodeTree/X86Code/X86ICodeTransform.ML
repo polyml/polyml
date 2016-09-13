@@ -434,34 +434,47 @@ struct
 
         |   pushRegisters((StartLoop{regArgs, loopLabel}, _) :: rest, code, context) =
             let
-                fun loadArguments ([], ctxt) = ([], [], ctxt)
-                |   loadArguments ((source, dest as PReg(n, _)) :: rest, ctxt) =
+                (* Some of the loop registers may be marked to be pushed.  In that case we
+                   don't include them in the regArgs list.  We have to split the list between
+                   those that will be pushed and those that won't and process the ones that
+                   will be pushed first. *)
+                fun isAregArg (_, PReg(n, _)) = not(Vector.sub(pushVec, n))
+                val (regArgsToDo, stackArgsToDo) = List.partition isAregArg regArgs
+
+                fun loadStackArgs ([], ctxt) = ([], ctxt)
+                |   loadStackArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
                     let
                         val (sourceVal, sourceCode) = mapSource(source, ctxt)
                         val (destVal, destCode, newContext) = mapDestReg(dest, ctxt)
-                        val (codeRest, otherRegArgs, resContext) =
-                            loadArguments(rest, newContext)
+                        val (codeRest, resContext) = loadStackArgs(rest, newContext)
+                        val _ =
+                            case Array.sub(pregMap, n) of
+                                ToStack => () | _ => raise InternalError "pushRegisters - StartLoop - not stack"
                     in
-                        (* Did we push this? *)
-                        case Array.sub(pregMap, n) of
-                            ToStack => (* Yes.  This will become a stack argument. *)
-                            let
-                                val move = [LoadArgument{source=sourceVal, dest=destVal, kind=MoveWord}]
-                            in
-                                (codeRest @ destCode @ move @ sourceCode, otherRegArgs, resContext)
-                            end
-                        |   ToPReg newReg =>
-                                (codeRest @ destCode @ sourceCode, (sourceVal, newReg) :: otherRegArgs, resContext)
-                       |    Unset => raise InternalError "pushRegisters - StartLoop - unset"
+                        (codeRest @ destCode @ [LoadArgument{source=sourceVal, dest=destVal, kind=MoveWord}] @ sourceCode, resContext)
                     end
-                val (loadCode, newRegArgs, newContext) = loadArguments(regArgs, context)
+                val (loadStackArgCode, stackArgContext) = loadStackArgs(stackArgsToDo, context)
+                
+                fun loadRegArgs ([], ctxt) = ([], [], ctxt)
+                |   loadRegArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
+                    let
+                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
+                        val (_, destCode, newContext) = mapDestReg(dest, ctxt)
+                        val (codeRest, otherRegArgs, resContext) = loadRegArgs(rest, newContext)
+                    in
+                        case Array.sub(pregMap, n) of
+                            ToPReg newReg =>
+                                (codeRest @ destCode @ sourceCode, (sourceVal, newReg) :: otherRegArgs, resContext)
+                        |   _ => raise InternalError "pushRegisters - StartLoop - not reg"
+                    end
+                val (loadCode, newRegArgs, newContext) = loadRegArgs(regArgsToDo, stackArgContext)
 
                 (* Set up the state.  Every jump has to reset to this.  Only the
                    stack pointer is needed. *)
-                val () = addNewLabel(loopLabel, newContext)                
+                val () = addNewLabel(loopLabel, newContext)
             in
                 pushRegisters(rest,
-                    StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ code, newContext)
+                    StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ loadStackArgCode @ code, newContext)
             end
 
         |   pushRegisters((EndLoop{loopLabel, staticRegs}, _) :: rest, code, context) =
