@@ -330,8 +330,8 @@ struct
                         then []
                         else NullBinding(
                                 StoreOperation{kind=moveKind,
-                                    address={base=baseDst, index=indexDst, offset=offsetDst+offset},
-                                    value=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset}}}) ::
+                                    address={base=baseDst, index=indexDst, offset=offsetDst+offset*multiplier},
+                                    value=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset*multiplier}}}) ::
                                 makeMoves(offset+0w1)
                     in
                         mkEnv(combinedDecs @ makeMoves 0w0, CodeZero (* unit result *))
