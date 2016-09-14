@@ -210,13 +210,6 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
             for (i = sizeof(PolyWord); i > 0; i--)
                 valu = (valu << 8) | pt[i-1];
 
-            /* The old code generator generated reverse subtraction
-               of words using a move immediate which loaded a register
-               with a the tagged value plus one.  In practice the only
-               reverse subtraction of a constant is 0-x so for backwards
-               compatibility we need to treat 2 specially. */
-            ASSERT(valu != 2);
-
             return PolyWord::FromUnsigned(valu);
         }
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
