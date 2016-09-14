@@ -131,6 +131,7 @@ struct
         |   getMultiplier LoadStoreC64          = 0w8
         |   getMultiplier LoadStoreCFloat       = ffiSizeFloat()
         |   getMultiplier LoadStoreCDouble      = ffiSizeDouble()
+        |   getMultiplier LoadStoreUntaggedUnsigned = RunCall.bytesPerWord
     end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
@@ -279,6 +280,20 @@ struct
                         if isMutable addr orelse not(isBytes addr) orelse wordOffset >= length addr
                         then LoadOperation{kind=kind, address=genAddress}
                         else Constnt(toMachineWord(loadByte(addr, offset)), [])
+                    end
+
+                |   ({base=Constnt(baseAddr, _), index=NONE, offset}, LoadStoreUntaggedUnsigned) =>
+                    if isShort baseAddr
+                    then LoadOperation{kind=kind, address=genAddress}
+                    else
+                    let
+                        val addr = toAddress baseAddr
+                        (* We don't currently have loadWordUntagged in Address but it's only ever
+                           used to load the string length word so we can use that. *)
+                    in
+                        if isMutable addr orelse not(isBytes addr) orelse offset <> 0w0
+                        then LoadOperation{kind=kind, address=genAddress}
+                        else Constnt(toMachineWord(String.size(RunCall.unsafeCast addr)), [])
                     end
 
                 |   _ => LoadOperation{kind=kind, address=genAddress}
@@ -816,12 +831,6 @@ struct
             (
                 reprocess := true;
                 (if isShort v then CodeZero else Constnt(toMachineWord(Address.flags(toAddress v)), []), decArg1, EnvSpecNone)
-            )
-
-        |   (StringLengthWord, Constnt(v, _)) =>
-            (
-                reprocess := true;
-                (Constnt(toMachineWord(String.size(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
             )
 
         |   (LongWordToTagged, Constnt(v, _)) =>

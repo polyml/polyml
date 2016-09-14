@@ -118,6 +118,7 @@ sig
     |   LoadStoreC64
     |   LoadStoreCFloat
     |   LoadStoreCDouble
+    |   LoadStoreUntaggedUnsigned
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}

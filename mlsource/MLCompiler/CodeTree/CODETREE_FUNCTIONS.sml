@@ -107,7 +107,6 @@ struct
                         (* MemoryCellFlags could return a different result if a mutable cell was locked. *)
                     |   MemoryCellFlags => applicative
                     |   ClearMutableFlag => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
-                    |   StringLengthWord => applicative
                     |   AtomicIncrement => PROPWORD_NORAISE
                     |   AtomicDecrement => PROPWORD_NORAISE
                     |   AtomicReset => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
@@ -132,7 +131,6 @@ struct
                         WordComparison _ => applicative
                     |   FixedPrecisionArith _ => mayRaise
                     |   WordArith _ => applicative (* Quot and Rem don't raise exceptions - zero checking is done before. *)
-                    |   SetStringLengthWord => Word.orb(PROPWORD_NODEREF, PROPWORD_NORAISE)
                     |   WordLogical _ => applicative
                     |   WordShift _ => applicative
                     |   AllocateByteMemory => Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)

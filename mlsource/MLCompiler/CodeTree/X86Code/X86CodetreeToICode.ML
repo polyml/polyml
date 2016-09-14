@@ -550,17 +550,6 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.StringLengthWord, arg1}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val argReg1 = newUReg()
-                val (argCode, addrReg) = codeToPReg(arg1, context)
-            in
-                (argCode @
-                [LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
-                 TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
-            end
-
         |   codeToICode(BICUnary{oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
@@ -942,18 +931,6 @@ struct
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith _, ...}, _, _, _) =
                 raise InternalError "codeToICode: WordArith - unimplemented operation"
-
-        |   codeToICode(BICBinary {oper=BuiltIns.SetStringLengthWord, arg1, arg2}, context, _, destination) =
-            let
-                val addrReg = newPReg() and lengthReg = newPReg()
-                val untagLength = newUReg()
-                val code =
-                    codeToICodeTarget(arg1, context, false, addrReg) @ codeToICodeTarget(arg2, context, false, lengthReg) @
-                        [UntagValue{source=RegisterArgument lengthReg, dest=untagLength, isSigned=false},
-                         StoreArgument {source=RegisterArgument untagLength, base=addrReg, offset=0, index=NoMemIndex, kind=MoveWord}]
-            in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
-            end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
             let
@@ -1750,21 +1727,29 @@ struct
                      BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
             end
 
+        |   codeToICode(BICLoadOperation {kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
+                val untaggedResReg = newUReg()
+            in
+                (codeBaseIndex @ codeUntag @
+                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord},
+                     TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
+            end
+
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
-                (* TODO: We can store constants directly.  This has problems with the back-up code generator. *)
-                val valueReg = newPReg()
+                val (sourceCode, source, _) = codeToICode(value, context, false, Allowed allowInMemMove)
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 val code =
-                    codeBaseIndex @ codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                        [StoreArgument {source=RegisterArgument valueReg, base=base, offset=offset, index=index, kind=MoveWord}]
+                    codeBaseIndex @ sourceCode @ codeUntag @
+                        [StoreArgument {source=source, base=base, offset=offset, index=index, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-            (* Comment this next bit out.  It doesn't work with the back-up code-generator. *)
-(*
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value=BICConstnt(constByte, _)}, context, _, destination) =
+         |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value=BICConstnt(constByte, _)}, context, _, destination) =
             let
                 val valueToStore = if isShort constByte then toShort constByte else 0w0
                 (* Storing a constant. *)
@@ -1775,7 +1760,7 @@ struct
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
-*)
+
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
@@ -1872,6 +1857,41 @@ struct
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
                     [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
                      StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble}]
+            in
+                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+            end
+
+        |   codeToICode(BICStoreOperation {kind=LoadStoreUntaggedUnsigned, address, value}, context, _, destination) =
+            let
+                (* We have to untag the value to store. *)
+                val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
+                (* See if it's a constant.  This is frequently used to set the last word of a string to zero. *)
+                val storeAble =
+                    case value of
+                        BICConstnt(value, _) =>
+                            if not(isShort value)
+                            then NONE
+                            else
+                            let
+                                val ival = Word.toLargeIntX(toShort value)
+                            in
+                                if is32bit ival then SOME ival else NONE
+                            end
+                    |   _ => NONE
+                val (storeVal, valCode) =
+                    case storeAble of
+                        SOME value => (IntegerConstant value (* Leave untagged *), [])
+                    |   NONE =>
+                        let
+                            val valueReg = newPReg() and valueReg1 = newUReg()
+                        in
+                            (RegisterArgument valueReg1,
+                                codeToICodeTarget(value, context, false, valueReg) @
+                                [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }])
+                        end
+                val code =
+                    codeBaseIndex @ valCode @ codeUntag @
+                    [StoreArgument {source=storeVal, base=base, offset=offset, index=index, kind=MoveWord}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end

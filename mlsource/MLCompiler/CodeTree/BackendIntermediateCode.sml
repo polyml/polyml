@@ -55,7 +55,6 @@ struct
         |   MemoryCellLength
         |   MemoryCellFlags
         |   ClearMutableFlag
-        |   StringLengthWord
         |   AtomicIncrement
         |   AtomicDecrement
         |   AtomicReset
@@ -70,7 +69,6 @@ struct
             WordComparison of { test: testConditions, isSigned: bool }
         |   FixedPrecisionArith of arithmeticOperations
         |   WordArith of arithmeticOperations
-        |   SetStringLengthWord
         |   WordLogical of logicalOperations
         |   WordShift of shiftOperations
         |   AllocateByteMemory
@@ -86,7 +84,6 @@ struct
         |   unaryRepr MemoryCellLength = "MemoryCellLength"
         |   unaryRepr MemoryCellFlags = "MemoryCellFlags"
         |   unaryRepr ClearMutableFlag = "ClearMutableFlag"
-        |   unaryRepr StringLengthWord = "StringLengthWord"
         |   unaryRepr AtomicIncrement = "AtomicIncrement"
         |   unaryRepr AtomicDecrement = "AtomicDecrement"
         |   unaryRepr AtomicReset = "AtomicReset"
@@ -101,7 +98,6 @@ struct
                 "Test" ^ (testRepr test) ^ (if isSigned then "Signed" else "Unsigned")
         |   binaryRepr (FixedPrecisionArith arithOp) = (arithRepr arithOp) ^ "Fixed"
         |   binaryRepr (WordArith arithOp) =  (arithRepr arithOp) ^ "Word"
-        |   binaryRepr SetStringLengthWord = "SetStringLengthWord"
         |   binaryRepr (WordLogical logOp) =  (logicRepr logOp) ^ "Word"
         |   binaryRepr (WordShift shiftOp) =  (shiftRepr shiftOp) ^ "Word"
         |   binaryRepr AllocateByteMemory = "AllocateByteMemory"
@@ -230,6 +226,7 @@ struct
     |   LoadStoreC64
     |   LoadStoreCFloat
     |   LoadStoreCDouble
+    |   LoadStoreUntaggedUnsigned
 
     and blockOpKind =
         BlockOpMove of {isByteMove: bool}
@@ -298,6 +295,7 @@ struct
     |   loadStoreKindRepr LoadStoreC64 = "C64Bit"
     |   loadStoreKindRepr LoadStoreCFloat = "CFloat"
     |   loadStoreKindRepr LoadStoreCDouble = "CDouble"
+    |   loadStoreKindRepr LoadStoreUntaggedUnsigned = "MLWordUntagged"
 
     fun blockOpKindRepr (BlockOpMove{isByteMove=false}) = "MoveWord"
     |   blockOpKindRepr (BlockOpMove{isByteMove=true}) = "MoveByte"
