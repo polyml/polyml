@@ -1193,8 +1193,18 @@ struct
                             fun swapRegs r = if r = regA then regB else if r = regB then regA else r
                             fun swapSources{src=RegisterArgument r, dst} =
                                     {src=RegisterArgument(swapRegs r), dst=dst}
-                            |   swapSources{src=MemoryLocation _, ...} =
-                                    raise InternalError "swapSources: MemoryLocation"
+                            |   swapSources{src=MemoryLocation{base, index, offset}, dst} =
+                                let
+                                    val newIndex =
+                                        case index of
+                                            NoMemIndex => NoMemIndex
+                                        |   MemIndex1 r => MemIndex1(swapRegs r)
+                                        |   MemIndex2 r => MemIndex2(swapRegs r)
+                                        |   MemIndex4 r => MemIndex4(swapRegs r)
+                                        |   MemIndex8 r => MemIndex8(swapRegs r)
+                                in
+                                    {src=MemoryLocation{base=swapRegs base, index=newIndex, offset=offset}, dst=dst}
+                                end
                             |   swapSources sd = sd
                         in
                             ExchangeRegisters{regX=regA, regY=regB} ::

@@ -2674,17 +2674,17 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(StoreConstToMemory{ toStore=toStore, address } :: remainder) =
+        |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} } :: remainder) =
             (
                 (* Short constant.  In 32-bit mode this is scanned as a possible address.  That means
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                (*isX64 orelse toStore mod 2 = 1 orelse raise InternalError "cgOp: StoreConstToMemory not tagged";*)
-                case address of
-                    {offset, base, index=NoIndex} =>
+                isX64 orelse toStore mod 2 = 1 orelse offset = ~wordSize orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                case index of
+                    NoIndex =>
                         genOpPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0, code) 
-                |   {offset, base, index} =>
+                |   index =>
                         genOpIndexed (MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false), code);
                 gen32s (toStore, code);
                 cgOp remainder

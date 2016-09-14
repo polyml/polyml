@@ -1439,12 +1439,15 @@ struct
         |   codeToICode(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination) =
             let
                 val target = asTarget destination
-                (* First evaluate the initial values for the arguments to new pregs.
-                   These are only used for the initial values. *)
-                val argPRegs = map(fn _ => newPReg()) arguments
-                val codeArgs =
-                    ListPair.foldlEq(fn (({value, ...}, _), pr, l) => l @ codeToICodeTarget(value, context, false, pr)) []
-                        (arguments, argPRegs)
+                fun codeArgs [] = ([], [])
+                |   codeArgs (({value, ...}, _) :: rest) =
+                    let
+                        val (code, value, _) = codeToICode(value, context, false, Allowed allowDefer)
+                        val (otherArgs, otherCode) = codeArgs rest
+                    in
+                        (value :: otherArgs, code @ otherCode)
+                    end
+                val (argValues, argCode) = codeArgs arguments
                 (* Create loop arguments.  These are associated with the loop variables. *)
                 fun makeLoopReg ({addr, ...}, _) =
                     let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
@@ -1452,9 +1455,9 @@ struct
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
-                val args = ListPair.mapEq(fn (s, l) => (RegisterArgument s, l)) (argPRegs, loopRegs)
+                val args = ListPair.zip (argValues, loopRegs)
             in
-                (codeArgs @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @
+                (argCode @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @
                     [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
             end
         
@@ -1866,6 +1869,9 @@ struct
                 (* We have to untag the value to store. *)
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 (* See if it's a constant.  This is frequently used to set the last word of a string to zero. *)
+                (* We have to be a bit more careful on the X86.  We use moves to store constants that
+                   can include addresses.  To avoid problems we only use a move if the value is
+                   zero or odd and so looks like a tagged value. *)
                 val storeAble =
                     case value of
                         BICConstnt(value, _) =>
@@ -1875,7 +1881,9 @@ struct
                             let
                                 val ival = Word.toLargeIntX(toShort value)
                             in
-                                if is32bit ival then SOME ival else NONE
+                                if isX64
+                                then if is32bit ival then SOME ival else NONE
+                                else if ival = 0 orelse ival mod 2 = 1 then SOME ival else NONE
                             end
                     |   _ => NONE
                 val (storeVal, valCode) =
@@ -2370,7 +2378,10 @@ struct
 
         (* Return the argument as an untagged value.  We separate evaluating the argument from
            untagging because we may have to evaluate other arguments and that could involve a
-           function call and we can't save the value to the stack after we've untagged it. *)
+           function call and we can't save the value to the stack after we've untagged it.
+           Currently this is only used for byte values but we may have to be careful if
+           we use it for word values on the X86.  Moving an untagged value into a register
+           might look like loading a constant address. *)
         and codeAsUntaggedValue(BICConstnt(value, _), isSigned, _) =
             let
                 val cval = if isShort value then toShort value else 0w0
