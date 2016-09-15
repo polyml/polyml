@@ -178,12 +178,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // This is called from a signal handler in the case of time profiling.
 void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED incr)
 {
-
-    /* The first PC may be valid even if it's not a code pointer */
-    bool is_code = true;
     PolyWord pc = PolyWord::FromCodePtr(fpc);
-    PolyWord *endStack = taskData->stack->top;
-    
     // Check that the pc value is within the heap.  It could be
     // in the assembly code.
     MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
