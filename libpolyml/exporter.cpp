@@ -159,10 +159,14 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // overestimated while the immutable size is correct.
         if (space->isMutable)
             defaultMutSize += size/4;
-        else if (space->isCode)
-            defaultCodeSize += size/2;
         else
             defaultImmSize += size/2;
+    }
+    for (i = 0; i < gMem.ncSpaces; i++)
+    {
+        CodeSpace *space = gMem.cSpaces[i];
+        POLYUNSIGNED size = space->topPointer - space->bottom;
+        defaultCodeSize += size/2;
     }
     if (isExport)
     {

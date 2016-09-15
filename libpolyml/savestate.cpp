@@ -509,7 +509,7 @@ void SaveRequest::Perform()
     for (unsigned l = 0; l < gMem.ncSpaces; l++)
     {
         CodeSpace *space = gMem.cSpaces[l];
-        fixup.ScanAddressesInRegion(space->bottom, space->top);
+        fixup.ScanAddressesInRegion(space->bottom, space->topPointer);
     }
     GCModules(&fixup);
 

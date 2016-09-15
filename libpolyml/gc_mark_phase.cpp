@@ -586,7 +586,7 @@ void MTGCProcessMarkPointers::MarkRoots(void)
     for (unsigned j = 0; j < gMem.ncSpaces; j++)
     {
         CodeSpace *space = gMem.cSpaces[j];
-        marker->ScanAddressesInRegion(space->bottom, space->top);
+        marker->ScanAddressesInRegion(space->bottom, space->topPointer);
     }
 
     // Scan the RTS roots.

@@ -289,7 +289,7 @@ void ProfileRequest::getResults(void)
     for (unsigned j = 0; j < gMem.ncSpaces; j++)
     {
         CodeSpace *space = gMem.cSpaces[j];
-        getProfileResults(space->bottom, space->top);
+        getProfileResults(space->bottom, space->topPointer);
     }
 
     {
