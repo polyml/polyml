@@ -1215,12 +1215,11 @@ struct
                                     (mergedArgs, mergedResult)
                                 end
                             |   _ => (* Not called: either exported or passed as a value. *)
-                                (* If this is exported we don't know how it will be used
-                                   so we assume that it is called with all its args and
-                                   we detuple the result if it contains a tuple. *)
-                                if List.exists (fn UseExport => true | _ => false) use
-                                then ([argPatterns], bodyReturnsTuple updatedBody)
-                                else ([], ArgPattSimple)
+                                (* This previously tried to see whether the body returned a tuple
+                                   if the function was exported.  This caused an infinite loop
+                                   (see Tests/Succeed/Test164.ML) and anyway doesn't seem to
+                                   optimise the cases we want. *)
+                                ([], ArgPattSimple)
                     in
                         case (fullArgPattern, resultPattern) of
                             (_ :: _ :: _, _) => (* Curried *)
