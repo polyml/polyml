@@ -204,6 +204,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
                     profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
                 return;
             }
+            ptr = ptr + length + 1;
         }
     }
     // Didn't find it.
@@ -285,12 +286,10 @@ void ProfileRequest::getResults(void)
         // Permanent areas are filled with objects from the bottom.
         getProfileResults(space->bottom, space->top); // Bottom to top
     }
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (unsigned j = 0; j < gMem.ncSpaces; j++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        // Local areas only have objects from the allocation pointer to the top.
-        getProfileResults(space->bottom, space->lowerAllocPtr);
-        getProfileResults(space->upperAllocPtr, space->top);
+        CodeSpace *space = gMem.cSpaces[j];
+        getProfileResults(space->bottom, space->top);
     }
 
     {
