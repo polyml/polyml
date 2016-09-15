@@ -184,40 +184,33 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
     PolyWord pc = PolyWord::FromCodePtr(fpc);
     PolyWord *endStack = taskData->stack->top;
     
-    /* First try the pc value we have been given - if that fails search down
-       the stack to see if there is a return address we can use. */
-    for (;;)
+    // Check that the pc value is within the heap.  It could be
+    // in the assembly code.
+    MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
+    if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
     {
-        /* Get the address of the code segment from the code pointer */
-        if (pc.IsCodePtr() || is_code)
-        {   
-            is_code = false;
-            
-            // Check that the pc value is within the heap.  It could be
-            // in the assembly code.
-            MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
-            if (space != 0)
+        PolyWord *ptr = space->bottom;
+
+        while (ptr < space->top && (POLYCODEPTR)ptr < pc.AsCodePtr())
+        {
+            PolyObject *obj = (PolyObject*)(ptr+1);
+            ASSERT(obj->ContainsNormalLengthWord());
+            POLYUNSIGNED length = obj->Length();
+            if ((POLYCODEPTR)(obj+length) > pc.AsCodePtr())
             {
-                PolyObject *profObject = getProfileObjectForCode(ObjCodePtrToPtr(pc.AsCodePtr()));
+                PolyObject *profObject = getProfileObjectForCode(obj);
                 PLocker locker(&countLock);
                 if (profObject)
                     profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
                 return;
             }
-            /* else just fall through and try next candidate address */
-        } /* OBJ_IS_CODEPTR(pc) */
-        
-        /* Find next candidate address */
-        if (sp < endStack)
-            pc = *sp++;
-        else /* Reached bottom of stack without finding valid code pointer */
-        {
-            PLocker locker(&countLock);
-            mainThreadCounts[MTP_USER_CODE] += incr;
-            return;
         }
-    } /* loop "forever" */
-    /*NOTREACHED*/
+    }
+    // Didn't find it.
+    {
+        PLocker locker(&countLock);
+        mainThreadCounts[MTP_USER_CODE] += incr;
+    }
 }
 
 

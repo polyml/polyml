@@ -216,17 +216,6 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             return 0;
     }
 
-    if (val.IsCodePtr())
-    {
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
-        PolyObject *newObject = ScanObjectAddress(oldObject);
-        *pt = PolyWord::FromCodePtr((byte*)newObject + offset);
-        return 0;
-    }
-
     ASSERT(OBJ_IS_DATAPTR(val));
 
     // Have we already scanned this?

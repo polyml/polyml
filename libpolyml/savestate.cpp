@@ -283,7 +283,7 @@ public:
 
 private:
     // ScanAddress overrides
-    virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addrOfConst, ScanRelocationKind code);
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 
@@ -324,7 +324,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
 /* This is called for each constant within the code. 
    Print a relocation entry for the word and return a value that means
    that the offset is saved in original word. */
-void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
+void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
     PolyWord p = GetConstantValue(addr, code);
 
@@ -391,18 +391,6 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
 {
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return old; //  Nothing to do.
-
-    // When we are updating addresses in the stack or in code segments we may have
-    // code pointers.
-    if (old.IsCodePtr())
-    {
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(old.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = old.AsCodePtr() - (byte*)oldObject;
-        PolyWord newObject = GetNewAddress(oldObject);
-        return PolyWord::FromCodePtr(newObject.AsCodePtr() + offset);
-    }
 
     ASSERT(old.IsDataPtr());
 

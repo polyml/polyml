@@ -457,18 +457,6 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return old; //  Nothing to do.
 
-    // When we are updating addresses in the stack or in code segments we may have
-    // code pointers.
-    if (old.IsCodePtr())
-    {
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(old.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = old.AsCodePtr() - (byte*)oldObject;
-        PolyWord newObject = GetNewAddress(oldObject);
-        return PolyWord::FromCodePtr(newObject.AsCodePtr() + offset);
-    }
-
     ASSERT(old.IsDataPtr());
 
     PolyObject *obj = old.AsObjPtr();

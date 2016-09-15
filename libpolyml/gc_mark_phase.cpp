@@ -96,7 +96,7 @@ public:
     void ScanAddressesInObject(PolyObject *base)
         { ScanAddressesInObject(base, base->LengthWord()); }
 
-    virtual void ScanConstant(byte *addressOfConstant, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
 
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 
@@ -488,36 +488,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
                     else break;  // More than two words.
                 }
             }
-            else if (wordAt.IsCodePtr())
-            {
-                // If we're processing the constant area of a code segment this could
-                // be a code address.
-                // Check that this is actually an address.  If we have had a bad pointer
-                // earlier we may treat some length fields as values.
-                ASSERT(gMem.SpaceForAddress(wordAt.AsCodePtr()-1) != 0);
-                PolyObject *oldObject = ObjCodePtrToPtr(wordAt.AsCodePtr());
-                // Calculate the byte offset of this value within the code object.
-                POLYUNSIGNED offset = wordAt.AsCodePtr() - (byte*)oldObject;
-                wordAt = oldObject;
-                bool test = TestForScan(&wordAt);
-                // If we've changed it because we had a left-over forwarding pointer
-                // we need to update the original.
-                PolyObject *newObject = wordAt.AsObjPtr();
-                wordAt = PolyWord::FromCodePtr((byte*)newObject + offset);
-                if (wordAt != *baseAddr)
-                    *baseAddr = wordAt;
-                if (test)
-                {
-                    if (firstWord == 0)
-                        firstWord = newObject;
-                    else if (secondWord == 0)
-                    {
-                        restartAddr = baseAddr;
-                        secondWord = newObject;
-                    }
-                    else break;
-                }
-            }
             baseAddr++;
         }
 
@@ -561,7 +531,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
 // Process a constant within the code.  This is a direct copy of ScanAddress::ScanConstant
 // with the addition of the locking.
-void MTGCProcessMarkPointers::ScanConstant(byte *addressOfConstant, ScanRelocationKind code)
+void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
     // If this code is in the local area there's the possibility that
     // ScanObjectAddress could return an updated address for a

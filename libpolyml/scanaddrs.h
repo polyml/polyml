@@ -64,7 +64,7 @@ public:
     // Process a constant within the code.
     // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
     // ScanObjectAddress for the base address of the object referred to.
-    virtual void ScanConstant(byte *addressOfConstant, ScanRelocationKind code);
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
 
     // Scan the objects in the region and process their addresses.  Applies ScanAddressesInObject
     // to each of the objects.  The "region" argument points AT the first length word.

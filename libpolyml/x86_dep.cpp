@@ -885,7 +885,7 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 // to decode it to work out where the next instruction starts.
 // If this is an lea instruction any addresses are just constants
 // so must not be treated as addresses.
-static void skipea(byte **pt, ScanAddress *process, bool lea)
+static void skipea(PolyObject *base, byte **pt, ScanAddress *process, bool lea)
 {
     unsigned int modrm = *((*pt)++);
     unsigned int md = modrm >> 6;
@@ -903,7 +903,7 @@ static void skipea(byte **pt, ScanAddress *process, bool lea)
             {
                 if (! lea) {
 #ifndef HOSTARCHITECTURE_X86_64
-                    process->ScanConstant(*pt, PROCESS_RELOC_DIRECT);
+                    process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                 }
                 (*pt) += 4;
@@ -917,7 +917,7 @@ static void skipea(byte **pt, ScanAddress *process, bool lea)
         if (!lea) {
 #ifndef HOSTARCHITECTURE_X86_64
             /* Absolute address. */
-            process->ScanConstant(*pt, PROCESS_RELOC_DIRECT);
+            process->ScanConstant(base, *pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
         }
         *pt += 4;
@@ -984,7 +984,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             pt += 3; break;
 
         case 0x8d: /* leal. */
-            pt++; skipea(&pt, process, true); break;
+            pt++; skipea(addr, &pt, process, true); break;
 
         case 0x03: case 0x0b: case 0x13: case 0x1b:
         case 0x23: case 0x2b: case 0x33: case 0x3b: /* Add r,ea etc. */
@@ -996,7 +996,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x8f: /* POP_A */
         case 0xd3: /* Group2_CL_A */
         case 0x87: // XCHNG
-            pt++; skipea(&pt, process, false); break;
+            pt++; skipea(addr, &pt, process, false); break;
 
         case 0xf6: /* Group3_a */
             {
@@ -1004,7 +1004,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(&pt, process, false);
+                skipea(addr, &pt, process, false);
                 if (isTest) pt++;
                 break;
             }
@@ -1015,7 +1015,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt++;
                 /* The test instruction has an immediate operand. */
                 if ((*pt & 0x38) == 0) isTest = 1;
-                skipea(&pt, process, false);
+                skipea(addr, &pt, process, false);
                 if (isTest) pt += 4;
                 break;
             }
@@ -1024,7 +1024,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xc6: /* MOVB_8_A */
         case 0x83: /* Group1_8_A */
         case 0x80: /* Group1_8_a */
-            pt++; skipea(&pt, process, false); pt++; break;
+            pt++; skipea(addr, &pt, process, false); pt++; break;
 
         case 0x81: /* Group1_32_A */
             {
@@ -1032,12 +1032,12 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #ifndef HOSTARCHITECTURE_X86_64
                 unsigned opCode = *pt;
 #endif /* HOSTARCHITECTURE_X86_64 */
-                skipea(&pt, process, false);
+                skipea(addr, &pt, process, false);
                 // Only check the 32 bit constant if this is a comparison.
                 // For other operations this may be untagged and shouldn't be an address.
 #ifndef HOSTARCHITECTURE_X86_64
                 if ((opCode & 0x38) == 0x38)
-                    process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
+                    process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                 pt += 4;
                 break;
@@ -1074,7 +1074,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                             newDisp >>= 8;
                         }
                     }
-                    process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
+                    process->ScanConstant(addr, pt, PROCESS_RELOC_I386RELATIVE);
                 }
                 pt += 4;
                 break;
@@ -1092,9 +1092,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 }
                 else
                 {
-                    skipea(&pt, process, false);
+                    skipea(addr, &pt, process, false);
 #ifndef HOSTARCHITECTURE_X86_64
-                    process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
+                    process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                     pt += 4;
                 }
@@ -1111,7 +1111,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
                 // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
-                process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
+                process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
                 pt += sizeof(PolyWord);
             }
             break;
@@ -1119,7 +1119,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x68: /* PUSH_32 */
             pt ++;
 #ifndef HOSTARCHITECTURE_X86_64
-            process->ScanConstant(pt, PROCESS_RELOC_DIRECT);
+            process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
             pt += 4;
             break;
@@ -1133,7 +1133,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 case 0xb7: // movzw
                 case 0xc1: /* xaddl */
                 case 0xaf: // imul
-                    pt++; skipea(&pt, process, false); break;
+                    pt++; skipea(addr, &pt, process, false); break;
 
                 case 0x80: case 0x81: case 0x82: case 0x83:
                 case 0x84: case 0x85: case 0x86: case 0x87:
@@ -1145,7 +1145,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 // These are SSE2 instructions
                 case 0x10: case 0x11: case 0x58: case 0x5c: case 0x59: case 0x5e:
                 case 0x2e: case 0x2a: case 0x54: case 0x57: case 0x5a:
-                    pt++; skipea(&pt, process, false); break;
+                    pt++; skipea(addr, &pt, process, false); break;
 
                 default: Crash("Unknown opcode %d at %p\n", *pt, pt);
                 }
@@ -1157,7 +1157,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             {
                 pt++;
                 if ((*pt & 0xe0) == 0xe0) pt++;
-                else skipea(&pt, process, false);
+                else skipea(addr, &pt, process, false);
                 break;
             }
 

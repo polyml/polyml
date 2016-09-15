@@ -284,9 +284,8 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     
     PolyObject *p;
 
-    if (OBJ_IS_CODEPTR(w))
-        p = ObjCodePtrToPtr(w.AsCodePtr()); /* find beginning of the code object */
-    else p = w.AsObjPtr();
+    ASSERT(w.IsDataPtr());
+    p = w.AsObjPtr();
     
     /* Have we already visited this object? */
     if (bm->AlreadyVisited(p))

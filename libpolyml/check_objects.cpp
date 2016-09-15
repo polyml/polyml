@@ -80,12 +80,7 @@ void DoCheck (const PolyWord pt)
 
     if (pt.IsTagged()) return;
 
-    // It's possible that this could be a code address.
-    // That can happen, at least when pushing a value onto the save vec
-    // in a call to set_code_constant on X86/64
-    if (pt.IsCodePtr())
-        CheckAddress((PolyWord*)ObjCodePtrToPtr(pt.AsCodePtr()));
-    else CheckAddress(pt.AsStackAddr());
+    CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress

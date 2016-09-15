@@ -51,21 +51,6 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
         // We can get zeros in the constant area if we garbage collect
         //  while compiling some code. */
     }
-    else if (val.IsCodePtr())
-    {
-        // We can get code pointers either in the stack as return addresses or
-        // handler pointers or in constants in code segments as the addresses of
-        // exception handlers.
-
-        // Find the start of the code segment
-        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
-        // Mustn't use ScanAddressAt here.  That's only valid if the value points
-        // into the area being updated.
-        PolyObject *newObject = ScanObjectAddress(oldObject);
-        newVal = PolyWord::FromCodePtr((byte*)newObject + offset);
-    }
     else
     {
         ASSERT(OBJ_IS_DATAPTR(val));
@@ -140,10 +125,8 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
                 {
                     wordAt = *baseAddr; // Reload because it may have been side-effected
                      // We really have to process this recursively.
-                    if (wordAt.IsCodePtr())
-                        ScanAddressesInObject(ObjCodePtrToPtr(wordAt.AsCodePtr()), lengthWord);
-                    else
-                        ScanAddressesInObject(wordAt.AsObjPtr(), lengthWord);
+                    ASSERT(wordAt.IsDataPtr());
+                    ScanAddressesInObject(wordAt.AsObjPtr(), lengthWord);
                     baseAddr++;
                 }
                 else baseAddr++;
@@ -154,10 +137,8 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         // Do this by looping rather than recursion.
         PolyWord wordAt = *baseAddr; // Last word to do.
         // This must be an address 
-        if (wordAt.IsCodePtr())
-            obj = ObjCodePtrToPtr(wordAt.AsCodePtr());
-        else
-            obj = wordAt.AsObjPtr();
+        ASSERT(wordAt.IsDataPtr());
+        obj = wordAt.AsObjPtr();
 
         lengthWord = lastLengthWord;
 
@@ -264,7 +245,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
 
 // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
 // ScanObjectAddress for the base address of the object referred to.
-void ScanAddress::ScanConstant(byte *addressOfConstant, ScanRelocationKind code)
+void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
     PolyWord p = GetConstantValue(addressOfConstant, code);
 
@@ -280,17 +261,6 @@ void ScanAddress::ScanConstant(byte *addressOfConstant, ScanRelocationKind code)
 void ScanAddress::ScanRuntimeWord(PolyWord *w)
 {
     if (w->IsTagged()) {} // Don't need to do anything
-    else if (w->IsCodePtr())
-    {
-        // We can have code pointers in set_code_address.
-        // Find the start of the code segment
-        PolyObject *obj = ObjCodePtrToPtr(w->AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = w->AsCodePtr() - (byte*)obj;
-        obj = ScanObjectAddress(obj); 
-        *w = PolyWord::FromCodePtr((byte*)obj + offset);
-
-    }
     else {
         ASSERT(w->IsDataPtr());
         *w = ScanObjectAddress(w->AsObjPtr()); 
@@ -395,32 +365,6 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
                     else if (secondWord == 0)
                         secondWord = wObj;
                     else break;  // More than two words.
-                }
-            }
-            else if (wordAt.IsCodePtr())
-            {
-                // If we're processing the constant area of a code segment this could
-                // be a code address.
-                PolyObject *oldObject = ObjCodePtrToPtr(wordAt.AsCodePtr());
-                // Calculate the byte offset of this value within the code object.
-                POLYUNSIGNED offset = wordAt.AsCodePtr() - (byte*)oldObject;
-                wordAt = oldObject;
-                bool test = TestForScan(&wordAt);
-                // TestForScan may side-effect the word.
-                PolyObject *newObject = wordAt.AsObjPtr();
-                wordAt = PolyWord::FromCodePtr((byte*)newObject + offset);
-                if (wordAt != *baseAddr)
-                    *baseAddr = wordAt;
-                if (test)
-                {
-                    if (firstWord == 0)
-                    {
-                        firstWord = newObject;
-                        MarkAsScanning(firstWord);
-                    }
-                    else if (secondWord == 0)
-                        secondWord = newObject;
-                    else break;
                 }
             }
             baseAddr++;
