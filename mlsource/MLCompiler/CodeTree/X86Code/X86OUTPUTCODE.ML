@@ -2680,7 +2680,8 @@ struct
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                isX64 orelse toStore mod 2 = 1 orelse offset = ~wordSize orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
+                isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
+                    orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
                 case index of
                     NoIndex =>
                         genOpPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0, code) 
