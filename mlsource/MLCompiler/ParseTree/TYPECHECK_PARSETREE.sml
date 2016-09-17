@@ -997,17 +997,17 @@ struct
                         let
                             val description = { location = nameLoc, name = name, description = "" }
                         in
-                            makeTypeConstructor (name,
+                            makeTypeConstructor (name, typeVars,
                                 makeTypeId(isEqtype, false, (typeVars, EmptyType), description), props)
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeTypeConstructor (name, typeId, props)
+                                makeTypeConstructor (name,  typeVars,typeId, props)
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeTypeConstructor (name,
+                                makeTypeConstructor (name, typeVars,
                                     makeTypeId(isEqtype, false, (typeVars, decType), description), props)
                             end
                 in
@@ -1050,7 +1050,7 @@ struct
                     val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
-                    val newTypeCons = makeTypeConstructor(newName, typeID, locations)
+                    val newTypeCons = makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
     
                     (* Copy the value constructors. *)
                     fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
@@ -1927,7 +1927,7 @@ struct
                     then makeTypeId(false, true, (typeVars, EmptyType), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
-                val tc = makeTypeConstructor(name, newId, locations)
+                val tc = makeTypeConstructor(name, typeVars, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -1963,7 +1963,7 @@ struct
                    right-hand side of the declaration. *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
-                    makeTypeConstructor (name,
+                    makeTypeConstructor (name, typeVars,
                         makeTypeId(false, false, (typeVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in

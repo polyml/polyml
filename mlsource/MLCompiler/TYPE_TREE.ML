@@ -275,7 +275,7 @@ struct
         end
 
         fun makeConstr(name, fullName, eqFun, boxed) =
-            makeTypeConstructor (name,
+            makeTypeConstructor (name, [],
                 makeFreeId(0, eqAndPrintCode(eqFun, 0, boxed), true, basisDescription fullName),
                 [DeclaredAt inBasis])
     
@@ -382,27 +382,30 @@ struct
         val refConstr =
             makeTypeConstructor 
                 ("ref",
+                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "ref"),
                 [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array",
+                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array.array"),
                 [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array",
+                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(1, eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array2.array"),
                 [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
-                ("byteArray",
+                ("byteArray", [],
                 makeFreeId(0, eqAndPrintCode(wordEq, 0, boxedAlways), true, basisDescription "byteArray"),
                 [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", makeFreeId(0, eqAndPrintCode(wordEq, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", [], makeFreeId(0, eqAndPrintCode(wordEq, 0, boxedNever), true, basisDescription "bool"),
                 [DeclaredAt inBasis]);
     end
 
@@ -429,7 +432,7 @@ struct
                 }
         in
             makeTypeConstructor (
-                name, makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
+                name, [], makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
                 [DeclaredAt inBasis])
         end
     in
@@ -443,7 +446,7 @@ struct
 
     (* The unit type is equivalent to the empty record. *)
     val unitConstr   =
-        makeTypeConstructor ("unit",
+        makeTypeConstructor ("unit", [],
             makeTypeFunction({ location = inBasis, description = "unit", name = "unit" },
             ([], LabelledType {recList = [], fullList = FieldList([], true)})),
             [DeclaredAt inBasis]);
@@ -778,7 +781,7 @@ struct
                 if identical (equiv, copiedEquiv)
                 then tcon (* Type is identical and we don't want to change the name. *)
                 else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName(tcName tcon),
+                    makeTypeConstructor (mungeName(tcName tcon), args,
                         TypeId {
                             access = access, description = description, idKind = TypeFn(args, copiedEquiv)},
                             tcLocations tcon)
@@ -819,7 +822,7 @@ struct
                                 val newName = mungeName(tcName tcon)
                             in
                                 (*print(concat[tcName tcon, " not cached\n"]);*)
-                                makeTypeConstructor(newName, newId, tcLocations tcon)
+                                makeTypeConstructor(newName, tcTypeVars tcon, newId, tcLocations tcon)
                             end
                     end
             )
@@ -1197,13 +1200,6 @@ struct
                 end
            |    SOME (Names {name,...}) => name
     end (* varNameSequence *)
-  
-
-    (* Create the type variables on the fly. *)
-    fun tcTypeVars tc =
-        List.tabulate(tcArity tc,
-            fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
-                         equality=false, printable=false})
 
     (* Print a type (as a block of items) *)
     fun displayWithMap (t : types, depth : FixedInt.int, env, sigMap) =
@@ -2638,7 +2634,9 @@ struct
         let
             val typeV = varNameSequence ()
             (* Construct a ('a, 'b, 'c) tyCons construction for the result types
-               of each of the constructors. *)
+               of each of the constructors.  N.B. We use the original type
+               constructors because they have the appropriate equality type properties.
+               datatype 'a t = A of 'a is not the same as ''a t = A of ''a. *)
             val typeVars = tcTypeVars tCons
             val typeResult = mkTypeConstruction(name, tCons, map TypeVar typeVars, locations)
 
@@ -2940,7 +2938,7 @@ struct
                 val declDescription =
                     { location = declLoc, name = name, description = "Constructed from a free type variable." }
                 val tCons =
-                    makeTypeConstructor (name,
+                    makeTypeConstructor (name, [],
                         makeFreeId(0, Global(printAndEqCode()), tvEquality tvar, declDescription),
                         [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])

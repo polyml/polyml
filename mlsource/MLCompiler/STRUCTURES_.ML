@@ -972,9 +972,7 @@ struct
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
-        val tvars =
-            List.tabulate(tcArity target  (* either will do *),
-                fn _ => mkTypeVar(generalisable, false, false, false))
+        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
@@ -1625,7 +1623,7 @@ struct
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
                             makeTypeConstructor(
-                                tcName typConstr, tcIdentifier typConstr, tcLocations typConstr)
+                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
