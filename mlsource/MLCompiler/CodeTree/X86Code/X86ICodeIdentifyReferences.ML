@@ -514,6 +514,9 @@ struct
                    live everywhere in the loop.  We do not include the loop variables
                    in the set.  They are recomputed by JumpLoop. *)
                 val loopRegs = removeDests(destRegs, currentRegs)
+                (* Add the loop registers as conflicts just in case they are never used.
+                   This has happened. *)
+                val () = addNewConflicts(currentRegs, destRegs)
                 (* Finally we need to add the sources.  They are used to initialise the
                    loop variables so aren't required within the loop itself. *)
                 val newNewActive = addSourcesToActive(sourceAsRegs, loopRegs)
