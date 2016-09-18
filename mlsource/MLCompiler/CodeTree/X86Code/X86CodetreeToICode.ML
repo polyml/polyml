@@ -228,7 +228,7 @@ struct
 
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.  *)
-        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, target) =
+        and codeToICode(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, destination) =
             let
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
@@ -325,14 +325,27 @@ struct
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context)
-                val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, target)
-                val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
-                val adjustSp =
-                    if initialSp = finalSp orelse haveExited
-                    then []
-                    else [ResetStackPtr{numWords=finalSp-initialSp}]
+                (* If we have had a container we'll need to reset the stack *)
             in
-                (codeBindings @ codeExp @ adjustSp, result, haveExited)
+                if initialSp <> finalSp
+                then
+                let
+                    val _ = finalSp >= initialSp orelse raise InternalError "codeToICode - stack ptr"
+                    val bodyReg = newPReg() and resultReg = asTarget destination
+                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, SpecificPReg bodyReg)
+                    val adjustSp =
+                        if haveExited then [] else
+                        [ResetStackPtr{numWords=finalSp-initialSp},
+                         LoadArgument{source=result, dest=resultReg, kind=MoveWord}]
+                in
+                    (codeBindings @ codeExp @ adjustSp, RegisterArgument resultReg, haveExited)
+                end
+                else
+                let
+                    val (codeExp, result, haveExited) = codeToICode(exp, resContext, isTail, destination)
+                in
+                    (codeBindings @ codeExp, result, haveExited)
+                end
             end
             
         |   codeToICode(BICConstnt(value, _), _, _, destination) =
