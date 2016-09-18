@@ -191,7 +191,8 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
             PolyObject *obj = (PolyObject*)(ptr+1);
             ASSERT(obj->ContainsNormalLengthWord());
             POLYUNSIGNED length = obj->Length();
-            if ((POLYCODEPTR)(obj+length) > pc.AsCodePtr())
+            PolyWord *nextPtr = ptr + length;
+            if (nextPtr > (PolyWord*)pc.AsCodePtr())
             {
                 PolyObject *profObject = getProfileObjectForCode(obj);
                 PLocker locker(&countLock);
@@ -199,7 +200,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
                     profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
                 return;
             }
-            ptr = ptr + length + 1;
+            ptr = nextPtr + 1;
         }
     }
     // Didn't find it.
