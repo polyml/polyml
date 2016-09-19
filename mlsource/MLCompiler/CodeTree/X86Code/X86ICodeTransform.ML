@@ -2135,7 +2135,6 @@ struct
         fun printCodeAndStates(identifiedCode, regStates) =
             (* Print the code before the transformation. *)
             if DEBUG.getParameter DEBUG.icodeTag debugSwitches
-
             then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
@@ -2171,6 +2170,7 @@ struct
 
         fun processCode(icode, maxPRegs, maxLabels, maxStack, passes) =
         let
+            val () = printCodeAndStates(List.map (fn i => (i, [])) icode, Vector.fromList[])
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
             val () = printCodeAndStates(identified, regStates)

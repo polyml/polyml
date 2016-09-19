@@ -251,6 +251,7 @@ struct
                 then NONE
                 else case Array.sub(regPushState, i) of
                     MustNotPush => NONE
+                |   MustPush => NONE (* Already on the stack. *)
                 |   _ => SOME(PReg(i, PRegGeneral))
         in
             List.mapPartial getSave currentRegs
@@ -265,9 +266,11 @@ struct
         (* Add sources to the active set.  We also need to mark them as conflicts. *)
         fun addSourcesToActive(sources, existing) =
         let
-            val () = addNewConflicts(existing, sources)
+            (* If we must push this we don't need to include them since they can't conflict. *)
+            val filtered = List.filter(fn i => Array.sub(regPushState, i) <> MustPush) sources
+            val () = addNewConflicts(existing, filtered)
         in
-            addToList(sources, existing)
+            addToList(filtered, existing)
         end
         
         fun addSourcesAndDestsExt(instr, rest, labels, loopLabels, loopNest,ccIn, sourcesPre, sourcesPost, dests) =
@@ -331,12 +334,12 @@ struct
         let
             val (tail, refLabels, resLoopLabels, ccUsed, currentRegs) =
                 identify(rest, labels, loopLabels, loopNest, ccIn)
+            val _ = if inSet(dReg, currentRegs) andalso Array.sub(regRefs, dReg) = 0 then raise InternalError "bad" else ()
         in
-            (* If the destination register is not in the set of registers that need to
-               have values after this instruction we can remove this move completely along
-               with the destination register.  Otherwise we have to mark this register as
+            (* If the destination register has not been used we can remove
+               this instruction. Otherwise we have to mark this register as
                conflicting with every other register that needs to have a value. *)
-            if inSet(dReg, currentRegs)
+            if Array.sub(regRefs, dReg) <> 0
             then
             let
                 val dests = [dReg]
@@ -413,19 +416,18 @@ struct
                 fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
                 val regSources = List.foldl regSource [] regArgs
                 val dReg = destReg dest
-                (* We don't use addSourcesAndDests because we also have to mark the
-                   active registers as MustPush. *)
                 val (tail, refLabels, resLoopLabels, _, currentRegs) =
                     identify(rest, labels, loopLabels, loopNest, ccIn)
                 (* The push set, though, excludes the result register. *)
                 val () =
                     List.app(
                         fn i => (if i = dReg then () else Array.update(regPushState, i, MustPush))) (setToList currentRegs)
-                val newNewActive = addSourcesToActive(stackSources @ regSources, removeDest(dReg, currentRegs))
-                val active = setToList(union(currentRegs, listToSet[dReg]))
-                val () = List.app(fn i => incrArray(regActive, i)) active
+                (* Since the registers have been pushed we don't need to add them to the active set.
+                   The active set is just the arguments. *)
+                val sources = stackSources @ regSources
+                val () = addNewConflicts(emptySet, sources)
             in
-                ((instr, setToList newNewActive) :: tail, refLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                ((instr, sources) :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet sources)
             end
 
         |   identify((instr as TailRecursiveCall{regArgs, stackArgs, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -481,8 +483,8 @@ struct
             let
                 (* We are going to use rep stosl/q to set the memory.
                    That requires the length to be in ecx, the initialiser to be in eax and
-                   the destination to be edi. *)
-                val aReg = destReg addr
+                   the address to be edi. *)
+                val aReg = sourceReg addr
                 val iReg = sourceReg init
                 val sReg = sourceReg size
                 val sources = [aReg, iReg, sReg]
@@ -643,7 +645,7 @@ struct
                         val newResult =
                             case result of
                                 NONE => NONE
-                            |   SOME(r as PReg(n, _)) => if inSet(n, newActive) then SOME r else NONE 
+                            |   SOME(r as PReg(n, _)) => if inSet(n, newActive) orelse Array.sub(regRefs, n) > 0 then SOME r else NONE 
                         val newInstr = ForwardJumpLabel{label=label, result=newResult}
                     in
                         ((newInstr, setToList newActive) :: tail, (label, newActive)::refLabels, resLoopLabels, CCIndeterminate, newActive)
@@ -721,7 +723,7 @@ struct
                 val newResultReg =
                     case resultReg of
                         NONE => NONE
-                    |   SOME(r as PReg(n, _)) => if inSet(n, currentRegs) then SOME r else NONE
+                    |   SOME(r as PReg(n, _)) => if inSet(n, currentRegs) orelse Array.sub(regRefs, n) > 0 then SOME r else NONE
                 val newInstr = PopExceptionHandler{resultReg=newResultReg, workReg=workReg}
                 val active = setToList(union(currentRegs, listToSet[destReg workReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) active
@@ -852,7 +854,7 @@ struct
                 (* If the result is not used we can eliminate this instruction but because it
                    allocates we have to compute the set of registers that need to be preserved. *)
             in
-                if inSet(dReg, currentRegs)
+                if Array.sub(regRefs, dReg) <> 0
                 then
                 let
                     val sources = [sourceReg source]
