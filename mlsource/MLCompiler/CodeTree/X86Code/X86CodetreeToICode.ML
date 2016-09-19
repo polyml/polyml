@@ -1942,8 +1942,9 @@ struct
                     rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
                     lengthUntag @
                     [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JL, label=labLess },
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JG, label=labGreater },
+                     (* N.B. These are unsigned comparisons. *)
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JB, label=labLess },
+                     ConditionalForwardJump{ ccRef=ccRef, condition=JA, label=labGreater },
                      LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord },
                      UnconditionalForwardJump{ label=exitLab1 },
                      ForwardJumpLabel{ label=labLess, result=NONE },
