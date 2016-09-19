@@ -1173,9 +1173,8 @@ struct
                 in
                     (c, bindings @ b, s)
                 end
-        |   test =>
+        |   (testGen, testbindings, _) =>
             let
-                val simpTest = specialToGeneral test
                 fun mkNot arg = Unary{oper=BuiltIns.NotBoolean, arg1=arg}
             in
                 case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
@@ -1188,30 +1187,30 @@ struct
                                 it.  If we're in a nested andalso/orelse that may mean we can simplify
                                 the next level out. *)
                             (thenConst (* or elseConst *),
-                             if sideEffectFree simpTest then [] else [NullBinding simpTest],
+                             if sideEffectFree testGen then testbindings else testbindings @ [NullBinding testGen],
                              EnvSpecNone)
               
                         (* if x then true else false == x *)
                         else if wordEq (thenVal, True) andalso wordEq (elseVal, False)
-                        then (simpTest, [], EnvSpecNone)
+                        then (testGen, testbindings, EnvSpecNone)
           
                         (* if x then false else true == not x  *)
                         else if wordEq (thenVal, False) andalso wordEq (elseVal, True)
-                        then (mkNot simpTest, [], EnvSpecNone)
+                        then (mkNot testGen, testbindings, EnvSpecNone)
           
-                        else (* can't optimise *) (Cond (simpTest, thenConst, elseConst), [], EnvSpecNone)
+                        else (* can't optimise *) (Cond (testGen, thenConst, elseConst), testbindings, EnvSpecNone)
 
                         (* Rewrite "if x then raise y else z" into "(if x then raise y else (); z)"
                            The advantage is that any tuples in z are lifted outside the "if". *)
                 |   (thenPart as (Raise _, _, _), (elsePart, elseBindings, elseSpec)) =>
                         (* then-part raises an exception *)
-                        (elsePart, NullBinding(Cond (simpTest, specialToGeneral thenPart, CodeZero)) :: elseBindings, elseSpec)
+                        (elsePart, testbindings @ NullBinding(Cond (testGen, specialToGeneral thenPart, CodeZero)) :: elseBindings, elseSpec)
 
                 |   ((thenPart, thenBindings, thenSpec), elsePart as (Raise _, _, _)) =>
                         (* else part raises an exception *)
-                        (thenPart, NullBinding(Cond (simpTest, CodeZero, specialToGeneral elsePart)) :: thenBindings, thenSpec)
+                        (thenPart, testbindings @ NullBinding(Cond (testGen, CodeZero, specialToGeneral elsePart)) :: thenBindings, thenSpec)
 
-                |   (thenPart, elsePart) => (Cond (simpTest, specialToGeneral thenPart, specialToGeneral elsePart), [], EnvSpecNone)
+                |   (thenPart, elsePart) => (Cond (testGen, specialToGeneral thenPart, specialToGeneral elsePart), testbindings, EnvSpecNone)
             end
     end
 
