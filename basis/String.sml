@@ -443,11 +443,52 @@ local
                 else General.LESS
             end
 
-            val op >= : string*string->bool = (fn i => i >= 0) o compareString
-            and op <= : string*string->bool = (fn i => i <= 0) o compareString
-            and op >  : string*string->bool = (fn i => i > 0) o compareString
-            and op <  : string*string->bool = (fn i => i < 0) o compareString
-        end
+            (* String relational operators.  They could all be defined in terms of "compare" but this
+               generates better code. *)
+            val op >= =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l >= s2l
+                    else test >= 0
+                end
+
+            and op <= =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l <= s2l
+                    else test <= 0
+                end
+
+            and op > =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l > s2l
+                    else test > 0
+                end
+
+            and op < =
+            fn (s1: string, s2: string) =>
+                let
+                    val s1l = sizeAsWord s1 and s2l = sizeAsWord s2
+                    val test = RunCall.byteVectorCompare(s1, s2, wordSize, wordSize, if s1l < s2l then s1l else s2l)
+                in
+                    if test = 0
+                    then s1l < s2l
+                    else test < 0
+                end
+         end
 
                    
     end (* String *)
