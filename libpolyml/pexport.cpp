@@ -143,9 +143,6 @@ void PExport::printObject(PolyObject *p)
         /* May be a string, a long format arbitrary precision
            number or a real number. */
         PolyStringObject* ps = (PolyStringObject*)p;
-        /* See if the first word is a possible length.  The length
-           cannot be one because single character strings are
-           represented by the character. */
         /* This is not infallible but it seems to be good enough
            to detect the strings. */
         POLYUNSIGNED bytes = length * sizeof(PolyWord);
@@ -158,7 +155,7 @@ void PExport::printObject(PolyObject *p)
             for (unsigned i = 0; i < ps->length; i++)
             {
                 char ch = ps->chars[i];
-                fprintf(exportFile, "%02x", ch);
+                fprintf(exportFile, "%02x", ch & 0xff);
             }
         }
         else
