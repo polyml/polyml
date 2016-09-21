@@ -1452,25 +1452,24 @@ struct
         |   codeToICode(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination) =
             let
                 val target = asTarget destination
+                
                 fun codeArgs [] = ([], [])
-                |   codeArgs (({value, ...}, _) :: rest) =
+                |   codeArgs (({value, addr}, _) :: rest) =
                     let
-                        val (code, value, _) = codeToICode(value, context, false, Allowed allowDefer)
-                        val (otherArgs, otherCode) = codeArgs rest
+                        val pr = newPReg()
+                        val () = Array.update(locToPregArray, addr, SOME pr)
+                        val code = codeToICodeTarget(value, context, false, pr)
+                        val (pregs, othercode) = codeArgs rest
                     in
-                        (value :: otherArgs, code @ otherCode)
+                        (pr::pregs, code@othercode)
                     end
-                val (argValues, argCode) = codeArgs arguments
-                (* Create loop arguments.  These are associated with the loop variables. *)
-                fun makeLoopReg ({addr, ...}, _) =
-                    let val pr = newPReg() val () = Array.update(locToPregArray, addr, SOME pr) in pr end
-                val loopRegs = map makeLoopReg arguments
+                val (loopRegs, argCode) = codeArgs arguments
+
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
-                val args = ListPair.zip (argValues, loopRegs)
             in
-                (argCode @ [StartLoop{regArgs=args, loopLabel=loopLabel}] @ loopBody @
+                (argCode @ [StartLoop{regArgs=[], loopLabel=loopLabel}] @ loopBody @
                     [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
             end
         

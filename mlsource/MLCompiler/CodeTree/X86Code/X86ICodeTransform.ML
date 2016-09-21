@@ -488,17 +488,23 @@ struct
                 |   getValues ((source, PReg(n, _)) :: rest) =
                     let
                         val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
-                        val (sourceVal, sourceCode) = mapSource(source, context)
                     in
                         case Array.sub(pregMap, n) of
-                            ToPReg lReg => ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            ToPReg lReg =>
+                            let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
+                            in
+                                ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            end
                         |   ToStack =>
                             let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
                                 val stackOff = getStackOffset(n, context)
                             in
                                 (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   Unset => raise InternalError "pushRegisters - JumpLoop - unset"
+                        |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
+                                (otherRegArgs, otherStackArgs, otherCode)
                     end
                 val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
                 fun loadStackArg((source, destStack), (otherLoads, otherArgs)) =
@@ -1222,7 +1228,10 @@ struct
                             val workReg =
                                 case getWorkRegister(reserved, cycle) of
                                     SOME workReg => workReg
-                                |   _ => raise RegisterOverflow []  (* Force an extra register spill here. *)
+                                    (* This should really spill something so we have a work register
+                                       but we need to know what to spill.  This case should only happen
+                                       if we allow memory addresses in sources at this point. *)
+                                |   _ => raise InternalError "moveEachValue - no work register (TODO?)"
                             (* Replace any reference to the source by the new register. *)
                             val replace = RegisterArgument workReg
                             fun swapSources{src, dst} =
