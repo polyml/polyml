@@ -488,17 +488,23 @@ struct
                 |   getValues ((source, PReg(n, _)) :: rest) =
                     let
                         val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
-                        val (sourceVal, sourceCode) = mapSource(source, context)
                     in
                         case Array.sub(pregMap, n) of
-                            ToPReg lReg => ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            ToPReg lReg =>
+                            let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
+                            in
+                                ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                            end
                         |   ToStack =>
                             let
+                                val (sourceVal, sourceCode) = mapSource(source, context)
                                 val stackOff = getStackOffset(n, context)
                             in
                                 (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   Unset => raise InternalError "pushRegisters - JumpLoop - unset"
+                        |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
+                                (otherRegArgs, otherStackArgs, otherCode)
                     end
                 val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
                 fun loadStackArg((source, destStack), (otherLoads, otherArgs)) =
