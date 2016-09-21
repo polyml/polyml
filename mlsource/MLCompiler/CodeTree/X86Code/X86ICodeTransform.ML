@@ -1228,7 +1228,10 @@ struct
                             val workReg =
                                 case getWorkRegister(reserved, cycle) of
                                     SOME workReg => workReg
-                                |   _ => raise RegisterOverflow []  (* Force an extra register spill here. *)
+                                    (* This should really spill something so we have a work register
+                                       but we need to know what to spill.  This case should only happen
+                                       if we allow memory addresses in sources at this point. *)
+                                |   _ => raise InternalError "moveEachValue - no work register (TODO?)"
                             (* Replace any reference to the source by the new register. *)
                             val replace = RegisterArgument workReg
                             fun swapSources{src, dst} =
