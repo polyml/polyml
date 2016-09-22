@@ -8,7 +8,7 @@ let
     let
         val () = x := !x+1
     in
-        if !x = 0 then f() else ()
+        if !x = 1 then f() else ()
     end;
 in
     f ()
