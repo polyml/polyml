@@ -530,29 +530,18 @@ struct
                 (* This is just a marker.  It doesn't actually generate any code. *)
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, [], [])
 
-        |   identify((instr as StartLoop{regArgs, loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify((instr as StartLoop{loopLabel}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
-                val sourceAsRegs =
-                    List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) [] regArgs
-                val destRegs = List.foldl(fn ((_, loopReg), dests) => destReg loopReg :: dests) [] regArgs
                 (* The active set is the environment plus the loop variables. *)
                 val (tail, refLabels, resLoopLabels, _, currentRegs) =
                     identify(rest, labels, loopLabels, loopLabel :: loopNest, ccIn)
-                (* These variables are live at the start of the loop.  They have to be
-                   live everywhere in the loop.  We do not include the loop variables
-                   in the set.  They are recomputed by JumpLoop. *)
-                val loopRegs = removeDests(destRegs, currentRegs)
-                (* Add the loop registers as conflicts just in case they are never used.
-                   This has happened. *)
-                val () = addNewConflicts(currentRegs, destRegs)
                 (* Finally we need to add the sources.  They are used to initialise the
                    loop variables so aren't required within the loop itself. *)
-                val newNewActive = addSourcesToActive(sourceAsRegs, loopRegs)
-                val active = setToList(union(currentRegs, listToSet destRegs))
+                val active = setToList currentRegs
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
                 (* Add the loop entries to the result this.  They can then be added during the next pass. *)
-                ((instr, active) :: tail, refLabels, (loopLabel, loopRegs) :: resLoopLabels, CCIndeterminate, newNewActive)
+                ((instr, active) :: tail, refLabels, (loopLabel, currentRegs) :: resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify(EndLoop{loopLabel, ...} :: rest, labels, loopLabels, loopNest, ccIn) =

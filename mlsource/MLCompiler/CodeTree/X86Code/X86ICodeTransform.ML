@@ -432,49 +432,13 @@ struct
         |   pushRegisters((InitialisationComplete, _) :: rest, code, context) =
                 pushRegisters(rest, InitialisationComplete :: code, context)
 
-        |   pushRegisters((StartLoop{regArgs, loopLabel}, _) :: rest, code, context) =
+        |   pushRegisters((StartLoop{loopLabel}, _) :: rest, code, context) =
             let
-                (* Some of the loop registers may be marked to be pushed.  In that case we
-                   don't include them in the regArgs list.  We have to split the list between
-                   those that will be pushed and those that won't and process the ones that
-                   will be pushed first. *)
-                fun isAregArg (_, PReg(n, _)) = not(Vector.sub(pushVec, n))
-                val (regArgsToDo, stackArgsToDo) = List.partition isAregArg regArgs
-
-                fun loadStackArgs ([], ctxt) = ([], ctxt)
-                |   loadStackArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
-                    let
-                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
-                        val (destVal, destCode, newContext) = mapDestReg(dest, ctxt)
-                        val (codeRest, resContext) = loadStackArgs(rest, newContext)
-                        val _ =
-                            case Array.sub(pregMap, n) of
-                                ToStack => () | _ => raise InternalError "pushRegisters - StartLoop - not stack"
-                    in
-                        (codeRest @ destCode @ [LoadArgument{source=sourceVal, dest=destVal, kind=MoveWord}] @ sourceCode, resContext)
-                    end
-                val (loadStackArgCode, stackArgContext) = loadStackArgs(stackArgsToDo, context)
-                
-                fun loadRegArgs ([], ctxt) = ([], [], ctxt)
-                |   loadRegArgs ((source, dest as PReg(n, _)) :: rest, ctxt) =
-                    let
-                        val (sourceVal, sourceCode) = mapSource(source, ctxt)
-                        val (_, destCode, newContext) = mapDestReg(dest, ctxt)
-                        val (codeRest, otherRegArgs, resContext) = loadRegArgs(rest, newContext)
-                    in
-                        case Array.sub(pregMap, n) of
-                            ToPReg newReg =>
-                                (codeRest @ destCode @ sourceCode, (sourceVal, newReg) :: otherRegArgs, resContext)
-                        |   _ => raise InternalError "pushRegisters - StartLoop - not reg"
-                    end
-                val (loadCode, newRegArgs, newContext) = loadRegArgs(regArgsToDo, stackArgContext)
-
                 (* Set up the state.  Every jump has to reset to this.  Only the
                    stack pointer is needed. *)
-                val () = addNewLabel(loopLabel, newContext)
+                val () = addNewLabel(loopLabel, context)
             in
-                pushRegisters(rest,
-                    StartLoop{regArgs=newRegArgs, loopLabel=loopLabel} :: loadCode @ loadStackArgCode @ code, newContext)
+                pushRegisters(rest, StartLoop{loopLabel=loopLabel} :: code, context)
             end
 
         |   pushRegisters((EndLoop{loopLabel, staticRegs}, _) :: rest, code, context) =
@@ -1540,17 +1504,8 @@ struct
         |   codeExtended((InitialisationComplete, _) :: rest, context) =
                 InitialisationComplete :: codeExtended(rest, context)
 
-        |   codeExtended((StartLoop{regArgs, loopLabel}, _) :: rest, context) =
-            let
-                (* Make the loop arguments and the sources "friends". *)
-                fun makeFriends (RegisterArgument(PReg(sReg, _)), PReg(dReg, _)) = addFriends(dReg, sReg)
-                |   makeFriends _ = ()
-                val () = List.app makeFriends regArgs
-                val code = codeExtended(rest, context)
-                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
-            in
-                moveMultipleValues(extRegArgs, generalRegisters) @ (StartLoop{regArgs=[], loopLabel=loopLabel} :: code)
-            end
+        |   codeExtended((StartLoop{loopLabel}, _) :: rest, context) =
+                StartLoop{loopLabel=loopLabel} :: codeExtended(rest, context)
 
         |   codeExtended((EndLoop {staticRegs, ...}, _) :: rest, context) =
             let

@@ -1469,7 +1469,7 @@ struct
                 val (loopBody, _, loopExited) =
                     codeToICode(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target)
             in
-                (argCode @ [StartLoop{regArgs=[], loopLabel=loopLabel}] @ loopBody @
+                (argCode @ [StartLoop{loopLabel=loopLabel}] @ loopBody @
                     [EndLoop {loopLabel=loopLabel, staticRegs=[]}], RegisterArgument target, loopExited)
             end
         

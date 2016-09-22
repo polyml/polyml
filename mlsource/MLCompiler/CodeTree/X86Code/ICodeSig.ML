@@ -160,7 +160,7 @@ sig
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
+    |   StartLoop of { loopLabel: iLabel }
 
         (* End a loop.  This is a marker that is used at the higher levels.
            It doesn't generate any code. *)

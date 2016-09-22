@@ -137,7 +137,7 @@ struct
 
         (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
            The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { regArgs: ('reg argument * 'reg) list, loopLabel: iLabel }
+    |   StartLoop of { loopLabel: iLabel }
 
         (* End a loop.  This is a marker that is used at the higher levels.
            It doesn't generate any code. *)
@@ -386,14 +386,7 @@ struct
 
         |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
 
-        |   printICode(StartLoop{regArgs, loopLabel}, stream, printReg) =
-            (
-                printLabel(loopLabel, stream);
-                stream ":\tStartLoop\t";
-                List.app(
-                    fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
-                    ) regArgs
-            )
+        |   printICode(StartLoop{loopLabel}, stream, _) = ( printLabel(loopLabel, stream); stream ":\tStartLoop\t" )
 
         |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
 
