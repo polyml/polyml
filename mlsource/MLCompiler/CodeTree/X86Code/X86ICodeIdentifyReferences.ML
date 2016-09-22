@@ -579,11 +579,14 @@ struct
                 (* If this is the second pass we need to add the extra active registers
                    to the references. *)
                 val loopRegs = removePushed(mergedLoopRegs(loopLabels, loopNest))
-                val newNewActive = addSourcesToActive(sourceAsRegs, loopRegs)
-                val () = List.app(fn i => incrArray(regActive, i)) (setToList newNewActive)
+                val currentRegs = addSourcesToActive(sourceAsRegs, loopRegs)
+                val destRegs = List.foldl(fn ((_, loopReg), dests) => destReg loopReg :: dests) [] regArgs
+                (* Add the loop registers as conflicts just in case they are never used.
+                   We should remove unused arguments at a higher level. *)
+                val () = addNewConflicts(currentRegs, destRegs)
+                val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
             in
-                ((instr, []) :: tail,
-                       refLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                ((instr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, labels, loopLabels, loopNest, ccIn) =
