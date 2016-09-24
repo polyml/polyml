@@ -948,7 +948,7 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_stringLength:
+        case INSTR_stringLength: // Now replaced by loadUntagged
             *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
             break;
 
@@ -1211,7 +1211,7 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_setStringLength:
+        case INSTR_setStringLength: // Now replaced by storeUntagged
         {
             /* Store the length word of a string. */
             POLYUNSIGNED len = UNTAGGED(*sp++);
@@ -1675,6 +1675,16 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case INSTR_loadUntagged:
+        {
+            // The values on the stack are base, index and offset.
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            *sp = TAGGED(p->Get(index).AsUnsigned());
+            break;
+        }
+
         case INSTR_storeMLWord: 
         {
             PolyWord toStore = *sp++;
@@ -1769,6 +1779,17 @@ int IntTaskData::SwitchToPoly()
             POLYSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).AsObjPtr()->Get(0).AsCodePtr() + offset;
             ((double*)p)[index] = toStore;
+            *sp = Zero;
+            break;
+        }
+
+        case INSTR_storeUntagged: 
+        {
+            PolyWord toStore = PolyWord::FromUnsigned(UNTAGGED_UNSIGNED(*sp++));
+            POLYUNSIGNED offset = UNTAGGED(*sp++);
+            POLYUNSIGNED index = UNTAGGED(*sp++);
+            PolyObject *p = (PolyObject*)((*sp).AsCodePtr() + offset);
+            p->Set(index, toStore);
             *sp = Zero;
             break;
         }
