@@ -133,6 +133,20 @@
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillSelf(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -153,6 +167,20 @@ struct _entrypts processesEPT[] =
 {
     { "PolyThreadGeneral",              (polyRTSFunction)&PolyThreadGeneral},
     { "PolyThreadKillSelf",             (polyRTSFunction)&PolyThreadKillSelf},
+    { "PolyThreadMutexBlock",           (polyRTSFunction)&PolyThreadMutexBlock},
+    { "PolyThreadMutexUnlock",          (polyRTSFunction)&PolyThreadMutexUnlock},
+    { "PolyThreadCondVarWait",          (polyRTSFunction)&PolyThreadCondVarWait},
+    { "PolyThreadCondVarWaitUntil",     (polyRTSFunction)&PolyThreadCondVarWaitUntil},
+    { "PolyThreadCondVarWake",          (polyRTSFunction)&PolyThreadCondVarWake},
+    { "PolyThreadForkThread",           (polyRTSFunction)&PolyThreadForkThread},
+    { "PolyThreadIsActive",             (polyRTSFunction)&PolyThreadIsActive},
+    { "PolyThreadInterruptThread",      (polyRTSFunction)&PolyThreadInterruptThread},
+    { "PolyThreadKillThread",           (polyRTSFunction)&PolyThreadKillThread},
+    { "PolyThreadBroadcastInterrupt",   (polyRTSFunction)&PolyThreadBroadcastInterrupt},
+    { "PolyThreadTestInterrupt",        (polyRTSFunction)&PolyThreadTestInterrupt},
+    { "PolyThreadNumProcessors",        (polyRTSFunction)&PolyThreadNumProcessors},
+    { "PolyThreadNumPhysicalProcessors",(polyRTSFunction)&PolyThreadNumPhysicalProcessors},
+    { "PolyThreadMaxStackSize",         (polyRTSFunction)&PolyThreadMaxStackSize},
 
     { NULL, NULL} // End of list.
 };
@@ -237,6 +265,14 @@ public:
 
     virtual void SetSingleThreaded(void) { singleThreaded = true; }
 
+    // Operations on mutexes
+    void MutexBlock(TaskData *taskData, Handle hMutex);
+    void MutexUnlock(TaskData *taskData, Handle hMutex);
+
+    // Operations on condition variables.
+    void WaitInfinite(TaskData *taskData, Handle hMutex);
+    void WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hTime);
+    bool WakeThread(PolyObject *targetThread);
 
     // Generally, the system runs with multiple threads.  After a
     // fork, though, there is only one thread.
@@ -344,243 +380,373 @@ POLYUNSIGNED PolyThreadGeneral(PolyObject *threadId, PolyWord code, PolyWord arg
     else return result->Word().AsUnsigned();
 }
 
-Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
+POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
 {
-    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
-    TaskData *ptaskData = taskData;
-    switch (c)
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        processesModule.MutexBlock(taskData, pushedArg);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        processesModule.MutexUnlock(taskData, pushedArg);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+/* A mutex was locked i.e. the count was ~1 or less.  We will have set it to
+  ~1. This code blocks if the count is still ~1.  It does actually return
+  if another thread tries to lock the mutex and hasn't yet set the value
+  to ~1 but that doesn't matter since whenever we return we simply try to
+  get the lock again. */
+void Processes::MutexBlock(TaskData *taskData, Handle hMutex)
+{
+    schedLock.Lock();
+    // We have to check the value again with schedLock held rather than
+    // simply waiting because otherwise the unlocking thread could have
+    // set the variable back to 1 (unlocked) and signalled any waiters
+    // before we actually got to wait.  
+    if (UNTAGGED(DEREFHANDLE(hMutex)->Get(0)) < 0)
     {
-    case 1: /* A mutex was locked i.e. the count was ~1 or less.  We will have set it to
-               ~1. This code blocks if the count is still ~1.  It does actually return
-               if another thread tries to lock the mutex and hasn't yet set the value
-               to ~1 but that doesn't matter since whenever we return we simply try to
-               get the lock again. */
+        // Set this so we can see what we're blocked on.
+        taskData->blockMutex = DEREFHANDLE(hMutex);
+        // Now release the ML memory.  A GC can start.
+        ThreadReleaseMLMemoryWithSchedLock(taskData);
+        // Wait until we're woken up.  We mustn't block if we have been
+        // interrupted, and are processing interrupts asynchronously, or
+        // we've been killed.
+        switch (taskData->requests)
         {
-            schedLock.Lock();
-            // We have to check the value again with schedLock held rather than
-            // simply waiting because otherwise the unlocking thread could have
-            // set the variable back to 1 (unlocked) and signalled any waiters
-            // before we actually got to wait.  
-            if (UNTAGGED(DEREFHANDLE(args)->Get(0)) < 0)
+        case kRequestKill:
+            // We've been killed.  Handle this later.
+            break;
+        case kRequestInterrupt:
             {
-                // Set this so we can see what we're blocked on.
-                ptaskData->blockMutex = DEREFHANDLE(args);
-                // Now release the ML memory.  A GC can start.
-                ThreadReleaseMLMemoryWithSchedLock(ptaskData);
-                // Wait until we're woken up.  We mustn't block if we have been
-                // interrupted, and are processing interrupts asynchronously, or
-                // we've been killed.
-                switch (ptaskData->requests)
-                {
-                case kRequestKill:
-                    // We've been killed.  Handle this later.
+                // We've been interrupted.  
+                POLYUNSIGNED attrs = ThreadAttrs(taskData) & PFLAG_INTMASK;
+                if (attrs == PFLAG_ASYNCH || attrs == PFLAG_ASYNCH_ONCE)
                     break;
-                case kRequestInterrupt:
-                    {
-                        // We've been interrupted.  
-                        POLYUNSIGNED attrs = ThreadAttrs(ptaskData) & PFLAG_INTMASK;
-                        if (attrs == PFLAG_ASYNCH || attrs == PFLAG_ASYNCH_ONCE)
-                            break;
-                        // If we're ignoring interrupts or handling them synchronously
-                        // we don't do anything here.
-                    }
-                case kRequestNone:
-                    globalStats.incCount(PSC_THREADS_WAIT_MUTEX);
-                    ptaskData->threadLock.Wait(&schedLock);
-                    globalStats.decCount(PSC_THREADS_WAIT_MUTEX);
-                }
-                ptaskData->blockMutex = 0; // No longer blocked.
-                ThreadUseMLMemoryWithSchedLock(ptaskData);
+                // If we're ignoring interrupts or handling them synchronously
+                // we don't do anything here.
             }
-            // Return and try and get the lock again.
-            schedLock.Unlock();
-            // Test to see if we have been interrupted and if this thread
-            // processes interrupts asynchronously we should raise an exception
-            // immediately.  Perhaps we do that whenever we exit from the RTS.
-            return SAVE(TAGGED(0));
-       }
+        case kRequestNone:
+            globalStats.incCount(PSC_THREADS_WAIT_MUTEX);
+            taskData->threadLock.Wait(&schedLock);
+            globalStats.decCount(PSC_THREADS_WAIT_MUTEX);
+        }
+        taskData->blockMutex = 0; // No longer blocked.
+        ThreadUseMLMemoryWithSchedLock(taskData);
+    }
+    // Return and try and get the lock again.
+    schedLock.Unlock();
+    // Test to see if we have been interrupted and if this thread
+    // processes interrupts asynchronously we should raise an exception
+    // immediately.  Perhaps we do that whenever we exit from the RTS.
+}
 
-    case 2: /* Unlock a mutex.  Called after incrementing the count and discovering
-               that at least one other thread has tried to lock it.  We may need
-               to wake up threads that are blocked. */
+/* Unlock a mutex.  Called after incrementing the count and discovering
+   that at least one other thread has tried to lock it.  We may need
+   to wake up threads that are blocked. */
+void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
+{
+    // The caller has already set the variable to 1 (unlocked).
+    // We need to acquire schedLock so that we can
+    // be sure that any thread that is trying to lock sees either
+    // the updated value (and so doesn't wait) or has successfully
+    // waited on its threadLock (and so will be woken up).
+    schedLock.Lock();
+    // Unlock any waiters.
+    for (unsigned i = 0; i < taskArraySize; i++)
+    {
+        TaskData *p = taskArray[i];
+        // If the thread is blocked on this mutex we can signal the thread.
+        if (p && p->blockMutex == DEREFHANDLE(hMutex))
+            p->threadLock.Signal();
+    }
+    schedLock.Unlock();
+}
+
+POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+
+    try {
+        processesModule.WaitInfinite(taskData, pushedArg);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedLockArg = taskData->saveVec.push(lockArg);
+    Handle pushedTimeArg = taskData->saveVec.push(timeArg);
+
+    try {
+        processesModule.WaitUntilTime(taskData, pushedLockArg, pushedTimeArg);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+// Atomically drop a mutex and wait for a wake up.
+// It WILL NOT RAISE AN EXCEPTION unless it is set to handle exceptions
+// asynchronously (which it shouldn't do if the ML caller code is correct).
+// It may return as a result of any of the following:
+//      an explicit wake up.
+//      an interrupt, either direct or broadcast
+//      a trap i.e. a request to handle an asynchronous event.
+void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
+{
+    schedLock.Lock();
+    // Atomically release the mutex.  This is atomic because we hold schedLock
+    // so no other thread can call signal or broadcast.
+    Handle decrResult = taskData->AtomicIncrement(hMutex);
+    if (UNTAGGED(decrResult->Word()) != 1)
+    {
+        taskData->AtomicReset(hMutex);
+        // The mutex was locked so we have to release any waiters.
+        // Unlock any waiters.
+        for (unsigned i = 0; i < taskArraySize; i++)
         {
-            // The caller has already set the variable to 1 (unlocked).
-            // We need to acquire schedLock so that we can
-            // be sure that any thread that is trying to lock sees either
-            // the updated value (and so doesn't wait) or has successfully
-            // waited on its threadLock (and so will be woken up).
-            schedLock.Lock();
-            // Unlock any waiters.
-            for (unsigned i = 0; i < taskArraySize; i++)
-            {
-                TaskData *p = taskArray[i];
-                // If the thread is blocked on this mutex we can signal the thread.
-                if (p && p->blockMutex == DEREFHANDLE(args))
-                    p->threadLock.Signal();
-            }
-            schedLock.Unlock();
-            return SAVE(TAGGED(0));
-       }
+            TaskData *p = taskArray[i];
+            // If the thread is blocked on this mutex we can signal the thread.
+            if (p && p->blockMutex == DEREFHANDLE(hMutex))
+                p->threadLock.Signal();
+        }
+    }
+    // Wait until we're woken up.  Don't block if we have been interrupted
+    // or killed.
+    if (taskData->requests == kRequestNone)
+    {
+        // Now release the ML memory.  A GC can start.
+        ThreadReleaseMLMemoryWithSchedLock(taskData);
+        globalStats.incCount(PSC_THREADS_WAIT_CONDVAR);
+        taskData->threadLock.Wait(&schedLock);
+        globalStats.decCount(PSC_THREADS_WAIT_CONDVAR);
+        // We want to use the memory again.
+        ThreadUseMLMemoryWithSchedLock(taskData);
+    }
+    schedLock.Unlock();
+}
 
-    case 3: // Atomically drop a mutex and wait for a wake up.  
-        {
-            // The argument is a pair of a mutex and the time to wake up.  The time
-            // may be zero to indicate an infinite wait.  The return value is unit.
-            // It WILL NOT RAISE AN EXCEPTION unless it is set to handle exceptions
-            // asynchronously (which it shouldn't do if the ML caller code is correct).
-            // It may return as a result of any of the following:
-            //      an explicit wake up.
-            //      an interrupt, either direct or broadcast
-            //      a trap i.e. a request to handle an asynchronous event.
-            Handle mutexH = SAVE(args->WordP()->Get(0));
-            Handle wakeTime = SAVE(args->WordP()->Get(1));
-            // We pass zero as the wake time to represent infinity.
-            bool isInfinite = wakeTime->Word() == TAGGED(0);
-
-            // Convert the time into the correct format for WaitUntil before acquiring
-            // schedLock.  div_longc could do a GC which requires schedLock.
+// Atomically drop a mutex and wait for a wake up or a time to wake up
+void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTime)
+{
+    // Convert the time into the correct format for WaitUntil before acquiring
+    // schedLock.  div_longc could do a GC which requires schedLock.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            // On Windows it is the number of 100ns units since the epoch
-            FILETIME tWake;
-            if (! isInfinite)
-                getFileTimeFromArb(taskData, wakeTime, &tWake);
+    // On Windows it is the number of 100ns units since the epoch
+    FILETIME tWake;
+    getFileTimeFromArb(taskData, hWakeTime, &tWake);
 #else
-            // Unix style times.
-            struct timespec tWake;
-            if (! isInfinite)
-            {
-                // On Unix we represent times as a number of microseconds.
-                Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-                tWake.tv_sec =
-                    get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, wakeTime)));
-                tWake.tv_nsec =
-                    1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
-            }
+    // Unix style times.
+    struct timespec tWake;
+    // On Unix we represent times as a number of microseconds.
+    Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
+    tWake.tv_sec =
+        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hWakeTime)));
+    tWake.tv_nsec =
+        1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hWakeTime)));
 #endif
-            schedLock.Lock();
-            // Atomically release the mutex.  This is atomic because we hold schedLock
-            // so no other thread can call signal or broadcast.
-            Handle decrResult = taskData->AtomicIncrement(mutexH);
-            if (UNTAGGED(decrResult->Word()) != 1)
-            {
-                taskData->AtomicReset(mutexH);
-                // The mutex was locked so we have to release any waiters.
-                // Unlock any waiters.
-                for (unsigned i = 0; i < taskArraySize; i++)
-                {
-                    TaskData *p = taskArray[i];
-                    // If the thread is blocked on this mutex we can signal the thread.
-                    if (p && p->blockMutex == DEREFHANDLE(mutexH))
-                        p->threadLock.Signal();
-                }
-            }
-            // Wait until we're woken up.  Don't block if we have been interrupted
-            // or killed.
-            if (ptaskData->requests == kRequestNone)
-            {
-                // Now release the ML memory.  A GC can start.
-                ThreadReleaseMLMemoryWithSchedLock(ptaskData);
-                globalStats.incCount(PSC_THREADS_WAIT_CONDVAR);
-                // We pass zero as the wake time to represent infinity.
-                if (isInfinite)
-                    ptaskData->threadLock.Wait(&schedLock);
-                else (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
-                globalStats.decCount(PSC_THREADS_WAIT_CONDVAR);
-                // We want to use the memory again.
-                ThreadUseMLMemoryWithSchedLock(ptaskData);
-            }
-            schedLock.Unlock();
-            return SAVE(TAGGED(0));
-        }
-
-    case 4: // Wake up the specified thread.  Returns false (0) if the thread has
-        // already been interrupted and is not ignoring interrupts or if the thread
-        // does not exist (i.e. it's been killed while waiting).  Returns true
-        // if it successfully woke up the thread.  The thread may subsequently
-        // receive an interrupt but we need to know whether we woke the thread
-        // up before that happened.
+    schedLock.Lock();
+    // Atomically release the mutex.  This is atomic because we hold schedLock
+    // so no other thread can call signal or broadcast.
+    Handle decrResult = taskData->AtomicIncrement(hMutex);
+    if (UNTAGGED(decrResult->Word()) != 1)
+    {
+        taskData->AtomicReset(hMutex);
+        // The mutex was locked so we have to release any waiters.
+        // Unlock any waiters.
+        for (unsigned i = 0; i < taskArraySize; i++)
         {
-            int result = 0; // Default to failed.
-            // Acquire the schedLock first.  This ensures that this is
-            // atomic with respect to waiting.
-            schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args->WordP());
-            if (p && p->threadObject == args->WordP())
-            {
-                POLYUNSIGNED attrs = ThreadAttrs(p) & PFLAG_INTMASK;
-                if (p->requests == kRequestNone ||
-                    (p->requests == kRequestInterrupt && attrs == PFLAG_IGNORE))
-                {
-                    p->threadLock.Signal();
-                    result = 1;
-                }
-            }
-            schedLock.Unlock();
-            return SAVE(TAGGED(result));
+            TaskData *p = taskArray[i];
+            // If the thread is blocked on this mutex we can signal the thread.
+            if (p && p->blockMutex == DEREFHANDLE(hMutex))
+                p->threadLock.Signal();
         }
+    }
+    // Wait until we're woken up.  Don't block if we have been interrupted
+    // or killed.
+    if (taskData->requests == kRequestNone)
+    {
+        // Now release the ML memory.  A GC can start.
+        ThreadReleaseMLMemoryWithSchedLock(taskData);
+        globalStats.incCount(PSC_THREADS_WAIT_CONDVAR);
+        (void)taskData->threadLock.WaitUntil(&schedLock, &tWake);
+        globalStats.decCount(PSC_THREADS_WAIT_CONDVAR);
+        // We want to use the memory again.
+        ThreadUseMLMemoryWithSchedLock(taskData);
+    }
+    schedLock.Unlock();
+}
 
-        // 5 and 6 are no longer used.
-
-    case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
-            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
-                        (Handle)0, args->WordP()->Get(1),
-                        // For backwards compatibility we check the length here
-                        args->WordP()->Length() <= 2 ? TAGGED(0) : args->WordP()->Get(2));
-
-    case 8: // Test if a thread is active
+bool Processes::WakeThread(PolyObject *targetThread)
+{
+    bool result = false; // Default to failed.
+    // Acquire the schedLock first.  This ensures that this is
+    // atomic with respect to waiting.
+    schedLock.Lock();
+    TaskData *p = TaskForIdentifier(targetThread);
+    if (p && p->threadObject == targetThread)
+    {
+        POLYUNSIGNED attrs = ThreadAttrs(p) & PFLAG_INTMASK;
+        if (p->requests == kRequestNone ||
+            (p->requests == kRequestInterrupt && attrs == PFLAG_IGNORE))
         {
-            schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args->WordP());
-            schedLock.Unlock();
-            return SAVE(TAGGED(p != 0));
+            p->threadLock.Signal();
+            result = true;
         }
+    }
+    schedLock.Unlock();
+    return result;
+}
 
-    case 9: // Send an interrupt to a specific thread
-        {
-            schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args->WordP());
-            if (p) MakeRequest(p, kRequestInterrupt);
-            schedLock.Unlock();
-            if (p == 0)
-                raise_exception_string(taskData, EXC_thread, "Thread does not exist");
-            return SAVE(TAGGED(0));
-        }
+POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread)
+{
+    if (processesModule.WakeThread(targetThread))
+        return TAGGED(1).AsUnsigned();
+    else return TAGGED(0).AsUnsigned();
+}
 
-    case 10: // Broadcast an interrupt to all threads that are interested.
-        BroadcastInterrupt();
-        return SAVE(TAGGED(0));
+// Test if a thread is active.
+POLYUNSIGNED PolyThreadIsActive(PolyObject *targetThread)
+{
+    processesModule.schedLock.Lock();
+    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    processesModule.schedLock.Unlock();
+    if (p != 0) return TAGGED(1).AsUnsigned();
+    else return TAGGED(0).AsUnsigned();
+}
 
-    case 11: // Interrupt this thread now if it has been interrupted
-        TestSynchronousRequests(taskData);
+// Send an interrupt to a specific thread
+POLYUNSIGNED PolyThreadInterruptThread(PolyObject *targetThread)
+{
+    processesModule.schedLock.Lock();
+    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    if (p) processesModule.MakeRequest(p, kRequestInterrupt);
+    processesModule.schedLock.Unlock();
+    // If the thread cannot be identified return false.
+    // The caller can then raise an exception
+    if (p == 0) return TAGGED(0).AsUnsigned();
+    else return TAGGED(1).AsUnsigned();
+}
+
+// Kill a specific thread
+POLYUNSIGNED PolyThreadKillThread(PolyObject *targetThread)
+{
+    processesModule.schedLock.Lock();
+    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    if (p) processesModule.MakeRequest(p, kRequestKill);
+    processesModule.schedLock.Unlock();
+    // If the thread cannot be identified return false.
+    // The caller can then raise an exception
+    if (p == 0) return TAGGED(0).AsUnsigned();
+    else return TAGGED(1).AsUnsigned();
+}
+
+POLYUNSIGNED PolyThreadBroadcastInterrupt(void)
+{
+    processesModule.BroadcastInterrupt();
+    return TAGGED(0).AsUnsigned();
+}
+
+POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
+        processesModule.TestSynchronousRequests(taskData);
         // Also process any asynchronous requests that may be pending.
         // These will be handled "soon" but if we have just switched from deferring
         // interrupts this guarantees that any deferred interrupts will be handled now.
-        if (ProcessAsynchRequests(taskData))
+        if (processesModule.ProcessAsynchRequests(taskData))
             throw IOException();
-        return SAVE(TAGGED(0));
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
 
-    case 12: // Kill a specific thread
-        {
-            schedLock.Lock();
-            TaskData *p = TaskForIdentifier(args->WordP());
-            if (p) MakeRequest(p, kRequestKill);
-            schedLock.Unlock();
-            if (p == 0)
-                raise_exception_string(taskData, EXC_thread, "Thread does not exist");
-            return SAVE(TAGGED(0));
-        }
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
 
-    case 13: // Return the number of processors.
-        // Returns 1 if there is any problem.
-        return Make_arbitrary_precision(taskData, NumberOfProcessors());
+// Return the number of processors.
+// Returns 1 if there is any problem.
+POLYUNSIGNED PolyThreadNumProcessors(void)
+{
+    return TAGGED(NumberOfProcessors()).AsUnsigned();
+}
 
-    case 14: // Return the number of physical processors.
-        // Returns 0 if there is any problem.
-        return Make_arbitrary_precision(taskData, NumberOfPhysicalProcessors());
+// Return the number of physical processors.
+// Returns 0 if there is any problem.
+POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
+{
+    return TAGGED(NumberOfPhysicalProcessors()).AsUnsigned();
+}
 
-    case 15: // Set the maximum stack size.
-        {
-            PolyWord newSize = args->Word();
+// Set the maximum stack size.
+POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    try {
             taskData->threadObject->mlStackSize = newSize;
             if (newSize != TAGGED(0))
             {
@@ -589,8 +755,42 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                 if (current > newWords)
                     raise_exception0(taskData, EXC_interrupt);
             }
-            return SAVE(TAGGED(0));
-        }
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    return TAGGED(0).AsUnsigned();
+}
+
+// Old dispatch function.  This is only required because the pre-built compiler
+// may use some of these e.g. fork.
+Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
+{
+    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    TaskData *ptaskData = taskData;
+    switch (c)
+    {
+    case 1:
+        MutexBlock(taskData, args);
+        return SAVE(TAGGED(0));
+
+    case 2:
+        MutexUnlock(taskData, args);
+        return SAVE(TAGGED(0));
+
+    case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
+            return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
+                        (Handle)0, args->WordP()->Get(1),
+                        // For backwards compatibility we check the length here
+                        args->WordP()->Length() <= 2 ? TAGGED(0) : args->WordP()->Get(2));
+
+    case 10: // Broadcast an interrupt to all threads that are interested.
+        BroadcastInterrupt();
+        return SAVE(TAGGED(0));
 
     default:
         {
@@ -1535,6 +1735,29 @@ bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
         // If it failed
         return false;
     }
+}
+
+POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedFunction = taskData->saveVec.push(function);
+    Handle result = 0;
+
+    try {
+        result = processesModule.ForkThread(taskData, pushedFunction, (Handle)0, attrs, stack);
+    }
+    catch (KillException &) {
+        processes->ThreadExit(taskData); // TestSynchronousRequests may test for kill
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // Deal with any interrupt or kill requests.
