@@ -202,7 +202,7 @@ public:
     void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
+    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
     virtual void SetException(poly_exn *exc);
 
@@ -214,7 +214,7 @@ public:
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE; }
 
     virtual void addAllocationProfileCount(POLYUNSIGNED words)
-    { add_count(this, regPC(), regSP(), words); }
+    { add_count(this, regPC(), words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { SaveMemRegisters(); }
@@ -590,81 +590,110 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
 // This version gets the actual sp and pc if we are in ML.
-bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, POLYCODEPTR &pc)
+bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
-    if (context == 0) return false;
-// The tests for HAVE_UCONTEXT_T, HAVE_STRUCT_SIGCONTEXT and HAVE_WINDOWS_H need
-// to follow the tests in processes.h.
+    PolyWord * sp = 0;
+    POLYCODEPTR pc = 0;
+    if (context != 0)
+    {
+        // The tests for HAVE_UCONTEXT_T, HAVE_STRUCT_SIGCONTEXT and HAVE_WINDOWS_H need
+        // to follow the tests in processes.h.
 #if defined(HAVE_WINDOWS_H)
 #ifdef _WIN64
-    sp = (PolyWord *)context->Rsp;
-    pc = (POLYCODEPTR)context->Rip;
+        sp = (PolyWord *)context->Rsp;
+        pc = (POLYCODEPTR)context->Rip;
 #else
-    // Windows 32 including cygwin.
-    sp = (PolyWord *)context->Esp;
-    pc = (POLYCODEPTR)context->Eip;
+        // Windows 32 including cygwin.
+        sp = (PolyWord *)context->Esp;
+        pc = (POLYCODEPTR)context->Eip;
 #endif
 #elif defined(HAVE_UCONTEXT_T)
 #ifdef HAVE_MCONTEXT_T_GREGS
-    // Linux
+        // Linux
 #ifndef HOSTARCHITECTURE_X86_64
-    pc = (byte*)context->uc_mcontext.gregs[REG_EIP];
-    sp = (PolyWord*)context->uc_mcontext.gregs[REG_ESP];
+        pc = (byte*)context->uc_mcontext.gregs[REG_EIP];
+        sp = (PolyWord*)context->uc_mcontext.gregs[REG_ESP];
 #else /* HOSTARCHITECTURE_X86_64 */
-    pc = (byte*)context->uc_mcontext.gregs[REG_RIP];
-    sp = (PolyWord*)context->uc_mcontext.gregs[REG_RSP];
+        pc = (byte*)context->uc_mcontext.gregs[REG_RIP];
+        sp = (PolyWord*)context->uc_mcontext.gregs[REG_RSP];
 #endif /* HOSTARCHITECTURE_X86_64 */
 #elif defined(HAVE_MCONTEXT_T_MC_ESP)
-   // FreeBSD
+       // FreeBSD
 #ifndef HOSTARCHITECTURE_X86_64
-    pc = (byte*)context->uc_mcontext.mc_eip;
-    sp = (PolyWord*)context->uc_mcontext.mc_esp;
+        pc = (byte*)context->uc_mcontext.mc_eip;
+        sp = (PolyWord*)context->uc_mcontext.mc_esp;
 #else /* HOSTARCHITECTURE_X86_64 */
-    pc = (byte*)context->uc_mcontext.mc_rip;
-    sp = (PolyWord*)context->uc_mcontext.mc_rsp;
+        pc = (byte*)context->uc_mcontext.mc_rip;
+        sp = (PolyWord*)context->uc_mcontext.mc_rsp;
 #endif /* HOSTARCHITECTURE_X86_64 */
 #else
-   // Mac OS X
+       // Mac OS X
 #ifndef HOSTARCHITECTURE_X86_64
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT32_SS))
-    pc = (byte*)context->uc_mcontext->ss.eip;
-    sp = (PolyWord*)context->uc_mcontext->ss.esp;
+        pc = (byte*)context->uc_mcontext->ss.eip;
+        sp = (PolyWord*)context->uc_mcontext->ss.esp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT32___SS))
-    pc = (byte*)context->uc_mcontext->__ss.__eip;
-    sp = (PolyWord*)context->uc_mcontext->__ss.__esp;
-#else
-    return false;
+        pc = (byte*)context->uc_mcontext->__ss.__eip;
+        sp = (PolyWord*)context->uc_mcontext->__ss.__esp;
 #endif
 #else /* HOSTARCHITECTURE_X86_64 */
 #if(defined(HAVE_STRUCT_MCONTEXT_SS)||defined(HAVE_STRUCT___DARWIN_MCONTEXT64_SS))
-    pc = (byte*)context->uc_mcontext->ss.rip;
-    sp = (PolyWord*)context->uc_mcontext->ss.rsp;
+        pc = (byte*)context->uc_mcontext->ss.rip;
+        sp = (PolyWord*)context->uc_mcontext->ss.rsp;
 #elif(defined(HAVE_STRUCT___DARWIN_MCONTEXT64___SS))
-    pc = (byte*)context->uc_mcontext->__ss.__rip;
-    sp = (PolyWord*)context->uc_mcontext->__ss.__rsp;
-#else
-    return false;
+        pc = (byte*)context->uc_mcontext->__ss.__rip;
+        sp = (PolyWord*)context->uc_mcontext->__ss.__rsp;
 #endif
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
 #if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
-    // CPP defines missing in amd64/signal.h in OpenBSD
-    pc = (byte*)context->sc_rip;
-    sp = (PolyWord*)context->sc_rsp;
+        // CPP defines missing in amd64/signal.h in OpenBSD
+        pc = (byte*)context->sc_rip;
+        sp = (PolyWord*)context->sc_rsp;
 #else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
-    pc = (byte*)context->sc_pc;
-    sp = (PolyWord*)context->sc_sp;
+        pc = (byte*)context->sc_pc;
+        sp = (PolyWord*)context->sc_sp;
 #endif
-#else
-    // Can't get context.
-    return false;
 #endif
-    // Check the sp value is in the current stack.
+    }
+    if (pc != 0)
+    {
+        // See if the PC we've got is an ML code address.
+        MemSpace *space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            add_count(this, pc, 1);
+            return true;
+        }
+    }
+    // See if the sp value is in the current stack.
     if (sp >= this->stack->bottom && sp < this->stack->top)
-        return true;
-    else
-        return false; // Bad stack pointer
+    {
+        // We may be in the assembly code.  The top of the stack will be a return address.
+        pc = sp[0].AsCodePtr();
+        MemSpace *space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            add_count(this, pc, 1);
+            return true;
+        }
+    }
+    // See if the value of regSP is a valid stack pointer
+    sp = regSP();
+    if (sp >= this->stack->bottom && sp < this->stack->top)
+    {
+        // We may be in the assembly code.  The top of the stack will be a return address.
+        pc = sp[0].AsCodePtr();
+        MemSpace *space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            add_count(this, pc, 1);
+            return true;
+        }
+    }
+    // None of those worked
+    return false;
 }
 
 // This is called from a different thread so we have to be careful.

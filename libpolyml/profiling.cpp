@@ -176,7 +176,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
 // This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED incr)
+void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
     PolyWord pc = PolyWord::FromCodePtr(fpc);
     // Check that the pc value is within the heap.  It could be
@@ -365,9 +365,8 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
         {
             PolyWord *sp;
             POLYCODEPTR pc;
-            if (taskData->GetPCandSPFromContext(context, sp, pc))
-                add_count(taskData, pc, sp, 1);
-            else mainThreadCounts[MTP_USER_CODE]++;
+            if (! taskData->AddTimeProfileCount(context))
+                mainThreadCounts[MTP_USER_CODE]++;
         }
         else mainThreadCounts[MTP_USER_CODE]++;
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread

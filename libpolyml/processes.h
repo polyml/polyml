@@ -110,7 +110,7 @@ public:
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
     virtual void InterruptCode() = 0;
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
+    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) = 0;
     // Initialise the stack for a new thread.  The parent task object is passed in because any
     // allocation that needs to be made must be made in the parent.
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;

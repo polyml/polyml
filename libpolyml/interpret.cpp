@@ -128,9 +128,8 @@ public:
     virtual void SetException(poly_exn *exc);
     virtual void InterruptCode();
 
-    // GetPCandSPFromContext is used in time profiling.  We can't get accurate info so return false.
-    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
-        { return false; }
+    // AddTimeProfileCount is used in time profiling.  We can't get accurate info so return false.
+    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) { return false; }
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
@@ -147,7 +146,7 @@ public:
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->sp) + OVERFLOW_STACK_SIZE; }
 
     virtual void addAllocationProfileCount(POLYUNSIGNED words)
-    { add_count(this, pc, sp, words); }
+    { add_count(this, pc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
 
