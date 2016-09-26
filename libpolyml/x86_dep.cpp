@@ -683,7 +683,7 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
     sp = regSP();
     if (sp >= this->stack->bottom && sp < this->stack->top)
     {
-        // We may be in the assembly code.  The top of the stack will be a return address.
+        // We may be in the run-time system.
         pc = sp[0].AsCodePtr();
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))

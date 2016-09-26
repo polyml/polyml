@@ -194,6 +194,8 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
             PolyWord *nextPtr = ptr + length;
             if (nextPtr > (PolyWord*)pc.AsCodePtr())
             {
+                if (! obj->IsCodeObject()) // We may not have a valid code address
+                    break;
                 PolyObject *profObject = getProfileObjectForCode(obj);
                 PLocker locker(&countLock);
                 if (profObject)
@@ -361,14 +363,8 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
         otherwise try to find out where we are. */
     if (mainThreadPhase == MTP_USER_CODE)
     {
-        if (taskData)
-        {
-            PolyWord *sp;
-            POLYCODEPTR pc;
-            if (! taskData->AddTimeProfileCount(context))
-                mainThreadCounts[MTP_USER_CODE]++;
-        }
-        else mainThreadCounts[MTP_USER_CODE]++;
+        if (taskData == 0 || ! taskData->AddTimeProfileCount(context))
+            mainThreadCounts[MTP_USER_CODE]++;
         // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
         // so all the counts will be "unknown".
     }
