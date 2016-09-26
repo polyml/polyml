@@ -388,6 +388,9 @@ POLYUNSIGNED PolyThreadMutexBlock(PolyObject *threadId, PolyWord arg)
     Handle reset = taskData->saveVec.mark();
     Handle pushedArg = taskData->saveVec.push(arg);
 
+    if (profileMode == kProfileMutexContention)
+        taskData->addProfileCount(1);
+
     try {
         processesModule.MutexBlock(taskData, pushedArg);
     }

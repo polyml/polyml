@@ -81,7 +81,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     POLYUNSIGNED words = data_words + 1;
     
     if (profileMode == kProfileStoreAllocation)
-        taskData->addAllocationProfileCount(words);
+        taskData->addProfileCount(words);
 
     PolyWord *foundSpace = processes->FindAllocationSpace(taskData, words, false);
     if (foundSpace == 0)

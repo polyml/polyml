@@ -32,10 +32,11 @@ typedef enum {
     kProfileOff = 0,
     kProfileTime,
     kProfileStoreAllocation,
-    kProfileEmulation,
+    kProfileEmulation,   // No longer used
     kProfileLiveData,
     kProfileLiveMutables,
-    kProfileTimeThread
+    kProfileTimeThread,
+    kProfileMutexContention
 } ProfileMode;
 
 extern ProfileMode profileMode;

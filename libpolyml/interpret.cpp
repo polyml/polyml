@@ -145,8 +145,7 @@ public:
     // Return the minimum space occupied by the stack.   Used when setting a limit.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->sp) + OVERFLOW_STACK_SIZE; }
 
-    virtual void addAllocationProfileCount(POLYUNSIGNED words)
-    { add_count(this, pc, words); }
+    virtual void addProfileCount(POLYUNSIGNED words) { add_count(this, pc, words); }
 
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
 

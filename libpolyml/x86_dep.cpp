@@ -213,7 +213,8 @@ public:
     // Return the minimum space occupied by the stack.  Used when setting a limit.
     virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE; }
 
-    virtual void addAllocationProfileCount(POLYUNSIGNED words)
+    // Increment the profile count for an allocation.  Also now used for mutex contention.
+    virtual void addProfileCount(POLYUNSIGNED words)
     { add_count(this, assemblyInterface.stackPtr[0].AsCodePtr(), words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
@@ -859,7 +860,7 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
     *reg = TAGGED(0); // Clear this - it's not a valid address.
  #endif /* HOSTARCHITECTURE_X86_64 */
     if (profileMode == kProfileStoreAllocation)
-        addAllocationProfileCount(wordsNeeded);
+        addProfileCount(wordsNeeded);
 
     mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }

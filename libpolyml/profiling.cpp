@@ -524,6 +524,10 @@ void ProfileRequest::Perform()
     case kProfileLiveMutables:
         profileMode = kProfileLiveMutables;
         break;
+
+    case kProfileMutexContention:
+        profileMode = kProfileMutexContention;
+        break;
        
     default: /* do nothing */
         break;

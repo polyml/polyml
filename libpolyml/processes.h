@@ -133,7 +133,7 @@ public:
 
     virtual POLYUNSIGNED currentStackSpace(void) const = 0;
     // Add a count to the local function if we are using store profiling.
-    virtual void addAllocationProfileCount(POLYUNSIGNED words) = 0;
+    virtual void addProfileCount(POLYUNSIGNED words) = 0;
 
     // Functions called before and after an RTS call.
     virtual void PreRTSCall(void) {}
