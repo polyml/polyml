@@ -530,9 +530,6 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     pairHandle->WordP()->Set(0, argHandle->Word());
     pairHandle->WordP()->Set(1, resHandle->Word());
 
-    // TODO: This calls BuildCodeSegment to allocate small stub code.
-    // They could easily be cached in X86TaskData::SetCallbackFunction at least
-    // up to the next GC.
     taskData->EnterCallbackFunction(mlEntryHandle, pairHandle);
 
     taskData->saveVec.reset(mark);
