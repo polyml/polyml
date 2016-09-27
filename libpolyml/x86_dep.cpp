@@ -463,7 +463,14 @@ int X86TaskData::SwitchToPoly()
         this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
         SetMemRegisters();
 
+        // We need to save the C stack entry across this call in case
+        // we're making a callback and the previous C stack entry is
+        // for the original call.
+        POLYUNSIGNED savedCStack = this->assemblyInterface.saveCStack;
+
         X86AsmSwitchToPoly(&this->assemblyInterface);
+
+        this->assemblyInterface.saveCStack = savedCStack;
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
