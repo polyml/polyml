@@ -42,7 +42,7 @@ in
         let
             val mem = Memory.malloc sizeStruct
         in
-            ignore(storeStruct(mem, (treeMake left, treeMake right, valu)));
+            ignore(storeStruct(mem, (treeMake left, treeMake right, LargeInt.fromInt valu)));
             mem
         end
     
@@ -73,7 +73,7 @@ in
         let
             val (left, right, valu) = loadStruct a
         in
-            Node{left=treeGet left, right=treeGet right, valu = valu }
+            Node{left=treeGet left, right=treeGet right, valu = LargeInt.toInt valu }
         end
 
     fun treeLoad v = treeGet(Memory.getAddress(v, 0w0))
@@ -105,15 +105,15 @@ dupNString (4, "hi");
 
 (* Example of a callback function. *)
 
-fun f (i, j) = (PolyML.print(i, j); i+j);
+fun f (i: LargeInt.int, j) = (PolyML.print(i, j); i+j);
 
 val fAsCFunction = buildClosure2(f, (cInt, cInt), cInt);
 
 val doAdd =
-	buildCall2 (getSymbol mylib "MakeCallback", (cInt, cFunction: (int*int->int) closure conversion), cInt);
+	buildCall2 (getSymbol mylib "MakeCallback", (cInt, cFunction: (LargeInt.int*LargeInt.int->LargeInt.int) closure conversion), cInt);
 doAdd(4, fAsCFunction);
 
-fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
+fun myCallback(a: LargeInt.int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
 (
     PolyML.print(a, b, c, d, e);
     99.0
