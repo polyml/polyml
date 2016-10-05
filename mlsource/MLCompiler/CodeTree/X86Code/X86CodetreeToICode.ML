@@ -1853,13 +1853,20 @@ struct
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
             let
-                val valueReg = newPReg() and floatReg = newUReg()
+                val valueReg = newPReg() and floatReg = newUReg() and float2Reg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
+                (* If we're using an SSE2 reg we have to convert it from double to single precision. *)
+                val (storeReg, cvtCode) =
+                    case fpMode of
+                        FPModeSSE2 =>
+                            (float2Reg,
+                                [SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=RegisterArgument floatReg, arg2=RegisterArgument floatReg}])
+                    |   FPModeX87 => (floatReg, [])
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
-                     StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveFloat}]
+                    LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble} :: cvtCode @
+                    [StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat}]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
