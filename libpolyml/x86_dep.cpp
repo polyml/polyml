@@ -548,7 +548,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     POLYUNSIGNED topStack = stack_size-6;
     assemblyInterface.stackPtr = (PolyWord*)newStack+topStack; 
     assemblyInterface.stackLimit = space->bottom + OVERFLOW_STACK_SIZE;
-    assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+3;
+    assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+4;
 
     // Floating point save area.
     memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
