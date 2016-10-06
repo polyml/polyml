@@ -1522,8 +1522,11 @@ struct
             let
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
-                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeExtArgGeneral src}) stackArgs
-                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeExtArgGeneral a, dst=RegDest(findGeneralReg r)}) regArgs
+                (* We must leave stack entries as stack entries for the moment as with TailCall. *)
+                fun codeArg(StackLocation stack) = StackLocation stack
+                |   codeArg arg = codeExtArgGeneral arg
+                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeArg src}) stackArgs
+                val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
                 val resetCode =
                     if stackAdjust = 0 then [] else [ResetStackPtr{numWords=stackAdjust}]
             in
