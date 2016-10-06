@@ -213,6 +213,8 @@ in
 
             val callDiv: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyDivideArbitrary"
             and callRem: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyRemainderArbitrary"
+            (* We have a special rts call for this.  It's needed in both LargeInt and IntInf *)
+            val quotRemCall = LargeInt.callQuotRem "PolyQuotRemArbitrary"
 
             infix 7 quot rem
 
@@ -267,6 +269,11 @@ in
             in
                 d quot y (* may raise Div for divide-by-zero *)
             end
+            
+            fun quotRem(i, j) =
+                if isShort i andalso isShort j andalso not (j = ~1 andalso i = smallestInt)
+                then (fromShort(FixedInt.quot(toShort i, toShort j)), fromShort(FixedInt.rem(toShort i, toShort j)))
+                else quotRemCall(i, j)
         end
     end;
 end;
