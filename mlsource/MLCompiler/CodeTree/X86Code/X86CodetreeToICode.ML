@@ -393,7 +393,6 @@ struct
         |   codeToICode(BICEval {function, argList, ...}, context, isTail, destination) =
             let
                 val target = asTarget destination
-                val numArgs = List.length argList
                 (* Create pregs for the closure and each argument. *)
                 val clPReg = newPReg()
                 (* If we have a constant closure we can go directly to the entry point.
@@ -450,29 +449,32 @@ struct
                    Currently we don't allow memory arguments at all.  There's the potential for
                    problems later.  Memory arguments could possibly lead to aliasing of the stack
                    if the memory actually refers to a container on the stack.  That would mess
-                   up the code that ensures that stack arguments are stored in the right order.
-                   Don't allow long constants in tail calls.  We may move arguments directly
-                   to their stack location so we're dealing with a memory move there.  *)
-                val allowDefer =
+                   up the code that ensures that stack arguments are stored in the right order. *)
+                (* We don't allow long constants in stack arguments to a tail-recursive call
+                   because we may use a memory move to set them. *)
+                val allowInStackArg =
                     Allowed {anyConstant=not isTail, const32s=true, memAddr=false, existingPreg=not isTail }
-                fun loadArgs [] = ([], [])
-                |   loadArgs((arg, _)::args) =
-                    let
-                        val (c, r, _) = codeToICode(arg, context, false, allowDefer)
-                        val (regs, code) = loadArgs args
+                and allowInRegArg =
+                    Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
+
+                (* Load the first arguments into registers and the rest to the stack. *)
+                fun loadArgs ([], _) = ([], [], [])
+                |   loadArgs ((arg, _) :: args, argReg::argRegs) =
+                    let (* Register argument. *)
+                        val (c, r, _) = codeToICode(arg, context, false, allowInRegArg)
+                        val (code, regArgs, stackArgs) = loadArgs(args, argRegs)
                     in
-                        (r::regs, c @ code)
+                        (c @ code, (r, argReg) :: regArgs, stackArgs)
                     end
-                val (argPRegs, codeArgs) = loadArgs argList
-                (* Load the argument registers.  This returns the
-                   shorter of the actual arguments and those in registers. *)
-                val regArgs = ListPair.zip (argPRegs, argRegs)
-                (* The stack arguments are the later arguments in the list i.e. those
-                   most recently pushed to the stack. *)
-                val stackArgs =
-                    if numArgs > List.length argRegs
-                    then List.drop(argPRegs, List.length argRegs)
-                    else []
+                |   loadArgs ((arg, _) :: args, []) =
+                    let (* Stack argument. *)
+                        val (c, r, _) = codeToICode(arg, context, false, allowInStackArg)
+                        val (code, regArgs, stackArgs) = loadArgs(args, [])
+                    in
+                        (c @ code, regArgs, r :: stackArgs)
+                    end
+                val (codeArgs, regArgs, stackArgs) = loadArgs(argList, argRegs)
+                
                 val callInstr =
                     if isTail
                     then
