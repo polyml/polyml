@@ -2641,7 +2641,14 @@ struct
             (
                 if is8BitL constnt
                 then ( genop (PUSH_8, NONE, code); gen8s (LargeInt.toInt constnt, code) )
-                else ( genop (PUSH_32, NONE, code); gen32s(constnt, code) );
+                else if is32bit constnt
+                then ( genop (PUSH_32, NONE, code); gen32s(constnt, code) )
+                else (* It won't fit in the immediate; put it in the non-address area. *)
+                (
+                    genop (Group5, NONE, code);
+                    genmodrm(Based0, 0w6 (* push *), 0w5 (* PC rel *), code);
+                    addNonAddressConstant(NonAddressInt constnt, code)
+                );
                 cgOp remainder
             )
 
