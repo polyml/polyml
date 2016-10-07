@@ -874,14 +874,19 @@ struct
             )
         
         |   skipToLabel((BeginHandler{handleStart as ILabel lab, packetReg, workReg, ...}, _) :: rest, code) =
-                (* A handler should only ever occur after an unconditional transfer. *)
-            let
-                val context = valOf(Array.sub(labelState, lab))
-                val newWorkReg = mapWorkReg workReg
-                val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
-            in
-                pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
-            end
+            (* A handler should only ever occur after an unconditional transfer. *)
+            (
+                (* It is possible that we have an exception handler inside dead code. *)
+                case Array.sub(labelState, lab) of
+                    NONE => skipToLabel(rest, code)
+                |   SOME context =>
+                    let
+                        val newWorkReg = mapWorkReg workReg
+                        val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
+                    in
+                        pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
+                    end
+            )
         
         |   skipToLabel((EndLoop{loopLabel, staticRegs}, _) :: rest, code) =
                 (* Normally we will have at least one branch that exits the loop
