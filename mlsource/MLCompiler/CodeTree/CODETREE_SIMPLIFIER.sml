@@ -167,8 +167,11 @@ struct
     |   simpGeneral context (Binary{oper, arg1, arg2}) =
             SOME(specialToGeneral(simpBinary(oper, arg1, arg2, context, RevList [])))
 
-    |   simpGeneral context (Arbitrary{oper, arg1, arg2, longCall}) =
-            SOME(specialToGeneral(simpArbitrary(oper, arg1, arg2, longCall, context, RevList [])))
+    |   simpGeneral context (Arbitrary{oper=ArbCompare test, shortCond, arg1, arg2, longCall}) =
+            SOME(specialToGeneral(simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context, RevList [])))
+
+    |   simpGeneral context (Arbitrary{oper=ArbArith arith, shortCond, arg1, arg2, longCall}) =
+            SOME(specialToGeneral(simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, RevList [])))
 
     |   simpGeneral context (AllocateWordMemory {numWords, flags, initial}) =
             SOME(specialToGeneral(simpAllocateWordMemory(numWords, flags, initial, context, RevList [])))
@@ -407,8 +410,11 @@ struct
     |   simpSpecial (Binary{oper, arg1, arg2}, context, tailDecs) =
             simpBinary(oper, arg1, arg2, context, tailDecs)
 
-    |   simpSpecial (Arbitrary{oper, arg1, arg2, longCall}, context, tailDecs) =
-            simpArbitrary(oper, arg1, arg2, longCall, context, tailDecs)
+    |   simpSpecial (Arbitrary{oper=ArbCompare test, shortCond, arg1, arg2, longCall}, context, tailDecs) =
+            simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context, tailDecs)
+
+    |   simpSpecial (Arbitrary{oper=ArbArith arith, shortCond, arg1, arg2, longCall}, context, tailDecs) =
+            simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, tailDecs)
 
     |   simpSpecial (AllocateWordMemory{numWords, flags, initial}, context, tailDecs) =
             simpAllocateWordMemory(numWords, flags, initial, context, tailDecs)
@@ -985,9 +991,10 @@ struct
     end
 
     (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
-    and simpArbitrary(oper, arg1, arg2, longCall, context, tailDecs) =
+    and simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
     let
-        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, tailDecs)
+        val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
         val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
         val posFlags = Address.F_bytes and negFlags = Word8.orb(Address.F_bytes, Address.F_negative)
     in
@@ -995,32 +1002,21 @@ struct
            have variable/constant operations where the constant is short we
            can avoid using the full arbitrary precision call by just looking
            at the sign bit. *)
-        case (genArg1, genArg2) of
-            (Constnt(v1, _), Constnt(v2, _)) =>
-            let
-                val aV1: LargeInt.int = RunCall.unsafeCast v1
-                and aV2: LargeInt.int = RunCall.unsafeCast v2
-                val testResult =
-                    case oper of
-                        ArbCompareLess          => aV1 < aV2
-                    |   ArbCompareGreater       => aV1 > aV2
-                    |   ArbCompareLessEqual     => aV1 <= aV2
-                    |   ArbCompareGreaterEqual  => aV1 >= aV2
-            in
-                (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
-            end
-        |   (genArg1, cArg2 as Constnt(v2, _)) =>
-            if not(isShort v2)
-                (* We're going to need the full call so drop everything else. *)
-            then (simplify(longCall, context), decArgs, EnvSpecNone)
-            else
-            let
-                val (test, isNeg) =
-                    case oper of
-                        ArbCompareLess          => (BuiltIns.TestLess, true)
-                    |   ArbCompareGreater       => (BuiltIns.TestGreater, false)
-                    |   ArbCompareLessEqual     => (BuiltIns.TestLessEqual, true)
-                    |   ArbCompareGreaterEqual  => (BuiltIns.TestGreaterEqual, false)
+        case (genCond, genArg1, genArg2) of
+            (Constnt(c1, _),  _, _) =>
+                if isShort c1 andalso toShort c1 = 0w0
+                then (* One argument is definitely long - generate the long form. *)
+                    (simplify(longCall, context), decArgs, EnvSpecNone)
+                else (* Both arguments are short.  That should mean they're constants. *)
+                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+                         before reprocess := true
+        |   (_, genArg1, cArg2 as Constnt _) =>
+            let (* The constant must be short otherwise the test would be false. *)
+                val isNeg =
+                    case test of
+                        TestLess => true
+                    |   TestLessEqual => true
+                    |   _ => false
                 (* Translate i < c into
                         if isShort i then toShort i < c else isNegative i *)
                 val newCode =
@@ -1033,19 +1029,15 @@ struct
             in
                 (newCode, decArgs, EnvSpecNone)
             end
-        |   (cArg1 as Constnt(v1, _), genArg2) =>
-            if not(isShort v1)
-            then (simplify(longCall, context), decArgs, EnvSpecNone)
-            else
+        |   (_, cArg1 as Constnt _, genArg2) =>
             let
                 (* We're testing c < i  so the test is
                    if isShort i then c < toShort i else isPositive i *)
-                val (test, isPos) =
-                    case oper of
-                        ArbCompareLess          => (BuiltIns.TestLess, true)
-                    |   ArbCompareGreater       => (BuiltIns.TestGreater, false)
-                    |   ArbCompareLessEqual     => (BuiltIns.TestLessEqual, true)
-                    |   ArbCompareGreaterEqual  => (BuiltIns.TestGreaterEqual, false)
+                val isPos =
+                    case test of
+                        TestLess => true
+                    |   TestLessEqual => true
+                    |   _ => false
                 val newCode =
                     Cond(Unary{oper=BuiltIns.IsTaggedValue, arg1=genArg2},
                         Binary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = cArg1, arg2 = genArg2 },
@@ -1056,7 +1048,23 @@ struct
             in
                 (newCode, decArgs, EnvSpecNone)
             end
-        |   _ => (Arbitrary{oper=oper, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+        |   _ => (Arbitrary{oper=ArbCompare test, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+    end
+    
+    and simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
+    let
+        val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
+        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+    in
+        case genCond of
+            Constnt(c1, _) =>
+            if isShort c1 andalso toShort c1 = 0w0
+            then (* One argument is definitely long - generate the long form. *)
+                (simplify(longCall, context), decArgs, EnvSpecNone)
+            else (* If we know they're both short they must be constants and we could fold them. *)
+                (Binary{oper=FixedPrecisionArith arith, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+        |   _ => (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
     end
 
     and simpAllocateWordMemory(numWords, flags, initial, context, tailDecs) =

@@ -28,14 +28,12 @@ struct
     datatype argumentType = datatype BackendIntermediateCode.argumentType
     datatype loadStoreKind = datatype BackendIntermediateCode.loadStoreKind
     datatype blockOpKind = datatype BackendIntermediateCode.blockOpKind
+
+    structure BuiltIns = BackendIntermediateCode.BuiltIns
     
     datatype arbPrecisionOps =
-        ArbCompareLess
-    |   ArbCompareGreater
-    |   ArbCompareLessEqual
-    |   ArbCompareGreaterEqual
-    
-    structure BuiltIns = BackendIntermediateCode.BuiltIns
+        ArbCompare of BuiltIns.testConditions
+    |   ArbArith of BuiltIns.arithmeticOperations
 
     datatype inlineStatus =
         NonInline
@@ -71,9 +69,12 @@ struct
     |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
     |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
 
-        (* Arbitrary precision operations.  The "longCall" is the code to handle
-           the long format case. *)
-    |   Arbitrary of {oper: arbPrecisionOps, arg1: codetree, arg2: codetree, longCall: codetree}
+        (* Arbitrary precision operations.  This combines some conditionals
+           with the operation.  shortCond is the condition that must be satisfied
+           for the short precision operation to be executed.  longCall is called
+           if either argument is long or the evaluation overflows. *)
+    |   Arbitrary of
+            {oper: arbPrecisionOps, shortCond: codetree, arg1: codetree, arg2: codetree, longCall: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
@@ -285,16 +286,14 @@ struct
         |   Binary { oper, arg1, arg2 } =>
                 prettyBuiltin(BuiltIns.binaryRepr oper, [arg1, arg2])
 
-        |   Arbitrary { oper, arg1, arg2, longCall } =>
+        |   Arbitrary { oper, shortCond, arg1, arg2, longCall } =>
             let
                 val operName =
                     case oper of
-                        ArbCompareLess          => "ArbCompareLess"
-                    |   ArbCompareGreater       => "ArbCompareGreater"
-                    |   ArbCompareLessEqual     => "ArbCompareLessEqual"
-                    |   ArbCompareGreaterEqual  => "ArbCompareGreaterEqual"
+                        ArbCompare test => BuiltIns.testRepr test
+                    |   ArbArith arith => BuiltIns.arithRepr arith
             in
-                prettyBuiltin(operName, [arg1, arg2, longCall])
+                prettyBuiltin(operName, [shortCond, arg1, arg2, longCall])
             end
 
         |   AllocateWordMemory { numWords, flags, initial } =>
@@ -644,9 +643,10 @@ struct
                 Unary { oper = oper, arg1 = mapCodetree f arg1 }
         |   mapt(Binary { oper, arg1, arg2 }) =
                 Binary { oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2 }
-        |   mapt(Arbitrary { oper, arg1, arg2, longCall }) =
+        |   mapt(Arbitrary { oper, shortCond, arg1, arg2, longCall }) =
                 Arbitrary {
-                    oper = oper, arg1 = mapCodetree f arg1, arg2 = mapCodetree f arg2, longCall = mapCodetree f longCall }
+                    oper = oper, shortCond = mapCodetree f shortCond, arg1 = mapCodetree f arg1,
+                    arg2 = mapCodetree f arg2, longCall = mapCodetree f longCall }
         |   mapt(AllocateWordMemory { numWords, flags, initial }) =
                 AllocateWordMemory { numWords = mapCodetree f numWords, flags = mapCodetree f flags, initial = mapCodetree f initial }
         |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
@@ -716,7 +716,8 @@ struct
         |   ftree (GetThreadId, v) = v
         |   ftree (Unary {arg1, ...}, v) = foldtree f v arg1
         |   ftree (Binary {arg1, arg2, ...}, v) = foldtree f (foldtree f v arg1) arg2
-        |   ftree (Arbitrary {arg1, arg2, longCall, ...}, v) = foldtree f (foldtree f (foldtree f v arg1) arg2) longCall
+        |   ftree (Arbitrary {shortCond, arg1, arg2, longCall, ...}, v) =
+                foldtree f (foldtree f (foldtree f (foldtree f v shortCond) arg1) arg2) longCall
         |   ftree (AllocateWordMemory {numWords, flags, initial}, v) = foldtree f (foldtree f (foldtree f v numWords) flags) initial
         |   ftree (Lambda { body, closure, ...}, v) =
                 foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
@@ -760,6 +761,9 @@ struct
         and  foldControl = foldControl
         and  unaryOps = BuiltIns.unaryOps
         and  binaryOps = BuiltIns.binaryOps
+        and  arbPrecisionOps = arbPrecisionOps
+        and  testConditions = BuiltIns.testConditions
+        and  arithmeticOperations = BuiltIns.arithmeticOperations
     end
 
 end;

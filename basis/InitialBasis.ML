@@ -60,10 +60,6 @@ struct
     open LargeInt
     
     local
-        val isShort: LargeInt.int -> bool = RunCall.isShort
-        val toShort: LargeInt.int -> FixedInt.int = RunCall.unsafeCast
-        and fromShort: FixedInt.int -> LargeInt.int = RunCall.unsafeCast
-
         val callAdd: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyAddArbitrary"
         and callSub: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolySubtractArbitrary"
         and callMult: LargeInt.int * LargeInt.int -> LargeInt.int = RunCall.rtsCallFull2 "PolyMultiplyArbitrary"
@@ -73,21 +69,9 @@ struct
         
         exception Overflow  = RunCall.Overflow
     in
-        val op + =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i + toShort j) handle Overflow => callAdd(i, j)
-                else callAdd(i, j)
-        and op - =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i - toShort j) handle Overflow => callSub(i, j)
-                else callSub(i, j)
-        and op * =
-            fn (i, j) =>
-                if isShort i andalso isShort j
-                then fromShort(toShort i * toShort j) handle Overflow => callMult(i, j)
-                else callMult(i, j)
+        val op + = fn (i, j) => add(i, j, callAdd)
+        and op - = fn (i, j) => subtract(i, j, callSub)
+        and op * = fn (i, j) => multiply(i, j, callMult)
 
         val op < = fn (i, j) => less(i, j, callComp)
         and op > = fn (i, j) => greater(i, j, callComp)

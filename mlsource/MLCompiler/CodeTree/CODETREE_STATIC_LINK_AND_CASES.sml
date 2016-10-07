@@ -180,26 +180,39 @@ struct
 
             |   insert(Binary { oper, arg1, arg2 }) = BICBinary { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
             
-            |   insert(Arbitrary { oper, arg1, arg2, longCall}) =
+            |   insert(Arbitrary { oper=ArbCompare test, shortCond, arg1, arg2, longCall}) =
                 let
-                    val insArg1 = insert arg1 and insArg2 = insert arg2 and insCall = insert longCall
+                    val insArg1 = insert arg1 and insArg2 = insert arg2
+                    and insCall = insert longCall and insShort = insert shortCond
                     (* We have to rewrite this. *)
                     (* if isShort i andalso isShort j then toShort i < toShort j else callComp(i, j) < 0 *)
-                    val test =
-                        case oper of
-                            ArbCompareLess          => BuiltIns.TestLess
-                        |   ArbCompareGreater       => BuiltIns.TestGreater
-                        |   ArbCompareLessEqual     => BuiltIns.TestLessEqual
-                        |   ArbCompareGreaterEqual  => BuiltIns.TestGreaterEqual
                     fun fixedComp(arg1, arg2) =
                         BICBinary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = arg1, arg2 = arg2 }
-                    fun testShort arg = BICUnary{oper=BuiltIns.IsTaggedValue, arg1=arg}
                     val zeroFalse = BICConstnt(toMachineWord 0, [])
                 in
                     BICCond(
-                        BICCond(testShort insArg1, testShort insArg2, zeroFalse),
+                        insShort,
                         fixedComp(insArg1, insArg2),
                         fixedComp(insCall, zeroFalse)
+                    )
+                end
+
+            |   insert(Arbitrary { oper=ArbArith arith, shortCond, arg1, arg2, longCall}) =
+                let (* Rewrite it. *)
+                    val insArg1 = insert arg1 and insArg2 = insert arg2
+                    and insCall = insert longCall and insShort = insert shortCond
+                    (* if isShort i andalso isShort j
+                       then fromShort(toShort i + toShort j) handle Overflow => callAdd(i, j)
+                       else callAdd(i, j) *)
+                in
+                    BICCond(
+                        insShort,
+                        BICHandle{
+                            exp = BICBinary { oper = BuiltIns.FixedPrecisionArith arith, arg1 = insArg1, arg2 = insArg2 },
+                            handler = insCall,
+                            (* Have to make a new address even though we don't use it. *)
+                            exPacketAddr = ! localAddresses before (localAddresses := !localAddresses+1) },
+                        insCall
                     )
                 end
 

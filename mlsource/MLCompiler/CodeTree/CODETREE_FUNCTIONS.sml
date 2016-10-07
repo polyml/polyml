@@ -147,11 +147,11 @@ struct
                 operProps andb codeProps arg1 andb codeProps arg2
             end
 
-        |   codeProps (Arbitrary{arg1, arg2, longCall, ...}) =
+        |   codeProps (Arbitrary{shortCond, arg1, arg2, longCall, ...}) =
                 (* Arbitrary precision operations are applicative but the longCall is
                    a function call.  It should never have a side-effect so it might
                    be better to remove it. *)
-                codeProps arg1 andb codeProps arg2 andb codeProps longCall
+                codeProps shortCond andb codeProps arg1 andb codeProps arg2 andb codeProps longCall
 
         |   codeProps (AllocateWordMemory {numWords, flags, initial}) =
             let

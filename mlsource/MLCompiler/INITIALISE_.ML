@@ -539,6 +539,8 @@ struct
                a general "compare" function that returns a fixed precision int. *)
             val compareType =
                 mkProductType[intInfType, intInfType, intInfType ** intInfType ->> fixedIntType] ->> Bool
+            val arithType =
+                mkProductType[intInfType, intInfType, intInfType ** intInfType ->> intInfType] ->> intInfType
             val callQuotRemType = String ->> intInfType ** intInfType ->> intInfType ** intInfType
             val callQuotRem = mkGvar ("callQuotRem", callQuotRemType, quotRemCall, declInBasis)
 
@@ -551,10 +553,13 @@ struct
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
             (* These functions are used internally. *)
-            val () = enterArbitrary("less", ArbCompareLess, compareType)
-            val () = enterArbitrary("greater", ArbCompareGreater, compareType)
-            val () = enterArbitrary("lessEq", ArbCompareLessEqual, compareType)
-            val () = enterArbitrary("greaterEq", ArbCompareGreaterEqual, compareType)
+            val () = enterArbitrary("less", ArbCompare BuiltIns.TestLess, compareType)
+            val () = enterArbitrary("greater", ArbCompare BuiltIns.TestGreater, compareType)
+            val () = enterArbitrary("lessEq", ArbCompare BuiltIns.TestLessEqual, compareType)
+            val () = enterArbitrary("greaterEq", ArbCompare BuiltIns.TestGreaterEqual, compareType)
+            val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
+            val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
+            val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
             
             val () = #enterVal largeIntEnv ("callQuotRem", callQuotRem)
         end
