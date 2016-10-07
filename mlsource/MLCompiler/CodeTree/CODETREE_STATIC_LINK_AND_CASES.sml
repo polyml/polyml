@@ -198,22 +198,11 @@ struct
                 end
 
             |   insert(Arbitrary { oper=ArbArith arith, shortCond, arg1, arg2, longCall}) =
-                let (* Rewrite it. *)
+                let
                     val insArg1 = insert arg1 and insArg2 = insert arg2
                     and insCall = insert longCall and insShort = insert shortCond
-                    (* if isShort i andalso isShort j
-                       then fromShort(toShort i + toShort j) handle Overflow => callAdd(i, j)
-                       else callAdd(i, j) *)
                 in
-                    BICCond(
-                        insShort,
-                        BICHandle{
-                            exp = BICBinary { oper = BuiltIns.FixedPrecisionArith arith, arg1 = insArg1, arg2 = insArg2 },
-                            handler = insCall,
-                            (* Have to make a new address even though we don't use it. *)
-                            exPacketAddr = ! localAddresses before (localAddresses := !localAddresses+1) },
-                        insCall
-                    )
+                    BICArbitrary{oper=arith, shortCond=insShort, arg1=insArg1, arg2=insArg2, longCall=insCall}
                 end
 
             |   insert(AllocateWordMemory {numWords, flags, initial}) =

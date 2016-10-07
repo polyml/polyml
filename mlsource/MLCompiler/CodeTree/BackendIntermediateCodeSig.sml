@@ -48,7 +48,7 @@ sig
     |   BICUnary of {oper: BuiltIns.unaryOps, arg1: backendIC}
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
     
-    |   BICArbitrary of {oper: BuiltIns.arithmeticOperations, arg1: backendIC, arg2: backendIC, longCall: backendIC}
+    |   BICArbitrary of {oper: BuiltIns.arithmeticOperations, shortCond: backendIC, arg1: backendIC, arg2: backendIC, longCall: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 

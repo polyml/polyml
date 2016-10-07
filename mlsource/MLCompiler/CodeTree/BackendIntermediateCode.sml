@@ -158,7 +158,7 @@ struct
     |   BICBinary of {oper: BuiltIns.binaryOps, arg1: backendIC, arg2: backendIC}
     
     |   BICArbitrary of
-            {oper: BuiltIns.arithmeticOperations, arg1: backendIC, arg2: backendIC, longCall: backendIC}
+            {oper: BuiltIns.arithmeticOperations, shortCond: backendIC, arg1: backendIC, arg2: backendIC, longCall: backendIC}
 
     |   BICLambda of bicLambdaForm (* Lambda expressions. *)
 
@@ -385,9 +385,10 @@ struct
                     [ PrettyString(BuiltIns.binaryRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2], ",") ]
                 )
 
-        |   BICArbitrary { oper, arg1, arg2, longCall } =>
+        |   BICArbitrary { oper, shortCond, arg1, arg2, longCall } =>
                 PrettyBlock (3, false, [],
-                    [ PrettyString(BuiltIns.arithRepr oper), PrettyBreak(1, 0), printList("", [arg1, arg2, longCall], ",") ]
+                    [ PrettyString(BuiltIns.arithRepr oper), PrettyBreak(1, 0),
+                        printList("", [shortCond, arg1, arg2, longCall], ",") ]
                 )
 
         |   BICAllocateWordMemory { numWords, flags, initial } =>
