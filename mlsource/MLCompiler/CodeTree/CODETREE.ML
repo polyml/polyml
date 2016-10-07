@@ -411,6 +411,16 @@ struct
         mkInlproc(mkUnary(oper, mkLoadArgument 0), 1, BuiltIns.unaryRepr oper ^ "()", [], 0)
     and mkBinaryFn oper =
         mkInlproc(mkBinary(oper, mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)), 1, BuiltIns.binaryRepr oper ^ "()", [], 0)
+        
+    (* An arbitrary precision operation takes a tuple consisting of a pair of arguments and
+       a function and constructs the code that takes the two arguments and includes code to
+       call the function with the arguments if either argument is long. *)
+    fun mkArbitraryFn oper =
+        mkInlproc(
+            Arbitrary{oper=oper,
+                arg1=mkInd(0, mkLoadArgument 0), arg2=mkInd(1, mkLoadArgument 0),
+                    longCall= mkEval(mkInd(2, mkLoadArgument 0), [mkTuple[mkInd(0, mkLoadArgument 0), mkInd(1, mkLoadArgument 0)]])},
+            1, "ArbitraryPrecision()", [], 0)
 
     local
         open BuiltIns

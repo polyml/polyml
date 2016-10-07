@@ -167,6 +167,9 @@ struct
     |   simpGeneral context (Binary{oper, arg1, arg2}) =
             SOME(specialToGeneral(simpBinary(oper, arg1, arg2, context, RevList [])))
 
+    |   simpGeneral context (Arbitrary{oper, arg1, arg2, longCall}) =
+            SOME(specialToGeneral(simpArbitrary(oper, arg1, arg2, longCall, context, RevList [])))
+
     |   simpGeneral context (AllocateWordMemory {numWords, flags, initial}) =
             SOME(specialToGeneral(simpAllocateWordMemory(numWords, flags, initial, context, RevList [])))
 
@@ -403,6 +406,9 @@ struct
 
     |   simpSpecial (Binary{oper, arg1, arg2}, context, tailDecs) =
             simpBinary(oper, arg1, arg2, context, tailDecs)
+
+    |   simpSpecial (Arbitrary{oper, arg1, arg2, longCall}, context, tailDecs) =
+            simpArbitrary(oper, arg1, arg2, longCall, context, tailDecs)
 
     |   simpSpecial (AllocateWordMemory{numWords, flags, initial}, context, tailDecs) =
             simpAllocateWordMemory(numWords, flags, initial, context, tailDecs)
@@ -976,6 +982,81 @@ struct
             (* TODO: Constant folding of logical operations. *)
 
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+    end
+
+    (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
+    and simpArbitrary(oper, arg1, arg2, longCall, context, tailDecs) =
+    let
+        val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, tailDecs)
+        val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+        val posFlags = Address.F_bytes and negFlags = Word8.orb(Address.F_bytes, Address.F_negative)
+    in
+        (* Fold any constant/constant operations but more importantly, if we
+           have variable/constant operations where the constant is short we
+           can avoid using the full arbitrary precision call by just looking
+           at the sign bit. *)
+        case (genArg1, genArg2) of
+            (Constnt(v1, _), Constnt(v2, _)) =>
+            let
+                val aV1: LargeInt.int = RunCall.unsafeCast v1
+                and aV2: LargeInt.int = RunCall.unsafeCast v2
+                val testResult =
+                    case oper of
+                        ArbCompareLess          => aV1 < aV2
+                    |   ArbCompareGreater       => aV1 > aV2
+                    |   ArbCompareLessEqual     => aV1 <= aV2
+                    |   ArbCompareGreaterEqual  => aV1 >= aV2
+            in
+                (if testResult then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
+            end
+        |   (genArg1, cArg2 as Constnt(v2, _)) =>
+            if not(isShort v2)
+                (* We're going to need the full call so drop everything else. *)
+            then (simplify(longCall, context), decArgs, EnvSpecNone)
+            else
+            let
+                val (test, isNeg) =
+                    case oper of
+                        ArbCompareLess          => (BuiltIns.TestLess, true)
+                    |   ArbCompareGreater       => (BuiltIns.TestGreater, false)
+                    |   ArbCompareLessEqual     => (BuiltIns.TestLessEqual, true)
+                    |   ArbCompareGreaterEqual  => (BuiltIns.TestGreaterEqual, false)
+                (* Translate i < c into
+                        if isShort i then toShort i < c else isNegative i *)
+                val newCode =
+                    Cond(Unary{oper=BuiltIns.IsTaggedValue, arg1=genArg1},
+                        Binary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = genArg1, arg2 = cArg2 },
+                        Binary { oper = BuiltIns.WordComparison{test=TestEqual, isSigned=false},
+                                arg1=Unary { oper = MemoryCellFlags, arg1=genArg1 },
+                                arg2=Constnt(toMachineWord(if isNeg then negFlags else posFlags), [])}
+                        )
+            in
+                (newCode, decArgs, EnvSpecNone)
+            end
+        |   (cArg1 as Constnt(v1, _), genArg2) =>
+            if not(isShort v1)
+            then (simplify(longCall, context), decArgs, EnvSpecNone)
+            else
+            let
+                (* We're testing c < i  so the test is
+                   if isShort i then c < toShort i else isPositive i *)
+                val (test, isPos) =
+                    case oper of
+                        ArbCompareLess          => (BuiltIns.TestLess, true)
+                    |   ArbCompareGreater       => (BuiltIns.TestGreater, false)
+                    |   ArbCompareLessEqual     => (BuiltIns.TestLessEqual, true)
+                    |   ArbCompareGreaterEqual  => (BuiltIns.TestGreaterEqual, false)
+                val newCode =
+                    Cond(Unary{oper=BuiltIns.IsTaggedValue, arg1=genArg2},
+                        Binary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = cArg1, arg2 = genArg2 },
+                        Binary { oper = BuiltIns.WordComparison{test=TestEqual, isSigned=false},
+                                arg1=Unary { oper = MemoryCellFlags, arg1=genArg2 },
+                                arg2=Constnt(toMachineWord(if isPos then posFlags else negFlags), [])}
+                        )
+            in
+                (newCode, decArgs, EnvSpecNone)
+            end
+        |   _ => (Arbitrary{oper=oper, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
     end
 
     and simpAllocateWordMemory(numWords, flags, initial, context, tailDecs) =

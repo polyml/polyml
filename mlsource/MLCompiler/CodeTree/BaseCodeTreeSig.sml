@@ -47,6 +47,12 @@ sig
     |   BlockOpEqualByte
     |   BlockOpCompareByte
     
+    datatype arbPrecisionOps =
+        ArbCompareLess
+    |   ArbCompareGreater
+    |   ArbCompareLessEqual
+    |   ArbCompareGreaterEqual
+    
     structure BuiltIns: BUILTINS
 
     (* How variables are used.  Added and examined by the optimisation pass. *)
@@ -78,6 +84,10 @@ sig
         (* Built-in functions. *)
     |   Unary of {oper: BuiltIns.unaryOps, arg1: codetree}
     |   Binary of {oper: BuiltIns.binaryOps, arg1: codetree, arg2: codetree}
+
+        (* Arbitrary precision operations.  The "longCall" is the code to handle
+           the long format case. *)
+    |   Arbitrary of {oper: arbPrecisionOps, arg1: codetree, arg2: codetree, longCall: codetree}
 
     |   Lambda of lambdaForm (* Lambda expressions. *)
 

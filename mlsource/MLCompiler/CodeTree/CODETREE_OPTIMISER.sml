@@ -166,8 +166,8 @@ struct
 
         |   checkUse _ (GetThreadId, cl, _) = cl -- 1
         |   checkUse isMain (Unary{arg1, ...}, cl, _) = checkUse isMain (arg1, cl -- 1, false)
-        |   checkUse isMain (Binary{arg1, arg2, ...}, cl, _) =
-                checkUseList isMain ([arg1, arg2], cl -- 1)
+        |   checkUse isMain (Binary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 1)
+        |   checkUse isMain (Arbitrary{arg1, arg2, ...}, cl, _) = checkUseList isMain ([arg1, arg2], cl -- 4)
         |   checkUse isMain (AllocateWordMemory {numWords, flags, initial}, cl, _) =
                 checkUseList isMain ([numWords, flags, initial], cl -- 1)
 

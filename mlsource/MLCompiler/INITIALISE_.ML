@@ -535,10 +535,27 @@ struct
            overloaded functions are extracted from them. *)
         local
             val largeIntEnv = makeStructure(globalEnv, "LargeInt")
+            (* The comparison operations take two arbitrary precision ints and
+               a general "compare" function that returns a fixed precision int. *)
+            val compareType =
+                mkProductType[intInfType, intInfType, intInfType ** intInfType ->> fixedIntType] ->> Bool
             val callQuotRemType = String ->> intInfType ** intInfType ->> intInfType ** intInfType
             val callQuotRem = mkGvar ("callQuotRem", callQuotRemType, quotRemCall, declInBasis)
+
+            fun enterArbitrary(name, oper, typ) =
+            let
+                val value = mkGvar (name, typ, mkArbitraryFn oper, declInBasis)
+            in
+                #enterVal largeIntEnv (name, value)
+            end
         in
             val () = #enterType largeIntEnv ("int", TypeConstrSet(intInfConstr, []))
+            (* These functions are used internally. *)
+            val () = enterArbitrary("less", ArbCompareLess, compareType)
+            val () = enterArbitrary("greater", ArbCompareGreater, compareType)
+            val () = enterArbitrary("lessEq", ArbCompareLessEqual, compareType)
+            val () = enterArbitrary("greaterEq", ArbCompareGreaterEqual, compareType)
+            
             val () = #enterVal largeIntEnv ("callQuotRem", callQuotRem)
         end
 

@@ -179,6 +179,29 @@ struct
             |   insert(Unary { oper, arg1 }) = BICUnary { oper = oper, arg1 = insert arg1 }
 
             |   insert(Binary { oper, arg1, arg2 }) = BICBinary { oper = oper, arg1 = insert arg1, arg2 = insert arg2 }
+            
+            |   insert(Arbitrary { oper, arg1, arg2, longCall}) =
+                let
+                    val insArg1 = insert arg1 and insArg2 = insert arg2 and insCall = insert longCall
+                    (* We have to rewrite this. *)
+                    (* if isShort i andalso isShort j then toShort i < toShort j else callComp(i, j) < 0 *)
+                    val test =
+                        case oper of
+                            ArbCompareLess          => BuiltIns.TestLess
+                        |   ArbCompareGreater       => BuiltIns.TestGreater
+                        |   ArbCompareLessEqual     => BuiltIns.TestLessEqual
+                        |   ArbCompareGreaterEqual  => BuiltIns.TestGreaterEqual
+                    fun fixedComp(arg1, arg2) =
+                        BICBinary { oper = BuiltIns.WordComparison{test=test, isSigned=true}, arg1 = arg1, arg2 = arg2 }
+                    fun testShort arg = BICUnary{oper=BuiltIns.IsTaggedValue, arg1=arg}
+                    val zeroFalse = BICConstnt(toMachineWord 0, [])
+                in
+                    BICCond(
+                        BICCond(testShort insArg1, testShort insArg2, zeroFalse),
+                        fixedComp(insArg1, insArg2),
+                        fixedComp(insCall, zeroFalse)
+                    )
+                end
 
             |   insert(AllocateWordMemory {numWords, flags, initial}) =
                     BICAllocateWordMemory { numWords = insert numWords, flags = insert flags, initial = insert initial }

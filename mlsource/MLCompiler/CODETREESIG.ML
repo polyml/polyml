@@ -43,6 +43,12 @@ sig
         BlockOpMove of {isByteMove: bool}
     |   BlockOpEqualByte
     |   BlockOpCompareByte
+    
+    datatype arbPrecisionOps =
+        ArbCompareLess
+    |   ArbCompareGreater
+    |   ArbCompareLessEqual
+    |   ArbCompareGreaterEqual
 
     structure BuiltIns: BUILTINS
  
@@ -120,6 +126,7 @@ sig
 
     val mkUnaryFn: BuiltIns.unaryOps -> codetree
     and mkBinaryFn: BuiltIns.binaryOps -> codetree
+    and mkArbitraryFn: arbPrecisionOps -> codetree
     
     val getCurrentThreadId: codetree
     and getCurrentThreadIdFn: codetree

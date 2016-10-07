@@ -89,10 +89,36 @@ struct
                 then fromShort(toShort i * toShort j) handle Overflow => callMult(i, j)
                 else callMult(i, j)
 
-        val op < = fn (i, j) => less(i, j, callComp)
-        and op > = fn (i, j) => greater(i, j, callComp)
-        and op <= = fn (i, j) => lessEq(i, j, callComp)
-        and op >= = fn (i, j) => greaterEq(i, j, callComp)
+        (* Relational operations - no overflow.
+           An alternative would be to consider the sign bit if one argument is short and
+           the other long.  That would probably be better if one of the arguments was a
+           short constant.
+           e.g.
+           val op < =
+            fn (i, j) =>
+                if isShort i then if isShort j then toShort i < toShort j else isLongPositive j
+                else if isShort j then isLongNegative i
+                else callComp(i, j) < 0 *)
+        val op < =
+            fn (i, j) =>
+                if isShort i andalso isShort j
+                then toShort i < toShort j
+                else callComp(i, j) < 0
+        and op > =
+            fn (i, j) =>
+                if isShort i andalso isShort j
+                then toShort i > toShort j
+                else callComp(i, j) > 0
+        and op <= =
+            fn (i, j) =>
+                if isShort i andalso isShort j
+                then toShort i <= toShort j
+                else callComp(i, j) <= 0
+        and op >= =
+            fn (i, j) =>
+                if isShort i andalso isShort j
+                then toShort i >= toShort j
+                else callComp(i, j) >= 0
 
         (* Negation.  Just use 0 - X.  *)
         fun ~ x = 0 - x
