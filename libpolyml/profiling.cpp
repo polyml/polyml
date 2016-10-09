@@ -178,32 +178,16 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // This is called from a signal handler in the case of time profiling.
 void add_count(TaskData *taskData, POLYCODEPTR fpc, POLYUNSIGNED incr)
 {
-    PolyWord pc = PolyWord::FromCodePtr(fpc);
     // Check that the pc value is within the heap.  It could be
     // in the assembly code.
-    MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
-    if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+    PolyObject *codeObj = gMem.FindCodeObject(fpc);
+    if (codeObj)
     {
-        PolyWord *ptr = space->bottom;
-
-        while (ptr < space->top && (POLYCODEPTR)ptr < pc.AsCodePtr())
-        {
-            PolyObject *obj = (PolyObject*)(ptr+1);
-            ASSERT(obj->ContainsNormalLengthWord());
-            POLYUNSIGNED length = obj->Length();
-            PolyWord *nextPtr = ptr + length;
-            if (nextPtr > (PolyWord*)pc.AsCodePtr())
-            {
-                if (! obj->IsCodeObject()) // We may not have a valid code address
-                    break;
-                PolyObject *profObject = getProfileObjectForCode(obj);
-                PLocker locker(&countLock);
-                if (profObject)
-                    profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-                return;
-            }
-            ptr = nextPtr + 1;
-        }
+        PolyObject *profObject = getProfileObjectForCode(codeObj);
+        PLocker locker(&countLock);
+        if (profObject)
+            profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
+        return;
     }
     // Didn't find it.
     {
@@ -237,7 +221,9 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
         PolyObject *obj = (PolyObject*)ptr;
         if (obj->ContainsForwardingPtr())
         {
-            // It's a forwarding pointer - get the length from the new location
+            // This used to be necessary when code objects were held in the
+            // general heap.  Now that we only ever scan code and permanent
+            // areas it's probably not needed.
             while (obj->ContainsForwardingPtr())
                 obj = obj->GetForwardingPtr();
             ASSERT(obj->ContainsNormalLengthWord());
@@ -498,6 +484,8 @@ void ProfileRequest::Perform()
         profileMode = kProfileOff;
         processes->StopProfiling();
         getResults();
+        // Remove all the bitmaps to free up memory
+        gMem.RemoveProfilingBitmaps(); 
         break;
 
     case kProfileTimeThread:
@@ -532,8 +520,8 @@ void ProfileRequest::Perform()
     default: /* do nothing */
         break;
     }
-    
-} /* profilerc */
+
+}
 
 struct _entrypts profilingEPT[] =
 {

@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -110,6 +109,7 @@ public:
     PolyWord    *topPointer;
 
     Bitmap      shareBitmap; // Used in sharedata
+    Bitmap      profileCode; // Used when profiling
 
     friend class MemMgr;
 };
@@ -184,6 +184,7 @@ class CodeSpace: public MemSpace
         CodeSpace() { isOwnSpace = true; }
 
     PolyWord *topPointer; // Allocation point
+    Bitmap      profileCode; // Used when profiling
 };
 
 class MemMgr
@@ -317,6 +318,9 @@ public:
     // Storage manager lock.
     PLock allocLock;
 
+    // Lock for creating new bitmaps for code profiling
+    PLock codeBitmapLock;
+
     unsigned nextIndex; // Used when allocating new permanent spaces.
 
     POLYUNSIGNED SpaceBeforeMinorGC() const { return spaceBeforeMinorGC; }
@@ -331,6 +335,11 @@ public:
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
 
     void ReportHeapSizes(const char *phase);
+
+    // Profiling - Find a code object or return zero if not found.
+    PolyObject *FindCodeObject(const byte *addr);
+    // Profiling - Free bitmaps to indicate start of an object.
+    void RemoveProfilingBitmaps();
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);

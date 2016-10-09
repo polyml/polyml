@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -104,7 +103,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     return bitmap.Create(size);
 }
 
-MemMgr::MemMgr(): allocLock("Memmgr alloc")
+MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 {
     npSpaces = nlSpaces = nsSpaces = ncSpaces = 0;
     pSpaces = 0;
@@ -1042,6 +1041,71 @@ void MemMgr::ReportHeapSizes(const char *phase)
     Log(" (%1.0f%%). Total space ", (float)inAlloc / (float)alloc * 100.0F);
     LogSize(spaceForHeap);
     Log(" %1.0f%% full.\n", (float)(inAlloc + inNonAlloc) / (float)spaceForHeap * 100.0F);
+}
+
+// Profiling - Find a code object or return zero if not found.
+// This can be called on a "user" thread.
+PolyObject *MemMgr::FindCodeObject(const byte *addr)
+{
+    MemSpace *space = SpaceForAddress(addr);
+    if (space == 0) return 0;
+    Bitmap *profMap = 0;
+    if (! space->isCode) return 0;
+    if (space->spaceType == ST_CODE)
+    {
+        CodeSpace *cSpace = (CodeSpace*)space;
+        profMap = &cSpace->profileCode;
+    }
+    else if (space->spaceType == ST_PERMANENT)
+    {
+        PermanentMemSpace *pSpace = (PermanentMemSpace*)space;
+        profMap = &pSpace->profileCode;
+    }
+    else return 0; // Must be in code or permanent code.
+
+    // We create the bitmaps on demand since we may only need them for certain areas.
+    if (! profMap->Created())
+    {
+        PLocker lock(&codeBitmapLock);
+        if (! profMap->Created()) // Second check now we've got the lock.
+        {
+            // Create the bitmap.  If it failed just say "not in this area"
+            if (! profMap->Create(space->spaceSize()))
+                return 0;
+            // Set the first bit before releasing the lock.
+            profMap->SetBit(0);
+        }
+    }
+
+    // A bit is set if it is a length word.
+    while ((POLYUNSIGNED)addr & (sizeof(POLYUNSIGNED)-1)) addr--; // Make it word aligned
+    PolyWord *wordAddr = (PolyWord*)addr;
+    // Work back to find the first set bit before this.
+    // There must be one because we always set the first bit.
+    POLYUNSIGNED bitOffset = profMap->FindLastSet(wordAddr - space->bottom);
+    // Now work forward, setting any bits if necessary.  We don't need a lock
+    // because this is monotonic.
+    for (;;)
+    {
+        PolyWord *ptr = space->bottom+bitOffset;
+        if (ptr >= space->top) return 0;
+        PolyObject *obj = (PolyObject*)(ptr+1);
+        ASSERT(obj->ContainsNormalLengthWord());
+        if (wordAddr > ptr && wordAddr < ptr + obj->Length())
+            return obj;
+        bitOffset += obj->Length()+1;
+        profMap->SetBit(bitOffset);
+    }
+    return 0;
+}
+
+// Remove profiling bitmaps to free up memory.
+void MemMgr::RemoveProfilingBitmaps()
+{
+    for (unsigned i = 0; i < npSpaces; i++)
+        pSpaces[i]->profileCode.Destroy();
+    for (unsigned i = 0; i < ncSpaces; i++)
+        cSpaces[i]->profileCode.Destroy();
 }
 
 MemMgr gMem; // The one and only memory manager object
