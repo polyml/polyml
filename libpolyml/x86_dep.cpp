@@ -680,7 +680,9 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
             return true;
         }
     }
-    // See if the value of regSP is a valid stack pointer
+    // See if the value of regSP is a valid stack pointer.
+    // This works if we happen to be in an RTS call using a "Full" call.
+    // It doesn't work if we've used a "Fast" call because that doesn't save the SP.
     sp = assemblyInterface.stackPtr;
     if (sp >= this->stack->bottom && sp < this->stack->top)
     {
