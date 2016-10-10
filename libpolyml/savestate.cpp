@@ -574,6 +574,8 @@ void SaveRequest::Perform()
             if (entry->mtFlags & MTF_BYTES)
                 descrs[j].segmentFlags |= SSF_BYTES;
         }
+        if (entry->mtFlags & MTF_EXECUTABLE)
+            descrs[j].segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
     saveHeader.segmentDescr = ftell(exports.exportFile);
@@ -983,9 +985,9 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             }
             // Allocate memory for the new segment.
             size_t actualSize = descr->segmentSize;
-            PolyWord *mem  =
-                (PolyWord*)osMemoryManager->Allocate(actualSize,
-                                PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            unsigned int perms = PERMISSION_READ|PERMISSION_WRITE;
+            if (descr->segmentFlags & SSF_CODE) perms |= PERMISSION_EXEC;
+            PolyWord *mem  = (PolyWord*)osMemoryManager->Allocate(actualSize, perms);
             if (mem == 0)
             {
                 errorResult = "Unable to allocate memory";
@@ -1005,7 +1007,8 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             unsigned mFlags =
                 (descr->segmentFlags & SSF_WRITABLE ? MTF_WRITEABLE : 0) |
                 (descr->segmentFlags & SSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
-                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0);
+                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0) |
+                (descr->segmentFlags & SSF_CODE ? MTF_EXECUTABLE : 0);
             PermanentMemSpace *newSpace =
                 gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), mFlags,
                         descr->segmentIndex, hierarchyDepth+1);
@@ -1387,6 +1390,8 @@ void ModuleExport::exportStore(void)
             if (entry->mtFlags & MTF_BYTES)
                 thisDescr->segmentFlags |= SSF_BYTES;
         }
+        if (entry->mtFlags & MTF_EXECUTABLE)
+             thisDescr->segmentFlags |= SSF_CODE;
     }
     // Write out temporarily. Will be overwritten at the end.
     modHeader.segmentDescr = ftell(this->exportFile);
