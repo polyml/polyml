@@ -1006,7 +1006,8 @@ struct
             (Constnt(c1, _),  _, _) =>
                 if isShort c1 andalso toShort c1 = 0w0
                 then (* One argument is definitely long - generate the long form. *)
-                    (simplify(longCall, context), decArgs, EnvSpecNone)
+                    (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=simplify(longCall, context), arg2=CodeZero},
+                        decArgs, EnvSpecNone)
                 else (* Both arguments are short.  That should mean they're constants. *)
                     (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
                          before reprocess := true
@@ -1062,8 +1063,8 @@ struct
             if isShort c1 andalso toShort c1 = 0w0
             then (* One argument is definitely long - generate the long form. *)
                 (simplify(longCall, context), decArgs, EnvSpecNone)
-            else (* If we know they're both short they must be constants and we could fold them. *)
-                (Binary{oper=FixedPrecisionArith arith, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+            else (* If we know they're both short they must be constants and we could fold them. N.B. We can still get an overflow. *)
+                (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
         |   _ => (Arbitrary{oper=ArbArith arith, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
     end
 
