@@ -829,6 +829,16 @@ struct
                 (if isShort v then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
             )
 
+        |   (IsTaggedValue, genArg1) =>
+            (
+                (* We use this to test for nil values and if we have constructed a record
+                   (or possibly a function) it can't be null. *)
+                case specArg1 of
+                    EnvSpecTuple _ => (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                |   EnvSpecInlineFunction _ =>
+                        (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
+            )
         |   (MemoryCellLength, Constnt(v, _)) =>
             (
                 reprocess := true;
