@@ -1052,7 +1052,7 @@ struct
         |   _ => (Arbitrary{oper=ArbCompare test, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
     end
     
-    and simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
+    and simpArbitraryArith(arith, shortCond, arg1, arg2, longCall, context, tailDecs) =
     let
         val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
         val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
@@ -1335,7 +1335,16 @@ struct
             then makeConstVal(Tuple{ fields = generalFields, isVariant = isVariant })
             else Tuple{ fields = generalFields, isVariant = isVariant }
 
-        val specRec = EnvSpecTuple(tupleSize, fn addr => List.nth(fieldEntries, addr))
+        (* Get the field from the tuple if possible.  If it's a variant, though,
+           we may try to get an invalid field.  See Tests/Succeed/Test167. *)
+        fun getField addr =
+            if addr < tupleSize
+            then List.nth(fieldEntries, addr)
+            else if isVariant
+            then (EnvGenConst(toMachineWord 0, []), EnvSpecNone)
+            else raise InternalError "getField - invalid index"
+
+        val specRec = EnvSpecTuple(tupleSize, getField)
     in
         (genRec, allBindings, specRec)
     end
