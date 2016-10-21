@@ -181,10 +181,11 @@ public:
 class CodeSpace: public MemSpace
 {
     public:
-        CodeSpace() { isOwnSpace = true; }
+        CodeSpace(): forwardLock("code forward") { isOwnSpace = true; }
 
     PolyWord *topPointer; // Allocation point
     Bitmap      profileCode; // Used when profiling
+    PLock   forwardLock; // Protect forwarding pointers during GC
 };
 
 class MemMgr

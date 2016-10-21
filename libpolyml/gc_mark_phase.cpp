@@ -533,22 +533,24 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 // with the addition of the locking.
 void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
-    // If this code is in the local area there's the possibility that
-    // ScanObjectAddress could return an updated address for a
-    // constant within the code.  This could happen if the code is
-    // in the allocation area or if it has been moved into the
-    // mutable/immutable area by the last incomplete partial GC.
+    // If we have newly compiled code the constants may be in the
+    // local heap.  MTGCProcessMarkPointers::ScanObjectAddress can
+    // return an updated address for a local address if there is a
+    // forwarding pointer.  
     // Constants can be aligned on any byte offset so another thread
     // scanning the same code could see an invalid address if it read
     // the constant while it was being updated.  We put a lock round
     // this just in case.
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(addressOfConstant);
+    MemSpace *space = gMem.SpaceForAddress(addressOfConstant);
+    PLock *lock = 0;
+    if (space->spaceType != ST_CODE)
+        lock = &((CodeSpace*)space)->forwardLock;
 
-    if (space != 0)
-        space->spaceLock.Lock();
+    if (lock != 0)
+        lock->Lock();
     PolyWord p = GetConstantValue(addressOfConstant, code);
-    if (space != 0)
-        space->spaceLock.Unlock();
+    if (lock != 0)
+        lock->Unlock();
 
     if (! IS_INT(p))
     {
@@ -556,11 +558,11 @@ void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfCons
         ScanAddress::ScanAddressAt(&p);
         if (p != oldValue) // Update it if it has changed.
         {
-            if (space != 0)
-                space->spaceLock.Lock();
+            if (lock != 0)
+                lock->Lock();
             SetConstantValue(addressOfConstant, p, code);
-            if (space != 0)
-                space->spaceLock.Unlock();
+            if (lock != 0)
+                lock->Unlock();
         }
     }
 }
