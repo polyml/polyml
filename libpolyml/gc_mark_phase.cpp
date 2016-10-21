@@ -207,8 +207,8 @@ void MTGCProcessMarkPointers::Reset()
 // in the range to be rescanned.
 void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
 {
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
-    ASSERT(space != 0);
+    MarkableSpace *space = (MarkableSpace*)gMem.SpaceForAddress(obj-1);
+    ASSERT(space != 0 && (space->spaceType == ST_LOCAL || space->spaceType == ST_CODE));
     PLocker lock(&space->spaceLock);
     // Have to include this in the range to rescan.
     if (space->fullGCRescanStart > ((PolyWord*)obj) - 1)
@@ -312,7 +312,8 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
         *pt = obj;
     }
 
-    if (gMem.LocalSpaceForAddress(obj-1) == 0)
+    MemSpace *sp = gMem.SpaceForAddress(obj-1);
+    if (sp == 0 || (sp->spaceType != ST_LOCAL && sp->spaceType != ST_CODE))
         return false; // Ignore it if it points to a permanent area
 
     POLYUNSIGNED L = obj->LengthWord();
@@ -346,9 +347,10 @@ void MTGCProcessMarkPointers::MarkAndTestForScan(PolyWord *pt)
 PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord val = obj;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
-    if (space == 0)
+    MemSpace *sp = gMem.SpaceForAddress(val.AsStackAddr()-1);
+    if (!(sp->spaceType == ST_LOCAL || sp->spaceType == ST_CODE))
         return obj; // Ignore it if it points to a permanent area
+    MarkableSpace *space = (MarkableSpace *)sp;
 
     // We may have a forwarding pointer if this has been moved by the
     // minor GC.
@@ -356,7 +358,7 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     {
         obj = FollowForwarding(obj);
         val = obj;
-        space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
+        space = (MarkableSpace*)gMem.SpaceForAddress(val.AsStackAddr()-1);
     }
 
     ASSERT(obj->ContainsNormalLengthWord());
@@ -384,7 +386,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     else
     {
         MTGCProcessMarkPointers::ScanAddressesInObject(obj, L);
-
         // We can only check after we've processed it because if we
         // have addresses left over from an incomplete partial GC they
         // may need to forwarded.
@@ -543,8 +544,8 @@ void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfCons
     // this just in case.
     MemSpace *space = gMem.SpaceForAddress(addressOfConstant);
     PLock *lock = 0;
-    if (space->spaceType != ST_CODE)
-        lock = &((CodeSpace*)space)->forwardLock;
+    if (space->spaceType == ST_CODE)
+        lock = &((CodeSpace*)space)->spaceLock;
 
     if (lock != 0)
         lock->Lock();
@@ -619,9 +620,34 @@ public:
 
     // Have to define this.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(false); return 0; }
+
+    bool ScanSpace(MarkableSpace *space);
 private:
     MTGCProcessMarkPointers *m_marker;
 };
+
+// Rescan any marked objects in the area between fullGCRescanStart and fullGCRescanEnd.
+// N.B.  We may have threads already processing other areas and they could overflow
+// their stacks and change fullGCRescanStart or fullGCRescanEnd.
+bool Rescanner::ScanSpace(MarkableSpace *space)
+{
+    PolyWord *start, *end;
+    {
+        PLocker lock(&space->spaceLock);
+        start = space->fullGCRescanStart;
+        end = space->fullGCRescanEnd;
+        space->fullGCRescanStart = space->top;
+        space->fullGCRescanEnd = space->bottom;
+    }
+    if (start < end)
+    {
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Mark: Rescanning from %p to %p\n", start, end);
+        ScanAddressesInRegion(start, end);
+        return true; // Require rescan
+    }
+    else return false;
+}
 
 // When the threads created by marking the roots have completed we need to check that
 // the mark stack has not overflowed.  If it has we need to rescan.  This rescanning
@@ -639,25 +665,13 @@ bool MTGCProcessMarkPointers::RescanForStackOverflow()
 
     for (unsigned m = 0; m < gMem.nlSpaces; m++)
     {
-        // Rescan any marked objects in the area between fullGCRescanStart and fullGCRescanEnd.
-        // N.B.  We may have threads already processing other areas and they could overflow
-        // their stacks and change fullGCRescanStart or fullGCRescanEnd.
-        LocalMemSpace *lSpace = gMem.lSpaces[m];
-        PolyWord *start, *end;
-        {
-            PLocker lock(&lSpace->spaceLock);
-            start = lSpace->fullGCRescanStart;
-            end = lSpace->fullGCRescanEnd;
-            lSpace->fullGCRescanStart = lSpace->top;
-            lSpace->fullGCRescanEnd = lSpace->bottom;
-        }
-        if (start < end)
-        {
+        if (rescanner.ScanSpace(gMem.lSpaces[m]))
             rescan = true;
-            if (debugOptions & DEBUG_GC)
-                Log("GC: Mark: Rescanning from %p to %p\n", start, end);
-            rescanner.ScanAddressesInRegion(start, end);
-        }
+    }
+    for (unsigned m = 0; m < gMem.ncSpaces; m++)
+    {
+        if (rescanner.ScanSpace(gMem.cSpaces[m]))
+            rescan = true;
     }
     {
         PLocker lock(&stackLock);
@@ -719,6 +733,52 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
     SetBitmaps(lSpace, lSpace->bottom, lSpace->top);
 }
 
+// Parallel task to check the marks on cells in the code area and
+// turn them into byte areas if they are free.
+static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
+{
+    CodeSpace *space = (CodeSpace*)arg1;
+    PolyWord *pt = space->bottom;
+    PolyWord *lastFree = 0;
+    POLYUNSIGNED lastFreeSpace = 0;
+    while (pt < space->topPointer) // Temporarily don't go into the area we will allocate
+    {
+        PolyObject *obj = (PolyObject*)(pt+1);
+        // There should not be forwarding pointers
+        ASSERT(obj->ContainsNormalLengthWord());
+        POLYUNSIGNED L = obj->LengthWord();
+        POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
+        if (L & _OBJ_GC_MARK)
+        {
+            // It's marked - retain it.
+            ASSERT(L & _OBJ_CODE_OBJ);
+            obj->SetLengthWord(L & ~(_OBJ_GC_MARK)); // Clear the mark bit
+            lastFree = 0;
+            lastFreeSpace = 0;
+        }
+        else { // Turn it into a byte area i.e. free.  It may already be free.
+            space->headerMap.ClearBits(pt-space->bottom, 1); // Remove the "header" bit
+            if (lastFree + lastFreeSpace == pt)
+            {
+                // Try to merge free spaces.  Speeds up subsequent scans.
+                lastFreeSpace += length + 1;
+                obj = (PolyObject*)lastFree;
+            }
+            else
+            {
+                lastFree = pt+1;
+                lastFreeSpace = length;
+            }
+            obj->SetLengthWord(lastFreeSpace, F_BYTE_OBJ);
+
+            // Temporarily clobber with HLT instructions
+            memset(obj, 0xf4, lastFreeSpace*sizeof(PolyWord));
+        }
+        pt += length+1;
+    }
+
+}
+
 void GCMarkPhase(void)
 {
     mainThreadPhase = MTP_GCPHASEMARK;
@@ -747,6 +807,10 @@ void GCMarkPhase(void)
     // Turn the marks into bitmap entries.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
         gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
+
+    // Process the code areas.
+    for (unsigned k = 0; k < gMem.ncSpaces; k++)
+        gpTaskFarm->AddWorkOrRunNow(&CheckMarksOnCodeTask, gMem.cSpaces[k], 0);
 
     gpTaskFarm->WaitForCompletion(); // Wait for completion of the bitmaps
 

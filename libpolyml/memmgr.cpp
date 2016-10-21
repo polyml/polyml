@@ -63,7 +63,11 @@ MemSpace::~MemSpace()
         osMemoryManager->Free(bottom, (char*)top - (char*)bottom);
 }
 
-LocalMemSpace::LocalMemSpace(): spaceLock("Local space")
+MarkableSpace::MarkableSpace(): spaceLock("Local space")
+{
+}
+
+LocalMemSpace::LocalMemSpace()
 {
     spaceType = ST_LOCAL;
     upperAllocPtr = lowerAllocPtr = 0;
@@ -491,6 +495,12 @@ bool MemMgr::DemoteImportSpaces()
                     space->isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
                     space->isOwnSpace = true;
                     space->isCode = true;
+                    if (! space->headerMap.Create(space->spaceSize()))
+                    {
+                        if (debugOptions & DEBUG_MEMMGR)
+                            Log("MMGR: Unable to create header map for state space %p\n", pSpace);
+                        return false;
+                    }
                     if (!AddCodeSpace(space))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
@@ -499,6 +509,14 @@ bool MemMgr::DemoteImportSpaces()
                     }
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into code space %p\n", pSpace, space);
+                    // Set the bits in the header map.
+                    for (PolyWord *ptr = space->bottom; ptr < space->top; )
+                    {
+                        PolyObject *obj = (PolyObject*)(ptr+1);
+                        if (obj->IsCodeObject())
+                            space->headerMap.SetBit(ptr-space->bottom);
+                        ptr += obj->Length() + 1;
+                    }
                 }
                 else
                 {
@@ -664,7 +682,12 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
                 allocSpace->isMutable = true;
                 allocSpace->isCode = true;
                 allocSpace->isOwnSpace = true;
-                if (! AddCodeSpace(allocSpace))
+                if (! allocSpace->headerMap.Create(allocSpace->spaceSize()))
+                {
+                    delete allocSpace;
+                    allocSpace = 0;
+                }
+                else if (! AddCodeSpace(allocSpace))
                 {
                     delete allocSpace;
                     allocSpace = 0;
@@ -686,6 +709,8 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
     // Set the mutable flag.  This is cleared by the GC when it has been scanned.
     allocSpace->isMutable = true;
     PolyWord *result = allocSpace->topPointer; // Return the address.
+    // Set the bit in the header map so we can find the header during GC or profiling
+    allocSpace->headerMap.SetBit(result-allocSpace->bottom);
     allocSpace->topPointer += words;
     if (allocSpace->topPointer != allocSpace->top)
         FillUnusedSpace(allocSpace->topPointer, allocSpace->top - allocSpace->topPointer);
@@ -1054,7 +1079,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     if (space->spaceType == ST_CODE)
     {
         CodeSpace *cSpace = (CodeSpace*)space;
-        profMap = &cSpace->profileCode;
+        profMap = &cSpace->headerMap;
     }
     else if (space->spaceType == ST_PERMANENT)
     {
@@ -1063,7 +1088,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     }
     else return 0; // Must be in code or permanent code.
 
-    // We create the bitmaps on demand since we may only need them for certain areas.
+    // For the permanent areas the header maps are created and initialised on demand.
     if (! profMap->Created())
     {
         PLocker lock(&codeBitmapLock);
@@ -1099,13 +1124,11 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     return 0;
 }
 
-// Remove profiling bitmaps to free up memory.
+// Remove profiling bitmaps from permanent areas to free up memory.
 void MemMgr::RemoveProfilingBitmaps()
 {
     for (unsigned i = 0; i < npSpaces; i++)
         pSpaces[i]->profileCode.Destroy();
-    for (unsigned i = 0; i < ncSpaces; i++)
-        cSpaces[i]->profileCode.Destroy();
 }
 
 MemMgr gMem; // The one and only memory manager object

@@ -331,10 +331,18 @@ void X86TaskData::GarbageCollect(ScanAddress *process)
 // Process a value within the stack.
 void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack)
 {
-    if (! val.IsDataPtr()) return;
-
-    MemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr()-1);
-    if (space != 0)
+    // We may have return addresses on the stack which could look like
+    // tagged values.  Check whether the value is in the code area before
+    // checking whether it is untagged.
+    // The -1 here is because we may have a zero-sized cell in the last
+    // word of a space.
+    MemSpace *space = gMem.SpaceForAddress(val.AsCodePtr()-1);
+    if (space == 0) return;
+    if (space->spaceType == ST_CODE)
+        // Process the address of the start.  Don't update anything.
+        process->ScanObjectAddress(gMem.FindCodeObject(val.AsCodePtr()));
+    else if (space->spaceType == ST_LOCAL && val.IsDataPtr())
+        // Local values must be word addresses.
         val = process->ScanObjectAddress(val.AsObjPtr());
 }
 

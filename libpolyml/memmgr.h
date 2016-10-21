@@ -116,8 +116,21 @@ public:
 
 #define NSTARTS 10
 
+// Markable spaces are used as the base class for local heap
+// spaces and code spaces.
+class MarkableSpace: public MemSpace
+{
+protected:
+    MarkableSpace();
+    virtual ~MarkableSpace() {}
+public:
+    PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
+    PolyWord    *fullGCRescanEnd;
+    PLock       spaceLock;        // Lock used to protect forwarding pointers
+};
+
 // Local areas can be garbage collected.
-class LocalMemSpace: public MemSpace
+class LocalMemSpace: public MarkableSpace
 {
 protected:
     LocalMemSpace();
@@ -134,13 +147,10 @@ public:
     PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
 
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
-    PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
-    PolyWord    *fullGCRescanEnd;
     PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
     PolyWord    *partialGCRootBase; // Start of the root objects.
     PolyWord    *partialGCRootTop;// Value of lowerAllocPtr after the roots have been copied.
-    PLock       spaceLock;        // Lock used to protect forwarding pointers
     GCTaskId    *spaceOwner;      // The thread that "owns" this space during a GC.
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
@@ -178,14 +188,13 @@ public:
 };
 
 // Code Space.  These contain local code created by the compiler.
-class CodeSpace: public MemSpace
+class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace(): forwardLock("code forward") { isOwnSpace = true; }
+        CodeSpace() { isOwnSpace = true; }
 
     PolyWord *topPointer; // Allocation point
-    Bitmap      profileCode; // Used when profiling
-    PLock   forwardLock; // Protect forwarding pointers during GC
+    Bitmap  headerMap; // Map to find the headers during GC or profiling.
 };
 
 class MemMgr
