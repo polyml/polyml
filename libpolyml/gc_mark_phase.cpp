@@ -579,17 +579,12 @@ void MTGCProcessMarkPointers::MarkRoots(void)
     marker->active = true;
     nInUse = 1;
 
-    // Scan the permanent mutable areas and the code areas.
+    // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
             marker->ScanAddressesInRegion(space->bottom, space->top);
-    }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
-    {
-        CodeSpace *space = gMem.cSpaces[j];
-        marker->ScanAddressesInRegion(space->bottom, space->topPointer);
     }
 
     // Scan the RTS roots.
