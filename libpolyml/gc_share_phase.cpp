@@ -623,13 +623,12 @@ void GCSharingPhase(void)
         if (space->isMutable && ! space->byteOnly)
             sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
+    // Scan the code areas to share any constants.  We don't share the code
+    // cells themselves.
     for (unsigned j = 0; j < gMem.ncSpaces; j++)
     {
         CodeSpace *space = gMem.cSpaces[j];
-        // N.B.  We must not scan beyond topPointer here.  Above that is a byte
-        // filler "cell" and the code here will attempt to share that possibly
-        // replacing its length word with a forwarding pointer.
-        sharer.ScanAddressesInRegion(space->bottom, space->topPointer);
+        sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
 
     // Process the RTS roots.

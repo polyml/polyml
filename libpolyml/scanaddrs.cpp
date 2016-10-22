@@ -54,8 +54,7 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
     else
     {
         ASSERT(OBJ_IS_DATAPTR(val));
-        // Database pointer, local pointer or IO pointer.
-        // We need to include IO area pointers when we produce an object module.
+        // Any sort of address
         newVal = ScanObjectAddress(val.AsObjPtr());
     }
     if (newVal != val) // Only update if we need to.
@@ -303,10 +302,7 @@ PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
 void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
 {
     if (OBJ_IS_BYTE_OBJECT(lengthWord))
-    {
-        Completed(obj);
-        return;
-    }
+        return; // Ignore byte cells and don't call Completed on them
 
     while (true)
     {
