@@ -450,7 +450,7 @@ void SaveRequest::Perform()
 
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
-    exports.memTable = new memoryTableEntry[gMem.neSpaces+gMem.npSpaces+1];
+    exports.memTable = new memoryTableEntry[gMem.eSpaces.size()+gMem.npSpaces+1];
     unsigned memTableCount = 0;
 
     // Permanent spaces at higher level.  These have to have entries although
@@ -478,10 +478,10 @@ void SaveRequest::Perform()
     unsigned permanentEntries = memTableCount; // Remember where new entries start.
 
     // Newly created spaces.
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
         memoryTableEntry *entry = &exports.memTable[memTableCount++];
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;

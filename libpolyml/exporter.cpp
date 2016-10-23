@@ -112,7 +112,7 @@ CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 
 void CopyScan::initialise(bool isExport/*=true*/)
 {
-    ASSERT(gMem.neSpaces == 0);
+    ASSERT(gMem.eSpaces.size() == 0);
     // Set the space sizes to a proportion of the space currently in use.
     // Computing these sizes is not obvious because CopyScan is used both
     // for export and for saved states.  For saved states in particular we
@@ -269,9 +269,9 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     }
     else isCodeObj = obj->IsCodeObject();
     // Allocate a new address for the object.
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         if (isMutableObj == space->isMutable &&
             isNoOverwrite == space->noOverwrite &&
             isByteObj == space->byteOnly &&
@@ -492,7 +492,8 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Copy the areas into the export object.
-    unsigned tableEntries = gMem.neSpaces, memEntry = 0;
+    size_t tableEntries = gMem.eSpaces.size();
+    unsigned memEntry = 0;
     if (hierarchy != 0) tableEntries += gMem.npSpaces;
     exports->memTable = new memoryTableEntry[tableEntries];
 
@@ -517,10 +518,10 @@ void Exporter::RunExport(PolyObject *rootFunction)
         newAreas = memEntry;
     }
 
-    for (unsigned i = 0; i < gMem.neSpaces; i++)
+    for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
         memoryTableEntry *entry = &exports->memTable[memEntry++];
-        PermanentMemSpace *space = gMem.eSpaces[i];
+        PermanentMemSpace *space = *i;
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;

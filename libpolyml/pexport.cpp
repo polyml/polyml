@@ -531,7 +531,7 @@ bool PImport::DoImport()
     POLYUNSIGNED objNo;
 
     ASSERT(gMem.npSpaces == 0);
-    ASSERT(gMem.neSpaces == 0);
+    ASSERT(gMem.eSpaces.size() == 0);
 
     ch = getc(f);
     /* Skip the "Mapping" line. */

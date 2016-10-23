@@ -112,7 +112,6 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
     npSpaces = nlSpaces = nsSpaces = ncSpaces = 0;
     pSpaces = 0;
     lSpaces = 0;
-    eSpaces = 0;
     sSpaces = 0;
     cSpaces = 0;
     nextIndex = 0;
@@ -136,9 +135,8 @@ MemMgr::~MemMgr()
     for (i = 0; i < nlSpaces; i++)
         delete(lSpaces[i]);
     free(lSpaces);
-    for (i = 0; i < neSpaces; i++)
-        delete(eSpaces[i]);
-    free(eSpaces);
+    for (std::vector<PermanentMemSpace *>::iterator i = eSpaces.begin(); i < eSpaces.end(); i++)
+        delete(*i);
     for (i = 0; i < nsSpaces; i++)
         delete(sSpaces[i]);
     free(sSpaces);
@@ -371,22 +369,15 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         space->topPointer = space->bottom;
 
         // Add to the table.
-        PermanentMemSpace **table = (PermanentMemSpace **)realloc(eSpaces, (neSpaces+1) * sizeof(PermanentMemSpace *));
-        if (table == 0)
-        {
-            delete space;
-            return 0;
-        }
-        eSpaces = table;
         try {
             AddTree(space);
+            eSpaces.push_back(space);
         }
-        catch (std::bad_alloc&) {
+        catch (std::exception&) {
             RemoveTree(space);
             delete space;
             return 0;
         }
-        eSpaces[neSpaces++] = space;
         return space;
     }
     catch (std::bad_alloc&) {
@@ -396,12 +387,13 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
 
 void MemMgr::DeleteExportSpaces(void)
 {
-    while (neSpaces > 0)
+    for (std::vector<PermanentMemSpace *>::iterator i = eSpaces.begin(); i < eSpaces.end(); i++)
     {
-        PermanentMemSpace *space = eSpaces[--neSpaces];
+        PermanentMemSpace *space = *i;
         RemoveTree(space);
         delete(space);
     }
+    eSpaces.clear();
 }
 
 // If we have saved the state rather than exported a function we turn the exported
@@ -411,7 +403,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 {
     // Create a new table big enough to hold all the permanent and export spaces
     PermanentMemSpace **pTable =
-        (PermanentMemSpace **)calloc(npSpaces+neSpaces, sizeof(PermanentMemSpace *));
+        (PermanentMemSpace **)calloc(npSpaces+eSpaces.size(), sizeof(PermanentMemSpace *));
     if (pTable == 0) return false;
     unsigned newSpaces = 0;
     // Save permanent spaces at a lower hierarchy.  Others are converted into
@@ -444,9 +436,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         }
     }
     // Save newly exported spaces.
-    for (unsigned j = 0; j < neSpaces; j++)
+    for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
     {
-        PermanentMemSpace *space = eSpaces[j];
+        PermanentMemSpace *space = *j;
         space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
         space->spaceType = ST_PERMANENT;
         // Put a dummy object to fill up the unused space.
@@ -455,7 +447,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         // Put in a dummy object to fill the rest of the space.
         pTable[newSpaces++] = space;
     }
-    neSpaces = 0;
+    eSpaces.clear();
     npSpaces = newSpaces;
     free(pSpaces);
     pSpaces = pTable;

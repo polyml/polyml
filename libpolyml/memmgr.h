@@ -23,6 +23,7 @@
 
 #include "bitmap.h"
 #include "locking.h"
+#include <vector>
 
 // utility conversion macros
 #define Words_to_K(w) (w*sizeof(PolyWord))/1024
@@ -312,8 +313,7 @@ public:
     unsigned nlSpaces;
 
     // Table for export spaces
-    PermanentMemSpace **eSpaces;
-    unsigned neSpaces;
+    std::vector<PermanentMemSpace *> eSpaces;
 
     // Table for stack spaces
     StackSpace **sSpaces;
