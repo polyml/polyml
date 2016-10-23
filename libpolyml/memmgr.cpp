@@ -480,7 +480,7 @@ bool MemMgr::DemoteImportSpaces()
                 if (pSpace->isCode)
                 {
                     CodeSpace *space = new CodeSpace;
-                    space->top = pSpace->top;
+                    space->top = space->topPointer = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
                     // all data is in the old generation.  The area can be recovered by a full GC.
                     space->bottom = pSpace->bottom;
