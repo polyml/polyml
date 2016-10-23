@@ -61,6 +61,11 @@ Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
 #error "No configuration file"
 #endif
 
+#ifdef HAVE_STRING_H
+// Currently just used for memset during testing.
+#include <string.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -350,7 +355,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     MemSpace *sp = gMem.SpaceForAddress(val.AsStackAddr()-1);
     if (!(sp->spaceType == ST_LOCAL || sp->spaceType == ST_CODE))
         return obj; // Ignore it if it points to a permanent area
-    MarkableSpace *space = (MarkableSpace *)sp;
 
     // We may have a forwarding pointer if this has been moved by the
     // minor GC.
@@ -358,7 +362,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     {
         obj = FollowForwarding(obj);
         val = obj;
-        space = (MarkableSpace*)gMem.SpaceForAddress(val.AsStackAddr()-1);
     }
 
     ASSERT(obj->ContainsNormalLengthWord());
@@ -785,6 +788,12 @@ void GCMarkPhase(void)
         lSpace->i_marked = lSpace->m_marked = 0;
         lSpace->fullGCRescanStart = lSpace->top;
         lSpace->fullGCRescanEnd = lSpace->bottom;
+    }
+    for (unsigned k = 0; k < gMem.ncSpaces; k++)
+    {
+        CodeSpace *space = gMem.cSpaces[k];
+        space->fullGCRescanStart = space->top;
+        space->fullGCRescanEnd = space->bottom;
     }
     
     MTGCProcessMarkPointers::MarkRoots();
