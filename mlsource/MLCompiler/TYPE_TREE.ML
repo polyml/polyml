@@ -288,24 +288,26 @@ struct
         local
             val stringEquality =
                 mkInlproc(
-                    (* Because the first word contains the
-                       length if we include this in the test we will have tested the length
-                       as well and will stop immediately if the lengths are different.
-                       Test the strings for pointer equality first.  This seems to help
-                       in cases where we have shared common data. *)
+                    (* Test the strings for pointer equality first.  This seems to help
+                       in cases where we have shared common data.
+                       Then test the lengths first and only do the byte comparison if
+                       they are the same.  This seems to save more time than including
+                       the length word in the byte comparison. *)
                     mkCor(
                         mkEqualWord(mkLoadArgument 0, mkLoadArgument 1),
-                        mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
-                                leftIndex=CodeZero, rightIndex=CodeZero,
-                                length=mkBinary(BuiltIns.WordArith BuiltIns.ArithAdd,
-                                    mkConst(toMachineWord wordSize),
-                                    (* Use argument 1 here rather than 0.  We could use either but this works
-                                       better when we're using equality for pattern matching since it
-                                       gets the length of the constant string.  It also works better
-                                       for the, to me, more natural ordering of variable=constant. *)
-                                    mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)
-                               )
-                        }
+                        mkCand(
+                            mkEqualWord(
+                                mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 0, CodeZero),
+                                mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)),
+                            mkBlockOperation{kind=BlockOpEqualByte, leftBase=mkLoadArgument 0, rightBase=mkLoadArgument 1,
+                                    leftIndex=mkConst(toMachineWord wordSize), rightIndex=mkConst(toMachineWord wordSize),
+                                        (* Use argument 1 here rather than 0.  We could use either but this works
+                                           better when we're using equality for pattern matching since it
+                                           gets the length of the constant string.  It also works better
+                                           for the, to me, more natural ordering of variable=constant. *)
+                                    length=mkLoadOperation(LoadStoreUntaggedUnsigned, mkLoadArgument 1, CodeZero)
+                            }
+                        )
                     ),
                     2, "stringEquality", [], 0)
         in
