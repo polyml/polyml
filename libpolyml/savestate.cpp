@@ -513,6 +513,28 @@ void SaveRequest::Perform()
     }
     GCModules(&fixup);
 
+    // Restore the length words in the code areas.
+    // CheckMarksOnCodeTask and MemMgr::FindCodeObject assume that there are no forwarding ptrs.
+    // Although we've updated any pointers to the start of the code we could have return addresses
+    // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
+    for (unsigned l = 0; l < gMem.ncSpaces; l++)
+    {
+        CodeSpace *space = gMem.cSpaces[l];
+        for (PolyWord *pt = space->bottom; pt < space->top; )
+        {
+            pt++;
+            PolyObject *obj = (PolyObject*)pt;
+            if (obj->ContainsForwardingPtr())
+            {
+                PolyObject *forwardedTo = obj->GetForwardingPtr();
+                ASSERT(forwardedTo->ContainsNormalLengthWord());
+                POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
+                obj->SetLengthWord(lengthWord);
+            }
+            pt += obj->Length();
+        }
+    }
+
     // Update the global memory space table.  Old segments at the same level
     // or lower are removed.  The new segments become permanent.
     // Try to promote the spaces even if we've had a failure because export
