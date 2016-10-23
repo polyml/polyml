@@ -235,6 +235,7 @@ POLYUNSIGNED Bitmap::CountSetBits(POLYUNSIGNED size) const
 }
 
 // Find the last set bit before here.  Used to find the start of a code cell.
+// Returns zero if no bit is set.
 POLYUNSIGNED Bitmap::FindLastSet(POLYUNSIGNED bitno) const
 {
     size_t byteno = bitno >> 3;
@@ -247,6 +248,6 @@ POLYUNSIGNED Bitmap::FindLastSet(POLYUNSIGNED bitno) const
         } while (m_bits[byteno] == 0);
         bitno = (byteno << 3) + 7; // Set it to the last bit
     }
-    while (! TestBit(bitno)) bitno--;
+    while (bitno > 0 && ! TestBit(bitno)) bitno--;
     return bitno;
 }

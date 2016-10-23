@@ -1106,8 +1106,21 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     while ((POLYUNSIGNED)addr & (sizeof(POLYUNSIGNED)-1)) addr--; // Make it word aligned
     PolyWord *wordAddr = (PolyWord*)addr;
     // Work back to find the first set bit before this.
-    // There must be one because we always set the first bit.
+    // Normally we will find one but if we're looking up a value that
+    // is actually an integer it might be in a piece of code that is now free.
     POLYUNSIGNED bitOffset = profMap->FindLastSet(wordAddr - space->bottom);
+    if (space->spaceType == ST_CODE)
+    {
+        PolyWord *ptr = space->bottom+bitOffset;
+        if (ptr >= space->top) return 0;
+        // This will find the last non-free code cell or the first cell.
+        // Return zero if the value was not actually in the cell or it wasn't code.
+        PolyObject *obj = (PolyObject*)(ptr+1);
+        if (wordAddr > ptr && wordAddr < ptr + obj->Length() && obj->IsCodeObject())
+            return obj;
+        else return 0;
+    }
+    // Permanent area - the bits are set on demand.
     // Now work forward, setting any bits if necessary.  We don't need a lock
     // because this is monotonic.
     for (;;)
