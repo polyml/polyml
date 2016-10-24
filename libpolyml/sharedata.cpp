@@ -163,8 +163,8 @@ private:
 ShareDataClass::~ShareDataClass()
 {
     // Free the bitmaps associated with the permanent spaces.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
-        gMem.pSpaces[j]->shareBitmap.Destroy();
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+       (*i)->shareBitmap.Destroy();
 }
 
 DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth)
@@ -751,9 +751,9 @@ bool ShareDataClass::RunShareData(PolyObject *root)
 {
     // We use a bitmap to indicate when we've visited an object to avoid
     // infinite recursion in cycles in the data.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (!space->isMutable && space->hierarchy == 0)
         {
             if (! space->shareBitmap.Create(space->spaceSize()))

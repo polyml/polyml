@@ -264,9 +264,9 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 void ProfileRequest::getResults(void)
 // Print profiling information and reset profile counts.
 {
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         // Permanent areas are filled with objects from the bottom.
         getProfileResults(space->bottom, space->top); // Bottom to top
     }

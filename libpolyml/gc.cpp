@@ -149,9 +149,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         }
 
         // Set limits of weak refs.
-        for (j = 0; j < gMem.npSpaces; j++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *pSpace = gMem.pSpaces[j];
+            PermanentMemSpace *pSpace = *i;
             pSpace->highestWeak = pSpace->bottom;
             pSpace->lowestWeak = pSpace->top;
         }

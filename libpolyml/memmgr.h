@@ -250,7 +250,7 @@ public:
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
-    PermanentMemSpace *SpaceForIndex(unsigned index) const; // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
 
     // As a debugging check, write protect the immutable areas apart from during the GC.
     void ProtectImmutable(bool on);
@@ -305,8 +305,7 @@ public:
     void RemoveExcessAllocation() { RemoveExcessAllocation(spaceBeforeMinorGC); }
 
     // Table for permanent spaces
-    PermanentMemSpace **pSpaces;
-    unsigned npSpaces;
+    std::vector<PermanentMemSpace *> pSpaces;
 
     // Table for local spaces
     LocalMemSpace **lSpaces;

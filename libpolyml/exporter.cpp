@@ -121,14 +121,14 @@ void CopyScan::initialise(bool isExport/*=true*/)
     // to waste memory.
     if (hierarchy == 0)
     {
-        graveYard = new GraveYard[gMem.npSpaces];
+        graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
             throw MemoryException();
     }
-    unsigned i;
-    for (i = 0; i < gMem.npSpaces; i++)
+
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[i];
+        PermanentMemSpace *space = *i;
         if (space->hierarchy >= hierarchy) {
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
@@ -151,7 +151,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
             }
         }
     }
-    for (i = 0; i < gMem.nlSpaces; i++)
+    for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
         POLYUNSIGNED size = space->allocatedSpace();
@@ -162,7 +162,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
         else
             defaultImmSize += size/2;
     }
-    for (i = 0; i < gMem.ncSpaces; i++)
+    for (unsigned i = 0; i < gMem.ncSpaces; i++)
     {
         CodeSpace *space = gMem.cSpaces[i];
         POLYUNSIGNED size = space->topPointer - space->bottom;
@@ -470,9 +470,9 @@ void Exporter::RunExport(PolyObject *rootFunction)
         FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
         FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
     }
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         // Permanent areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
@@ -494,16 +494,16 @@ void Exporter::RunExport(PolyObject *rootFunction)
     // Copy the areas into the export object.
     size_t tableEntries = gMem.eSpaces.size();
     unsigned memEntry = 0;
-    if (hierarchy != 0) tableEntries += gMem.npSpaces;
+    if (hierarchy != 0) tableEntries += gMem.pSpaces.size();
     exports->memTable = new memoryTableEntry[tableEntries];
 
     // If we're constructing a module we need to include the global spaces.
     if (hierarchy != 0)
     {
         // Permanent spaces from the executable.
-        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *space = gMem.pSpaces[i];
+            PermanentMemSpace *space = *i;
             if (space->hierarchy < hierarchy)
             {
                 memoryTableEntry *entry = &exports->memTable[memEntry++];

@@ -544,9 +544,9 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     RootScanner rootScan;
     // Scan the permanent mutable areas.  This could be parallelised but it doesn't
     // appear to be worthwhile at the moment.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             rootScan.ScanAddressesInRegion(space->bottom, space->top);
     }

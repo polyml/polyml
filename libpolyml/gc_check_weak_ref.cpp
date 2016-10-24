@@ -142,9 +142,9 @@ void MTGCCheckWeakRef::ScanAreas(void)
             ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
     }
     // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        MemSpace *space = gMem.pSpaces[j];
+        MemSpace *space = *i;
         if (space->isMutable)
             ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
     }

@@ -436,9 +436,9 @@ void SaveRequest::Perform()
     copyScan.initialise(false);
     bool success = true;
     try {
-        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
-            PermanentMemSpace *space = gMem.pSpaces[i];
+            PermanentMemSpace *space = *i;
             if (space->isMutable && ! space->noOverwrite && ! space->byteOnly)
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
@@ -450,14 +450,14 @@ void SaveRequest::Perform()
 
     // Copy the areas into the export object.  Make sufficient space for
     // the largest possible number of entries.
-    exports.memTable = new memoryTableEntry[gMem.eSpaces.size()+gMem.npSpaces+1];
+    exports.memTable = new memoryTableEntry[gMem.eSpaces.size()+gMem.pSpaces.size()+1];
     unsigned memTableCount = 0;
 
     // Permanent spaces at higher level.  These have to have entries although
     // only the mutable entries will be written.
-    for (unsigned w = 0; w < gMem.npSpaces; w++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[w];
+        PermanentMemSpace *space = *i;
         if (space->hierarchy < newHierarchy)
         {
             memoryTableEntry *entry = &exports.memTable[memTableCount++];

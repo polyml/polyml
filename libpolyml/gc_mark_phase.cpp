@@ -583,9 +583,9 @@ void MTGCProcessMarkPointers::MarkRoots(void)
     nInUse = 1;
 
     // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = gMem.pSpaces[j];
+        PermanentMemSpace *space = *i;
         if (space->isMutable && ! space->byteOnly)
             marker->ScanAddressesInRegion(space->bottom, space->top);
     }

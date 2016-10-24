@@ -109,8 +109,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 {
-    npSpaces = nlSpaces = ncSpaces = 0;
-    pSpaces = 0;
+    nlSpaces = ncSpaces = 0;
     lSpaces = 0;
     cSpaces = 0;
     nextIndex = 0;
@@ -128,9 +127,8 @@ MemMgr::~MemMgr()
 {
     delete(spaceTree); // Have to do this before we delete the spaces.
     unsigned i;
-    for (i = 0; i < npSpaces; i++)
-        delete(pSpaces[i]);
-    free(pSpaces);
+    for (std::vector<PermanentMemSpace *>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
+        delete(*i);
     for (i = 0; i < nlSpaces; i++)
         delete(lSpaces[i]);
     free(lSpaces);
@@ -276,23 +274,15 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         if (index >= nextIndex) nextIndex = index+1;
 
         // Extend the permanent memory table and add this space to it.
-        PermanentMemSpace **table =
-            (PermanentMemSpace **)realloc(pSpaces, (npSpaces+1) * sizeof(PermanentMemSpace *));
-        if (table == 0)
-        {
-            delete space;
-            return 0;
-        }
-        pSpaces = table;
         try {
             AddTree(space);
+            pSpaces.push_back(space);
         }
-        catch (std::bad_alloc&) {
+        catch (std::exception&) {
             RemoveTree(space);
             delete space;
             return 0;
         }
-        pSpaces[npSpaces++] = space;
         return space;
     }
     catch (std::bad_alloc&) {
@@ -399,75 +389,15 @@ void MemMgr::DeleteExportSpaces(void)
 // lower level.
 bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 {
-    // Create a new table big enough to hold all the permanent and export spaces
-    PermanentMemSpace **pTable =
-        (PermanentMemSpace **)calloc(npSpaces+eSpaces.size(), sizeof(PermanentMemSpace *));
-    if (pTable == 0) return false;
-    unsigned newSpaces = 0;
     // Save permanent spaces at a lower hierarchy.  Others are converted into
     // local spaces.  Most or all items will have been copied from these spaces
     // into an export space but there could be items reachable only from the stack.
-    for (unsigned i = 0; i < npSpaces; i++)
+    std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin();
+    while (i != pSpaces.end())
     {
-        PermanentMemSpace *pSpace = pSpaces[i];
+        PermanentMemSpace *pSpace = *i;
         if (pSpace->hierarchy < hierarchy)
-            pTable[newSpaces++] = pSpace;
-        else
-        {
-            try {
-                // Turn this into a local space.
-                // Remove this from the tree - AddLocalSpace will make an entry for the local version.
-                RemoveTree(pSpace);
-                LocalMemSpace *space = new LocalMemSpace;
-                space->top = space->fullGCLowerLimit = pSpace->top;
-                space->bottom = space->upperAllocPtr = space->lowerAllocPtr = pSpace->bottom;
-                space->isMutable = pSpace->isMutable;
-                space->isOwnSpace = true;
-                if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
-                    return false;
-                currentHeapSize += space->spaceSize();
-                globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
-            }
-            catch (std::bad_alloc&) {
-                return false;
-            }
-        }
-    }
-    // Save newly exported spaces.
-    for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
-    {
-        PermanentMemSpace *space = *j;
-        space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
-        space->spaceType = ST_PERMANENT;
-        // Put a dummy object to fill up the unused space.
-        if (space->topPointer != space->top)
-            FillUnusedSpace(space->topPointer, space->top - space->topPointer);
-        // Put in a dummy object to fill the rest of the space.
-        pTable[newSpaces++] = space;
-    }
-    eSpaces.clear();
-    npSpaces = newSpaces;
-    free(pSpaces);
-    pSpaces = pTable;
-
-    return true;
-}
-
-
-// Before we import a hierarchical saved state we need to turn any previously imported
-// spaces into local spaces.
-bool MemMgr::DemoteImportSpaces()
-{
-    // Create a new permanent space table.
-    PermanentMemSpace **table =
-        (PermanentMemSpace **)calloc(npSpaces, sizeof(PermanentMemSpace *));
-    if (table == NULL) return false;
-    unsigned newSpaces = 0;
-    for (unsigned i = 0; i < npSpaces; i++)
-    {
-        PermanentMemSpace *pSpace = pSpaces[i];
-        if (pSpace->hierarchy == 0) // Leave truly permanent spaces
-            table[newSpaces++] = pSpace;
+            i++;
         else
         {
             try {
@@ -531,27 +461,44 @@ bool MemMgr::DemoteImportSpaces()
                     currentHeapSize += space->spaceSize();
                     globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
                 }
+                i = pSpaces.erase(i);
             }
             catch (std::bad_alloc&) {
-                if (debugOptions & DEBUG_MEMMGR)
-                    Log("MMGR: Unable to convert saved state space %p into local space (\"new\" failed)\n", pSpace);
                 return false;
             }
         }
     }
-    npSpaces = newSpaces;
-    free(pSpaces);
-    pSpaces = table;
+    // Save newly exported spaces.
+    for(std::vector<PermanentMemSpace *>::iterator j = eSpaces.begin(); j < eSpaces.end(); j++)
+    {
+        PermanentMemSpace *space = *j;
+        space->hierarchy = hierarchy; // Set the hierarchy of the new spaces.
+        space->spaceType = ST_PERMANENT;
+        // Put a dummy object to fill up the unused space.
+        if (space->topPointer != space->top)
+            FillUnusedSpace(space->topPointer, space->top - space->topPointer);
+        // Put in a dummy object to fill the rest of the space.
+        pSpaces.push_back(space);
+    }
+    eSpaces.clear();
 
     return true;
 }
 
-// Return the space for a given index
-PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index) const
+
+// Before we import a hierarchical saved state we need to turn any previously imported
+// spaces into local spaces.
+bool MemMgr::DemoteImportSpaces()
 {
-    for (unsigned i = 0; i < npSpaces; i++)
+    return PromoteExportSpaces(1); // Only truly permanent spaces are retained.
+}
+
+// Return the space for a given index
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
+{
+    for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
     {
-        PermanentMemSpace *space = pSpaces[i];
+        PermanentMemSpace *space = *i;
         if (space->index == index)
             return space;
     }
@@ -1114,8 +1061,8 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
 // Remove profiling bitmaps from permanent areas to free up memory.
 void MemMgr::RemoveProfilingBitmaps()
 {
-    for (unsigned i = 0; i < npSpaces; i++)
-        pSpaces[i]->profileCode.Destroy();
+    for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
+        (*i)->profileCode.Destroy();
 }
 
 MemMgr gMem; // The one and only memory manager object
