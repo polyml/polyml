@@ -211,8 +211,9 @@ public:
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
-    // Delete a local space
-    bool DeleteLocalSpace(LocalMemSpace *sp);
+    // Delete a local space.  Takes the iterator position in lSpaces and returns the
+    // iterator after deletion.
+    void DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter);
 
     // Allocate an area of the heap of at least minWords and at most maxWords.
     // This is used both when allocating single objects (when minWords and maxWords
@@ -308,8 +309,7 @@ public:
     std::vector<PermanentMemSpace *> pSpaces;
 
     // Table for local spaces
-    LocalMemSpace **lSpaces;
-    unsigned nlSpaces;
+    std::vector<LocalMemSpace *> lSpaces;
 
     // Table for export spaces
     std::vector<PermanentMemSpace *> eSpaces;

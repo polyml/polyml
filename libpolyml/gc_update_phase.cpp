@@ -251,16 +251,16 @@ void GCUpdatePhase()
     mainThreadPhase = MTP_GCPHASEUPDATE;
     
     /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
-    for(unsigned j = 0; j < gMem.nlSpaces; j++)
-        gMem.lSpaces[j]->updated = 0;
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+        (*i)->updated = 0;
 
     // We can do the updates in parallel since they don't interfere at all.
     MTGCProcessUpdate processUpdate;
 
     // Process local areas.
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         // As well as updating the addresses this also clears the bitmaps.
         gpTaskFarm->AddWorkOrRunNow(&updateLocalArea, &processUpdate, space);
     }

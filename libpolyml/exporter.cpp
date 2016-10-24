@@ -151,9 +151,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
             }
         }
     }
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
+        LocalMemSpace *space = *i;
         POLYUNSIGNED size = space->allocatedSpace();
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
@@ -463,9 +463,9 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Fix the forwarding pointers.
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         // Local areas only have objects from the allocation pointer to the top.
         FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
         FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);

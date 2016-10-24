@@ -135,9 +135,9 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
 // because it also scans the area we're collecting.
 void MTGCCheckWeakRef::ScanAreas(void)
 {
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
+        LocalMemSpace *space = *i;
         if (space->isMutable)
             ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
     }

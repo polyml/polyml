@@ -500,9 +500,9 @@ void SaveRequest::Perform()
 
     // Update references to moved objects.
     SaveFixupAddress fixup;
-    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[l];
+        LocalMemSpace *space = *i;
         fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }

@@ -610,9 +610,9 @@ void GCSharingPhase(void)
 
     GetSharing sharer;
 
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[i];
+        LocalMemSpace *lSpace = *i;
         lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
     }
 

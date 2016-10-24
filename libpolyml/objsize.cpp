@@ -111,7 +111,7 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     show_size    = show;
 
     // Create a bitmap for each of the areas apart from the IO area
-    nBitmaps = (unsigned)(gMem.nlSpaces+gMem.pSpaces.size()+gMem.cSpaces.size()); //
+    nBitmaps = (unsigned)(gMem.lSpaces.size()+gMem.pSpaces.size()+gMem.cSpaces.size()); //
     bitmaps = new VisitBitmap*[nBitmaps];
     unsigned bm = 0;
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
@@ -120,9 +120,9 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
         // Permanent areas are filled with objects from the bottom.
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)

@@ -273,9 +273,9 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     currentSpaceUsed = wordsRequired;
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        currentSpaceUsed += gMem.lSpaces[i]->allocatedSpace();
+        currentSpaceUsed += (*i)->allocatedSpace();
     }
     // N.B.  Normally currentSpaceUsed will be less than the size of the heap
     // except if wordsRequired is very large.

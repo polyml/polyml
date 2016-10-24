@@ -661,9 +661,9 @@ bool MTGCProcessMarkPointers::RescanForStackOverflow()
     bool rescan = false;
     Rescanner rescanner(marker);
 
-    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        if (rescanner.ScanSpace(gMem.lSpaces[m]))
+        if (rescanner.ScanSpace(*i))
             rescan = true;
     }
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
@@ -782,9 +782,9 @@ void GCMarkPhase(void)
     mainThreadPhase = MTP_GCPHASEMARK;
 
     // Clear the mark counters and set the rescan limits.
-    for(unsigned k = 0; k < gMem.nlSpaces; k++)
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[k];
+        LocalMemSpace *lSpace = *i;
         lSpace->i_marked = lSpace->m_marked = 0;
         lSpace->fullGCRescanStart = lSpace->top;
         lSpace->fullGCRescanEnd = lSpace->bottom;
@@ -809,8 +809,8 @@ void GCMarkPhase(void)
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Mark");
 
     // Turn the marks into bitmap entries.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-        gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
+        gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, *i, 0);
 
     // Process the code areas.
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
@@ -821,9 +821,9 @@ void GCMarkPhase(void)
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Bitmap");
 
     POLYUNSIGNED totalLive = 0;
-    for(unsigned l = 0; l < gMem.nlSpaces; l++)
+    for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[l];
+        LocalMemSpace *lSpace = *i;
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
         totalLive += lSpace->m_marked + lSpace->i_marked;
         if (debugOptions & DEBUG_GC)

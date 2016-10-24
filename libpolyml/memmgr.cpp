@@ -109,8 +109,6 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 {
-    nlSpaces =  0;
-    lSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
     nextAllocator = 0;
@@ -125,12 +123,10 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 MemMgr::~MemMgr()
 {
     delete(spaceTree); // Have to do this before we delete the spaces.
-    unsigned i;
     for (std::vector<PermanentMemSpace *>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
         delete(*i);
-    for (i = 0; i < nlSpaces; i++)
-        delete(lSpaces[i]);
-    free(lSpaces);
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
+        delete(*i);
     for (std::vector<PermanentMemSpace *>::iterator i = eSpaces.begin(); i < eSpaces.end(); i++)
         delete(*i);
     for (std::vector<StackSpace *>::iterator i = sSpaces.begin(); i < sSpaces.end(); i++)
@@ -216,39 +212,32 @@ void MemMgr::ConvertAllocationSpaceToLocal(LocalMemSpace *space)
 bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 {
     // Add to the table.
-    LocalMemSpace **table = (LocalMemSpace **)realloc(lSpaces, (nlSpaces+1) * sizeof(LocalMemSpace *));
-    if (table == 0) return false;
-    lSpaces = table;
     // Update the B-tree.
     try {
         AddTree(space);
+        // The entries in the local table are ordered so that the copy phase of the full
+        // GC simply has to copy to an entry earlier in the table.  Immutable spaces come
+        // first, followed by mutable spaces and finally allocation spaces.
+        if (space->allocationSpace)
+            lSpaces.push_back(space); // Just add at the end
+        else if (space->isMutable)
+        {
+            // Add before the allocation spaces
+            std::vector<LocalMemSpace*>::iterator i = lSpaces.begin();
+            while (i != lSpaces.end() && ! (*i)->allocationSpace) i++;
+            lSpaces.insert(i, space);
+        }
+        else
+        {
+            // Immutable space: Add before the mutable spaces
+            std::vector<LocalMemSpace*>::iterator i = lSpaces.begin();
+            while (i != lSpaces.end() && ! (*i)->isMutable) i++;
+            lSpaces.insert(i, space);
+        }
     }
     catch (std::bad_alloc&) {
         RemoveTree(space);
         return false;
-    }
-    // The entries in the local table are ordered so that the copy phase of the full
-    // GC simply has to copy to an entry earlier in the table.  Immutable spaces come
-    // first, followed by mutable spaces and finally allocation spaces.
-    if (space->allocationSpace)
-        lSpaces[nlSpaces++] = space; // Just add at the end
-    else if (space->isMutable)
-    {
-        // Add before the allocation spaces
-        unsigned s;
-        for (s = nlSpaces; s > 0 && lSpaces[s-1]->allocationSpace; s--)
-            lSpaces[s] = lSpaces[s-1];
-        lSpaces[s] = space;
-        nlSpaces++;
-    }
-    else
-    {
-        // Immutable space: Add before the mutable spaces
-        unsigned s;
-        for (s = nlSpaces; s > 0 && lSpaces[s-1]->isMutable; s--)
-            lSpaces[s] = lSpaces[s-1];
-        lSpaces[s] = space;
-        nlSpaces++;
     }
     return true;
 }
@@ -289,41 +278,28 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
 }
 
 // Delete a local space and remove it from the table.
-bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
+void MemMgr::DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter)
 {
-    for (unsigned i = 0; i < nlSpaces; i++)
-    {
-        if (lSpaces[i] == sp)
-        {
-            if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
-            currentHeapSize -= sp->spaceSize();
-            globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
-            if (sp->allocationSpace) currentAllocSpace -= sp->spaceSize();
-            RemoveTree(sp);
-            delete sp;
-            nlSpaces--;
-            while (i < nlSpaces)
-            {
-                lSpaces[i] = lSpaces[i+1];
-                i++;
-            }
-            return true;
-        }
-    }
-    ASSERT(false); // It should always be in the table.
-    return false;
+    LocalMemSpace *sp = *iter;
+    if (debugOptions & DEBUG_MEMMGR)
+        Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
+    currentHeapSize -= sp->spaceSize();
+    globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
+    if (sp->allocationSpace) currentAllocSpace -= sp->spaceSize();
+    RemoveTree(sp);
+    iter = lSpaces.erase(iter);
 }
 
 // Remove local areas that are now empty after a GC.
 // It isn't clear if we always want to do this.
 void MemMgr::RemoveEmptyLocals()
 {
-    for (unsigned s = nlSpaces; s > 0; s--)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); )
     {
-        LocalMemSpace *space = lSpaces[s-1];
+        LocalMemSpace *space = *i;
         if (space->allocatedSpace() == 0)
-            DeleteLocalSpace(space);
+            DeleteLocalSpace(i);
+        else i++;
     }
 }
 
@@ -534,11 +510,13 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
     // one space.  The most recent cells will be more likely to survive a
     // GC so distibuting them improves the load balance for a multi-thread GC.
     nextAllocator++;
-    if (nextAllocator > gMem.nlSpaces) nextAllocator = 0;
+    if (nextAllocator > gMem.lSpaces.size()) nextAllocator = 0;
 
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    unsigned j = nextAllocator;
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
+        if (j >= gMem.lSpaces.size()) j = 0;
+        LocalMemSpace *space = gMem.lSpaces[j++];
         if (space->allocationSpace)
         {
             POLYUNSIGNED available = space->freeSpace();
@@ -682,19 +660,20 @@ bool MemMgr::CheckForAllocation(POLYUNSIGNED words)
 void MemMgr::RemoveExcessAllocation(POLYUNSIGNED words)
 {
     // First remove any non-standard allocation areas.
-    unsigned i;
-    for (i = nlSpaces; i > 0; i--)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end();)
     {
-        LocalMemSpace *space = lSpaces[i-1];
+        LocalMemSpace *space = *i;
         if (space->allocationSpace && space->allocatedSpace() == 0 &&
                 space->spaceSize() != defaultSpaceSize)
-            DeleteLocalSpace(space);
+            DeleteLocalSpace(i);
+        else i++;
     }
-    for (i = nlSpaces; currentAllocSpace > words && i > 0; i--)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); currentAllocSpace > words && i < lSpaces.end(); )
     {
-        LocalMemSpace *space = lSpaces[i-1];
+        LocalMemSpace *space = *i;
         if (space->allocationSpace && space->allocatedSpace() == 0)
-            DeleteLocalSpace(space);
+            DeleteLocalSpace(i);
+        else i++;
     }
 }
 
@@ -703,9 +682,9 @@ POLYUNSIGNED MemMgr::GetFreeAllocSpace()
 {
     POLYUNSIGNED freeSpace = 0;
     PLocker lock(&allocLock);
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = *i;
         if (space->allocationSpace)
             freeSpace += space->freeSpace();
     }
@@ -764,9 +743,9 @@ void MemMgr::ProtectImmutable(bool on)
 {
     if (debugOptions & DEBUG_CHECK_OBJECTS)
     {
-        for (unsigned i = 0; i < nlSpaces; i++)
+        for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
         {
-            LocalMemSpace *space = lSpaces[i];
+            LocalMemSpace *space = *i;
             if (! space->isMutable)
                 osMemoryManager->SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
                     on ? PERMISSION_READ|PERMISSION_EXEC : PERMISSION_READ|PERMISSION_EXEC|PERMISSION_WRITE);
@@ -946,9 +925,9 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
 POLYUNSIGNED MemMgr::AllocatedInAlloc()
 {
     POLYUNSIGNED inAlloc = 0;
-    for (unsigned i = 0; i < nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
-        LocalMemSpace *sp = lSpaces[i];
+        LocalMemSpace *sp = *i;
         if (sp->allocationSpace) inAlloc += sp->allocatedSpace();
     }
     return inAlloc;
@@ -958,9 +937,9 @@ POLYUNSIGNED MemMgr::AllocatedInAlloc()
 void MemMgr::ReportHeapSizes(const char *phase)
 {
     POLYUNSIGNED alloc = 0, nonAlloc = 0, inAlloc = 0, inNonAlloc = 0;
-    for (unsigned i = 0; i < nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
-        LocalMemSpace *sp = lSpaces[i];
+        LocalMemSpace *sp = *i;
         if (sp->allocationSpace)
         {
             alloc += sp->spaceSize();

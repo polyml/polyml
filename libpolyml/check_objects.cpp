@@ -147,9 +147,9 @@ void DoCheckMemory()
 {
     ScanCheckAddress memCheck;
     // Scan the local areas.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
+        LocalMemSpace *space = *i;
         memCheck.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         memCheck.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
