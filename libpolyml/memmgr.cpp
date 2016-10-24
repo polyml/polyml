@@ -109,10 +109,9 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 {
-    npSpaces = nlSpaces = nsSpaces = ncSpaces = 0;
+    npSpaces = nlSpaces = ncSpaces = 0;
     pSpaces = 0;
     lSpaces = 0;
-    sSpaces = 0;
     cSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
@@ -137,9 +136,8 @@ MemMgr::~MemMgr()
     free(lSpaces);
     for (std::vector<PermanentMemSpace *>::iterator i = eSpaces.begin(); i < eSpaces.end(); i++)
         delete(*i);
-    for (i = 0; i < nsSpaces; i++)
-        delete(sSpaces[i]);
-    free(sSpaces);
+    for (std::vector<StackSpace *>::iterator i = sSpaces.begin(); i < sSpaces.end(); i++)
+        delete(*i);
     for (i = 0; i < ncSpaces; i++)
         delete(cSpaces[i]);
     free(cSpaces);
@@ -796,30 +794,19 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
         space->spaceType = ST_STACK;
         space->isMutable = true;
 
-        // Extend the permanent memory table and add this space to it.
-        StackSpace **table =
-            (StackSpace **)realloc(sSpaces, (nsSpaces+1) * sizeof(StackSpace *));
-        if (table == 0)
-        {
-            if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: New stack space: table realloc failed\n");
-            delete space;
-            return 0;
-        }
-        sSpaces = table;
         // Add the stack space to the tree.  This ensures that operations such as
         // LocalSpaceForAddress will work for addresses within the stack.  We can
         // get them in the RTS with functions such as quot_rem and exception stack.
         // It's not clear whether they really appear in the GC.
         try {
             AddTree(space);
+            sSpaces.push_back(space);
         }
-        catch (std::bad_alloc&) {
+        catch (std::exception&) {
             RemoveTree(space);
             delete space;
             return 0;
         }
-        sSpaces[nsSpaces++] = space;
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New stack space %p allocated at %p size %lu\n", space, space->bottom, space->spaceSize());
         return space;
@@ -887,18 +874,13 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
 {
     PLocker lock(&stackSpaceLock);
 
-    for (unsigned i = 0; i < nsSpaces; i++)
+    for (std::vector<StackSpace *>::iterator i = sSpaces.begin(); i < sSpaces.end(); i++)
     {
-        if (sSpaces[i] == space)
+        if (*i == space)
         {
             RemoveTree(space);
             delete space;
-            nsSpaces--;
-            while (i < nsSpaces)
-            {
-                sSpaces[i] = sSpaces[i+1];
-                i++;
-            }
+            sSpaces.erase(i);
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted stack space %p\n", space);
             return true;

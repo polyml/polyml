@@ -316,8 +316,7 @@ public:
     std::vector<PermanentMemSpace *> eSpaces;
 
     // Table for stack spaces
-    StackSpace **sSpaces;
-    unsigned nsSpaces;
+    std::vector<StackSpace *> sSpaces;
     PLock stackSpaceLock;
 
     // Table for code spaces
