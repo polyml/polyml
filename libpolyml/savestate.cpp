@@ -506,9 +506,9 @@ void SaveRequest::Perform()
         fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
-    for (unsigned l = 0; l < gMem.ncSpaces; l++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[l];
+        CodeSpace *space = *i;
         fixup.ScanAddressesInRegion(space->bottom, space->topPointer);
     }
     GCModules(&fixup);
@@ -517,9 +517,9 @@ void SaveRequest::Perform()
     // CheckMarksOnCodeTask and MemMgr::FindCodeObject assume that there are no forwarding ptrs.
     // Although we've updated any pointers to the start of the code we could have return addresses
     // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
-    for (unsigned l = 0; l < gMem.ncSpaces; l++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[l];
+        CodeSpace *space = *i;
         for (PolyWord *pt = space->bottom; pt < space->top; )
         {
             pt++;

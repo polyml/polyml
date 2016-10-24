@@ -666,9 +666,9 @@ bool MTGCProcessMarkPointers::RescanForStackOverflow()
         if (rescanner.ScanSpace(gMem.lSpaces[m]))
             rescan = true;
     }
-    for (unsigned m = 0; m < gMem.ncSpaces; m++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        if (rescanner.ScanSpace(gMem.cSpaces[m]))
+        if (rescanner.ScanSpace(*i))
             rescan = true;
     }
     {
@@ -789,9 +789,9 @@ void GCMarkPhase(void)
         lSpace->fullGCRescanStart = lSpace->top;
         lSpace->fullGCRescanEnd = lSpace->bottom;
     }
-    for (unsigned k = 0; k < gMem.ncSpaces; k++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[k];
+        CodeSpace *space = *i;
         space->fullGCRescanStart = space->top;
         space->fullGCRescanEnd = space->bottom;
     }
@@ -813,8 +813,8 @@ void GCMarkPhase(void)
         gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
 
     // Process the code areas.
-    for (unsigned k = 0; k < gMem.ncSpaces; k++)
-        gpTaskFarm->AddWorkOrRunNow(&CheckMarksOnCodeTask, gMem.cSpaces[k], 0);
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
+        gpTaskFarm->AddWorkOrRunNow(&CheckMarksOnCodeTask, *i, 0);
 
     gpTaskFarm->WaitForCompletion(); // Wait for completion of the bitmaps
 

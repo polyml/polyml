@@ -271,9 +271,9 @@ void GCUpdatePhase()
         if (space->isMutable && ! space->byteOnly)
             gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
         // We could remove the mutable bit if there are no longer any mutable code objects
         // but it's easier to leave that to the minor GC.

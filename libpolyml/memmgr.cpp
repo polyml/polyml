@@ -109,9 +109,8 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 {
-    nlSpaces = ncSpaces = 0;
+    nlSpaces =  0;
     lSpaces = 0;
-    cSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
     nextAllocator = 0;
@@ -136,9 +135,8 @@ MemMgr::~MemMgr()
         delete(*i);
     for (std::vector<StackSpace *>::iterator i = sSpaces.begin(); i < sSpaces.end(); i++)
         delete(*i);
-    for (i = 0; i < ncSpaces; i++)
-        delete(cSpaces[i]);
-    free(cSpaces);
+    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i < cSpaces.end(); i++)
+        delete(*i);
 }
 
 // Create and initialise a new local space and add it to the table.
@@ -596,9 +594,9 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
 {
     PLocker locker(&codeSpaceLock);
     CodeSpace *allocSpace = 0;
-    for (unsigned j = 0; j < gMem.ncSpaces && allocSpace == 0; j++)
+    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i < cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         if ((POLYUNSIGNED)(space->top - space->topPointer) >= words)
             allocSpace = space;
     }
@@ -657,18 +655,14 @@ PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
 // Add a code space to the tables.  Used both for newly compiled code and also demoted saved spaces.
 bool MemMgr::AddCodeSpace(CodeSpace *space)
 {
-    CodeSpace **table =
-        (CodeSpace **)realloc(cSpaces, (ncSpaces+1) * sizeof(CodeSpace *));
-    if (table == 0) return false;
     try {
         AddTree(space);
+        cSpaces.push_back(space);
     }
-    catch (std::bad_alloc&) {
+    catch (std::exception&) {
         RemoveTree(space);
         return false;
     }
-    cSpaces = table;
-    cSpaces[ncSpaces++] = space;
     return true;
 }
 

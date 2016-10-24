@@ -270,9 +270,9 @@ void ProfileRequest::getResults(void)
         // Permanent areas are filled with objects from the bottom.
         getProfileResults(space->bottom, space->top); // Bottom to top
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         getProfileResults(space->bottom, space->topPointer);
     }
 

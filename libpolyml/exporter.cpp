@@ -162,9 +162,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
         else
             defaultImmSize += size/2;
     }
-    for (unsigned i = 0; i < gMem.ncSpaces; i++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[i];
+        CodeSpace *space = *i;
         POLYUNSIGNED size = space->topPointer - space->bottom;
         defaultCodeSize += size/2;
     }
@@ -476,13 +476,12 @@ void Exporter::RunExport(PolyObject *rootFunction)
         // Permanent areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        MemSpace *space = gMem.cSpaces[j];
+        MemSpace *space = *i;
         // Code areas are filled with objects from the bottom.
         FixForwarding(space->bottom, space->top - space->bottom);
     }
-
 
     // Reraise the exception after cleaning up the forwarding pointers.
     if (copiedRoot == 0)

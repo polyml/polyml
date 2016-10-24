@@ -551,9 +551,9 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             rootScan.ScanAddressesInRegion(space->bottom, space->top);
     }
     // Scan code spaces.  
-    for (unsigned j=0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         // Spaces are mutable if any object has been added to the area since the last GC.
         if (space->isMutable)
         {

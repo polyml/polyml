@@ -625,9 +625,9 @@ void GCSharingPhase(void)
     }
     // Scan the code areas to share any constants.  We don't share the code
     // cells themselves.
-    for (unsigned j = 0; j < gMem.ncSpaces; j++)
+    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
-        CodeSpace *space = gMem.cSpaces[j];
+        CodeSpace *space = *i;
         sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
 

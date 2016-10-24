@@ -319,8 +319,7 @@ public:
     PLock stackSpaceLock;
 
     // Table for code spaces
-    CodeSpace **cSpaces;
-    unsigned ncSpaces;
+    std::vector<CodeSpace *> cSpaces;
     PLock codeSpaceLock;
 
     // Storage manager lock.
