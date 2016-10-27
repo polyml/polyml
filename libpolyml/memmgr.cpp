@@ -287,6 +287,7 @@ void MemMgr::DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter)
     globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
     if (sp->allocationSpace) currentAllocSpace -= sp->spaceSize();
     RemoveTree(sp);
+    delete(sp);
     iter = lSpaces.erase(iter);
 }
 

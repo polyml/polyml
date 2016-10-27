@@ -230,7 +230,7 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
 {
     LocalMemSpace *mutableDest = 0, *immutableDest = 0;
 
-    for (std::vector<LocalMemSpace*>::reverse_iterator i = gMem.lSpaces.rbegin(); i < gMem.lSpaces.rend(); i++)
+    for (std::vector<LocalMemSpace*>::reverse_iterator i = gMem.lSpaces.rbegin(); i != gMem.lSpaces.rend(); i++)
     {
         LocalMemSpace *src = *i;
 
