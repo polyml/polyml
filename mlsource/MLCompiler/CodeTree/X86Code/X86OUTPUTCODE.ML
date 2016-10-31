@@ -1458,7 +1458,8 @@ struct
 
             val (_, riX) = 
                 case ri of
-                    NoIndex  => (0w0, false) (* No index reg. *)
+                    (* We should call a non-indexed function if there is no index. *)
+                    NoIndex  => raise InternalError "genOpIndexedGen: No index"
                 |   Index1 i => getReg i
                 |   Index2 i => getReg i
                 |   Index4 i => getReg i
@@ -2419,7 +2420,9 @@ struct
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output } :: remainder) =
             (
-                genOpIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output, code);
+                case index of
+                    NoIndex => genOpEA(MOVL_A_R, LargeInt.fromInt offset, base, output, code)
+                |   _ => genOpIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output, code);
                 cgOp remainder
             )
 
