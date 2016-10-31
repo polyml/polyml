@@ -888,10 +888,17 @@ struct
                     end
             )
         
-        |   skipToLabel((EndLoop{loopLabel, staticRegs}, _) :: rest, code) =
-                (* Normally we will have at least one branch that exits the loop
-                   but it could be that the loop is exited by raising an exception. *)
-                skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
+        |   skipToLabel((EndLoop{loopLabel as ILabel lab, staticRegs}, _) :: rest, code) =
+            (* Normally we will have at least one branch that exits the loop
+               but it could be that the loop is exited by raising an exception.
+               It is also possible that the loop has never been started because
+               the whole loop is dead code.  We have to check the label otherwise
+               mapSaveRegs could raise an exception. *)
+            (
+                case Array.sub(labelState, lab) of
+                    NONE => skipToLabel(rest, code)
+                |   _ => skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
+            )
 
             (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
