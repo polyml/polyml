@@ -366,7 +366,9 @@ local
         let
             val size_s1 = size s1 and size_s2 = size s2
         in
-            byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
+            if size_s1 <= size_s2
+            then byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
+            else false
         end
 
         (* True if s1 is a substring of s2 *)
