@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Mark phase
 
-    Copyright (c) 2010-12, 2015 David C. J. Matthews
+    Copyright (c) 2010-12, 2015-16 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -734,6 +734,8 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
     PolyWord *pt = space->bottom;
     PolyWord *lastFree = 0;
     POLYUNSIGNED lastFreeSpace = 0;
+    space->largestFree = 0;
+    space->firstFree = 0;
     while (pt < space->top)
     {
         PolyObject *obj = (PolyObject*)(pt+1);
@@ -750,6 +752,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
             lastFreeSpace = 0;
         }
         else { // Turn it into a byte area i.e. free.  It may already be free.
+            if (space->firstFree == 0) space->firstFree = pt;
             space->headerMap.ClearBits(pt-space->bottom, 1); // Remove the "header" bit
             if (lastFree + lastFreeSpace == pt)
                 // Merge free spaces.  Speeds up subsequent scans.
@@ -761,6 +764,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
             }
             PolyObject *freeSpace = (PolyObject*)(lastFree+1);
             freeSpace->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
+            if (lastFreeSpace > space->largestFree) space->largestFree = lastFreeSpace;
         }
         pt += length+1;
     }

@@ -565,6 +565,8 @@ CodeSpace::CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize)
     isOwnSpace = true;
     isCode = true;
     spaceType = ST_CODE;
+    largestFree = spaceSize-1;
+    firstFree = start;
 }
 
 // Allocate memory for a piece of code.  This needs to be both mutable and executable,
@@ -583,26 +585,49 @@ PolyObject*MemMgr::AllocCodeSpace(PolyObject *initCell)
         if (i != cSpaces.size())
         {
             CodeSpace *space = cSpaces[i];
-            PolyWord *pt = space->bottom;
-            while (pt < space->top)
+            if (space->largestFree >= requiredSize)
             {
-                PolyObject *obj = (PolyObject*)(pt+1);
-                POLYUNSIGNED length = obj->Length();
-                if (obj->IsByteObject() && length >= requiredSize)
-                { // Free and large enough
-                    PolyWord *next = pt+requiredSize+1;
-                    if (requiredSize < length)
-                        FillUnusedSpace(next, length-requiredSize);
-                    space->isMutable = true; // Set this - it ensures the area is scanned on GC.
-                    space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
-                    // Set the length word of the code area and copy the byte cell in.
-                    // The code bit must be set before the lock is released to ensure
-                    // another thread doesn't reuse this.
-                    obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
-                    memcpy(obj, initCell, requiredSize * sizeof(PolyWord));
-                    return obj;
+                POLYUNSIGNED actualLargest = 0;
+                while (space->firstFree < space->top)
+                {
+                    PolyObject *obj = (PolyObject*)(space->firstFree+1);
+                    // Skip over allocated areas or free areas that are too small.
+                    if (obj->IsCodeObject() || obj->Length() < 8)
+                        space->firstFree += obj->Length()+1;
+                    else break;
                 }
-                pt += length+1;
+                PolyWord *pt = space->firstFree;
+                while (pt < space->top)
+                {
+                    PolyObject *obj = (PolyObject*)(pt+1);
+                    POLYUNSIGNED length = obj->Length();
+                    if (obj->IsByteObject())
+                    {
+                        if (length >= requiredSize)
+                        {
+                            // Free and large enough
+                            PolyWord *next = pt+requiredSize+1;
+                            if (requiredSize < length)
+                                FillUnusedSpace(next, length-requiredSize);
+                            space->isMutable = true; // Set this - it ensures the area is scanned on GC.
+                            space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
+                            // Set the length word of the code area and copy the byte cell in.
+                            // The code bit must be set before the lock is released to ensure
+                            // another thread doesn't reuse this.
+                            obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
+                            memcpy(obj, initCell, requiredSize * sizeof(PolyWord));
+                            return obj;
+                        }
+                        else if (length >= actualLargest) actualLargest = length+1;
+                    }
+                    pt += length+1;
+                }
+                // Reached the end without finding what we wanted.  Update the largest size.
+                space->largestFree = actualLargest;
+            }
+            else
+            {
+                int x = 0;
             }
             i++; // Next area
         }

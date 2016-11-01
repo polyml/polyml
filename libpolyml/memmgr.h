@@ -195,6 +195,8 @@ class CodeSpace: public MarkableSpace
         CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
+    POLYUNSIGNED largestFree; // The largest free space in the area
+    PolyWord *firstFree; // The start of the first free space in the area.
 };
 
 class MemMgr
