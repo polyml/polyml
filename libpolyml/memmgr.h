@@ -192,7 +192,7 @@ public:
 class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace() { isOwnSpace = true; }
+        CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
 };
@@ -224,7 +224,7 @@ public:
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
     // Allocate space for code.  This is initially mutable to allow the code to be built.
-    PolyWord *AllocCodeSpace(POLYUNSIGNED words);
+    PolyObject *AllocCodeSpace(PolyObject *initCell);
 
     // Check that a subsequent allocation will succeed.  Called from the GC to ensure
     bool CheckForAllocation(POLYUNSIGNED words);

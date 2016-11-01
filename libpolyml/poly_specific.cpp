@@ -254,19 +254,13 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             if (! args->WordP()->IsByteObject())
                 raise_fail(taskData, "Not byte data area");
-            POLYUNSIGNED segLength = args->WordP()->Length();
             while (true)
             {
-                PolyWord *newCode = gMem.AllocCodeSpace(segLength+1);
-                if (newCode != 0)
-                {
-                    PolyObject *result = (PolyObject*)(newCode+1);
-                    result->SetLengthWord(segLength,  F_CODE_OBJ|F_MUTABLE_BIT);
-                    memcpy(result, args->WordP(), segLength * sizeof(PolyWord));
+                PolyObject *result = gMem.AllocCodeSpace(args->WordP());
+                if (result != 0)
                     return taskData->saveVec.push(result);
-                }
                 // Could not allocate - must GC.
-                if (! QuickGC(taskData, segLength))
+                if (! QuickGC(taskData, args->WordP()->Length()))
                     raise_fail(taskData, "Insufficient memory");
             }
         }

@@ -382,14 +382,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 
                 if (pSpace->isCode)
                 {
-                    CodeSpace *space = new CodeSpace;
-                    space->top = pSpace->top;
-                    // Space is allocated in local areas from the top down.  This area is full and
-                    // all data is in the old generation.  The area can be recovered by a full GC.
-                    space->bottom = pSpace->bottom;
-                    space->isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
-                    space->isOwnSpace = true;
-                    space->isCode = true;
+                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize());
                     if (! space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
@@ -563,81 +556,96 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
     return 0; // There isn't space even for the minimum.
 }
 
+CodeSpace::CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize)
+{
+    isOwnSpace = true;
+    bottom = start;
+    top = start+spaceSize;
+    isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
+    isOwnSpace = true;
+    isCode = true;
+    spaceType = ST_CODE;
+}
+
 // Allocate memory for a piece of code.  This needs to be both mutable and executable,
 // at least for native code.  The interpreted version need not (should not?) make the
 // area executable.  It will not be executed until the mutable bit has been cleared.
 // Once code is allocated it is not GCed or moved.
-// N.B.  The argument size must include the length word; the result is a pointer
-// to the base of the area or zero if it can't be allocated.
-PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
+// initCell is a byte cell that is copied into the new code area.
+PolyObject*MemMgr::AllocCodeSpace(PolyObject *initCell)
 {
     PLocker locker(&codeSpaceLock);
     // Search the code spaces until we find a free area big enough.
-    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i != cSpaces.end(); i++)
+    size_t i = 0;
+    POLYUNSIGNED requiredSize = initCell->Length();
+    while (true)
     {
-        CodeSpace *space = *i;
-        PolyWord *pt = space->bottom;
-        while (pt < space->top)
+        if (i != cSpaces.size())
         {
-            PolyObject *obj = (PolyObject*)(pt+1);
-            POLYUNSIGNED length = obj->Length();
-            if (obj->IsByteObject() && length+1 >= words)
-            { // Free and large enough
-                PolyWord *next = pt+words;
-                if (words < length+1)
-                    FillUnusedSpace(next, length+1-words);
-                space->isMutable = true; // Set this - it ensures the area is scanned on GC.
-                space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
-                return pt;
+            CodeSpace *space = cSpaces[i];
+            PolyWord *pt = space->bottom;
+            while (pt < space->top)
+            {
+                PolyObject *obj = (PolyObject*)(pt+1);
+                POLYUNSIGNED length = obj->Length();
+                if (obj->IsByteObject() && length >= requiredSize)
+                { // Free and large enough
+                    PolyWord *next = pt+requiredSize+1;
+                    if (requiredSize < length)
+                        FillUnusedSpace(next, length-requiredSize);
+                    space->isMutable = true; // Set this - it ensures the area is scanned on GC.
+                    space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
+                    // Set the length word of the code area and copy the byte cell in.
+                    // The code bit must be set before the lock is released to ensure
+                    // another thread doesn't reuse this.
+                    obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
+                    memcpy(obj, initCell, requiredSize * sizeof(PolyWord));
+                    return obj;
+                }
+                pt += length+1;
             }
-            pt += length+1;
+            i++; // Next area
+        }
+        else
+        {
+            // Allocate a new area and add it at the end of the table.
+            CodeSpace *allocSpace = 0;
+            // Allocate a new mutable, code space.
+            size_t actualSize = (requiredSize+1) * sizeof(PolyWord);
+            PolyWord *mem  =
+                (PolyWord*)osMemoryManager->Allocate(actualSize,
+                                PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            if (mem != 0)
+            {
+                try {
+                    allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord));
+                    if (! allocSpace->headerMap.Create(allocSpace->spaceSize()))
+                    {
+                        delete allocSpace;
+                        allocSpace = 0;
+                    }
+                    else if (! AddCodeSpace(allocSpace))
+                    {
+                        delete allocSpace;
+                        allocSpace = 0;
+                    }
+                    else if (debugOptions & DEBUG_MEMMGR)
+                        Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
+                    // Put in a byte cell to mark the area as unallocated.
+                    FillUnusedSpace(allocSpace->bottom, allocSpace->spaceSize());
+                } catch (std::bad_alloc&)
+                {
+                }
+                if (allocSpace == 0)
+                {
+                    osMemoryManager->Free(mem, actualSize);
+                    mem = 0;
+                }
+            }
+            if (allocSpace == 0)
+                return 0; // Try a GC.
         }
     }
-
-    CodeSpace *allocSpace = 0;
-    // Allocate a new mutable, code space.
-    size_t actualSize = words * sizeof(PolyWord);
-    PolyWord *mem  =
-        (PolyWord*)osMemoryManager->Allocate(actualSize,
-                        PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
-    if (mem != 0)
-    {
-        try {
-            allocSpace = new CodeSpace;
-            allocSpace->bottom = mem;
-            allocSpace->top = allocSpace->bottom + actualSize / sizeof(PolyWord);
-            allocSpace->spaceType = ST_CODE;
-            allocSpace->isMutable = true;
-            allocSpace->isCode = true;
-            allocSpace->isOwnSpace = true;
-            if (! allocSpace->headerMap.Create(allocSpace->spaceSize()))
-            {
-                delete allocSpace;
-                allocSpace = 0;
-            }
-            else if (! AddCodeSpace(allocSpace))
-            {
-                delete allocSpace;
-                allocSpace = 0;
-            }
-            else if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
-        } catch (std::bad_alloc&)
-        {
-        }
-        if (allocSpace == 0)
-        {
-            osMemoryManager->Free(mem, actualSize);
-            mem = 0;
-        }
-    }
-    if (allocSpace == 0)
-        return 0; // Try a GC.
-    PolyWord *result = allocSpace->bottom; // Return the address.
-    allocSpace->headerMap.SetBit(0); // Set the header bit at the start
-    if (allocSpace->spaceSize() > words)
-        FillUnusedSpace(allocSpace->bottom+words, allocSpace->spaceSize()-words);
-    return result;
 }
 
 // Remove code areas that are completely empty.  This is probably better than waiting to reuse them.
