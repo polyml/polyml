@@ -273,7 +273,7 @@ void ProfileRequest::getResults(void)
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
         CodeSpace *space = *i;
-        getProfileResults(space->bottom, space->topPointer);
+        getProfileResults(space->bottom, space->top);
     }
 
     {

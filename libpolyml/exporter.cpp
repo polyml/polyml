@@ -165,7 +165,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
         CodeSpace *space = *i;
-        POLYUNSIGNED size = space->topPointer - space->bottom;
+        POLYUNSIGNED size = space->spaceSize();
         defaultCodeSize += size/2;
     }
     if (isExport)

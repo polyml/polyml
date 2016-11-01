@@ -61,11 +61,6 @@ Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
 #error "No configuration file"
 #endif
 
-#ifdef HAVE_STRING_H
-// Currently just used for memset during testing.
-#include <string.h>
-#endif
-
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -739,7 +734,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
     PolyWord *pt = space->bottom;
     PolyWord *lastFree = 0;
     POLYUNSIGNED lastFreeSpace = 0;
-    while (pt < space->topPointer) // Temporarily don't go into the area we will allocate
+    while (pt < space->top)
     {
         PolyObject *obj = (PolyObject*)(pt+1);
         // There should not be forwarding pointers
@@ -757,24 +752,18 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
         else { // Turn it into a byte area i.e. free.  It may already be free.
             space->headerMap.ClearBits(pt-space->bottom, 1); // Remove the "header" bit
             if (lastFree + lastFreeSpace == pt)
-            {
-                // Try to merge free spaces.  Speeds up subsequent scans.
+                // Merge free spaces.  Speeds up subsequent scans.
                 lastFreeSpace += length + 1;
-                obj = (PolyObject*)lastFree;
-            }
             else
             {
-                lastFree = pt+1;
-                lastFreeSpace = length;
+                lastFree = pt;
+                lastFreeSpace = length + 1;
             }
-            obj->SetLengthWord(lastFreeSpace, F_BYTE_OBJ);
-
-            // Temporarily clobber with HLT instructions
-            memset(obj, 0xf4, lastFreeSpace*sizeof(PolyWord));
+            PolyObject *freeSpace = (PolyObject*)(lastFree+1);
+            freeSpace->SetLengthWord(lastFreeSpace-1, F_BYTE_OBJ);
         }
         pt += length+1;
     }
-
 }
 
 void GCMarkPhase(void)
@@ -817,6 +806,8 @@ void GCMarkPhase(void)
         gpTaskFarm->AddWorkOrRunNow(&CheckMarksOnCodeTask, *i, 0);
 
     gpTaskFarm->WaitForCompletion(); // Wait for completion of the bitmaps
+
+    gMem.RemoveEmptyCodeAreas();
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Bitmap");
 

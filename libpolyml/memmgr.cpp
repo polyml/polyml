@@ -383,7 +383,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 if (pSpace->isCode)
                 {
                     CodeSpace *space = new CodeSpace;
-                    space->top = space->topPointer = pSpace->top;
+                    space->top = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
                     // all data is in the old generation.  The area can be recovered by a full GC.
                     space->bottom = pSpace->bottom;
@@ -572,63 +572,92 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
 PolyWord *MemMgr::AllocCodeSpace(POLYUNSIGNED words)
 {
     PLocker locker(&codeSpaceLock);
-    CodeSpace *allocSpace = 0;
-    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i < cSpaces.end(); i++)
+    // Search the code spaces until we find a free area big enough.
+    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i != cSpaces.end(); i++)
     {
         CodeSpace *space = *i;
-        if ((POLYUNSIGNED)(space->top - space->topPointer) >= words)
-            allocSpace = space;
-    }
-    if (allocSpace == 0)
-    {
-        // Allocate a new mutable, code space.
-        size_t actualSize = words * sizeof(PolyWord);
-        PolyWord *mem  =
-            (PolyWord*)osMemoryManager->Allocate(actualSize,
-                            PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
-        if (mem != 0)
+        PolyWord *pt = space->bottom;
+        while (pt < space->top)
         {
-            try {
-                allocSpace = new CodeSpace;
-                allocSpace->bottom = allocSpace->topPointer = mem;
-                allocSpace->top = allocSpace->bottom + actualSize / sizeof(PolyWord);
-                allocSpace->spaceType = ST_CODE;
-                allocSpace->isMutable = true;
-                allocSpace->isCode = true;
-                allocSpace->isOwnSpace = true;
-                if (! allocSpace->headerMap.Create(allocSpace->spaceSize()))
-                {
-                    delete allocSpace;
-                    allocSpace = 0;
-                }
-                else if (! AddCodeSpace(allocSpace))
-                {
-                    delete allocSpace;
-                    allocSpace = 0;
-                }
-                else if (debugOptions & DEBUG_MEMMGR)
-                    Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
-            } catch (std::bad_alloc&)
-            {
+            PolyObject *obj = (PolyObject*)(pt+1);
+            POLYUNSIGNED length = obj->Length();
+            if (obj->IsByteObject() && length+1 >= words)
+            { // Free and large enough
+                PolyWord *next = pt+words;
+                if (words < length+1)
+                    FillUnusedSpace(next, length+1-words);
+                space->isMutable = true; // Set this - it ensures the area is scanned on GC.
+                space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
+                return pt;
             }
-            if (allocSpace == 0)
+            pt += length+1;
+        }
+    }
+
+    CodeSpace *allocSpace = 0;
+    // Allocate a new mutable, code space.
+    size_t actualSize = words * sizeof(PolyWord);
+    PolyWord *mem  =
+        (PolyWord*)osMemoryManager->Allocate(actualSize,
+                        PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+    if (mem != 0)
+    {
+        try {
+            allocSpace = new CodeSpace;
+            allocSpace->bottom = mem;
+            allocSpace->top = allocSpace->bottom + actualSize / sizeof(PolyWord);
+            allocSpace->spaceType = ST_CODE;
+            allocSpace->isMutable = true;
+            allocSpace->isCode = true;
+            allocSpace->isOwnSpace = true;
+            if (! allocSpace->headerMap.Create(allocSpace->spaceSize()))
             {
-                osMemoryManager->Free(mem, actualSize);
-                mem = 0;
+                delete allocSpace;
+                allocSpace = 0;
             }
+            else if (! AddCodeSpace(allocSpace))
+            {
+                delete allocSpace;
+                allocSpace = 0;
+            }
+            else if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
+        } catch (std::bad_alloc&)
+        {
         }
         if (allocSpace == 0)
-            return 0; // Try a GC.
+        {
+            osMemoryManager->Free(mem, actualSize);
+            mem = 0;
+        }
     }
-    // Set the mutable flag.  This is cleared by the GC when it has been scanned.
-    allocSpace->isMutable = true;
-    PolyWord *result = allocSpace->topPointer; // Return the address.
-    // Set the bit in the header map so we can find the header during GC or profiling
-    allocSpace->headerMap.SetBit(result-allocSpace->bottom);
-    allocSpace->topPointer += words;
-    if (allocSpace->topPointer != allocSpace->top)
-        FillUnusedSpace(allocSpace->topPointer, allocSpace->top - allocSpace->topPointer);
+    if (allocSpace == 0)
+        return 0; // Try a GC.
+    PolyWord *result = allocSpace->bottom; // Return the address.
+    allocSpace->headerMap.SetBit(0); // Set the header bit at the start
+    if (allocSpace->spaceSize() > words)
+        FillUnusedSpace(allocSpace->bottom+words, allocSpace->spaceSize()-words);
     return result;
+}
+
+// Remove code areas that are completely empty.  This is probably better than waiting to reuse them.
+// It's particularly important if we reload a saved state because the code areas for old saved states
+// are made into local code areas just in case they are currently in use or reachable.
+void MemMgr::RemoveEmptyCodeAreas()
+{
+    for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i != cSpaces.end(); )
+    {
+        CodeSpace *space = *i;
+        PolyObject *start = (PolyObject *)(space->bottom+1);
+        if (start->IsByteObject() && start->Length() == space->spaceSize()-1)
+        {
+            // We have an empty cell that fills the whole space.
+            RemoveTree(space);
+            delete(space);
+            i = cSpaces.erase(i);
+        }
+        else i++;
+    }
 }
 
 // Add a code space to the tables.  Used both for newly compiled code and also demoted saved spaces.

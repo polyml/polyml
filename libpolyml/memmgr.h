@@ -194,7 +194,6 @@ class CodeSpace: public MarkableSpace
     public:
         CodeSpace() { isOwnSpace = true; }
 
-    PolyWord *topPointer; // Allocation point
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
 };
 
@@ -300,6 +299,8 @@ public:
 
     // Remove unused local areas.
     void RemoveEmptyLocals();
+    // Remove unused code areas.
+    void RemoveEmptyCodeAreas();
 
     // Remove unused allocation areas to reduce the space below the limit.
     void RemoveExcessAllocation(POLYUNSIGNED words);
