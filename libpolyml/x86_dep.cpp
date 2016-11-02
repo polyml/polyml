@@ -339,8 +339,16 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpa
     MemSpace *space = gMem.SpaceForAddress(val.AsCodePtr()-1);
     if (space == 0) return;
     if (space->spaceType == ST_CODE)
-        // Process the address of the start.  Don't update anything.
-        process->ScanObjectAddress(gMem.FindCodeObject(val.AsCodePtr()));
+    {
+        PolyObject *obj = gMem.FindCodeObject(val.AsCodePtr());
+        // If it is actually an integer it might be outside a valid code object.
+        if (obj == 0)
+        {
+            ASSERT(val.IsTagged()); // It must be an integer
+        }
+        else // Process the address of the start.  Don't update anything.
+            process->ScanObjectAddress(obj);
+    }
     else if (space->spaceType == ST_LOCAL && val.IsDataPtr())
         // Local values must be word addresses.
         val = process->ScanObjectAddress(val.AsObjPtr());

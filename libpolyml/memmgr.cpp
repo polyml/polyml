@@ -1073,7 +1073,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         // This will find the last non-free code cell or the first cell.
         // Return zero if the value was not actually in the cell or it wasn't code.
         PolyObject *obj = (PolyObject*)(ptr+1);
-        if (wordAddr > ptr && wordAddr < ptr + obj->Length() && obj->IsCodeObject())
+        if (wordAddr > ptr && wordAddr < ptr + 1 + obj->Length() && obj->IsCodeObject())
             return obj;
         else return 0;
     }

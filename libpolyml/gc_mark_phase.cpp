@@ -753,7 +753,7 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
         }
         else { // Turn it into a byte area i.e. free.  It may already be free.
             if (space->firstFree == 0) space->firstFree = pt;
-            space->headerMap.ClearBits(pt-space->bottom, 1); // Remove the "header" bit
+            space->headerMap.ClearBit(pt-space->bottom); // Remove the "header" bit
             if (lastFree + lastFreeSpace == pt)
                 // Merge free spaces.  Speeds up subsequent scans.
                 lastFreeSpace += length + 1;
