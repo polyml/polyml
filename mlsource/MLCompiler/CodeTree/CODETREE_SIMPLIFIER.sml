@@ -554,9 +554,9 @@ struct
 
                 |   _ =>
                     let
-                        val dec = Container{addr=decAddr, use=[], size=size, setter=mkEnv(List.rev setDecs, setGen)}
+                        val dec = Container{addr=decAddr, use=[], size=size, setter=setGen}
                     in
-                        copyDecs(vs, RevList(dec :: decs))
+                        copyDecs(vs, RevList(dec :: setDecs @ decs))
                     end
             end
     in
