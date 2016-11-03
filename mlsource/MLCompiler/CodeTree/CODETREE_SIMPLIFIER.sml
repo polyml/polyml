@@ -429,17 +429,12 @@ struct
     |   simpSpecial (c: codetree, s: simpContext, tailDecs): codetree * revlist * envSpecial =
         let
             (* Anything else - copy it and then split it into the fields. *)
-            fun split(Newenv(l, e)) =
-                let
-                    (* Pull off bindings. *)
-                    val (c, RevList b, s) = split e
-                in
-                    (c, RevList(List.rev l @ b), s)
-                end
-            |   split(Constnt(m, p)) = (Constnt(m, p), tailDecs, findInline p)
-            |   split c = (c, tailDecs, EnvSpecNone)
+            fun split(Newenv(l, e), RevList tailDecs) = (* Pull off bindings. *)
+                    split (e, RevList(List.rev l @ tailDecs))
+            |   split(Constnt(m, p), tailDecs) = (Constnt(m, p), tailDecs, findInline p)
+            |   split(c, tailDecs) = (c, tailDecs, EnvSpecNone)
         in
-            split(simplify(c, s))
+            split(simplify(c, s), tailDecs)
         end
 
     (* Process a Newenv.  We need to add the bindings to the context. *)
