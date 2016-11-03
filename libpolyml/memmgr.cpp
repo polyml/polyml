@@ -625,10 +625,6 @@ PolyObject*MemMgr::AllocCodeSpace(PolyObject *initCell)
                 // Reached the end without finding what we wanted.  Update the largest size.
                 space->largestFree = actualLargest;
             }
-            else
-            {
-                int x = 0;
-            }
             i++; // Next area
         }
         else
