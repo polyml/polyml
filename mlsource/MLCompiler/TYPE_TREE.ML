@@ -368,8 +368,6 @@ struct
                      2, "intEquality", [mkLoadLocal 0], 0)
                 )
         in
-            fun breakHere () = ()
-            val _ = breakHere()
             (* Code-generate the function and return the inline part. 
                We need to set the maximum inline size here to ensure the long form
                code is not inlined.  It would be better to have a way of turning off
