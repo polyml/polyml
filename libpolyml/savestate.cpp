@@ -376,6 +376,9 @@ protected:
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { return GetNewAddress(base).AsObjPtr(); }
     PolyWord GetNewAddress(PolyWord old);
+
+public:
+    void ScanCodeSpace(CodeSpace *space);
 };
 
 
@@ -405,6 +408,24 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
     
     ASSERT (obj->ContainsNormalLengthWord()); // object is not moved
     return old;
+}
+
+// Fix up addresses in the code area.  Unlike ScanAddressesInRegion this updates
+// cells that have been moved.  We need to do that because we may still have
+// return addresses into those cells and we don't move return addresses.  We
+// do want the code to see updated constant addresses.
+void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
+{
+    for (PolyWord *pt = space->bottom; pt < space->top; )
+    {
+        pt++;
+        PolyObject *obj = (PolyObject*)pt;
+        PolyObject *dest = obj->FollowForwardingChain();
+        POLYUNSIGNED length = dest->Length();
+        if (length != 0)
+            ScanAddressesInObject(obj, dest->LengthWord());
+        pt += length;
+    }
 }
 
 // Called by the root thread to actually save the state and write the file.
@@ -507,14 +528,11 @@ void SaveRequest::Perform()
         fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-    {
-        CodeSpace *space = *i;
-        fixup.ScanAddressesInRegion(space->bottom, space->top);
-    }
+        fixup.ScanCodeSpace(*i);
+
     GCModules(&fixup);
 
     // Restore the length words in the code areas.
-    // CheckMarksOnCodeTask and MemMgr::FindCodeObject assume that there are no forwarding ptrs.
     // Although we've updated any pointers to the start of the code we could have return addresses
     // pointing to the original code.  GCModules updates the stack but doesn't update return addresses.
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
@@ -526,8 +544,7 @@ void SaveRequest::Perform()
             PolyObject *obj = (PolyObject*)pt;
             if (obj->ContainsForwardingPtr())
             {
-                PolyObject *forwardedTo = obj->GetForwardingPtr();
-                ASSERT(forwardedTo->ContainsNormalLengthWord());
+                PolyObject *forwardedTo = obj->FollowForwardingChain();
                 POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
                 obj->SetLengthWord(lengthWord);
             }

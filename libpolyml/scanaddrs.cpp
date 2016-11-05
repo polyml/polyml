@@ -158,8 +158,7 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
             // of applying ShareData repeatedly.  Perhaps we should
             // turn the forwarding pointers back into normal words in
             // an extra pass.
-            while (obj->ContainsForwardingPtr())
-                obj = obj->GetForwardingPtr();
+            obj = obj->FollowForwardingChain();
             ASSERT(obj->ContainsNormalLengthWord());
             pt += obj->Length();
         }

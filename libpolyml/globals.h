@@ -330,6 +330,13 @@ public:
         GetConstSegmentForCode(cp, count);
         return cp;
     }
+    // Follow a chain of forwarding pointers
+    PolyObject *FollowForwardingChain(void)
+    {
+        if (ContainsForwardingPtr())
+            return GetForwardingPtr()->FollowForwardingChain();
+        else return this;
+    }
 };
 
 /* There was a problem with version 2.95 on Sparc/Solaris at least.  The PolyObject
