@@ -77,13 +77,23 @@ struct
 
     val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
     val wordSize = Word.fromInt Address.wordSize
-
-    fun csegMake (size : word) : cseg =
+    
+    fun allocateAndClear size =
     let
         val vec : address = RunCall.allocateByteMemory(size, F_mutable_bytes)
+        (* allocateByteMemory does not clear the area.  We have to do that at least
+           to ensure that the constant area is cleared before we copy it into a
+           real code area.  In many cases we could get away with clearing less
+           but for the moment this is the safest way. *)
+        val byteLength = size * wordSize
+        fun clear n =
+            if n < byteLength then (assignByte(vec, n, 0w0); clear (n+0w1)) else ()
+        val () = clear 0w0
     in
-        ref (Bytes, vec)
+        vec
     end
+
+    fun csegMake (size : word) : cseg = ref (Bytes, allocateAndClear size)
 
     fun csegConvertToCode (r as ref (Bytes, addr)) : unit =
         let
@@ -159,7 +169,7 @@ struct
                 val newSize    = Word.max(expSize, minSize)
       
                 (* create temporary codeseg (with larger byte-vector) *)
-                val newVec = RunCall.allocateByteMemory (newSize, F_mutable_bytes)
+                val newVec = allocateAndClear newSize
                 val newSeg = (Bytes, newVec)
             in
                 (* copy the old code into the new codeseg *)
