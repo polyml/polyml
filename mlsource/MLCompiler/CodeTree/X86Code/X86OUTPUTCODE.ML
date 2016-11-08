@@ -1725,6 +1725,30 @@ struct
     fun loadFpRegToStack(FloatingPtReg fp, offset, code) =
         genFloatingPt({escape=0w1, md=0w3, nnn=0w0, rm= fp + offset}, code) (* FLD ST(r1) *)
 
+    datatype trapEntries =
+        StackOverflowCall
+    |   StackOverflowCallEx
+    |   HeapOverflowCall
+
+    (* RTS call.  We need to save any registers that may contain addresses to the stack.
+       All the registers are preserved but not seen by the GC. *)
+    fun rtsCall(rtsEntry, [], cvec) =
+        let
+            val entry =
+                case rtsEntry of
+                    StackOverflowCall   => memRegStackOverflowCall
+                |   StackOverflowCallEx => memRegStackOverflowCallEx
+                |   HeapOverflowCall    => memRegHeapOverflowCall
+        in
+            genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), cvec)
+        end
+    |   rtsCall(rtsEntry, reg::rest, cvec) =
+        (
+            genPushPop(PUSH_R, reg, cvec);
+            rtsCall(rtsEntry, rest, cvec);
+            genPushPop(POP_R, reg, cvec)
+        )
+
     (* Allocate store and put the resulting pointer in the result register. *)
     local
         fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet: genReg list) =
@@ -1774,19 +1798,10 @@ struct
                 lab2
             end
             else [putConditional(JNB, cvec)]
-
+        in
             (* If we don't have enough store for this allocation we call this
                function.  Push the registers before the call and pop them afterwards. *)
-            fun pushCallAndPop [] =
-                genOpPlus2(Group5, LargeInt.fromInt memRegHeapOverflowCall, ebp, 0w2 (* call *), cvec)
-            |   pushCallAndPop (reg::rest) =
-                (
-                    genPushPop(PUSH_R, reg, cvec);
-                    pushCallAndPop rest;
-                    genPushPop(POP_R, reg, cvec)
-                )
-        in
-            pushCallAndPop regSaveSet;
+            rtsCall(HeapOverflowCall, regSaveSet, cvec);
             fixup (lab, cvec);
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
@@ -1887,7 +1902,7 @@ struct
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
-    |   CallRTS of int
+    |   CallRTS of {rtsEntry: trapEntries, saveRegs: genReg list }
     |   StoreRegToMemory of { toStore: genReg, address: memoryAddress }
     |   StoreConstToMemory of { toStore: LargeInt.int, address: memoryAddress }
     |   StoreLongConstToMemory of { toStore: machineWord, address: memoryAddress }
@@ -2062,13 +2077,13 @@ struct
         |   TestByteMem { base, offset, bits } =>
                 ( stream "TestByteMem "; printBaseOffset(base, NoIndex, offset); stream " 0x"; stream(Word.toString bits) )
 
-        |   CallRTS entry =>
+        |   CallRTS {rtsEntry, ...} =>
             (
                 stream "CallRTS ";
-                if entry = memRegStackOverflowCall then stream "StackOverflowCall"
-                else if entry = memRegHeapOverflowCall then stream "HeapOverflow"
-                else if entry = memRegStackOverflowCallEx then stream "StackOverflowCallEx"
-                else stream(Int.toString entry)
+                case rtsEntry of
+                    StackOverflowCall => stream "StackOverflowCall"
+                |   HeapOverflowCall => stream "HeapOverflow"
+                |   StackOverflowCallEx => stream "StackOverflowCallEx"
             )
 
         |   AllocStore { size, output, ... } =>
@@ -2586,9 +2601,9 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(CallRTS entry :: remainder) =
+        |   cgOp(CallRTS{rtsEntry, saveRegs} :: remainder) =
             (
-                genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), code);
+                rtsCall(rtsEntry, saveRegs, code);
                 cgOp remainder
             )
 
