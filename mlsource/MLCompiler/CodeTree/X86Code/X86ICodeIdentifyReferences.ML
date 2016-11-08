@@ -567,7 +567,7 @@ struct
                 ((EndLoop{loopLabel=loopLabel, staticRegs=staticRegs}, setToList newActive) :: tail, refLabels, resLoopLabels, CCIndeterminate, newActive)
             end
 
-        |   identify((instr as JumpLoop{regArgs, stackArgs, loopLabel, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify(JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust} :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 val _ = hd loopNest = loopLabel orelse raise InternalError "identify - loop nesting"
                 val regSourceAsRegs =
@@ -585,8 +585,21 @@ struct
                    We should remove unused arguments at a higher level. *)
                 val () = addNewConflicts(currentRegs, destRegs)
                 val () = List.app(fn i => incrArray(regActive, i)) (setToList currentRegs)
+                (* If we have to check for interrupts we must preserve registers across
+                   the RTS call. *)
+                fun getSave i =
+                    case Array.sub(regPushState, i) of
+                        MustNotPush => NONE
+                    |   MustPush => NONE (* Already on the stack. *)
+                    |   _ => SOME(PReg(i, PRegGeneral))
+                val check =
+                    case checkInterrupt of
+                        NONE => NONE
+                    |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
+                val jumpInstr =
+                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust, checkInterrupt=check}
             in
-                ((instr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
+                ((jumpInstr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, labels, loopLabels, loopNest, ccIn) =

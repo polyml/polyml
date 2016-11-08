@@ -1386,7 +1386,8 @@ struct
                     if loopSp = stackPtr then []
                     else [ResetStackPtr{numWords=stackPtr-loopSp}]
             in
-                (codeArgs @ stackReset @ [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0}], RegisterArgument target, true)
+                (codeArgs @ stackReset @
+                    [JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[]}], RegisterArgument target, true)
             end
 
         |   codeToICode(BICLoop _, {loopArgs=NONE, ...}, _, _) =

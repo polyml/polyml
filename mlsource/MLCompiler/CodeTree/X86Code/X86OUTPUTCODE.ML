@@ -1902,7 +1902,6 @@ struct
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int
-    |   InterruptCheck
     |   JumpLabel of label
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
@@ -2092,7 +2091,6 @@ struct
                 (stream "UncondBranch L"; stream(Int.toString lab))
         |   ResetStack i =>
                 (stream "ResetStack "; stream(Int.toString i))
-        |   InterruptCheck => stream "InterruptCheck"
         |   JumpLabel(Labels{labId=ref lab, ...}) =>
                 (stream "L"; stream(Int.toString lab); stream ":")
         |   LoadHandlerAddress { handlerLab=_, output=_ } =>
@@ -2866,22 +2864,6 @@ struct
                 fixup(forward, code); (* Fix up any forward branches to here. *)
                 (* Record the address. *)
                 justComeFromAddrs := reverse :: ! justComeFromAddrs;
-                cgOp remainder
-            end
-        
-        |   cgOp(InterruptCheck :: remainder) =
-            (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
-            let
-                (* cmp reg,16(%ebp)*)
-                val () = genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegStackLimit, ebp, esp, code)
-                (* jnb 3 *)
-                val lab = [putConditional (JNB, code)]
-            in
-                (* call *)
-                genop(Group5, NONE, code);
-                genmodrm (Based8, 0w2 (* call *), #1 (getReg ebp), code);
-                gen8u (Word8.fromInt memRegStackOverflowCall, code);
-                fixup (lab, code);
                 cgOp remainder
             end
 

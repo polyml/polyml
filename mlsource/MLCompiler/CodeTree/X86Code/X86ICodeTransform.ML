@@ -445,7 +445,8 @@ struct
                 (* We don't really need to map the static regs since we'll call "Identify" again after this. *)
                 pushRegisters(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code, context)
 
-        |   pushRegisters((JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, ...}, _) :: rest, code, context as {newCount, ...}) =
+        |   pushRegisters((JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, checkInterrupt, ...}, _) :: rest,
+                           code, context as {newCount, ...}) =
             let
                 val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
                 fun getValues [] = ([], [], [])
@@ -480,10 +481,11 @@ struct
                 
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                 val newStackAdjust = newCount-labNewCount
+                val check = Option.map mapSaveRegs checkInterrupt
             in
                 skipToLabel(rest,
                     JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
-                              stackAdjust=newStackAdjust} :: sourceCode @ stackArgLoads @ code)
+                              stackAdjust=newStackAdjust, checkInterrupt=check} :: sourceCode @ stackArgLoads @ code)
             end
 
         |   pushRegisters((RaiseExceptionPacket{packet}, _) :: rest, code, context) =
@@ -1530,7 +1532,7 @@ struct
                 codeExtended(rest, context)
             end
 
-        |   codeExtended((JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust}, _) :: rest, context) =
+        |   codeExtended((JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt}, _) :: rest, context) =
             let
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
@@ -1541,9 +1543,10 @@ struct
                 val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
                 val resetCode =
                     if stackAdjust = 0 then [] else [ResetStackPtr{numWords=stackAdjust}]
+                val check = Option.map(List.map(fn (PReg(r, _)) => findGeneralReg r)) checkInterrupt
             in
                 moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @ resetCode @
-                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0} :: code)
+                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0, checkInterrupt=check} :: code)
             end
 
         |   codeExtended((RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) }, _) :: rest, context) =

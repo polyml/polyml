@@ -149,7 +149,6 @@ sig
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int
-    |   InterruptCheck
     |   JumpLabel of label
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }

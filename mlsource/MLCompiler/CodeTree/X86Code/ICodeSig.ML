@@ -169,7 +169,8 @@ sig
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of
-            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
+              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }

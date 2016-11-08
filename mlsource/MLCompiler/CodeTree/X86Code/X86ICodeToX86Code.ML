@@ -145,7 +145,9 @@ struct
 
         (* Within a loop the loop registers are updated from the source registers and
            a jump is made back to the containing StartLoop *)
-    |   JumpLoop of { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list, stackAdjust: int, loopLabel: iLabel }
+    |   JumpLoop of
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
+              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
@@ -390,7 +392,7 @@ struct
 
         |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
 
-        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust }, stream, printReg) =
+        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt }, stream, printReg) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
@@ -400,6 +402,9 @@ struct
                     fn (source, stack) => (stream("sp" ^ Int.toString stack); stream "="; printArg(source, stream, printReg); stream " ")
                     ) stackArgs;
                 printLabel(loopLabel, stream);
+                case checkInterrupt of
+                    NONE => ()
+                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream));
                 stream " adj="; stream(Int.toString stackAdjust)
             )
 
@@ -731,6 +736,27 @@ struct
         |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
 
+        (* Check the stack limit "register".  This is used both at the start of a function for genuine
+           stack checking but also in a loop to check for an interrupt.  We need to save the registers
+           even across an interrupt because it can be used if another thread wants a GC. *)
+        fun testRegAndTrap(reg, entryPt, saveRegs) =
+        let
+            (* If we need to take the trap we save the argument and closure registers
+               across the trap. *)
+            fun pushThenPop [] = [CallRTS entryPt]
+            |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
+            (* Normally we won't have a stack overflow so we will skip the check. *)
+            val skipCheckLab as Labels{uses, ...} = mkLabel()
+            val () = uses := 1
+            val code =
+                ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} } ::
+                ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab} ::
+                    pushThenPop saveRegs @ [JumpLabel skipCheckLab]
+        in
+            List.rev code (* Need it in reverse order. *)
+        end
+
+
         (* Turn the icode into machine code.  This produces the code in reverse. *)
         fun codeGenICode([], code) = code
 
@@ -942,8 +968,15 @@ struct
         |   codeGenICode(EndLoop _ :: rest, code) = (* Nothing to do here. *)
                 codeGenICode(rest, code)
 
-        |   codeGenICode(JumpLoop {loopLabel, ...} :: rest, code) =
-                codeGenICode(rest, UncondBranch (findLabelRef loopLabel) :: code)
+        |   codeGenICode(JumpLoop {loopLabel, checkInterrupt, ...} :: rest, code) =
+            let
+                val checkCode =
+                    case checkInterrupt of
+                        NONE => []
+                    |   SOME saveRegs => testRegAndTrap (esp, memRegStackOverflowCall, map asGenReg saveRegs)
+            in
+                codeGenICode(rest, UncondBranch (findLabelRef loopLabel) :: checkCode @ code)
+            end
  
         |   codeGenICode(RaiseExceptionPacket _ :: rest, code) =
                 codeGenICode(rest, RaiseException :: code)
@@ -1265,39 +1298,11 @@ struct
             (* BoxValue should have been removed by earlier passes. *)
         |   codeGenICode(BoxValue _ :: _, _) =
                 raise InternalError "codeGenICode: BoxValue"
-
-        (* The stack limit register is set at least twice this far from the
-           end of the stack so we can simply compare the stack pointer with
-           the stack limit register if we need less than this much. Setting
-           it at twice this value means that functions that use up to this
-           much stack and do not call any other functions do not need to
-           check the stack at all. *)
-        (* TODO: The only functions that don't check the stack are RTS functions
+        
+         (* TODO: The only functions that don't check the stack are RTS functions
            and any hand-coded functions. *)
         val minStackCheck = 20
-        
-        (* Adds the constants onto the code, and copies the code into a new segment *)
-        (* Prelude consists of stack checking code. *)
-        fun testRegAndTrap(reg, entryPt) =
-        let
-            (* If we need to take the trap we save the argument and closure registers
-               across the trap. *)
-            val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
-            fun pushThenPop [] = [CallRTS entryPt]
-            |   pushThenPop (aReg::regs) = PushToStack(RegisterArg aReg) :: (pushThenPop regs @ [PopR aReg])
-            (* Normally we won't have a stack overflow so we will skip the check. *)
-            fun condBranch(test, predict) =
-            let
-                val label as Labels{uses, ...} = mkLabel()
-            in
-                uses := 1;
-                ([ConditionalBranch{test=test, predict=predict, label=label}], label)
-            end
-            val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
-        in
-            [ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }] @
-            skipCheck @ pushThenPop saveRegs @ [JumpLabel skipCheckLab]
-        end
+        val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
         val preludeCode =
             if stackRequired >= minStackCheck
             then
@@ -1305,17 +1310,18 @@ struct
                 (* Compute the necessary amount in edi and compare that. *)
                 val stackByteAdjust = ~wordSize * stackRequired
                 val testEdiCode =
-                    testRegAndTrap (edi, memRegStackOverflowCallEx)
+                    testRegAndTrap (edi, memRegStackOverflowCallEx, saveRegs)
             in
-                 [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
+                (* N.B. In reverse order. *)
+                testEdiCode @ [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}]
             end
      
-            else testRegAndTrap (esp, memRegStackOverflowCall)
+            else testRegAndTrap (esp, memRegStackOverflowCall, saveRegs)
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
 
-        val ops = codeGenICode(icode, [])
+        val ops = codeGenICode(icode, preludeCode)
     in
-        createCodeSegment(X86OPTIMISE.optimise(newCode, preludeCode @ List.rev ops), newCode)
+        createCodeSegment(X86OPTIMISE.optimise(newCode, List.rev ops), newCode)
     end
     
     datatype destinations = RegDest of reg | StackDest of int
