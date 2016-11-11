@@ -1981,7 +1981,7 @@ struct
       (* Returns "false" if it is safe to make the assignment. Sorts out
          imperative type variables and propagates level information.
          N.B. It does not propagate equality status. The reason is that
-         if we are unifying ''a with '_b ref, the '_b does NOT become
+         if we are unifying ''a with 'b ref, the 'b does NOT become
          an equality type var. In all other cases it would. *)
         fun occursCheckFails _ true = true
 
@@ -1994,27 +1994,28 @@ struct
                     let
                         (* The level is the minimum of the two, and if we are unifying with
                            an equality type variable we must make this into one. *)
-                        val minLev = Int.min (tvLevel var, tvLevel tvar);
+                        val minLev = Int.min (tvLevel var, tvLevel tvar)
+                        val oldValue = tvValue tvar
                     in
                         if tvLevel tvar <> minLev
-                        then 
-                            (* If it is nonunifiable we cannot make its level larger. *)
+                        then (* If it is nonunifiable we cannot make its level larger. *)
                             if tvNonUnifiable tvar
-                            then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
+                        then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
                         else
                         let
                             (* Must make a new type var with the right properties *)
                             (* This type variable may be a flexible record, in which
                                case we have to save the record and put it on the new
-                               type variable. foldType will apply checkForLoops to the
-                               record. *)
+                               type variable.  We have to do this for the record itself so that new
+                               fields inherit the correct status and also for any existing fields. *)
                             val newTv = mkTypeVar (minLev, tvEquality tvar, false, tvPrintity tvar)
                         in
-                            tvSetValue (typesTypeVar newTv, tvValue tvar);
+                            tvSetValue (typesTypeVar newTv, oldValue);
                             tvSetValue (tvar, newTv)
                         end
                         else ();
-                        sameTv (tvar, var) (* Safe if vars are different. *)
+                        (* Safe if vars are different but we also have to check any flexible records. *)
+                        occursCheckFails oldValue (sameTv (tvar, var))
                     end
 
                 |   TypeConstruction {args, constr, ...} =>
