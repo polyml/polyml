@@ -110,16 +110,14 @@ typedef enum
 typedef struct {
     PolyObject *token; /* pointer into ML heap */
     HANDENTRYTYPE  entryType; /* Type of handle */
-    union {
-        HKEY    hKey; /* Registry key. */
 
-        struct {
-            /* Process and IO channels. */
-            HANDLE hProcess, hInput, hOutput, hEvent;
-            PolyWord readToken, writeToken;
-        } process;
-        HCONV hcDDEConv; /* DDE Conversation. */
-    } entry;
+    // Only some of these are used in particular cases
+    // but using a union here complicates things.
+    HKEY    hKey; /* Registry key. */
+    /* Process and IO channels. */
+    HANDLE hProcess, hInput, hOutput, hEvent;
+    PolyWord readToken, writeToken;
+    HCONV hcDDEConv; /* DDE Conversation. */
 } HANDLETAB, *PHANDLETAB;
 
 
@@ -133,22 +131,22 @@ static void close_handle(PHANDLETAB pTab)
     switch (pTab->entryType)
     {
     case HE_REGISTRY:
-        RegCloseKey(pTab->entry.hKey);
+        RegCloseKey(pTab->hKey);
         break;
 
     case HE_PROCESS:
-        if (pTab->entry.process.hProcess)
-            CloseHandle(pTab->entry.process.hProcess);
-        if (pTab->entry.process.hInput != INVALID_HANDLE_VALUE)
-            CloseHandle(pTab->entry.process.hInput);
-        if (pTab->entry.process.hOutput != INVALID_HANDLE_VALUE)
-            CloseHandle(pTab->entry.process.hOutput);
-        if (pTab->entry.process.hEvent)
-            CloseHandle(pTab->entry.process.hEvent);
+        if (pTab->hProcess)
+            CloseHandle(pTab->hProcess);
+        if (pTab->hInput != INVALID_HANDLE_VALUE)
+            CloseHandle(pTab->hInput);
+        if (pTab->hOutput != INVALID_HANDLE_VALUE)
+            CloseHandle(pTab->hOutput);
+        if (pTab->hEvent)
+            CloseHandle(pTab->hEvent);
         break;
 
     case HE_DDECONVERSATION:
-        CloseDDEConversation(pTab->entry.hcDDEConv);
+        CloseDDEConversation(pTab->hcDDEConv);
         break;
     case HE_UNUSED:
         break; // Avoid warnings
@@ -335,34 +333,34 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 raise_syscall(taskData, "Process is closed", EINVAL);
             // Close the streams. Either of them may have been
             // passed to the stream package.
-            if (hnd->entry.process.hInput != INVALID_HANDLE_VALUE)
-                CloseHandle(hnd->entry.process.hInput);
-            hnd->entry.process.hInput = INVALID_HANDLE_VALUE;
-            if (hnd->entry.process.hEvent)
-                CloseHandle(hnd->entry.process.hEvent);
-            hnd->entry.process.hEvent = NULL;
-            if (hnd->entry.process.readToken.IsDataPtr())
+            if (hnd->hInput != INVALID_HANDLE_VALUE)
+                CloseHandle(hnd->hInput);
+            hnd->hInput = INVALID_HANDLE_VALUE;
+            if (hnd->hEvent)
+                CloseHandle(hnd->hEvent);
+            hnd->hEvent = NULL;
+            if (hnd->readToken.IsDataPtr())
             {
                 PIOSTRUCT strm =
-                    get_stream(hnd->entry.process.readToken);
+                    get_stream(hnd->readToken);
                 if (strm != NULL) close_stream(strm);
             }
-            hnd->entry.process.readToken = ClosedToken;
-            if (hnd->entry.process.hOutput != INVALID_HANDLE_VALUE)
-                CloseHandle(hnd->entry.process.hOutput);
-            hnd->entry.process.hOutput = INVALID_HANDLE_VALUE;
-            if (hnd->entry.process.writeToken.IsDataPtr())
+            hnd->readToken = ClosedToken;
+            if (hnd->hOutput != INVALID_HANDLE_VALUE)
+                CloseHandle(hnd->hOutput);
+            hnd->hOutput = INVALID_HANDLE_VALUE;
+            if (hnd->writeToken.IsDataPtr())
             {
                 PIOSTRUCT strm =
-                    get_stream(hnd->entry.process.writeToken);
+                    get_stream(hnd->writeToken);
                 if (strm != NULL) close_stream(strm);
             }
-            hnd->entry.process.writeToken = ClosedToken;
+            hnd->writeToken = ClosedToken;
 
             // See if it's finished.
             while (true) {
                 DWORD dwResult;
-                if (GetExitCodeProcess(hnd->entry.process.hProcess, &dwResult) == 0)
+                if (GetExitCodeProcess(hnd->hProcess, &dwResult) == 0)
                     raise_syscall(taskData, "GetExitCodeProcess failed",
                             -(int)GetLastError());
                 if (dwResult != STILL_ACTIVE) {
@@ -374,7 +372,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     return Make_fixed_precision(taskData, dwResult);
                 }
                 // Block and try again.
-                WaitHandle waiter(hnd->entry.process.hProcess);
+                WaitHandle waiter(hnd->hProcess);
                 processes->ThreadPauseForIO(taskData, &waiter);
             }
         }
@@ -404,7 +402,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return openRegistryKey(taskData, args, hnd->entry.hKey);
+            return openRegistryKey(taskData, args, hnd->hKey);
         }
 
     case 1009: // Create a subkey within one of the roots.
@@ -423,7 +421,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return createRegistryKey(taskData, args, hnd->entry.hKey);
+            return createRegistryKey(taskData, args, hnd->hKey);
         }
 
     case 1011: // Close a registry handle.
@@ -449,7 +447,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return queryRegistryKey(taskData, args, hnd->entry.hKey);
+            return queryRegistryKey(taskData, args, hnd->hKey);
         }
 
     case 1014: // Delete a subkey
@@ -468,7 +466,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return deleteRegistryKey(taskData, args, hnd->entry.hKey);
+            return deleteRegistryKey(taskData, args, hnd->hKey);
         }
 
     case 1016: // Set a value
@@ -487,7 +485,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return setRegistryKey(taskData, args, hnd->entry.hKey);
+            return setRegistryKey(taskData, args, hnd->hKey);
         }
 
     case 1018: // Enumerate a key in the predefined keys
@@ -504,7 +502,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return enumerateRegistry(taskData, args, hnd->entry.hKey, TRUE);
+            return enumerateRegistry(taskData, args, hnd->hKey, TRUE);
         }
 
     case 1020: // Enumerate a value in the predefined keys
@@ -521,7 +519,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return enumerateRegistry(taskData, args, hnd->entry.hKey, FALSE);
+            return enumerateRegistry(taskData, args, hnd->hKey, FALSE);
         }
 
     case 1022: // Delete a value
@@ -540,7 +538,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
                 raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
-            return deleteRegistryValue(taskData, args, hnd->entry.hKey);
+            return deleteRegistryValue(taskData, args, hnd->hKey);
         }
 
 
@@ -664,7 +662,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             handToken = make_handle_entry(taskData);
             pTab = &handleTable[STREAMID(handToken)];
             pTab->entryType = HE_DDECONVERSATION;
-            pTab->entry.hcDDEConv = hcDDEConv;
+            pTab->hcDDEConv = hcDDEConv;
             return handToken;
         }
 
@@ -680,7 +678,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             }
             command = Poly_string_to_C_alloc(args->WordP()->Get(1));
             /* Send a request to the main thread to do the work. */
-            res = ExecuteDDE(command, hnd->entry.hcDDEConv);
+            res = ExecuteDDE(command, hnd->hcDDEConv);
             free(command);
             if (res == -1) raise_syscall(taskData, "DdeClientTransaction failed", 0);
             else return Make_arbitrary_precision(taskData, res);
@@ -939,12 +937,12 @@ static Handle execute(TaskData *taskData, Handle args)
     CloseHandle(hReadFromParent);
     CloseHandle(hWriteToParent);
     pTab->entryType = HE_PROCESS;
-    pTab->entry.process.hProcess = processInfo.hProcess;
-    pTab->entry.process.hInput = hReadFromChild;
-    pTab->entry.process.hOutput = hWriteToChild;
-    pTab->entry.process.hEvent = hEvent;
-    pTab->entry.process.readToken = ClosedToken;
-    pTab->entry.process.writeToken = ClosedToken;
+    pTab->hProcess = processInfo.hProcess;
+    pTab->hInput = hReadFromChild;
+    pTab->hOutput = hWriteToChild;
+    pTab->hEvent = hEvent;
+    pTab->readToken = ClosedToken;
+    pTab->writeToken = ClosedToken;
 
     return(handToken);
 
@@ -1017,13 +1015,13 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     handToken = make_handle_entry(taskData);
     pTab = &handleTable[STREAMID(handToken)];
     pTab->entryType = HE_PROCESS;
-    pTab->entry.process.hProcess = processInfo.hProcess;
+    pTab->hProcess = processInfo.hProcess;
     // We only use the process handle entry.
-    pTab->entry.process.hInput = INVALID_HANDLE_VALUE;
-    pTab->entry.process.hOutput = INVALID_HANDLE_VALUE;
-    pTab->entry.process.hEvent = NULL;
-    pTab->entry.process.readToken = ClosedToken;
-    pTab->entry.process.writeToken = ClosedToken;
+    pTab->hInput = INVALID_HANDLE_VALUE;
+    pTab->hOutput = INVALID_HANDLE_VALUE;
+    pTab->hEvent = NULL;
+    pTab->readToken = ClosedToken;
+    pTab->writeToken = ClosedToken;
 
     return(handToken);
 }
@@ -1037,8 +1035,8 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     if (hnd == 0)
         raise_syscall(taskData, "Process is closed", EINVAL);
 
-    if (fIsRead) hStream = hnd->entry.process.hInput;
-    else hStream = hnd->entry.process.hOutput;
+    if (fIsRead) hStream = hnd->hInput;
+    else hStream = hnd->hOutput;
     /* I had previously assumed that it wasn't possible to get the
        same stream twice.  The current basis library definition allows
        it but warns it may produce unpredictable results.  For the moment
@@ -1069,16 +1067,16 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
        stream entry so that we can close the stream in "reap". */
     if (fIsRead)
     {
-        hnd->entry.process.hInput = INVALID_HANDLE_VALUE;
-        hnd->entry.process.readToken = strm->token;
+        hnd->hInput = INVALID_HANDLE_VALUE;
+        hnd->readToken = strm->token;
         // Pass the "input available" event.
-        strm->hAvailable = hnd->entry.process.hEvent;
-        hnd->entry.process.hEvent = NULL;
+        strm->hAvailable = hnd->hEvent;
+        hnd->hEvent = NULL;
     }
     else
     {
-        hnd->entry.process.hOutput = INVALID_HANDLE_VALUE;
-        hnd->entry.process.writeToken = strm->token;
+        hnd->hOutput = INVALID_HANDLE_VALUE;
+        hnd->writeToken = strm->token;
     }
 
     return str_token;
@@ -1107,7 +1105,7 @@ static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     result = make_handle_entry(taskData);
     pTab = &handleTable[STREAMID(result)];
     pTab->entryType = HE_REGISTRY;
-    pTab->entry.hKey = hkey;
+    pTab->hKey = hkey;
     return result;
 }
 
@@ -1137,7 +1135,7 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     keyResult = make_handle_entry(taskData);
     pTab = &handleTable[STREAMID(keyResult)];
     pTab->entryType = HE_REGISTRY;
-    pTab->entry.hKey = hkey;
+    pTab->hKey = hkey;
     // Record whether this was new or old.
     dispRes = Make_fixed_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
     /* Return a pair of the disposition and the token. */
@@ -1337,17 +1335,17 @@ void WindowsModule::GarbageCollect(ScanAddress *process)
                 /* Update the references to opened streams but
                    do this only as weak references.  If the stream
                    has gone away then that's fine. */
-                if (str->entry.process.readToken.IsDataPtr())
+                if (str->readToken.IsDataPtr())
                 {
-                    PolyObject *token = str->entry.process.readToken.AsObjPtr();
+                    PolyObject *token = str->readToken.AsObjPtr();
                     process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
-                    str->entry.process.readToken = token == 0 ? ClosedToken : token;
+                    str->readToken = token == 0 ? ClosedToken : token;
                 }
-                if (str->entry.process.writeToken.IsDataPtr())
+                if (str->writeToken.IsDataPtr())
                 {
-                    PolyObject *token = str->entry.process.writeToken.AsObjPtr();
+                    PolyObject *token = str->writeToken.AsObjPtr();
                     process->ScanRuntimeAddress(&token, ScanAddress::STRENGTH_WEAK);
-                    str->entry.process.writeToken = token == 0 ? ClosedToken : token;
+                    str->writeToken = token == 0 ? ClosedToken : token;
                 }
             }
             process->ScanRuntimeAddress(&str->token, ScanAddress::STRENGTH_WEAK);
