@@ -931,30 +931,38 @@ struct
            an arithmetic operation where choosing the same register for
            each may avoid a move. *)
         val realHints = Array.array(maxPRegs, NONE: reg option)
-        val friends = Array.array(maxPRegs, []: int list)
-        
+
+        (* Sources and destinations.  These indicate the registers that are
+           the sources and destinations of the indexing register and are used
+           as hints.  If a register has been allocated for a source or destination
+           we may be able to reuse it.  *)
+        val sourceRegs = Array.array(maxPRegs, []: int list)
+        and destinationRegs = Array.array(maxPRegs, []: int list)
+
         fun addRealHint(r, reg) =
             case Array.sub(realHints, r) of
                 NONE => Array.update(realHints, r, SOME reg)
             |   SOME _ => ()
         
-        fun addFriends(f1, f2) =
+        fun addSourceAndDestinationHint{src, dst} =
         let
-            val {conflicts, ...} = Vector.sub(regStates, f1)
-            
-            fun addF (f, toF) =
-                let
-                    val currentFriends = Array.sub(friends, toF)
-                in
-                    if List.exists(fn i => i=f) currentFriends
-                    then ()
-                    else Array.update(friends, toF, f :: currentFriends)
-                end
+            val {conflicts, ...} = Vector.sub(regStates, src)
         in
-            (* Add a friend if there's no conflict. *)
-            if List.exists(fn i => i=f2) conflicts
+            (* If they conflict we can't add them. *)
+            if List.exists(fn i => i=dst) conflicts
             then ()
-            else (addF(f1, f2); addF(f2, f1))
+            else
+            let
+                val currentDests = Array.sub(destinationRegs, src)
+                val currentSources = Array.sub(sourceRegs, dst)
+            in
+                if List.exists(fn i => i=dst) currentDests
+                then ()
+                else Array.update(destinationRegs, src, dst :: currentDests);
+                if List.exists(fn i => i=src) currentSources
+                then ()
+                else Array.update(sourceRegs, dst, src :: currentSources)
+            end
         end
 
         (* Find a real register for a preg.
@@ -987,10 +995,59 @@ struct
                             if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
                             else findAReg regs
 
+
+                    (* Search the sources and destinations to see if a register has
+                       already been allocated or there is a hint. *)
+                    fun findAFriend([], [], _) = NONE
+
+                    |   findAFriend(aDest :: otherDests, sources, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aDest) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aDest))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the destinations of the destinations to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso
+                                            not(List.exists (fn n => n=f) conflicts)
+                                    val fOfF = List.filter newFriend (Array.sub(destinationRegs, aDest))
+                                in
+                                    findAFriend(otherDests @ fOfF, sources, aDest :: alreadySeen)
+                                end
+                        end
+
+                    |   findAFriend([], aSrc :: otherSrcs, alreadySeen) =
+                        let
+                            val possReg =
+                                case Array.sub(allocatedRegs, aSrc) of
+                                    v as SOME _ => tryAReg v
+                                |   NONE => tryAReg(Array.sub(realHints, aSrc))
+                        in
+                            case possReg of
+                                reg as SOME _ => reg
+                            |   NONE =>
+                                let
+                                    (* Add the sources of the sources to the list
+                                       if they don't conflict and haven't been seen. *)
+                                    fun newFriend f =
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso
+                                            not(List.exists (fn n => n=f) conflicts)
+                                    val fOfF = List.filter newFriend (Array.sub(sourceRegs, aSrc))
+                                in
+                                    findAFriend([], otherSrcs @ fOfF, aSrc :: alreadySeen)
+                                end
+                        end
+
                     (* See if there is a friend that has a register already or a
                        hint.  Friends are registers that don't conflict and can
                        possibly avoid an extra move. *) 
-                    fun findAFriend([], _) = NONE
+(*                    fun findAFriend([], _) = NONE
                     |   findAFriend(friend :: tail, old) =
                         let
                             val possReg =
@@ -1011,7 +1068,7 @@ struct
                                 in
                                     findAFriend(tail @ fOfF, friend :: old)
                                 end
-                        end
+                        end*)
                 in
                     case tryAReg pref of
                         SOME r => r
@@ -1021,7 +1078,7 @@ struct
                                 SOME r => r
                             |   NONE =>
                                 (
-                                    case findAFriend(Array.sub(friends, r), []) of
+                                    case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
                                         SOME r => r
                                         (* Look through the registers to find one that's free. *)
                                     |   NONE => findAReg regSet
@@ -1302,7 +1359,7 @@ struct
             (* Register to register move.  Try to use the same register for the source as the destination
                to eliminate the instruction. *)
             let
-                val () = addFriends (sreg, dreg)
+                val () = addSourceAndDestinationHint {src=sreg, dst=dreg}
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dreg) of
@@ -1665,7 +1722,7 @@ struct
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint {dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 (* Try to put the argument into the same register as the result. *)
@@ -1684,8 +1741,8 @@ struct
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
             let
-                val () = addFriends (resReg, op1Reg)
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint {dst=resReg, src=op1Reg}
+                val () = addSourceAndDestinationHint {dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 
@@ -1707,7 +1764,7 @@ struct
                                             operand2, ccRef}, _) :: rest, context) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, generalRegisters)
@@ -1725,7 +1782,7 @@ struct
                                             operand2=RegisterArgument(PReg(op2Reg, _)), ccRef}, _) :: rest, context) =
             (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
             let
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOp2Reg = findRegister(op2Reg, SOME realDestReg, generalRegisters)
@@ -1774,7 +1831,7 @@ struct
         |   codeExtended((UntagValue{source=RegisterArgument(PReg(sReg, _)), dest=PReg(dReg, _), isSigned}, _) :: rest, context) =
             (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
             let
-                val () = addFriends (sReg, dReg)
+                val () = addSourceAndDestinationHint{src=sReg, dst=dReg}
                 val code = codeExtended(rest, context)
             in
                 case Array.sub(allocatedRegs, dReg) of
@@ -1808,7 +1865,7 @@ struct
 
         |   codeExtended((ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)), shiftAmount=IntegerConstant i, ccRef}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, operReg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=operReg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 val realOpReg = findRegister(operReg, SOME realDestReg, generalRegisters)
@@ -1821,7 +1878,7 @@ struct
         |   codeExtended((ShiftOperation{shift, resultReg=PReg(resReg, _), operand=RegisterArgument(PReg(operReg, _)),
                                         shiftAmount=RegisterArgument(PReg(shiftReg, _)), ccRef}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, operReg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=operReg}
                 val () = addRealHint(shiftReg, GenReg ecx)
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
@@ -1842,8 +1899,8 @@ struct
                                operand2=RegisterArgument(PReg(op2Reg, _)), ccRef}, _) :: rest, context) =
             let
                 (* Treat exactly the same as ArithmeticFunction. *)
-                val () = addFriends (resReg, op1Reg)
-                val () = addFriends (resReg, op2Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
+                val () = addSourceAndDestinationHint{dst=resReg, src=op2Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
                 
@@ -1973,7 +2030,7 @@ struct
 
         |   codeExtended((X87FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
@@ -1987,7 +2044,7 @@ struct
     
         |   codeExtended((X87FPUnaryOps{fpOp, dest=PReg(resReg, _), source=RegisterArgument(PReg(op1Reg, _))}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
@@ -2021,7 +2078,7 @@ struct
     
         |   codeExtended((SSE2FPArith{opc, resultReg=PReg(resReg, _), arg1=RegisterArgument(PReg(op1Reg, _)), arg2}, _) :: rest, context) =
             let
-                val () = addFriends (resReg, op1Reg)
+                val () = addSourceAndDestinationHint{dst=resReg, src=op1Reg}
                 val code = codeExtended(rest, context)
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
