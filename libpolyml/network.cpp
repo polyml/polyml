@@ -141,6 +141,9 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByName(PolyObject *threadId, PolyWord protocolName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hostName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr);
 }
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
@@ -426,49 +429,6 @@ TryAgain: // Used for various retries.
           // safety we always come back here.
     switch (c)
     {
-    case 0:
-        { /* Get the current host name. */
-            size_t size = 4096;
-            TempCString hostName((char *)malloc(size));
-            if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-            int err;
-            while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
-            {
-                if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
-                size *= 2;
-                char *new_buf = (char *)realloc(hostName, size);
-                if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
-                hostName = new_buf;
-            }
-
-            if (err != 0)
-                raise_syscall(taskData, "gethostname failed", GETERROR);
-
-            return (SAVE(C_string_to_Poly(taskData, hostName)));
-        }
-
-    case 1:
-        {
-            /* Look up a host name. */
-            TempCString hostName(Poly_string_to_C_alloc(DEREFWORD(args)));
-            struct hostent *host = gethostbyname(hostName);
-            if (host == NULL)
-                raise_syscall(taskData, "gethostbyname failed", GETERROR);
-            return makeHostEntry(taskData, host);
-        }
-
-    case 2:
-        {
-            /* Look up entry by address. */
-            unsigned long addr =
-                htonl(get_C_unsigned(taskData, DEREFWORDHANDLE(args)));
-            struct hostent *host;
-            /* Look up a host name given an address. */
-            host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
-            if (host == NULL)
-                raise_syscall(taskData, "gethostbyaddr failed", GETERROR);
-            return makeHostEntry(taskData, host);
-        }
 
     case 11:
         {
@@ -1679,6 +1639,79 @@ POLYUNSIGNED PolyNetworkGetProtByNo(PolyObject *threadId, PolyWord protoNo)
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
+
+    try { /* Get the current host name. */
+        size_t size = 4096;
+        TempCString hostName((char *)malloc(size));
+        if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        int err;
+        while ((err = gethostname(hostName, size)) != 0 && GETERROR == ENAMETOOLONG)
+        {
+            if (size > std::numeric_limits<size_t>::max() / 2) raise_fail(taskData, "gethostname needs too large a buffer");
+            size *= 2;
+            char *new_buf = (char *)realloc(hostName, size);
+            if (new_buf == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            hostName = new_buf;
+        }
+
+        if (err != 0)
+            raise_syscall(taskData, "gethostname failed", GETERROR);
+
+        result = SAVE(C_string_to_Poly(taskData, hostName));
+    }
+    catch (...) { } // If an ML exception is raised
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetHostByName(PolyObject *threadId, PolyWord hName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up a host name. */
+    TempCString hostName(Poly_string_to_C_alloc(hName));
+    struct hostent *host = gethostbyname(hostName);
+    // If this fails the ML function returns NONE
+    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetHostByAddr(PolyObject *threadId, PolyWord hostAddr)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Look up entry by address. */
+    unsigned long addr = htonl(get_C_unsigned(taskData, hostAddr));
+    /* Look up a host name given an address. */
+    struct hostent *host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
+    Handle result = host == NULL ? 0 : makeHostEntry(taskData, host);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts networkingEPT[] =
 {
     { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
@@ -1688,6 +1721,9 @@ struct _entrypts networkingEPT[] =
     { "PolyNetworkGetServByPortAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByPortAndProtocol},
     { "PolyNetworkGetProtByName",               (polyRTSFunction)&PolyNetworkGetProtByName},
     { "PolyNetworkGetProtByNo",                 (polyRTSFunction)&PolyNetworkGetProtByNo},
+    { "PolyNetworkGetHostName",                 (polyRTSFunction)&PolyNetworkGetHostName},
+    { "PolyNetworkGetHostByName",               (polyRTSFunction)&PolyNetworkGetHostByName},
+    { "PolyNetworkGetHostByAddr",               (polyRTSFunction)&PolyNetworkGetHostByAddr},
 
     { NULL, NULL} // End of list.
 };
