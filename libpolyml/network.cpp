@@ -135,6 +135,10 @@ typedef int socklen_t;
 
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord servName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord servName, PolyWord protName);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName);
 }
 
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
@@ -294,7 +298,6 @@ struct sk_tab_struct {
 
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
-static Handle makeServEntry(TaskData *taskData, struct servent *proto);
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
@@ -485,53 +488,6 @@ TryAgain: // Used for various retries.
                 raise_syscall(taskData, "getprotobynumber failed", GETERROR);
             return makeProtoEntry(taskData, proto);
         }
-
-    case 5:
-        {
-            /* Get service given service name only. */
-            TempCString servName(Poly_string_to_C_alloc(DEREFWORD(args)));
-            struct servent *serv = getservbyname (servName, NULL);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyname failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 6:
-        {
-            /* Get service given service name and protocol name. */
-            TempCString servName(Poly_string_to_C_alloc(args->WordP()->Get(0)));
-            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
-            struct servent *serv = getservbyname (servName, protoName);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyname failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 7:
-        {
-            /* Get service given port number only. */
-            struct servent *serv;
-            long port = htons(get_C_ushort(taskData, DEREFWORDHANDLE(args)));
-            serv = getservbyport(port, NULL);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyport failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    case 8:
-        {
-            /* Get service given port number and protocol name. */
-            struct servent *serv;
-            long port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
-            TempCString protoName(Poly_string_to_C_alloc(args->WordP()->Get(1)));
-            serv = getservbyport (port, protoName);
-            if (serv == NULL)
-                raise_syscall(taskData, "getservbyport failed", GETERROR);
-            return makeServEntry(taskData, serv);
-        }
-
-    // 9 and 10 were used for the NetDB structure which was removed from
-    // the basis library a long time ago.
 
     case 11:
         {
@@ -1630,9 +1586,87 @@ POLYUNSIGNED PolyNetworkGeneral(PolyObject *threadId, PolyWord code, PolyWord ar
     else return result->Word().AsUnsigned();
 }
 
+POLYUNSIGNED PolyNetworkGetServByName(PolyObject *threadId, PolyWord serviceName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given service name only. */
+    TempCString servName(Poly_string_to_C_alloc(serviceName));
+    struct servent *serv = getservbyname (servName, NULL);
+    // If this fails the ML function returns NONE
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByNameAndProtocol(PolyObject *threadId, PolyWord serviceName, PolyWord protName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given service name and protocol name. */
+    TempCString servName(Poly_string_to_C_alloc(serviceName));
+    TempCString protoName(Poly_string_to_C_alloc(protName));
+    struct servent *serv = getservbyname (servName, protoName);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByPort(PolyObject *threadId, PolyWord portNo)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given port number only. */
+    long port = htons(get_C_ushort(taskData, portNo));
+    struct servent *serv = getservbyport(port, NULL);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
+POLYUNSIGNED PolyNetworkGetServByPortAndProtocol(PolyObject *threadId, PolyWord portNo, PolyWord protName)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+
+    /* Get service given port number and protocol name. */
+    long port = htons(get_C_ushort(taskData, portNo));
+    TempCString protoName(Poly_string_to_C_alloc(protName));
+    struct servent *serv = getservbyport (port, protoName);
+    Handle result = serv == NULL ? 0 : makeServEntry(taskData, serv);
+
+    taskData->saveVec.reset(reset);
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
 struct _entrypts networkingEPT[] =
 {
-    { "PolyNetworkGeneral",             (polyRTSFunction)&PolyNetworkGeneral},
+    { "PolyNetworkGeneral",                     (polyRTSFunction)&PolyNetworkGeneral},
+    { "PolyNetworkGetServByName",               (polyRTSFunction)&PolyNetworkGetServByName},
+    { "PolyNetworkGetServByNameAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByNameAndProtocol},
+    { "PolyNetworkGetServByPort",               (polyRTSFunction)&PolyNetworkGetServByPort},
+    { "PolyNetworkGetServByPortAndProtocol",    (polyRTSFunction)&PolyNetworkGetServByPortAndProtocol},
 
     { NULL, NULL} // End of list.
 };
