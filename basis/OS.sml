@@ -173,7 +173,12 @@ struct
         val doCall: int*syserror -> string
              = RunCall.rtsCallFull2 "PolyProcessEnvGeneral"
     in
-        (* Convert a numeric system error to a string. *)
+        (* Convert a numeric system error to a string.
+           Note: unlike Posix.Error.errorName and Posix.Error.sysError
+           the results are not defined other than that
+           SOME e = syserror(errorName e) nor is this defined to
+           be the same as the Posix.Error functions.  Those are
+           defined to return e.g. "etoobig".  Here we return "E2BIG". *)
         fun errorName (s: syserror) : string = doCall(2, s)
         fun errorMsg (s: syserror) : string = doCall(3, s)
     end
