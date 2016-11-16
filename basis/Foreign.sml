@@ -142,6 +142,15 @@ sig
         val freeCallback: Memory.voidStar -> unit
     end
     
+    structure Error:
+    sig
+        type syserror = OS.syserror
+        val getLastError: unit -> SysWord.word
+        val setLastError: SysWord.word -> unit
+        val fromWord: SysWord.word -> syserror
+        and toWord: syserror -> SysWord.word
+    end
+    
     type library
     type symbol
     val loadLibrary: string -> library
@@ -468,6 +477,26 @@ struct
         and loadExecutable(): voidStar = Compat560.ffiGeneral (3, ())
         and freeLibrary(s: voidStar): unit = Compat560.ffiGeneral (4, s)
         and getSymbol(lib: voidStar, s: string): voidStar = Compat560.ffiGeneral (5, (lib, s))
+    end
+    
+    structure Error =
+    struct
+        type syserror = OS.syserror
+        fun toWord (s: syserror): SysWord.word = SysWord.fromInt(RunCall.unsafeCast s)
+        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast(SysWord.toInt w)
+        local
+            val callGetError = RunCall.rtsCallFast1 "PolyFFIGetError"
+        in
+            fun getLastError(): SysWord.word =
+            let
+                val mem = RunCall.allocateByteMemory(0w1, 0wx41)
+                val () = callGetError mem
+                val () = RunCall.clearMutableBit mem
+            in
+                RunCall.unsafeCast mem
+            end 
+        end
+        val setLastError: SysWord.word -> unit = RunCall.rtsCallFast1 "PolyFFISetError"
     end
 
     structure LibFFI =

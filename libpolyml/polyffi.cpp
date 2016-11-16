@@ -92,6 +92,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED *addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -590,14 +592,36 @@ POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
 }
 
 // These functions are needed in the compiler
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat()
+POLYUNSIGNED PolySizeFloat()
 {
     return TAGGED(ffi_type_float.size).AsUnsigned();
 }
 
-POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble()
+POLYUNSIGNED PolySizeDouble()
 {
     return TAGGED(ffi_type_double.size).AsUnsigned();
+}
+
+// Get either errno or GetLastError
+POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED *addr)
+{
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    *addr = GetLastError();
+#else
+    *addr = (POLYUNSIGNED)errno;
+#endif
+    return 0;
+}
+
+// The argument is a SysWord.word value i.e. the address of a byte cell.
+POLYUNSIGNED PolyFFISetError(PolyWord err)
+{
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    SetLastError((DWORD)(err.AsObjPtr()->Get(0).AsUnsigned()));
+#else
+    errno = err.AsObjPtr()->Get(0).AsSigned();
+#endif
+    return 0;
 }
 
 struct _entrypts polyFFIEPT[] =
@@ -605,6 +629,8 @@ struct _entrypts polyFFIEPT[] =
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
     { "PolySizeFloat",                  (polyRTSFunction)&PolySizeFloat},
     { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
+    { "PolyFFIGetError",                (polyRTSFunction)&PolyFFIGetError},
+    { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
 
     { NULL, NULL} // End of list.
 };
