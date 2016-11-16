@@ -194,7 +194,7 @@ static Handle make_handle_entry(TaskData *taskData)
                 maxHandleTab += maxHandleTab/2;
                 void *p = realloc(handleTable, maxHandleTab*sizeof(HANDLETAB));
                 // If there's insufficient memory leave the old table.
-                if (p == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                if (p == 0) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
                 handleTable = (PHANDLETAB)p;
                 /* Clear the new space. */
                 memset(handleTable+oldMax, 0, (maxHandleTab-oldMax)*sizeof(HANDLETAB));
@@ -330,7 +330,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             PHANDLETAB hnd = get_handle(DEREFWORD(args), HE_PROCESS);
             if (hnd == 0)
-                raise_syscall(taskData, "Process is closed", EINVAL);
+                raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
             // Close the streams. Either of them may have been
             // passed to the stream package.
             if (hnd->hInput != INVALID_HANDLE_VALUE)
@@ -361,8 +361,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             while (true) {
                 DWORD dwResult;
                 if (GetExitCodeProcess(hnd->hProcess, &dwResult) == 0)
-                    raise_syscall(taskData, "GetExitCodeProcess failed",
-                            -(int)GetLastError());
+                    raise_syscall(taskData, "GetExitCodeProcess failed", GetLastError());
                 if (dwResult != STILL_ACTIVE) {
                     /* Finished - return the result. */
                     /* Note: we haven't closed the handle because we might want to ask
@@ -401,7 +400,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return openRegistryKey(taskData, args, hnd->hKey);
         }
 
@@ -420,7 +419,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return createRegistryKey(taskData, args, hnd->hKey);
         }
 
@@ -446,7 +445,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return queryRegistryKey(taskData, args, hnd->hKey);
         }
 
@@ -465,7 +464,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return deleteRegistryKey(taskData, args, hnd->hKey);
         }
 
@@ -484,7 +483,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return setRegistryKey(taskData, args, hnd->hKey);
         }
 
@@ -501,7 +500,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return enumerateRegistry(taskData, args, hnd->hKey, TRUE);
         }
 
@@ -518,7 +517,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return enumerateRegistry(taskData, args, hnd->hKey, FALSE);
         }
 
@@ -537,7 +536,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             PHANDLETAB hnd =
                 get_handle(DEREFHANDLE(args)->Get(0), HE_REGISTRY);
             if (hnd == 0)
-                raise_syscall(taskData, "Handle is closed", -ERROR_INVALID_HANDLE);
+                raise_syscall(taskData, "Handle is closed", ERROR_INVALID_HANDLE);
             return deleteRegistryValue(taskData, args, hnd->hKey);
         }
 
@@ -548,8 +547,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* Get the file time. */
             getFileTimeFromArb(taskData, args, &ftUTC);
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
-                raise_syscall(taskData, "FileTimeToLocalFileTime failed",
-                        -(int)GetLastError());
+                raise_syscall(taskData, "FileTimeToLocalFileTime failed", GetLastError());
             return Make_arb_from_Filetime(taskData, ftLocal);
         }
 
@@ -559,8 +557,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* Get the file time. */
             getFileTimeFromArb(taskData, args, &ftLocal);
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
-                raise_syscall(taskData, "LocalFileTimeToFileTime failed",
-                        -(int)GetLastError());
+                raise_syscall(taskData, "LocalFileTimeToFileTime failed", GetLastError());
             return Make_arb_from_Filetime(taskData, ftUTC);
         }
 
@@ -572,13 +569,12 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             Handle resultHandle;
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), rootName, MAX_PATH);
             if (length > MAX_PATH)
-                raise_syscall(taskData, "Root name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "Root name too long", ERROR_BAD_LENGTH);
             
             if (!GetVolumeInformation(rootName, volName, MAX_PATH,
                     &dwVolSerial, &dwMaxComponentLen, &dwFlags,
                     sysName, MAX_PATH))
-                raise_syscall(taskData, "GetVolumeInformation failed",
-                    -(int)GetLastError());
+                raise_syscall(taskData, "GetVolumeInformation failed", GetLastError());
             volHandle = SAVE(C_string_to_Poly(taskData, volName));
             sysHandle = SAVE(C_string_to_Poly(taskData, sysName));
             serialHandle = Make_arbitrary_precision(taskData, dwVolSerial);
@@ -597,11 +593,19 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), fileName, MAX_PATH);
             HINSTANCE hInst;
             if (length > MAX_PATH)
-                raise_syscall(taskData, "File name too long", ENAMETOOLONG);
+                raise_syscall(taskData, "File name too long", ERROR_BAD_LENGTH);
             hInst = FindExecutable(fileName, NULL, execName);
             if ((POLYUNSIGNED)hInst <= 32)
             {
-               raise_syscall(taskData, "FindExecutable failed", -(int)(POLYUNSIGNED)hInst);
+                int error = 0;
+                switch ((POLYUNSIGNED)hInst) {
+                case SE_ERR_FNF: error = ERROR_FILE_NOT_FOUND; break;
+                case SE_ERR_PNF: error = ERROR_PATH_NOT_FOUND; break;
+                case SE_ERR_ACCESSDENIED: error = ERROR_ACCESS_DENIED; break;
+                case SE_ERR_OOM: error = ERROR_NOT_ENOUGH_MEMORY; break;
+                case SE_ERR_NOASSOC: error = ERROR_NO_ASSOCIATION; break;
+                }
+                raise_syscall(taskData, "FindExecutable failed", error);
             }
             return SAVE(C_string_to_Poly(taskData, execName));
         }
@@ -618,7 +622,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             BOOL fRes = ShellExecuteEx(&shellEx);
             free((void*)shellEx.lpFile);
             if (! fRes)
-                raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
+                raise_syscall(taskData, "ShellExecuteEx failed", GetLastError());
             return Make_fixed_precision(taskData, 0);
         }
 
@@ -635,7 +639,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             free((void*)shellEx.lpFile);
             free((void*)shellEx.lpParameters);
             if (! fRes)
-                raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
+                raise_syscall(taskData, "ShellExecuteEx failed", GetLastError());
             return Make_fixed_precision(taskData, 0);
         }
 
@@ -700,7 +704,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             osver.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
             // GetVersionEx is deprecated in Windows 8.1
             if (! GetVersionEx(&osver))
-                raise_syscall(taskData, "GetVersionEx failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetVersionEx failed", GetLastError());
             Handle major = Make_fixed_precision(taskData, osver.dwMajorVersion);
             Handle minor = Make_fixed_precision(taskData, osver.dwMinorVersion);
             Handle build = Make_fixed_precision(taskData, osver.dwBuildNumber);
@@ -719,7 +723,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             TCHAR path[MAX_PATH+1];
             if (GetWindowsDirectory(path, sizeof(path)/sizeof(TCHAR)) == 0)
-                raise_syscall(taskData, "GetWindowsDirectory failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetWindowsDirectory failed", GetLastError());
             return SAVE(C_string_to_Poly(taskData, path));
         }
 
@@ -727,7 +731,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             TCHAR path[MAX_PATH+1];
             if (GetSystemDirectory(path, sizeof(path)/sizeof(TCHAR)) == 0)
-                raise_syscall(taskData, "GetSystemDirectory failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetSystemDirectory failed", GetLastError());
             return SAVE(C_string_to_Poly(taskData, path));
         }
 
@@ -736,7 +740,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             TCHAR name[MAX_COMPUTERNAME_LENGTH +1];
             DWORD dwSize = MAX_COMPUTERNAME_LENGTH +1;
             if (GetComputerName(name, &dwSize) == 0)
-                raise_syscall(taskData, "GetComputerName failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetComputerName failed", GetLastError());
             return SAVE(C_string_to_Poly(taskData, name));
         }
 
@@ -745,7 +749,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             TCHAR name[UNLEN +1];
             DWORD dwSize = UNLEN +1;
             if (GetUserName(name, &dwSize) == 0)
-                raise_syscall(taskData, "GetUserName failed", -(int)GetLastError());
+                raise_syscall(taskData, "GetUserName failed", GetLastError());
             return SAVE(C_string_to_Poly(taskData, name));
         }
 
@@ -957,7 +961,7 @@ error:
         if (hWriteToParent != INVALID_HANDLE_VALUE) CloseHandle(hWriteToParent);
         if (hReadFromChild != INVALID_HANDLE_VALUE) CloseHandle(hReadFromChild);
         if (hEvent) CloseHandle(hEvent);
-        raise_syscall(taskData, lpszError, -err);
+        raise_syscall(taskData, lpszError, err);
         return NULL; // Never reached.
     }
 }
@@ -1001,7 +1005,7 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
         free(commandName);
         free(arguments);
         CloseHandle(hNull);
-        raise_syscall(taskData, "CreateProcess failed", -nErr);
+        raise_syscall(taskData, "CreateProcess failed", nErr);
     }
 
     free(commandName);
@@ -1033,7 +1037,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     HANDLE hStream;
     int mode = 0, ioBits = 0;
     if (hnd == 0)
-        raise_syscall(taskData, "Process is closed", EINVAL);
+        raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
 
     if (fIsRead) hStream = hnd->hInput;
     else hStream = hnd->hOutput;
@@ -1042,24 +1046,19 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
        it but warns it may produce unpredictable results.  For the moment
        we don't allow it because we could get problems with closing
        the same handle twice. */
-#ifdef _WIN32_WCE
-    // Not possible in Windows CE.
-    raise_syscall(taskData, "Process is closed", EBADF);
-    return 0;
-#else
     if (hStream == INVALID_HANDLE_VALUE)
-        raise_syscall(taskData, "Process is closed", EBADF);
+        raise_syscall(taskData, "Process is closed", ERROR_INVALID_HANDLE);
 
     if (fIsRead) { mode = _O_RDONLY; ioBits = IO_BIT_READ; }
     else { mode = 0; ioBits = IO_BIT_WRITE; }
     if (fIsText) mode |= _O_TEXT; else mode |= _O_BINARY;
 
     Handle str_token = make_stream_entry(taskData);
-    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+    if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
     PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
     strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
     if (strm->device.ioDesc == -1)
-        raise_syscall(taskData, "_open_osfhandle failed", errno);
+        raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
     strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;
 
     /* The responsibility for closing the handle is passed to
@@ -1080,7 +1079,6 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     }
 
     return str_token;
-#endif
 }
 
 // Open a registry key and make an entry in the table for it.
@@ -1094,12 +1092,12 @@ static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     REGSAM sam = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
     // Try opening the key.
     lRes = RegOpenKeyEx(hkParent, keyName, 0, sam, &hkey);
     if (lRes != ERROR_SUCCESS)
-        raise_syscall(taskData, "RegOpenKeyEx failed", -lRes);
+        raise_syscall(taskData, "RegOpenKeyEx failed", lRes);
 
     // Make an entry in the table.
     result = make_handle_entry(taskData);
@@ -1122,14 +1120,14 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     unsigned opt = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
     // Try opening the key.
     lRes = RegCreateKeyEx(hkParent, keyName, 0, NULL,
                 opt ? REG_OPTION_NON_VOLATILE : REG_OPTION_VOLATILE,
                 sam, NULL, &hkey, &dwDisp);
     if (lRes != ERROR_SUCCESS)
-        raise_syscall(taskData, "RegCreateKeyEx failed", -lRes);
+        raise_syscall(taskData, "RegCreateKeyEx failed", lRes);
 
     // Make an entry in the table.
     keyResult = make_handle_entry(taskData);
@@ -1153,13 +1151,13 @@ static Handle deleteRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     LONG lRes;
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
     // Try deleting the key.  
     lRes = RegDeleteKey(hkParent, keyName);
     if (lRes != ERROR_SUCCESS)
         /* Return the error. */
-        raise_syscall(taskData, "RegDeleteKey failed", -lRes);
+        raise_syscall(taskData, "RegDeleteKey failed", lRes);
     return Make_fixed_precision(taskData, 0);
 }
 
@@ -1170,13 +1168,13 @@ static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1).AsObjPtr(),
                     keyName, MAX_PATH);
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
     // Try deleting the value.
     lRes = RegDeleteValue(hkParent, keyName);
     if (lRes != ERROR_SUCCESS)
         /* Return the original error. */
-        raise_syscall(taskData, "RegDeleteValue failed", -lRes);
+        raise_syscall(taskData, "RegDeleteValue failed", lRes);
     return Make_fixed_precision(taskData, 0);
 }
 
@@ -1190,7 +1188,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     DWORD dwType;
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Value name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Value name too long", ERROR_BAD_LENGTH);
 
     // How long is the entry?
     lRes = RegQueryValueEx(hkey, valName, 0, NULL, NULL, &valSize);
@@ -1198,7 +1196,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     // answer here.
     if (lRes == ERROR_MORE_DATA) valSize = 1024; // Guess
     else if (lRes != ERROR_SUCCESS)
-        raise_syscall(taskData, "RegQueryValueEx failed", -lRes);
+        raise_syscall(taskData, "RegQueryValueEx failed", lRes);
     // Allocate that much store and get the value.  We could
     // try reading directly into ML store to save copying but
     // it hardly seems worthwhile.
@@ -1211,7 +1209,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
             if (newAlloc == 0)
             {
                 free(keyValue);
-                raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
             }
             keyValue = newAlloc;
             lRes = RegQueryValueEx(hkey, valName, 0, &dwType, keyValue, &valSize);
@@ -1223,7 +1221,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
         if (lRes != ERROR_SUCCESS)
         {
             free(keyValue);
-            raise_syscall(taskData, "RegQueryValue failed", -lRes);
+            raise_syscall(taskData, "RegQueryValue failed", lRes);
         }
         // If we have a string we have to convert this to ANSI/utf-8.
         if (dwType == REG_SZ || dwType == REG_MULTI_SZ || dwType == REG_EXPAND_SZ)
@@ -1248,7 +1246,7 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
     DWORD dwType = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     if (length > MAX_PATH)
-        raise_syscall(taskData, "Value name too long", ENAMETOOLONG);
+        raise_syscall(taskData, "Value name too long", ERROR_BAD_LENGTH);
 
     // The value is binary.  Strings will already have had a null added.
     if (IS_INT(str))
@@ -1265,7 +1263,7 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     }
 
     if (lRes != ERROR_SUCCESS)
-        raise_syscall(taskData, "RegSetValue failed", -lRes);
+        raise_syscall(taskData, "RegSetValue failed", lRes);
 
     return Make_fixed_precision(taskData, 0);
 }
@@ -1284,13 +1282,13 @@ static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL
         FILETIME ftMod;
         lRes = RegEnumKeyEx(hkey, num, keyName, &dwLength, NULL, NULL, NULL, &ftMod);
         if (lRes != ERROR_SUCCESS && lRes != ERROR_NO_MORE_ITEMS)
-            raise_syscall(taskData, "RegEnumKeyEx failed", -lRes);
+            raise_syscall(taskData, "RegEnumKeyEx failed", lRes);
     }
     else
     {
         lRes = RegEnumValue(hkey, num, keyName, &dwLength, NULL, NULL, NULL, NULL);
         if (lRes != ERROR_SUCCESS && lRes != ERROR_NO_MORE_ITEMS)
-            raise_syscall(taskData, "RegEnumValue failed", -lRes);
+            raise_syscall(taskData, "RegEnumValue failed", lRes);
     }
     if (lRes == ERROR_NO_MORE_ITEMS)
         return SAVE(NONE_VALUE); /* NONE. */

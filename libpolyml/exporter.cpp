@@ -83,6 +83,14 @@
 #include "machoexport.h"
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
+#define ERRORNUMBER _doserrno
+#else
+#define NOMEMORY ENOMEM
+#define ERRORNUMBER errno
+#endif
+
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(PolyObject *threadId, PolyWord fileName, PolyWord root);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(PolyObject *threadId, PolyWord fileName, PolyWord root);
@@ -420,7 +428,7 @@ static void exporter(TaskData *taskData, Handle fileName, Handle root, const TCH
     size_t extLen = _tcslen(extension);
     TempString fileNameBuff(Poly_string_to_T_alloc(fileName->Word(), extLen));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     size_t length = _tcslen(fileNameBuff);
 
     // Does it already have the extension?  If not add it on.
@@ -432,7 +440,7 @@ static void exporter(TaskData *taskData, Handle fileName, Handle root, const TCH
     exports->exportFile = fopen(fileNameBuff, "wb");
 #endif
     if (exports->exportFile == NULL)
-        raise_syscall(taskData, "Cannot open export file", errno);
+        raise_syscall(taskData, "Cannot open export file", ERRORNUMBER);
 
     // Request a full GC  to reduce the size of fix-ups.
     FullGC(taskData);

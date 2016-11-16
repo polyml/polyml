@@ -72,6 +72,8 @@
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <tchar.h>
+#define ERRORNUMBER _doserrno
+#define NOMEMORY ERROR_NOT_ENOUGH_MEMORY
 #else
 typedef char TCHAR;
 #define _T(x) x
@@ -84,6 +86,8 @@ typedef char TCHAR;
 #ifndef lstrcmpi
 #define lstrcmpi strcasecmp
 #endif
+#define ERRORNUMBER errno
+#define NOMEMORY ENOMEM
 #endif
 
 
@@ -447,7 +451,7 @@ void SaveRequest::Perform()
     if (exports.exportFile == NULL)
     {
         errorMessage = "Cannot open save file";
-        errCode = errno;
+        errCode = ERRORNUMBER;
         return;
     }
 
@@ -560,7 +564,7 @@ void SaveRequest::Perform()
     if (! gMem.PromoteExportSpaces(newHierarchy) || ! success)
     {
         errorMessage = "Out of Memory";
-        errCode = ENOMEM;
+        errCode = NOMEMORY;
         return;
     }
     // Remove any deeper entries from the hierarchy table.
@@ -737,7 +741,7 @@ void StateLoader::Perform(void)
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
-            errNumber = ENOMEM;
+            errNumber = NOMEMORY;
             return;
         }
         (void)LoadFile(true, 0, p->t);
@@ -748,7 +752,7 @@ void StateLoader::Perform(void)
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
-            errNumber = ENOMEM;
+            errNumber = NOMEMORY;
             return;
         }
         (void)LoadFile(true, 0, TAGGED(0));
@@ -862,7 +866,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
-        errNumber = errno;
+        errNumber = ERRORNUMBER;
         return false;
     }
 
@@ -912,7 +916,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (fileName == NULL)
             {
                 errorResult = "Insufficient memory";
-                errNumber = ENOMEM;
+                errNumber = NOMEMORY;
                 return false;
             }
             if (! LoadFile(false, header.parentTimeStamp, p->t))
@@ -928,7 +932,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (newFileName == NULL)
             {
                 errorResult = "Insufficient memory";
-                errNumber = ENOMEM;
+                errNumber = NOMEMORY;
                 return false;
             }
             fileName = newFileName;
@@ -1193,11 +1197,11 @@ Handle RenameParent(TaskData *taskData, Handle args)
     // The name of the file to modify.
     AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(0)));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
     // The new parent name to insert.
     AutoFree<TCHAR*> parentNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(args)->Get(1)));
     if (parentNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("r+b"))); // Open for reading and writing
     if ((FILE*)loadFile == NULL)
@@ -1208,7 +1212,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
 #else
         sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
-        raise_syscall(taskData, buff, errno);
+        raise_syscall(taskData, buff, ERRORNUMBER);
     }
 
     SavedStateHeader header;
@@ -1253,7 +1257,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 {
     AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(hFileName)));
     if (fileNameBuff == NULL)
-        raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
     AutoClose loadFile(_tfopen(fileNameBuff, _T("rb")));
     if ((FILE*)loadFile == NULL)
@@ -1264,7 +1268,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
 #else
         sprintf(buff, "Cannot open load file: %s", (TCHAR *)fileNameBuff);
 #endif
-        raise_syscall(taskData, buff, errno);
+        raise_syscall(taskData, buff, ERRORNUMBER);
     }
 
     SavedStateHeader header;
@@ -1291,7 +1295,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         size_t roundedBytes = (elems + 1) * sizeof(TCHAR);
         AutoFree<TCHAR*> parentFileName((TCHAR *)malloc(roundedBytes));
         if (parentFileName == NULL)
-            raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
             fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
@@ -1366,7 +1370,7 @@ void ModuleStorer::Perform()
     if (exporter.exportFile == NULL)
     {
         errorMessage = "Cannot open export file";
-        errCode = errno;
+        errCode = ERRORNUMBER;
         return;
     }
     // RunExport copies everything reachable from the root, except data from
@@ -1512,7 +1516,7 @@ void ModuleLoader::Perform()
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
-        errNumber = errno;
+        errNumber = ERRORNUMBER;
         return;
     }
 

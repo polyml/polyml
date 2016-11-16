@@ -244,7 +244,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             HMODULE hMod = *(HMODULE*)(args->WordP());
             if (! FreeLibrary(hMod))
-                raise_syscall(taskData, "FreeLibrary failed", -(int)GetLastError());
+                raise_syscall(taskData, "FreeLibrary failed", GetLastError());
 #else
             void *lib = *(void**)(args->WordP());
             if (dlclose(lib) != 0)

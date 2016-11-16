@@ -68,11 +68,13 @@
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <winsock2.h>
 #include <tchar.h>
+#define NOMEMORY        ERROR_NOT_ENOUGH_MEMORY
+#undef ENOMEM
 #else
 typedef char TCHAR;
 #define _tgetenv getenv
+#define NOMEMORY ENOMEM
 #endif
-
 
 #include "globals.h"
 #include "sys.h"
@@ -169,7 +171,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
     case 14: /* Return a string from the environment. */
         {
             TempString buff(args->Word());
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             TCHAR *res = _tgetenv(buff);
             if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
             else return SAVE(C_string_to_Poly(mdTaskData, res));
@@ -192,7 +194,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
     case 17: /* Run command. */
         {
             TempString buff(args->Word());
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             int res = -1;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows.
@@ -255,12 +257,12 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                             DWORD result;
                             BOOL fResult = GetExitCodeProcess((HANDLE)pid, &result);
                             if (! fResult)
-                                raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                                raise_syscall(mdTaskData, "Function system failed", GetLastError());
                             CloseHandle((HANDLE)pid);
                             return Make_fixed_precision(mdTaskData, result);
                         }
                     case WAIT_FAILED:
-                        raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
+                        raise_syscall(mdTaskData, "Function system failed", GetLastError());
                     }
                     // Wait for the process to exit or for the timeout
                     WaitHandle waiter((HANDLE)pid);
@@ -444,7 +446,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             TempString buff(path);
-            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", NOMEMORY);
             size_t length = _tcslen(buff);
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */

@@ -1474,7 +1474,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 #elif defined(HAVE_WINDOWS_H)
         taskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
-        if (taskData->threadHandle == NULL) errorCode = 0-GetLastError();
+        if (taskData->threadHandle == NULL) errorCode = GetLastError();
 #endif
         if (errorCode != 0)
         {

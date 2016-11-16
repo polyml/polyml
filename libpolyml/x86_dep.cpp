@@ -50,7 +50,11 @@
 #include <string.h>
 #endif
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+
+#if (defined(_WIN32))
 #include <windows.h>
 #include <excpt.h>
 #endif
@@ -255,6 +259,12 @@ public:
     PolyWord &reg13() { return assemblyInterface.p_r13; }
     PolyWord &reg14() { return assemblyInterface.p_r14; }
 #endif
+
+#if (defined(_WIN32) && !defined(__CYGWIN__))
+    DWORD savedErrno;
+#else
+    int savedErrno;
+#endif
 };
 
 class X86Dependent: public MachineDependent {
@@ -313,6 +323,7 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    savedErrno = 0;
 }
 
 void X86TaskData::GarbageCollect(ScanAddress *process)
@@ -483,10 +494,23 @@ int X86TaskData::SwitchToPoly()
         // we're making a callback and the previous C stack entry is
         // for the original call.
         POLYUNSIGNED savedCStack = this->assemblyInterface.saveCStack;
-
+        // Restore the saved error state.
+#if (defined(_WIN32) && !defined(__CYGWIN__))
+        SetLastError(savedErrno);
+#else
+        errno = savedErrno;
+#endif
+        // Enter the ML code.
         X86AsmSwitchToPoly(&this->assemblyInterface);
 
         this->assemblyInterface.saveCStack = savedCStack;
+        // Save the error codes.  We may have made an RTS/FFI call that
+        // has set these and we don't want to do anything to change them.
+#if (defined(_WIN32) && !defined(__CYGWIN__))
+        savedErrno = GetLastError();
+#else
+        savedErrno = errno;
+#endif
 
         SaveMemRegisters(); // Update globals from the memory registers.
 
