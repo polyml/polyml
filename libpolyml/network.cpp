@@ -1623,7 +1623,11 @@ POLYUNSIGNED PolyNetworkGetHostName(PolyObject *threadId)
     Handle result = 0;
 
     try { /* Get the current host name. */
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+        int size = 4096;
+#else
         size_t size = 4096;
+#endif
         TempCString hostName((char *)malloc(size));
         if (hostName == NULL) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
         int err;
