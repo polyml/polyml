@@ -328,7 +328,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 #define GETERROR    (errno)
 #define TOOMANYFILES EMFILE
 #define NOMEMORY ENOMEM
-#define STREAMCLOSED STREAMCLOSED
+#define STREAMCLOSED EBADF
 #define ERRORNUMBER errno
 #define FILEDOESNOTEXIST ENOENT
 #define WOULDBLOCK EWOULDBLOCK
