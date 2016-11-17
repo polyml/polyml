@@ -766,7 +766,7 @@ local
     local
         fun fileReadable (fileTuple as (directory, object)) =
             (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-            if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
+            if (OS.FileSys.isDir (longName fileTuple); false) handle _ => true
             then false
             else
             let
@@ -818,7 +818,7 @@ local
     
     (* See if the corresponding file is there and if it is a directory. *)
     fun testForDirectory (name: string) : bool =
-        OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
+        OS.FileSys.isDir name handle _ => false (* No such file. *)
 
     (* Time stamps. *)
     type timeStamp = Time.time;
@@ -1789,7 +1789,7 @@ in
                     in
                         setInstream(stdIn, mkInstream(r,v));
                         case ioDesc of
-                            SOME io => (kind io = Kind.tty handle SysErr _ => false)
+                            SOME io => (kind io = Kind.tty handle _ => false)
                         |   _  => false
                     end
             in
@@ -2116,7 +2116,7 @@ in
                     |   findFile (hd::tl) =
                         (* Try actually loading the file.  That way we really check we have a module. *)
                         SOME(loadMod (OS.Path.joinDirFile{dir=hd, file=fileName}))
-                            handle Fail _ => findFile tl | OS.SysErr _ => findFile tl      
+                            handle _ => findFile tl      
                 in
                     case findFile pathList of
                         SOME l => l (* Found *)

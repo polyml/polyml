@@ -482,8 +482,8 @@ struct
     structure Error =
     struct
         type syserror = OS.syserror
-        fun toWord (s: syserror): SysWord.word = SysWord.fromInt(RunCall.unsafeCast s)
-        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast(SysWord.toInt w)
+        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
+        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast w
         local
             val callGetError = RunCall.rtsCallFast1 "PolyFFIGetError"
         in

@@ -258,6 +258,33 @@ struct
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
         end
+        
+        local
+            open BuiltIns
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+
+            val idCode =
+                let
+                    open TypeValue
+                    val equalLongWordFn =
+                        mkInlproc(
+                            mkBinary(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
+                    val code =
+                        createTypeValue{
+                            eqCode=equalLongWordFn,
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode = boxedNever,
+                            sizeCode = singleWord
+                            }
+                in
+                   Global (genCode(code, [], 0) ())
+                end
+        in
+            val largeWordType =
+                makeTypeConstructor("word", [],
+                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
+            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
+        end
 
         val () = enterGlobalType ("exn", TypeConstrSet(exnConstr, []));
 
@@ -526,7 +553,7 @@ struct
                     ("XWindows",    EXC_XWindows,       String),
                     ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
-                    ("SysErr",      EXC_syserr,         String ** Option Int)
+                    ("SysErr",      EXC_syserr,         String ** Option LargeWord)
                 ]
         end
 
@@ -599,29 +626,6 @@ struct
         local
             open BuiltIns
             val largeWordEnv = makeStructure(globalEnv, "LargeWord")
-            fun monoTypePrinter _ = PRETTY.PrettyString "?"
-
-            val idCode =
-                let
-                    open TypeValue
-                    val equalLongWordFn =
-                        mkInlproc(
-                            mkBinary(LargeWordComparison TestEqual, mkLoadArgument 0, mkLoadArgument 1), 2, "EqualLargeWord()", [], 0)
-                    val code =
-                        createTypeValue{
-                            eqCode=equalLongWordFn,
-                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
-                            boxedCode = boxedNever,
-                            sizeCode = singleWord
-                            }
-                in
-                   Global (genCode(code, [], 0) ())
-                end
-            val largeWordType =
-                makeTypeConstructor("word", [],
-                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis)
-
-            val LargeWord = mkTypeConstruction ("LargeWord.word", largeWordType, [], declInBasis)
 
             fun enterBinary(name, oper, typ) =
             let

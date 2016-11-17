@@ -252,7 +252,7 @@ void raise_exception_string(TaskData *taskData, int id, const char *str)
 // The string part must match the result of OS.errorMsg
 void raiseSyscallError(TaskData *taskData, int err)
 {
-    Handle errornum = Make_fixed_precision(taskData, err);
+    Handle errornum = Make_sysword(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
     DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
     Handle pushed_name = errorMsg(taskData, err); // Generate the string.

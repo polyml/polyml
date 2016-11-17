@@ -165,9 +165,8 @@ structure OS:> OS =
 struct
     type syserror = SysWord.word (* Implemented as a SysWord.word value. *)
 
-    (* The calls themselves raise the SysCall exception.
-       That has to be turned into a SysError exception. *)
-    exception SysErr = RunCall.SysErr
+    (* Temporarily define a new SysErr exception *)
+    exception SysErr of string * syserror Option.option
 
     (* Convert a numeric system error to a string.
        Note: unlike Posix.Error.errorName and Posix.Error.sysError

@@ -74,7 +74,6 @@
 	<source name="basis\STREAM_IO.sml" />
 	<source name="basis\String.sml" />
 	<source name="basis\StringSignatures.sml" />
-	<source name="basis\SysWord.sml" />
 	<source name="basis\Text.sml" />
 	<source name="basis\TextIO.sml" />
 	<source name="basis\TextPrimIO.sml" />

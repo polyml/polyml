@@ -610,8 +610,8 @@ struct
     struct
         type syserror = OS.syserror
         val errorMsg = OS.errorMsg
-        fun toWord (s: syserror): SysWord.word = SysWord.fromInt(RunCall.unsafeCast s)
-        and fromWord (w: SysWord.word) : syserror = RunCall.unsafeCast(SysWord.toInt w)
+        fun toWord (s: syserror): SysWord.word = RunCall.unsafeCast s
+        and fromWord (w: SysWord.word) : syserror = SysWord.toInt w
 
         val toobig = fromWord(getConst 0)
         and acces = fromWord(getConst 1)
