@@ -888,11 +888,18 @@ struct
                     and structTable = HashTable.hashMake 10
     
                     (* First get the structures... *)
-                    fun findStructure ({name, location, ...}: structureIdentForm) =
-                        Option.map (fn s => (s, location))
-                            (lookupStructure
+                    fun findStructure ({name, location, value, ...}: structureIdentForm) =
+                    let
+                        val foundStruct =
+                            lookupStructure
                                 ("Structure", {lookupStruct = #lookupStruct env}, name,
-                                    giveError (v, lex, location)))
+                                    giveError (v, lex, location))
+                        val () = value := foundStruct (* Remember in case we export. *)
+                    in
+                        case foundStruct of
+                            SOME str => SOME(str, location)
+                        |   NONE => NONE
+                    end
         
                     val strs = List.mapPartial findStructure ptl
                         
@@ -1997,7 +2004,7 @@ struct
                 fun leq {constrName=xname: string, ...} {constrName=yname, ...} = xname < yname;
                 val sortedConstrs = quickSort leq constrs;
 
-                fun processConstr ({constrName=name, constrArg, idLocn, ...}) =
+                fun processConstr ({constrName=name, constrArg, idLocn, constrVal, ...}) =
                 let
                     val (constrType, isNullary) =
                         case constrArg of
@@ -2015,7 +2022,10 @@ struct
                     val () = checkForBuiltIn (name, v, lex, idLocn, true) : unit;
           
                     (* Put into the environment. *)
-                    val () = #enter consEnv (name, cons);
+                    val () = #enter consEnv (name, cons)
+                    
+                    (* Link it in case we export the tree. *)
+                    val () = constrVal := cons
                 in    
                     cons
                 end (* processConstr *)
