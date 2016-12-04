@@ -599,7 +599,6 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         byte *buff = (byte*)malloc(length);
         if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", NOMEMORY);
 
-        int err = 0;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
             haveRead = getConsoleInput((char*)buff, length);
