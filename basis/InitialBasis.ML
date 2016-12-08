@@ -298,8 +298,8 @@ struct
     local
         val zero = Word.toLargeWord 0w0
     in
-        fun x div y = if x = zero then raise RunCall.Div else LargeWord.div(x, y)
-        and x mod y = if x = zero then raise RunCall.Div else LargeWord.mod(x, y)
+        fun x div y = if y = zero then raise RunCall.Div else LargeWord.div(x, y)
+        and x mod y = if y = zero then raise RunCall.Div else LargeWord.mod(x, y)
     end
 end;
 
