@@ -566,6 +566,21 @@ if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
     AC_SUBST(GIT_VERSION)
 fi
 
+# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
+# and hurts reproducibility.
+polyc_CFLAGS=
+for cflag in $CFLAGS; do
+    cflag="${cflag##-fdebug-prefix-map=*}"
+    if test -n "$cflag"; then
+        if test -n "$polyc_CFLAGS"; then
+            polyc_CFLAGS="$polyc_CFLAGS $cflag"
+        else
+            polyc_CFLAGS="$cflag"
+        fi
+    fi
+done
+AC_SUBST([polyc_CFLAGS], ["$polyc_CFLAGS"])
+
 # Modules directory
 AC_ARG_WITH([moduledir],
   [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
