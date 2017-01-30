@@ -136,7 +136,7 @@ struct
         else RunCall.moveBytes(fromAddr, toAddr, 0w0, offsetBytes, lengthBytes)
     end
 
-    |   csegCopySeg _ = raise InternalError "csegCopySeg: can only copy between byte segements"
+    |   csegCopySeg _ = raise InternalError "csegCopySeg: can only copy between byte segments"
   
     (* Returns a value from the vector. *)
     fun csegGet (ref (_, addr), byteIndex : word) : Word8.word =
