@@ -639,6 +639,7 @@ LTLIBOBJS
 INTINFISINT_FALSE
 INTINFISINT_TRUE
 moduledir
+polyc_CFLAGS
 GIT_VERSION
 gitinstalled
 NO_UNDEFINED_FALSE
@@ -22283,6 +22284,22 @@ if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
     GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
 
 fi
+
+# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
+# and hurts reproducibility.
+polyc_CFLAGS=
+for cflag in $CFLAGS; do
+    cflag="${cflag##-fdebug-prefix-map=*}"
+    if test -n "$cflag"; then
+        if test -n "$polyc_CFLAGS"; then
+            polyc_CFLAGS="$polyc_CFLAGS $cflag"
+        else
+            polyc_CFLAGS="$cflag"
+        fi
+    fi
+done
+polyc_CFLAGS="$polyc_CFLAGS"
+
 
 # Modules directory
 
