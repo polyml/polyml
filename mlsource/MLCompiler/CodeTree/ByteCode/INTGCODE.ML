@@ -828,6 +828,12 @@ struct
                 genOpcode(opcode_blockCompareByte, cvec);
                 decsp(); decsp(); decsp(); decsp()
             )
+       
+       |    BICArbitrary { longCall, ... } =>
+                (* Just use the long-precision case in the interpreted version. *)
+            (
+                gencde (longCall, whereto, tailKind, loopAddr)
+            )
 
     in (* body of gencde *) 
 
