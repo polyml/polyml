@@ -380,7 +380,6 @@ Handle Make_fixed_precision(TaskData *taskData, unsigned long uval)
     return taskData->saveVec.push(TAGGED(uval));
 }
 
-#if (SIZEOF_LONG_LONG != 0) && (SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
 Handle Make_fixed_precision(TaskData *taskData, long long val)
 {
     if (val > MAXTAGGED || val < -MAXTAGGED-1)
@@ -394,7 +393,6 @@ Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
         raise_exception0(taskData, EXC_overflow);
     return taskData->saveVec.push(TAGGED(uval));
 }
-#endif
 
 Handle Make_sysword(TaskData *taskData, uintptr_t p)
 {
