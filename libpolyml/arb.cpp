@@ -450,7 +450,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 
-#if SIZEOF_LONG_LONG != 0
+#ifdef HAVE_LONG_LONG
 #if SIZEOF_LONG_LONG <= SIZEOF_VOIDP
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
