@@ -1,7 +1,7 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012, 2015
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -583,7 +583,7 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     else
     {
         double costMax = costFunction(sizeMax, withSharing, true);
-        while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
+        while (sizeMax > sizeMin + gMem.DefaultSpaceSize())
         {
             POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
             double cost = costFunction(sizeNext, withSharing, true);
