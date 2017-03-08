@@ -225,6 +225,7 @@ public:
     PolyWord *AllocHeapSpace(POLYUNSIGNED words)
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
 
+    CodeSpace *NewCodeSpace(POLYUNSIGNED size);
     // Allocate space for code.  This is initially mutable to allow the code to be built.
     PolyObject *AllocCodeSpace(PolyObject *initCell);
 

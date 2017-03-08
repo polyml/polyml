@@ -1591,11 +1591,30 @@ void ModuleLoader::Perform()
             }
             // Allocate memory for the new segment.
             size_t actualSize = descr->segmentSize;
-            LocalMemSpace *space = gMem.NewLocalSpace(actualSize, descr->segmentFlags & SSF_WRITABLE);
-            if (space == 0)
+            MemSpace *space;
+            if (descr->segmentFlags & SSF_CODE)
             {
-                errorResult = "Unable to allocate memory";
-                return;
+                CodeSpace *cSpace = gMem.NewCodeSpace(actualSize);
+                if (cSpace == 0)
+                {
+                    errorResult = "Unable to allocate memory";
+                    return;
+                }
+                space = cSpace;
+                cSpace->firstFree = (PolyWord*)((byte*)space->bottom + descr->segmentSize);
+                if (cSpace->firstFree != cSpace->top)
+                    gMem.FillUnusedSpace(cSpace->firstFree, cSpace->top - cSpace->firstFree);
+            }
+            else
+            {
+                LocalMemSpace *lSpace = gMem.NewLocalSpace(actualSize, descr->segmentFlags & SSF_WRITABLE);
+                if (lSpace == 0)
+                {
+                    errorResult = "Unable to allocate memory";
+                    return;
+                }
+                space = lSpace;
+                lSpace->lowerAllocPtr = (PolyWord*)((byte*)lSpace->bottom + descr->segmentSize);
             }
             if (fseek(loadFile, descr->segmentData, SEEK_SET) != 0 ||
                 fread(space->bottom, descr->segmentSize, 1, loadFile) != 1)
@@ -1603,12 +1622,11 @@ void ModuleLoader::Perform()
                 errorResult = "Unable to read segment";
                 return;
             }
-            space->lowerAllocPtr = (PolyWord*)((byte*)space->bottom + descr->segmentSize);
             relocate.targetAddresses[descr->segmentIndex] = space->bottom;
             if (space->isMutable && (descr->segmentFlags & SSF_BYTES) != 0)
             {
                 ClearWeakByteRef cwbr;
-                cwbr.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+                cwbr.ScanAddressesInRegion(space->bottom, (PolyWord*)((byte*)space->bottom + descr->segmentSize));
             }
         }
     }
