@@ -77,7 +77,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-subdir = modules/IntAsIntInf
+subdir = modules/IntInfAsInt
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -265,9 +265,9 @@ $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__confi
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign modules/IntAsIntInf/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign modules/IntInfAsInt/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --foreign modules/IntAsIntInf/Makefile
+	  $(AUTOMAKE) --foreign modules/IntInfAsInt/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
@@ -445,19 +445,19 @@ uninstall-am: uninstall-local
 	tags-am uninstall uninstall-am uninstall-local
 
 
-all-local: IntAsIntInf
+all-local: IntInfAsInt
 
 clean-local:
-	-rm -f IntAsIntInf
+	-rm -f IntInfAsInt
 
 install-exec-local:
 	$(mkdir_p) $(DESTDIR)$(moduledir)
-	$(INSTALL_PROGRAM) IntAsIntInf $(DESTDIR)$(moduledir)
+	$(INSTALL_PROGRAM)IntInfAsInt $(DESTDIR)$(moduledir)
 
 uninstall-local:
-	-rm -f $(DESTDIR)$(moduledir)/IntAsIntInf
+	-rm -f $(DESTDIR)$(moduledir)/IntInfAsInt
 
-IntAsIntInf: ../../poly$(EXEEXT) ROOT.sml
+IntInfAsInt: ../../poly$(EXEEXT) ROOT.sml
 	echo "use \"$(srcdir)/ROOT.sml\";" | ../../poly$(EXEEXT) -q -error-exit
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
