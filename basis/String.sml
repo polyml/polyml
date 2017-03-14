@@ -1599,8 +1599,8 @@ in
             in
                 if length = 0 then ""
                 else if length = 1
-                then (* Single character string is the character itself. *)
-                    RunCall.unsafeCast (RunCall.loadByte (vec, intAsWord start))
+                then (* Optimise single character strings. *)
+                    charAsString(RunCall.loadByte (vec, intAsWord start))
                 else
                 let
                     val len = intAsWord length
