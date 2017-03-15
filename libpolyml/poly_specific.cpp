@@ -1,7 +1,7 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006, 2015-16 David C. J. Matthews
+    Copyright (c) 2006, 2015-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -69,7 +69,7 @@ extern "C" {
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-15 CUTS, David C.J. Matthews and contributors.";
+"Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
 #define Str(x) #x
 #define Xstr(x) Str(x)
