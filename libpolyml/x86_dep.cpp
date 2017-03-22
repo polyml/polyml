@@ -315,7 +315,7 @@ extern "C" {
 };
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord c, PolyWord flags);
 }
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
@@ -416,8 +416,9 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
 // At the moment this assumes we're dealing with a 32-bit constant on a 32-bit machine
 // and a 64-bit constant on a 64-bit machine.
 
-POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags)
+POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord cWord, PolyWord flags)
 {
+    POLYUNSIGNED c = cWord.AsUnsigned();
     // pointer is the start of the code segment.
     // c will usually be an address.
     // offset is a byte offset

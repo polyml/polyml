@@ -139,14 +139,14 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyObject *targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyObject *targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyWord threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyWord threadId, PolyWord newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -661,20 +661,20 @@ POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread)
 }
 
 // Test if a thread is active.
-POLYUNSIGNED PolyThreadIsActive(PolyObject *targetThread)
+POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread)
 {
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     processesModule.schedLock.Unlock();
     if (p != 0) return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
 
 // Send an interrupt to a specific thread
-POLYUNSIGNED PolyThreadInterruptThread(PolyObject *targetThread)
+POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread)
 {
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestInterrupt);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -684,10 +684,10 @@ POLYUNSIGNED PolyThreadInterruptThread(PolyObject *targetThread)
 }
 
 // Kill a specific thread
-POLYUNSIGNED PolyThreadKillThread(PolyObject *targetThread)
+POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
 {
     processesModule.schedLock.Lock();
-    TaskData *p = processesModule.TaskForIdentifier(targetThread);
+    TaskData *p = processesModule.TaskForIdentifier(targetThread.AsObjPtr());
     if (p) processesModule.MakeRequest(p, kRequestKill);
     processesModule.schedLock.Unlock();
     // If the thread cannot be identified return false.
@@ -702,9 +702,9 @@ POLYUNSIGNED PolyThreadBroadcastInterrupt(void)
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId)
+POLYUNSIGNED PolyThreadTestInterrupt(PolyWord threadId)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    TaskData *taskData = TaskData::FindTaskForId(threadId.AsObjPtr());
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
@@ -742,9 +742,9 @@ POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
 }
 
 // Set the maximum stack size.
-POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
+POLYUNSIGNED PolyThreadMaxStackSize(PolyWord threadId, PolyWord newSize)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    TaskData *taskData = TaskData::FindTaskForId(threadId.AsObjPtr());
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();

@@ -2012,10 +2012,10 @@ MachineDependent *machineDependent = &interpreterObject;
 // Compat560 creates an RTS function unconditionally and rather than change
 // that it's easier to add it here for the time being.
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord c, PolyWord flags);
 }
 
-POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, POLYUNSIGNED c, PolyWord flags)
+POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord c, PolyWord flags)
 {
     return TAGGED(0).AsUnsigned();
 }

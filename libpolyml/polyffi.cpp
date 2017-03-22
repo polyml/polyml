@@ -92,7 +92,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeFloat();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED *addr);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
 }
 
@@ -603,12 +603,12 @@ POLYUNSIGNED PolySizeDouble()
 }
 
 // Get either errno or GetLastError
-POLYUNSIGNED PolyFFIGetError(POLYUNSIGNED *addr)
+POLYUNSIGNED PolyFFIGetError(PolyWord addr)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    *addr = GetLastError();
+    addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned(GetLastError()));
 #else
-    *addr = (POLYUNSIGNED)errno;
+    addr.AsObjPtr()->Set(0, PolyWord::FromUnsigned((POLYUNSIGNED)errno));
 #endif
     return 0;
 }
