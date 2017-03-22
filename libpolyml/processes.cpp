@@ -146,7 +146,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyWord threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyWord threadId, PolyWord newSize);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
 }
 
 #define SAVE(x) taskData->saveVec.push(x)
@@ -742,9 +742,9 @@ POLYUNSIGNED PolyThreadNumPhysicalProcessors(void)
 }
 
 // Set the maximum stack size.
-POLYUNSIGNED PolyThreadMaxStackSize(PolyWord threadId, PolyWord newSize)
+POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId.AsObjPtr());
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
