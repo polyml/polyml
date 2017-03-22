@@ -137,7 +137,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMutexUnlock(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWait(PolyObject *threadId, PolyWord arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWaitUntil(PolyObject *threadId, PolyWord lockArg, PolyWord timeArg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadForkThread(PolyObject *threadId, PolyWord function, PolyWord attrs, PolyWord stack);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
@@ -653,9 +653,9 @@ bool Processes::WakeThread(PolyObject *targetThread)
     return result;
 }
 
-POLYUNSIGNED PolyThreadCondVarWake(PolyObject *targetThread)
+POLYUNSIGNED PolyThreadCondVarWake(PolyWord targetThread)
 {
-    if (processesModule.WakeThread(targetThread))
+    if (processesModule.WakeThread(targetThread.AsObjPtr()))
         return TAGGED(1).AsUnsigned();
     else return TAGGED(0).AsUnsigned();
 }
