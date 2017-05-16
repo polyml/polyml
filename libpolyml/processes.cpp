@@ -343,7 +343,6 @@ Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0),
     crowbarRunning(false), sigTask(0)
 {
 #if (defined(HAVE_PTHREAD))
-    crowBarThreadId = NULL;
 #elif defined(HAVE_WINDOWS_H)
     hCrowBarThread = NULL;
 #endif
