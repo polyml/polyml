@@ -314,8 +314,13 @@ public:
     // Shutdown locking.
     void CrowBarFn(void);
     PLock shutdownLock;
-    PCondVar crowbarLock, crowbarStopped;
+    PCondVar crowbarLock;
     bool crowbarRunning;
+#if (defined(HAVE_PTHREAD))
+    pthread_t crowBarThreadId;
+#elif defined(HAVE_WINDOWS_H)
+    HANDLE hCrowBarThread;
+#endif
 
 #ifdef HAVE_WINDOWS_H
     // Used in profiling
@@ -337,6 +342,11 @@ Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0),
     threadRequest(0), exitResult(0), exitRequest(false),
     crowbarRunning(false), sigTask(0)
 {
+#if (defined(HAVE_PTHREAD))
+    crowBarThreadId = NULL;
+#elif defined(HAVE_WINDOWS_H)
+    hCrowBarThread = NULL;
+#endif
 #ifdef HAVE_WINDOWS_H
     Waiter::hWakeupEvent = NULL;
     hStopEvent = NULL;
@@ -1605,12 +1615,19 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     // We are about to return normally.  Stop any crowbar function
     // and wait until it stops.
     shutdownLock.Lock();
+    DWORD testDw = 0;
     if (crowbarRunning)
     {
         crowbarLock.Signal();
-        crowbarStopped.Wait(&shutdownLock);
+        shutdownLock.Unlock();
+        // Wait for the thread to terminate.
+#if (defined(HAVE_PTHREAD))
+        void *result;
+        pthread_join(crowBarThreadId, &result);
+#elif defined(HAVE_WINDOWS_H)
+        testDw = WaitForSingleObject(hCrowBarThread, 10000);
+#endif
     }
-    shutdownLock.Unlock(); // So it's unlocked when we delete it
     finish(exitResult); // Close everything down and exit.
 }
 
@@ -1888,7 +1905,6 @@ void Processes::CrowBarFn(void)
     if (crowbarLock.WaitFor(&shutdownLock, 20000)) // Wait for 20s
     {
         // We've been woken by the main thread.  Let it do the shutdown.
-        crowbarStopped.Signal();
         shutdownLock.Unlock();
     }
     else
@@ -1924,18 +1940,10 @@ void Processes::Exit(int n)
     // Start a crowbar thread.  This will stop everything if the main thread
     // does not reach the point of stopping within 5 seconds.
 #if (defined(HAVE_PTHREAD))
-    // Create a thread that isn't joinable since we don't want to wait
-    // for it to finish.
-    pthread_attr_t attrs;
-    pthread_attr_init(&attrs);
-    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    pthread_t threadId;
-    (void)pthread_create(&threadId, &attrs, crowBarFn, 0);
-    pthread_attr_destroy(&attrs);
+    (void)pthread_create(&crowBarThreadId, NULL, crowBarFn, 0);
 #elif defined(HAVE_WINDOWS_H)
     DWORD dwThrdId;
-    HANDLE hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, &dwThrdId);
-    CloseHandle(hCrowBarThread); // Not needed
+    hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, &dwThrdId);
 #endif
     // We may be in an interrupt handler with schedLock held.
     // Just set the exit request and go.
