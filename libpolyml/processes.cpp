@@ -1945,8 +1945,8 @@ void Processes::Exit(int n)
 #elif defined(HAVE_WINDOWS_H)
             hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, NULL);
             crowbarRunning = hCrowBarThread != NULL;
-        }
 #endif
+        }
     }
 #endif
     // We may be in an interrupt handler with schedLock held.
