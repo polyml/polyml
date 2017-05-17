@@ -1620,12 +1620,12 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         shutdownLock.Unlock();
         // Wait for the thread to terminate.
 #if (defined(HAVE_PTHREAD))
-        void *result;
-        pthread_join(crowBarThreadId, &result);
+        pthread_join(crowBarThreadId, NULL);
 #elif defined(HAVE_WINDOWS_H)
         WaitForSingleObject(hCrowBarThread, 10000);
 #endif
     }
+    else shutdownLock.Unlock(); // So it's always unlocked when it's destroyed.
     finish(exitResult); // Close everything down and exit.
 }
 
@@ -1887,14 +1887,12 @@ void Processes::TestAnyEvents(TaskData *taskData)
         throw IOException();
 }
 
-// Stop.  Usually called by one of the threads but
-// in the Windows version can also be called by the GUI or
-// it can be called from the default console interrupt handler.
-// This is more complicated than it seems.  We must avoid
-// calling exit while there are other threads running because
-// exit will finalise the modules and deallocate memory etc.
-// However some threads may be deadlocked or we may be in the
-// middle of a very slow GC and we just want it to stop.
+// Stop.  Exit is usually called by one of the ML threads but
+// in the Windows version can also be called by the GUI.
+// The normal shut-down routine is to wake up the main thread
+// and have it wait until all the ML threads have exited.  This
+// "crow-bar" thread is intended to force a shut-down if that
+// doesn't happen within 20s.
 void Processes::CrowBarFn(void)
 {
 #if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
@@ -1935,13 +1933,21 @@ void Processes::Exit(int n)
     if (singleThreaded)
         finish(n);
 
-    // Start a crowbar thread.  This will stop everything if the main thread
-    // does not reach the point of stopping within 5 seconds.
+#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
+    {
+        // Start a crowbar thread.  This will stop everything if the main thread
+        // does not reach the point of stopping within 5 seconds.
+        PLocker l(&shutdownLock);
+        if (!crowbarRunning)
+        {
 #if (defined(HAVE_PTHREAD))
-    (void)pthread_create(&crowBarThreadId, NULL, crowBarFn, 0);
+            crowbarRunning = pthread_create(&crowBarThreadId, NULL, crowBarFn, 0) == 0;
 #elif defined(HAVE_WINDOWS_H)
-    DWORD dwThrdId;
-    hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, &dwThrdId);
+            hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, NULL);
+            crowbarRunning = hCrowBarThread != NULL;
+        }
+#endif
+    }
 #endif
     // We may be in an interrupt handler with schedLock held.
     // Just set the exit request and go.
