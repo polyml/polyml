@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012, 2015 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -173,10 +173,11 @@ private:
 #ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
-#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 public:
     bool threadExited;
 private:
+#ifdef HAVE_PTHREAD_H
+    pthread_t threadId;
 #endif
 #ifdef HAVE_WINDOWS_H
 public: // Because, on Cygwin, it's used in NewThreadFunction

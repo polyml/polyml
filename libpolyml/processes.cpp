@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013-15 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -834,9 +834,7 @@ TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), 
 #ifdef HAVE_WINDOWS_H
     threadHandle = 0;
 #endif
-#ifdef HAVE_PTHREAD
     threadExited = false;
-#endif
 }
 
 TaskData::~TaskData()
@@ -932,11 +930,7 @@ void Processes::ThreadExit(TaskData *taskData)
 
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
-    // Remove this from the taskArray
-    unsigned index = get_C_unsigned(taskData, taskData->threadObject->index);
-    ASSERT(index < taskArraySize && taskArray[index] == taskData);
-    taskArray[index] = 0;
-    delete(taskData);
+    taskData->threadExited = true;
     initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
 #ifdef HAVE_PTHREAD
@@ -1469,17 +1463,8 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         schedLock.Lock();
         int errorCode = 0;
 #ifdef HAVE_PTHREAD
-        // Create a thread that isn't joinable since we don't want to wait
-        // for it to finish.
-        pthread_attr_t attrs;
-        pthread_attr_init(&attrs);
-        pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-        // N.B.  Because we create the thread detached the thread ID will be deleted
-        // by the thread itself so may be invalid at any time, unlike the Windows handle.
-        pthread_t pthreadId;
-        if (pthread_create(&pthreadId, &attrs, NewThreadFunction, taskData) != 0)
+        if (pthread_create(&taskData->threadId, NULL, NewThreadFunction, taskData) != 0)
             errorCode = errno;
-        pthread_attr_destroy(&attrs);
 #elif defined(HAVE_WINDOWS_H)
         taskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
@@ -1522,21 +1507,17 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                     // It must be running - interrupt it if we are waiting.
                     if (threadRequest != 0) p->InterruptCode();
                 }
-                else
+                else if (p->threadExited) // Has the thread terminated?
                 {
-                    // Has the thread terminated in foreign code?
-                    bool thread_killed = false;
+                    // Wait for it to actually stop then delete the task data.
 #ifdef HAVE_PTHREAD
                     thread_killed = p->threadExited;
 #elif defined(HAVE_WINDOWS_H)
-                    thread_killed = WaitForSingleObject(p->threadHandle, 0) == WAIT_OBJECT_0;
+                    WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
-                    if (thread_killed)
-                    {
-                        delete(p);
-                        taskArray[i] = 0;
-                        globalStats.decCount(PSC_THREADS);
-                    }
+                    delete(p);
+                    taskArray[i] = 0;
+                    globalStats.decCount(PSC_THREADS);
                 }
             }
         }
@@ -1704,14 +1685,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         bool success = false;
         schedLock.Lock();
 #ifdef HAVE_PTHREAD
-        // Create a thread that isn't joinable since we don't want to wait
-        // for it to finish.
-        pthread_attr_t attrs;
-        pthread_attr_init(&attrs);
-        pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-        pthread_t pthreadId;
-        success = pthread_create(&pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
-        pthread_attr_destroy(&attrs);
+        success = pthread_create(&newTaskData->threadId, NULL, NewThreadFunction, newTaskData) == 0;
 #elif defined(HAVE_WINDOWS_H)
         newTaskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, NULL);
@@ -2141,12 +2115,13 @@ void Processes::SignalArrived(void)
 
 #ifdef HAVE_PTHREAD
 // This is called when the thread exits in foreign code and
-// ThreadExit has not been called.  Normally the thread-specific
-// data is cleared.
+// ThreadExit has not been called.
 static void threaddata_destructor(void *p)
 {
     TaskData *pt = (TaskData *)p;
     pt->threadExited = true;
+    // This doesn't actually wake the main thread and relies on the
+    // regular check to release the task data.
 }
 #endif
 
