@@ -1511,7 +1511,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 {
                     // Wait for it to actually stop then delete the task data.
 #ifdef HAVE_PTHREAD
-                    thread_killed = p->threadExited;
+                    pthread_join(p->threadId, NULL);
 #elif defined(HAVE_WINDOWS_H)
                     WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
