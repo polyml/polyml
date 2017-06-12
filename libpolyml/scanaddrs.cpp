@@ -289,7 +289,7 @@ PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
         else if (StackIsEmpty())
             RecursiveScan::ScanAddressesInObject(obj, obj->LengthWord());
         else
-            PushToStack(obj);
+            PushToStack(obj, (PolyWord*)obj);
     }
 
     return obj;
@@ -303,6 +303,8 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
     if (OBJ_IS_BYTE_OBJECT(lengthWord))
         return; // Ignore byte cells and don't call Completed on them
 
+    PolyWord *baseAddr = (PolyWord*)obj;
+
     while (true)
     {
         ASSERT (OBJ_IS_LENGTH(lengthWord));
@@ -310,7 +312,6 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
         // Get the length and base address.  N.B.  If this is a code segment
         // these will be side-effected by GetConstSegmentForCode.
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
-        PolyWord *baseAddr = (PolyWord*)obj;
 
         if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
@@ -327,7 +328,7 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
         // the stack, follow the first address and then rescan it.  That way
         // list cells are processed once only but we don't overflow the
         // stack by pushing all the addresses in a very large vector.
-        PolyWord *endWord = baseAddr + length;
+        PolyWord *endWord = (PolyWord*)obj + length;
         PolyObject *firstWord = 0;
         PolyObject *secondWord = 0;
 
@@ -374,19 +375,22 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
                 MarkAsScanning(secondWord);
                 // Put this on the stack.  If this is a list node we will be
                 // pushing the tail.
-                PushToStack(secondWord);
+                PushToStack(secondWord, (PolyWord*)secondWord);
             }
         }
         else // Put this back on the stack while we process the first word
-            PushToStack(obj);
+            PushToStack(obj, baseAddr);
 
         if (firstWord != 0)
+        {
             // Process it immediately.
             obj = firstWord;
+            baseAddr = (PolyWord*)obj;
+        }
         else if (StackIsEmpty())
             return;
         else
-            obj = PopFromStack();
+            PopFromStack(obj, baseAddr);
 
         lengthWord = obj->LengthWord();
     }
@@ -403,7 +407,7 @@ public:
     RScanStack *nextStack;
     RScanStack *lastStack;
     unsigned sp;
-    PolyObject * stack[RSTACK_SEGMENT_SIZE];
+    struct { PolyObject *obj; PolyWord *base; } stack[RSTACK_SEGMENT_SIZE];
 };
 
 RecursiveScanWithStack::~RecursiveScanWithStack()
@@ -416,7 +420,7 @@ bool RecursiveScanWithStack::StackIsEmpty(void)
     return stack == 0 || (stack->sp == 0 && stack->lastStack == 0);
 }
 
-void RecursiveScanWithStack::PushToStack(PolyObject *obj)
+void RecursiveScanWithStack::PushToStack(PolyObject *obj, PolyWord *base)
 {
     if (stack == 0 || stack->sp == RSTACK_SEGMENT_SIZE)
     {
@@ -438,21 +442,24 @@ void RecursiveScanWithStack::PushToStack(PolyObject *obj)
             }
         }
     }
-    stack->stack[stack->sp++] = obj;
+    stack->stack[stack->sp].obj = obj;
+    stack->stack[stack->sp].base = base;
+    stack->sp++;
 }
 
-PolyObject *RecursiveScanWithStack::PopFromStack(void)
+void RecursiveScanWithStack::PopFromStack(PolyObject *&obj, PolyWord *&base)
 {
     if (stack->sp == 0)
     {
         // Chain to the previous stack if any
-        if (stack->lastStack == 0)
-            return 0;
+        ASSERT(stack->lastStack != 0);
         // Before we do, delete any further one to free some memory
         delete(stack->nextStack);
         stack->nextStack = 0;
         stack = stack->lastStack;
         ASSERT(stack->sp == RSTACK_SEGMENT_SIZE);
     }
-    return stack->stack[--stack->sp];
+    --stack->sp;
+    obj = stack->stack[stack->sp].obj;
+    base = stack->stack[stack->sp].base;
 }

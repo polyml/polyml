@@ -104,8 +104,8 @@ public:
 
 protected:
     // The derived class must provide a stack.
-    virtual void PushToStack(PolyObject *obj) = 0;
-    virtual PolyObject *PopFromStack(void) = 0;
+    virtual void PushToStack(PolyObject *obj, PolyWord *base) = 0;
+    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base) = 0;
     virtual bool StackIsEmpty(void) = 0;
 
     // Test the word at the location to see if it points to
@@ -132,8 +132,8 @@ protected:
     // segment fails.
     virtual void StackOverflow(void) = 0;
 
-    virtual void PushToStack(PolyObject *obj);
-    virtual PolyObject *PopFromStack(void);
+    virtual void PushToStack(PolyObject *obj, PolyWord *base);
+    virtual void PopFromStack(PolyObject *&obj, PolyWord *&base);
     virtual bool StackIsEmpty(void);
 
     RScanStack *stack;
