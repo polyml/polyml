@@ -204,13 +204,15 @@ bool GetSharing::TestForScan(PolyWord *pt)
         *pt = obj;
     }
     ASSERT(obj == (*pt).AsObjPtr());
+    
+    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
 
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
 
     if (space == 0)
         return false; // Ignore it if it points to a permanent area
 
-    if (space->bitmap.TestBit(space->wordNo((PolyWord*)obj)))
+    if (space->bitmap.TestBit(space->wordNo(lengthWord)))
         return false;
 
     return true;
@@ -219,8 +221,10 @@ bool GetSharing::TestForScan(PolyWord *pt)
 void GetSharing::MarkAsScanning(PolyObject *obj)
 {
     ASSERT(obj->ContainsNormalLengthWord());
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj-1);
-    space->bitmap.SetBit(space->wordNo((PolyWord*)obj));
+    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(lengthWord);
+    ASSERT(! space->bitmap.TestBit(space->wordNo(lengthWord)));
+    space->bitmap.SetBit(space->wordNo(lengthWord));
 }
 
 void GetSharing::Completed(PolyObject *obj)
