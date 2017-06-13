@@ -551,7 +551,7 @@ void GetSharing::SortData()
         // get as much sharing by just running the final pass.  The first pass only carries
         // over any sharing from the byte objects so we need to run at least one more before
         // checking the carry over.
-        if (pass > 1 && (lastCount - postCount) * 10 < lastCount && carryOver*2 < (lastCount-postCount))
+        if (pass > 1 && (lastCount - postCount) * 10 < lastCount && (carryOver*2 < (lastCount-postCount) || (lastCount - postCount) * 1000 < lastCount ))
             break;
 
         lastCount = postCount;
