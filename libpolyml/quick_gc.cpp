@@ -300,7 +300,7 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
             if (lSpace->spaceOwner == 0 && lSpace->isMutable == isMutable &&
                 ! lSpace->allocationSpace && lSpace->freeSpace() > n /* At least n+1*/)
             {
-                if (debugOptions & DEBUG_GC)
+                if (debugOptions & DEBUG_GC_ENHANCED)
                     Log("GC: Quick: Thread %p is taking ownership of space %p\n", taskID, lSpace);
                 if (! TakeOwnership(lSpace))
                     return 0;
@@ -643,7 +643,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             }
             else free = lSpace->freeSpace();
 
-            if (debugOptions & DEBUG_GC)
+            if (debugOptions & DEBUG_GC_ENHANCED)
                 Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());

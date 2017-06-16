@@ -170,7 +170,7 @@ public:
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
-    virtual void StackOverflow(void) {} // Ignore stack overflow
+    virtual void StackOverflow(void) { } // Ignore stack overflow
     virtual void Completed(PolyObject *);
 
 private:
@@ -179,6 +179,8 @@ private:
     SortVector wordVectors[NUM_WORD_VECTORS];
 
     POLYUNSIGNED largeWordCount, largeByteCount, excludedCount;
+public:
+    POLYUNSIGNED totalVisited, byteAdded, wordAdded, totalSize;
 };
 
 GetSharing::GetSharing()
@@ -190,6 +192,7 @@ GetSharing::GetSharing()
         wordVectors[j].SetLengthWord(j);
 
     largeWordCount = largeByteCount = excludedCount = 0;
+    totalVisited = byteAdded = wordAdded = totalSize = 0;
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)
@@ -214,6 +217,11 @@ bool GetSharing::TestForScan(PolyWord *pt)
 
     if (space->bitmap.TestBit(space->wordNo(lengthWord)))
         return false;
+
+    ASSERT(obj->ContainsNormalLengthWord());
+
+    totalVisited += 1;
+    totalSize += obj->Length() + 1;
 
     return true;
 }
@@ -240,6 +248,7 @@ void GetSharing::Completed(PolyObject *obj)
         if (length < NUM_WORD_VECTORS)
             wordVectors[length].AddToVector(obj, length);
         else largeWordCount++;
+        wordAdded++;
     }
     else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == _OBJ_BYTE_OBJ)
     {
@@ -247,6 +256,7 @@ void GetSharing::Completed(PolyObject *obj)
         if (length < NUM_BYTE_VECTORS)
             byteVectors[length].AddToVector(obj, length);
         else largeByteCount++;
+        byteAdded++;
     }
     else if (! OBJ_IS_CODE_OBJECT(L) && ! OBJ_IS_MUTABLE_OBJECT(L))
         excludedCount++; // Code and mutables can't be shared - see what could be
@@ -620,13 +630,6 @@ void GCSharingPhase(void)
         lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
     }
 
-    // Process the permanent mutable areas and the code areas
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        PermanentMemSpace *space = *i;
-        if (space->isMutable && ! space->byteOnly)
-            sharer.ScanAddressesInRegion(space->bottom, space->top);
-    }
     // Scan the code areas to share any constants.  We don't share the code
     // cells themselves.
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
@@ -635,8 +638,28 @@ void GCSharingPhase(void)
         sharer.ScanAddressesInRegion(space->bottom, space->top);
     }
 
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning code: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
+
+    // Process the permanent mutable areas and the code areas
+    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
+    {
+        PermanentMemSpace *space = *i;
+        if (space->isMutable && ! space->byteOnly)
+            sharer.ScanAddressesInRegion(space->bottom, space->top);
+    }
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning permanent: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
+
     // Process the RTS roots.
     GCModules(&sharer);
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: After scanning other roots: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
+            sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
 

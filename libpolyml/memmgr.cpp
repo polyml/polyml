@@ -1027,6 +1027,30 @@ void MemMgr::ReportHeapSizes(const char *phase)
     Log(" (%1.0f%%). Total space ", (float)inAlloc / (float)alloc * 100.0F);
     LogSize(spaceForHeap);
     Log(" %1.0f%% full.\n", (float)(inAlloc + inNonAlloc) / (float)spaceForHeap * 100.0F);
+    Log("Heap: Local spaces %u, permanent spaces %u, code spaces %u\n", lSpaces.size(), pSpaces.size(), cSpaces.size());
+    POLYUNSIGNED cTotal = 0, cOccupied = 0;
+    for (std::vector<CodeSpace*>::iterator c = cSpaces.begin(); c != cSpaces.end(); c++)
+    {
+        cTotal += (*c)->spaceSize();
+        PolyWord *pt = (*c)->bottom;
+        while (pt < (*c)->top)
+        {
+            pt++;
+            PolyObject *obj = (PolyObject*)pt;
+            if (obj->ContainsForwardingPtr())
+            {
+                obj = obj->FollowForwardingChain();
+                pt += obj->Length();
+            }
+            else
+            {
+                if (obj->IsCodeObject())
+                    cOccupied += obj->Length() + 1;
+                pt += obj->Length();
+            }
+        }
+    }
+    Log("Heap: Code area: total "); LogSize(cTotal); Log(" occupied: "); LogSize(cOccupied); Log("\n");
 }
 
 // Profiling - Find a code object or return zero if not found.

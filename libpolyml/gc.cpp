@@ -247,7 +247,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     // Delete empty spaces.
     gMem.RemoveEmptyLocals();
 
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
     {
         for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
@@ -283,7 +283,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 #ifdef FILL_UNUSED_MEMORY
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: %s space %p %d free in %d words %2.1f%% full\n", space->spaceTypeString(),
                 space, space->freeSpace(), space->spaceSize(),
                 ((float)space->allocatedSpace()) * 100 / (float)space->spaceSize());

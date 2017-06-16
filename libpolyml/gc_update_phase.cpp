@@ -218,11 +218,11 @@ static void updateLocalArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     LocalMemSpace *space = (LocalMemSpace *)arg2;
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Update local area %p\n", space);
     // Process the current generation for mutable or immutable areas.
     processUpdate->UpdateObjectsInArea(space);
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Completed local update for %p. %lu words updated\n", space, space->updated);
 }
 
@@ -231,10 +231,10 @@ static void updateNonLocalMutableArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     MemSpace *space = (MemSpace *)arg2;
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Update non-local mutable area %p\n", space);
     processUpdate->ScanAddressesInRegion(space->bottom, space->top);
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Completed non-local mutable update for %p\n", space);
 }
 

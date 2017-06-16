@@ -217,7 +217,7 @@ void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
     if (space->fullGCRescanEnd < ((PolyWord*)obj) + n)
         space->fullGCRescanEnd = ((PolyWord*)obj) + n;
     ASSERT(obj->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & DEBUG_GC_ENHANCED)
         Log("GC: Mark: Stack overflow.  Rescan for %p\n", obj);
 }
 
@@ -634,7 +634,7 @@ bool Rescanner::ScanSpace(MarkableSpace *space)
     }
     if (start < end)
     {
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: Mark: Rescanning from %p to %p\n", start, end);
         ScanAddressesInRegion(start, end);
         return true; // Require rescan
@@ -821,7 +821,7 @@ void GCMarkPhase(void)
         LocalMemSpace *lSpace = *i;
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
         totalLive += lSpace->m_marked + lSpace->i_marked;
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: Mark: %s space %p: %" POLYUFMT " immutable words marked, %" POLYUFMT " mutable words marked\n",
                                 lSpace->spaceTypeString(), lSpace,
                                 lSpace->i_marked, lSpace->m_marked);

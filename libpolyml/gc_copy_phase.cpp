@@ -214,7 +214,7 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutabl
                 // Change the space.
                 lSpace->spaceOwner = id;
                 *dst = lSpace; // Return the space
-                if (debugOptions & DEBUG_GC)
+                if (debugOptions & DEBUG_GC_ENHANCED)
                     Log("GC: Copy: copying %s cells from %p to %p\n",
                                 isMutable ? "mutable" : "immutable", src, lSpace);
                 return true;
@@ -244,7 +244,7 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
         else if (src->spaceOwner != id)
             continue;
 
-        if (debugOptions & DEBUG_GC)
+        if (debugOptions & DEBUG_GC_ENHANCED)
             Log("GC: Copy: copying area %p (thread %p) %s \n", src, id, src->spaceTypeString());
 
         // We start at fullGCLowerLimit which is the lowest marked object in the heap
