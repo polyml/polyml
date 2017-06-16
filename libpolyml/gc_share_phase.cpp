@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Data sharing phase
 
-    Copyright (c) 2012 David C. J. Matthews
+    Copyright (c) 2012, 2017 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -590,10 +590,10 @@ void GetSharing::SortData()
         totalSize += byteVectors[k].TotalCount();
         POLYUNSIGNED shared = byteVectors[k].Shared();
         totalShared += shared;
-        totalRecovered += shared * (k+2); // Add 2 because the 0th item is one word + length word.
+        totalRecovered += shared * (k+1); // Add 1 for the length word.
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                k+1, byteVectors[k].TotalCount(), byteVectors[k].Shared());
+                k, byteVectors[k].TotalCount(), byteVectors[k].Shared());
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
@@ -601,10 +601,10 @@ void GetSharing::SortData()
         totalSize += wordVectors[l].TotalCount();
         POLYUNSIGNED shared = wordVectors[l].Shared();
         totalShared += shared;
-        totalRecovered += shared * (l+2);
+        totalRecovered += shared * (l+1);
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                l+1, wordVectors[l].TotalCount(), wordVectors[l].Shared());
+                l, wordVectors[l].TotalCount(), wordVectors[l].Shared());
     }
 
     if (debugOptions & DEBUG_GC)
