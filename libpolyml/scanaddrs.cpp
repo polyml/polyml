@@ -331,6 +331,7 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
         PolyWord *endWord = (PolyWord*)obj + length;
         PolyObject *firstWord = 0;
         PolyObject *secondWord = 0;
+        PolyWord *restartFrom = baseAddr;
 
         while (baseAddr != endWord)
         {
@@ -359,7 +360,10 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
                         MarkAsScanning(firstWord);
                     }
                     else if (secondWord == 0)
+                    {
                         secondWord = wObj;
+                        restartFrom = baseAddr;
+                    }
                     else break;  // More than two words.
                 }
             }
@@ -379,7 +383,7 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
             }
         }
         else // Put this back on the stack while we process the first word
-            PushToStack(obj, baseAddr);
+            PushToStack(obj, restartFrom);
 
         if (firstWord != 0)
         {
