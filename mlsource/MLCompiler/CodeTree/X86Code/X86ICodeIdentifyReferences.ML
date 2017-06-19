@@ -163,20 +163,27 @@ struct
 
         (* Find the label and extract the corresponding  Remove this label from
            the list and return the updated list. *)
-        fun findOptionalLabel([], _) = (NONE, [])
-        |   findOptionalLabel((this as (thisLabel, thisActive)) :: tail, label) =
-                if thisLabel = label then (SOME thisActive, tail)
+        fun findLabel([], _) = raise InternalError "findLabel: Missing label"
+        |   findLabel((this as (thisLabel, thisActive)) :: tail, label) =
+                if thisLabel = label then (thisActive, tail)
                 else
                 let
-                    val (foundActive, foundTail) = findOptionalLabel(tail, label)
+                    val (foundActive, foundTail) = findLabel(tail, label)
                 in
                     (foundActive, this :: foundTail)
                 end
-        
-        fun findLabel(list, label) =
-            case findOptionalLabel(list, label) of
-                (SOME active, resList) => (active, resList)
-            |   _ => raise InternalError "findLabel: Missing label"
+
+        (* If a label is optional first check that it is there and don't rebuild
+           the list if we don't need to. *)
+        fun findOptionalLabel(list, label) =
+            if List.exists(fn (thisLabel, _) => thisLabel = label) list
+            then
+            let
+                val (found, newList) = findLabel(list, label)
+            in
+                (SOME found, newList)
+            end
+            else (NONE, list)
 
         (* We only process the condition code to see if it is used.  An arithmetic
            operation cannot be removed if its condition code is used even if its
@@ -706,7 +713,7 @@ struct
                 val _ =
                     (case ccIn of CCState s => s = ccRef | CCIndeterminate => false)
                         orelse raise InternalError "identify - cc mismatch"
-                val (oldLabel, _) = findOptionalLabel(labels, label)
+                val oldLabel = List.find (fn (thisLabel, _) => thisLabel = label) labels
                 val (tail, refLabels, resLoopLabels, _, newActive) =
                     identify(rest, (label, []) :: labels, loopLabels, loopNest, ccIn)
                 (* Find the registers that were active at the label. *)
