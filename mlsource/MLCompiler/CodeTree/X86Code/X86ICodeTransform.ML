@@ -524,31 +524,51 @@ struct
             end
     
         |   pushRegisters((ForwardJumpLabel{label as ILabel lab, result}, _) :: rest, code,
-                          context as {newCount=currentNewCount, stack=currentStack, ...}) =
-            (* This is a forward jump label after other code.  We have to merge the states. *)
+                    context as {newCount=currentNewCount, stack=currentStack, ...}) =
+            (* This is a forward jump label after other code.  We have to merge the states.
+               This was an allocation hot-spot. *)
             (
                 (* Get the state.  The label may never have been jumped to. *)
                 case Array.sub(labelState, lab) of
                     NONE => pushRegisters(rest, code, context)
                 |   SOME {newCount=jumpNewCount, stack=jumpStack, ...} =>
                     let
-                        (* Merge the common entries. Stop as soon as we find a difference. *)
-                        fun matchStacks((entry as NewEntry {pregNo=reg1}) :: tl1, NewEntry {pregNo=reg2} :: tl2, combined, old, new) =
-                            if reg1 = reg2
-                            then matchStacks(tl1, tl2, entry :: combined, old, new+1)
-                            else {newCount=new, oldCount=old, stack=combined}
-
-                        |   matchStacks((entry as ContainerEntry {size=size1}) :: tl1, ContainerEntry {size=size2} :: tl2, combined, old, new) =
-                            if size1 = size2
-                            then matchStacks(tl1, tl2, entry :: combined, old+size1, new+size1)
-                            else {newCount=new, oldCount=old, stack=combined}
-                            
-                        |   matchStacks(HandlerEntry :: tl1, HandlerEntry :: tl2, combined, old, new) =
-                                matchStacks(tl1, tl2, HandlerEntry :: combined, old+2, new+2)
-
-                        |   matchStacks(_, _, combined, old, new) = {newCount=new, oldCount=old, stack=combined}
-
-                        val newContext as {newCount=newSp, ...} = matchStacks(List.rev currentStack, List.rev jumpStack, [], 0, 0)
+                        (* Merge the stacks.  Because the stacks can be very deep we need to do this in a
+                           way that minimises the rebuilding necessary. *)
+                        val lenCurrent = List.length currentStack and lenJump = List.length jumpStack
+                        val (currStackTrim, jumpStackTrim) =
+                            if lenCurrent > lenJump
+                            then (List.drop(currentStack, lenCurrent-lenJump), jumpStack)
+                            else (currentStack, List.drop(jumpStack, lenJump-lenCurrent))
+                        val trimLength = Int.min(lenCurrent, lenJump)
+                        (* We now have the stacks the same length. *)
+                        fun findLastDifference(entry1 :: tl1, entry2 :: tl2, tailLen) =
+                            let
+                                val matchRest = findLastDifference(tl1, tl2, tailLen-1)
+                            in
+                                if matchRest <> tailLen-1
+                                then matchRest
+                                else case (entry1, entry2) of
+                                    (NewEntry {pregNo=reg1}, NewEntry {pregNo=reg2}) =>
+                                        if reg1 = reg2 then tailLen else tailLen-1
+                                |   (ContainerEntry {size=size1}, ContainerEntry {size=size2}) =>
+                                        if size1 = size2 then tailLen else tailLen-1
+                                |   (HandlerEntry, HandlerEntry) => tailLen
+                                |   _ => tailLen-1
+                            end
+                        |   findLastDifference([], [], 0) = 0
+                        |   findLastDifference _ = raise InternalError "findLastDifference"
+                        
+                        val commonLength = findLastDifference(currStackTrim, jumpStackTrim, trimLength)
+                        val commonStack = List.drop(currStackTrim, trimLength - commonLength)
+                        
+                        fun countSizes([], old, new) = (old, new)
+                        |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
+                        |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
+                        |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
+                        
+                        val (oldCount, newCount) = countSizes(commonStack, 0, 0)
+                        val newContext as {newCount=newSp, ...} = {newCount=newCount, oldCount=oldCount, stack=commonStack}
 
                         val adjustStack =
                             if newSp = currentNewCount
@@ -580,7 +600,6 @@ struct
                         pushRegisters(rest, resultCode, newContext)
                     end
             )
-
         |   pushRegisters((UnconditionalForwardJump{label}, _) :: rest, code, context) =
             (
                 (* Save the state.  Then enter the "unconditional transfer" state. *)
@@ -862,7 +881,7 @@ struct
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
             end
-        
+
         and skipToLabel([], code) = code
 
         |   skipToLabel((ForwardJumpLabel{label as ILabel lab, ...}, _) :: rest, code) =
