@@ -10,6 +10,8 @@ val bvar = conditionVar();
 
 val cvar = conditionVar();
 
+val dvar = conditionVar();
+
 val stop = ref false
 
 val avalue = ref 0
@@ -30,14 +32,11 @@ let
             )
         )
 in
+    signal dvar;
     loop();
     signal cvar;
     unlock amutex
 end;
-
-fork(incValue 1, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
-fork(incValue 2, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
-fork(incValue 3, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
 
 fun addCount 0 = ()
 |   addCount n =
@@ -48,6 +47,11 @@ fun addCount 0 = ()
     );
 
 lock amutex;
+fork(incValue 1, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
+fork(incValue 2, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
+fork(incValue 3, [EnableBroadcastInterrupt true, InterruptState InterruptSynch]);
+
+wait(dvar, amutex);
 addCount 10000;
 OS.Process.sleep(Time.fromSeconds 2);
 
