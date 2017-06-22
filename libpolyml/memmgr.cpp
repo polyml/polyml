@@ -401,6 +401,13 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     for (PolyWord *ptr = space->bottom; ptr < space->top; )
                     {
                         PolyObject *obj = (PolyObject*)(ptr+1);
+                        // We may have forwarded this if this has been
+                        // copied to the exported area. Restore the original length word.
+                        if (obj->ContainsForwardingPtr())
+                        {
+                            PolyObject *forwardedTo = obj->FollowForwardingChain();
+                            obj->SetLengthWord(forwardedTo->LengthWord());
+                        }
                         if (obj->IsCodeObject())
                             space->headerMap.SetBit(ptr-space->bottom);
                         ptr += obj->Length() + 1;
