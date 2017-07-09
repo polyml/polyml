@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-16
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-17
     
     Based on original code:    
     Copyright (c) 2000
@@ -58,6 +58,7 @@ struct
     val op andb8 = Word8.andb
 
     val op andb = Word.andb (* and op andbL = LargeWord.andb *)
+    and op orb  = Word.orb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
@@ -1732,22 +1733,31 @@ struct
 
     (* RTS call.  We need to save any registers that may contain addresses to the stack.
        All the registers are preserved but not seen by the GC. *)
-    fun rtsCall(rtsEntry, [], cvec) =
+    fun rtsCall(rtsEntry, regSet, cvec) =
         let
             val entry =
                 case rtsEntry of
                     StackOverflowCall   => memRegStackOverflowCall
                 |   StackOverflowCallEx => memRegStackOverflowCallEx
                 |   HeapOverflowCall    => memRegHeapOverflowCall
+            val regSet = List.foldl(fn (r, a) => (0w1 << Word.fromInt(nReg(GenReg r))) orb a) 0w0 regSet
         in
-            genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), cvec)
+            genOpPlus2(Group5, LargeInt.fromInt entry, ebp, 0w2 (* call *), cvec);
+            if regSet >= 0w256
+            then
+            (
+                gen8u(0wxca, cvec); (* This is actually a FAR RETURN *)
+                gen8u(wordToWord8 regSet (* Low byte*), cvec);
+                gen8u(wordToWord8 (regSet >> 0w8) (* High byte*), cvec)
+            )
+            else if regSet <> 0w0
+            then
+            (
+                gen8u(0wxcd, cvec); (* This is actually INT n *)
+                gen8u(wordToWord8 regSet, cvec)
+            )
+            else ()
         end
-    |   rtsCall(rtsEntry, reg::rest, cvec) =
-        (
-            genPushPop(PUSH_R, reg, cvec);
-            rtsCall(rtsEntry, rest, cvec);
-            genPushPop(POP_R, reg, cvec)
-        )
 
     (* Allocate store and put the resulting pointer in the result register. *)
     local
@@ -3402,6 +3412,22 @@ struct
             print (Word.fmt StringCvt.HEX (!ptr + Word.fromLargeInt valu))
         end
 
+        fun printMask mask =
+        let
+            val wordMask = Word.fromInt mask
+            fun printAReg n =
+                if n = regs then ()
+                else
+                (
+                    if (wordMask andb (0w1 << Word.fromInt n)) <> 0w0
+                    then (print(regRepr(regN n)); print " ")
+                    else ();
+                    printAReg(n+1)
+                )
+        in
+            printAReg 0
+        end
+
     in
 
         if procName = "" (* No name *) then print "?" else print procName;
@@ -3778,6 +3804,22 @@ struct
                     print ",";
                     print32 ()
                 )
+            
+            |   0wxca => (* Register mask *)
+                let
+                    val mask = get16s (!ptr, seg) before (ptr +:= 0w2)
+                in
+                    print "SAVE\t";
+                    printMask mask
+                end
+
+            |   0wxcd => (* Register mask *)
+                let
+                    val mask = get8s (!ptr, seg) before (ptr +:= 0w1)
+                in
+                    print "SAVE\t";
+                    printMask mask
+                end
 
             |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, sizeFromRexW)
 

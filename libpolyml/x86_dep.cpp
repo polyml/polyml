@@ -201,9 +201,10 @@ public:
     POLYUNSIGNED allocWords; // The words to allocate.
     Handle callBackResult;
     AssemblyArgs assemblyInterface;
+    int saveRegisterMask; // Registers that need to be updated by a GC.
 
     virtual void GarbageCollect(ScanAddress *process);
-    void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
+    void ScanStackAddress(ScanAddress *process, PolyWord *pt, StackSpace *stack);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
@@ -237,6 +238,7 @@ public:
 
     void SetMemRegisters();
     void SaveMemRegisters();
+    void SetRegisterMask();
 
     PLock interruptLock;
 
@@ -318,7 +320,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord c, PolyWord flags);
 }
 
-X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
+X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
@@ -335,34 +337,40 @@ void X86TaskData::GarbageCollect(ScanAddress *process)
     {
         // Now the values on the stack.
         for (PolyWord *q = assemblyInterface.stackPtr; q < stack->top; q++)
-            ScanStackAddress(process, *q, stack);
+            ScanStackAddress(process, q, stack);
+    }
+    // Register mask
+    for (int i = 0; i < 16; i++)
+    {
+        if (saveRegisterMask & (1 << i))
+            ScanStackAddress(process, get_reg(i), stack);
     }
 }
 
 // Process a value within the stack.
-void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack)
+void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord *pt, StackSpace *stack)
 {
     // We may have return addresses on the stack which could look like
     // tagged values.  Check whether the value is in the code area before
     // checking whether it is untagged.
     // The -1 here is because we may have a zero-sized cell in the last
     // word of a space.
-    MemSpace *space = gMem.SpaceForAddress(val.AsCodePtr()-1);
+    MemSpace *space = gMem.SpaceForAddress(pt->AsCodePtr()-1);
     if (space == 0) return;
     if (space->spaceType == ST_CODE)
     {
-        PolyObject *obj = gMem.FindCodeObject(val.AsCodePtr());
+        PolyObject *obj = gMem.FindCodeObject(pt->AsCodePtr());
         // If it is actually an integer it might be outside a valid code object.
         if (obj == 0)
         {
-            ASSERT(val.IsTagged()); // It must be an integer
+            ASSERT(pt->IsTagged()); // It must be an integer
         }
         else // Process the address of the start.  Don't update anything.
             process->ScanObjectAddress(obj);
     }
-    else if (space->spaceType == ST_LOCAL && val.IsDataPtr())
+    else if (space->spaceType == ST_LOCAL && pt->IsDataPtr())
         // Local values must be word addresses.
-        val = process->ScanObjectAddress(val.AsObjPtr());
+        *pt = process->ScanObjectAddress(pt->AsObjPtr());
 }
 
 
@@ -521,12 +529,14 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.
+            SetRegisterMask();
             this->HeapOverflowTrap(assemblyInterface.stackPtr[0].AsCodePtr()); // Computes a value for allocWords only
             break;
 
         case RETURN_STACK_OVERFLOW:
         case RETURN_STACK_OVERFLOWEX:
         {
+            SetRegisterMask();
             POLYUNSIGNED min_size;
             if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
             {
@@ -819,6 +829,26 @@ void X86TaskData::SaveMemRegisters()
     this->allocPointer = this->assemblyInterface.localMpointer - 1;
     this->allocWords = 0;
     this->assemblyInterface.exceptionPacket = TAGGED(0);
+    this->saveRegisterMask = 0;
+}
+
+// Called on a GC or stack overflow trap.  The register mask
+// is in the bytes after the trap call.
+void X86TaskData::SetRegisterMask()
+{
+    byte *pc = assemblyInterface.stackPtr[0].AsCodePtr();
+    if (*pc == 0xcd) // CD - INT n is used for a single byte
+    {
+        pc++;
+        saveRegisterMask = *pc++;
+    }
+    else if (*pc == 0xca) // CA - FAR RETURN is used for a two byte mask
+    {
+        pc++;
+        saveRegisterMask = pc[0] | (pc[1] << 8);
+        pc += 2;
+    }
+    assemblyInterface.stackPtr[0] = PolyWord::FromCodePtr(pc);
 }
 
 PolyWord *X86TaskData::get_reg(int n)
@@ -1049,12 +1079,13 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x78: case 0x79: case 0x7a: case 0x7b: case 0x7c: case 0x7d: case 0x7e: case 0x7f:
         case 0xeb:
             /* short jumps. */
-        case 0xcd: /* INT */
+        case 0xcd: /* INT - now used for a register mask */
         case 0xa8: /* TEST_ACC8 */
         case 0x6a: /* PUSH_8 */
             pt += 2; break;
 
         case 0xc2: /* RET_16 */
+        case 0xca: /* FAR RET 16 - used for a register mask */
             pt += 3; break;
 
         case 0x8d: /* leal. */
