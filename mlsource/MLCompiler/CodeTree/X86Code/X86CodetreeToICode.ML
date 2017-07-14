@@ -912,11 +912,11 @@ struct
                 val addLabel =
                     case skipExpLabel of
                         SOME lab =>
-                            LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord} ::
                             ForwardJumpLabel{label=lab, result=SOME handleResult} :: afterHandler
                     |   NONE => afterHandler
             in
-                (addLabel, RegisterArgument target, isTail)
+                (LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord} :: addLabel,
+                    RegisterArgument target, isTail)
             end
 
         |   codeToICodeRev(BICTuple fields, context, _, destination, tailCode) =
