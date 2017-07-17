@@ -25,7 +25,7 @@ sig
     }
     
     val getConflictStates:
-        (abstract x86ICode * int list) list * int -> (abstract x86ICode * int list) list * conflictState vector
+        {instr: abstract x86ICode, active:int list, current: int list} list * int -> conflictState vector
 
     structure Sharing:
     sig

@@ -27,7 +27,8 @@ sig
     }
     
     val identifyRegisters:
-        {icode: abstract x86ICode list, maxPRegs: int} -> (abstract x86ICode * int list) list * regState vector
+        {icode: abstract x86ICode list, maxPRegs: int} ->
+            {instr: abstract x86ICode, active:int list, current: int list} list * regState vector
 
     structure Sharing:
     sig

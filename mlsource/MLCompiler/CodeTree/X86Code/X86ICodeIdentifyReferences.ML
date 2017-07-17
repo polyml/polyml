@@ -294,7 +294,7 @@ struct
             val active = setToList(union(currentRegs, listToSet(dests @ sourcesPost)))
             val () = List.app(fn i => incrArray(regActive, i)) active
         in
-            ((instr, active) :: tail, refLabels, resLoopLabels, ccUsed, newActive, currentRegs)
+            ({instr=instr, active=active, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, ccUsed, newActive, currentRegs)
         end
 
         and addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, sources, dests) =
@@ -323,7 +323,7 @@ struct
                 val active = setToList currentRegs
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
-                ((instr, active) :: tail, refLabels, resLoopLabels, ccUsed, newActive)
+                ({instr=instr, active=active, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, ccUsed, newActive)
             end
             else (tail, refLabels, resLoopLabels, ccUsed, currentRegs)
         end
@@ -398,7 +398,7 @@ struct
                    The active set is just the arguments. *)
                 val sources = stackSources @ regSources
             in
-                ((instr, sources) :: tail, refLabels, resLoopLabels, CCIndeterminate, removePushed(listToSet sources))
+                ({instr=instr, active=sources, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, removePushed(listToSet sources))
             end
 
         |   identify((instr as TailRecursiveCall{regArgs, stackArgs, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -411,7 +411,7 @@ struct
                 val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
                 val active = stackSources @ regSources
             in
-                ((instr, active) :: tail, refLabels, resLoopLabels, CCIndeterminate, addSourcesToActive(active, emptySet))
+                ({instr=instr, active=active, current=setToList emptySet} :: tail, refLabels, resLoopLabels, CCIndeterminate, addSourcesToActive(active, emptySet))
             end
 
         |   identify((instr as AllocateMemoryOperation{size, flags, dest, saveRegs=_}) :: rest, labels, loopLabels, loopNest, _) =
@@ -423,7 +423,7 @@ struct
                 val allocInstr = AllocateMemoryOperation{size=size, flags=flags, dest=dest, saveRegs=saveRegs}
                 val newInstrs =
                     case instrs of
-                        (_, active) :: tail => (allocInstr, active) :: tail
+                        {active, current, ...} :: tail => {instr=allocInstr, active=active, current=current} :: tail
                     |   _ => raise Empty
             in
                 (newInstrs, refLabels, resLoopLabels, ccUsed, newActive)
@@ -444,7 +444,7 @@ struct
                     AllocateMemoryVariable{size=size, dest=dest, saveRegs=saveRegs}
                 val newInstrs =
                     case instrs of
-                        (_, active) :: tail => (allocInstr, active) :: tail
+                        {active, current, ...} :: tail => {instr=allocInstr, active=active, current=current} :: tail
                     |   _ => raise Empty
             in
                 (newInstrs, refLabels, resLoopLabels, ccUsed, newActive)
@@ -482,7 +482,8 @@ struct
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
                 (* Add the loop entries to the result this.  They can then be added during the next pass. *)
-                ((instr, active) :: tail, refLabels, (loopLabel, currentRegs) :: resLoopLabels, CCIndeterminate, currentRegs)
+                ({instr=instr, active=active, current=setToList currentRegs} :: tail, refLabels,
+                        (loopLabel, currentRegs) :: resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify(EndLoop{loopLabel, ...} :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -492,10 +493,6 @@ struct
                 val removedLabel = tl loopNest
                 val (tail, refLabels, resLoopLabels, _, newActive) =
                     identify(rest, labels, loopLabels, removedLabel, ccIn)
-                (* Establish the conflict between the registers in the current set if necessary.
-                   This avoids the need to do it on each JumpLoop.
-                   The loop labels have to include ALL the registers in the nested
-                   loops. *)
                 val loopRegs = mergedLoopRegs(loopLabels, loopNest)
                 (* We have to pass these to the next stage.  They are treated as part of the active
                    set in each JumpLoop.  We assume that when we come to allocate real registers
@@ -504,7 +501,9 @@ struct
                    new registers we allocate will be correctly found as conflicts. *)
                 val staticRegs = List.map (fn r => PReg(r, PRegGeneral)) (setToList loopRegs)
             in
-                ((EndLoop{loopLabel=loopLabel, staticRegs=staticRegs}, setToList newActive) :: tail, refLabels, resLoopLabels, CCIndeterminate, newActive)
+                (* We set the current to the loopRegs since we need that for the conflict sets. *)
+                ({instr=EndLoop{loopLabel=loopLabel, staticRegs=staticRegs}, active=setToList newActive, current=setToList loopRegs} :: tail,
+                        refLabels, resLoopLabels, CCIndeterminate, newActive)
             end
 
         |   identify(JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust} :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -535,7 +534,7 @@ struct
                 val jumpInstr =
                     JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust, checkInterrupt=check}
             in
-                ((jumpInstr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
+                ({instr=jumpInstr, active=[], current=setToList currentRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify((instr as RaiseExceptionPacket{packet}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -543,9 +542,9 @@ struct
                 val sReg = sourceRegs packet
                 (* This is an unconditional exit.  The only active register is
                    the exception packet. *)
-                val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
+                val (tail, refLabels, resLoopLabels, _, currentRegs) = identify(rest, labels, loopLabels, loopNest, ccIn)
             in
-                ((instr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, removePushed(listToSet sReg))
+                ({instr=instr, active=[], current=setToList currentRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, removePushed(listToSet sReg))
             end
 
         |   identify((instr as ReserveContainer{address, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -577,7 +576,7 @@ struct
                 val activeForInstr = setToList(union(currentRegs, listToSet [destReg workReg, tReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) activeForInstr
             in
-                ((instr, activeForInstr) :: tail, newRefLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                ({instr=instr, active=activeForInstr, current=setToList currentRegs} :: tail, newRefLabels, resLoopLabels, CCIndeterminate, newNewActive)
             end
 
         |   identify((instr as LockMutable{addr}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -612,7 +611,8 @@ struct
                             |   SOME(r as PReg(n, _)) => if Array.sub(regRefs, n) > 0 then SOME r else NONE 
                         val newInstr = ForwardJumpLabel{label=label, result=newResult}
                     in
-                        ((newInstr, setToList newActive) :: tail, (label, newActive)::refLabels, resLoopLabels, CCIndeterminate, newActive)
+                        ({instr=newInstr, active=setToList newActive, current=setToList newActive} :: tail,
+                                (label, newActive)::refLabels, resLoopLabels, CCIndeterminate, newActive)
                     end
             end
 
@@ -625,7 +625,7 @@ struct
                    that are going to be used in the code after the label. *)
                 val (currentRegs, newRefLabels) = findLabel(refLabels, label)
             in
-                ((instr, []) :: tail, newRefLabels, resLoopLabels, CCIndeterminate, removePushed currentRegs)
+                ({instr=instr, active=[], current=setToList currentRegs} :: tail, newRefLabels, resLoopLabels, CCIndeterminate, removePushed currentRegs)
             end
 
         |   identify((instr as ConditionalForwardJump{label, ccRef, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -649,7 +649,7 @@ struct
                 val activeSet = setToList newActive
                 val () = List.app(fn i => incrArray(regActive, i)) activeSet
             in
-                ((instr, activeSet) :: tail,
+                ({instr=instr, active=activeSet, current=setToList currentRegs} :: tail,
                     (* If the label was already in use when we came here leave the
                        result label in the list. *)
                     if isSome oldLabel then refLabels else newRefLabels, resLoopLabels, CCState ccRef, currentRegs)
@@ -672,7 +672,7 @@ struct
                 val activeSet = setToList newActive
                 val () = List.app(fn i => incrArray(regActive, i)) activeSet
             in
-                ((instr, activeSet) :: tail, newRefLabels, resLoopLabels, CCIndeterminate, currentRegs)
+                ({instr=instr, active=activeSet, current=setToList currentRegs} :: tail, newRefLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end
 
         |   identify((PopExceptionHandler{ resultReg, workReg}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -689,7 +689,7 @@ struct
                 val active = setToList(union(currentRegs, listToSet[destReg workReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
-                ((newInstr, active) :: tail, refLabels, resLoopLabels, ccUsed, currentRegs)
+                ({instr=newInstr, active=active, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, ccUsed, currentRegs)
             end
 
         |   identify((instr as BeginHandler{handleStart, workReg=_, packetReg}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -711,7 +711,8 @@ struct
                 val active = setToList(union(currentRegs, listToSet [dReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
-                ((instr, active) :: tail, (handleStart, newNewActive)::refLabels, resLoopLabels, CCIndeterminate, newNewActive)
+                ({instr=instr, active=active, current=setToList currentRegs} :: tail,
+                    (handleStart, newNewActive)::refLabels, resLoopLabels, CCIndeterminate, newNewActive)
             end
 
         |   identify((instr as ReturnResultFromFunction{resultReg, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
@@ -719,9 +720,9 @@ struct
                 val sRegs = [sourceReg resultReg] (* Should only ever be one. *)
                 (* This is an unconditional exit.  The only active register is
                    the result. *)
-                val (tail, refLabels, resLoopLabels, _, _) = identify(rest, labels, loopLabels, loopNest, ccIn)
+                val (tail, refLabels, resLoopLabels, _, currentRegs) = identify(rest, labels, loopLabels, loopNest, ccIn)
             in
-                ((instr, []) :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet sRegs)
+                ({instr=instr, active=[destReg resultReg], current=setToList currentRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, listToSet sRegs)
             end
 
         |   identify((instr as ArithmeticFunction{oper=SUB, resultReg, operand1, operand2, ccRef, ...}) :: rest, labels, loopLabels, loopNest, _) =
@@ -819,7 +820,7 @@ struct
                     val active = setToList(union(currentRegs, listToSet(dests @ sources)))
                     val () = List.app(fn i => incrArray(regActive, i)) active
                 in
-                    ((boxInstr, active) :: tail, refLabels, resLoopLabels, ccUsed, newActive)
+                    ({instr=boxInstr, active=active, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, ccUsed, newActive)
                 end
                 else (tail, refLabels, resLoopLabels, ccUsed, currentRegs)
             end
@@ -855,7 +856,7 @@ struct
                 val active = setToList(union(currentRegs, listToSet[dReg]))
                 val () = List.app(fn i => incrArray(regActive, i)) active
             in
-                ((instr, active) :: tail, refLabels, resLoopLabels, CCState ccRef, removeDest(dReg, currentRegs))
+                ({instr=instr, active=active, current=setToList currentRegs} :: tail, refLabels, resLoopLabels, CCState ccRef, removeDest(dReg, currentRegs))
             end
 
         |   identify((instr as X87FPArith{resultReg, arg1, arg2, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
