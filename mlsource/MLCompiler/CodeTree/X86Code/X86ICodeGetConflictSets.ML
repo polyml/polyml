@@ -15,10 +15,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-functor X86ICodeIdentifyReferences(
+functor X86ICodeGetConflictSets(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
-): X86IDENTIFYREFSSIG =
+): X86GETCONFLICTSETSIG =
 struct
     open ICODE
     
@@ -998,27 +998,36 @@ struct
                     pushState = Array.sub(regPushState, i)
                 }
             )
-     in
-        (decorated, resultLoop, registerState)
+        
+        val conflictState: conflictState vector =
+            Vector.tabulate(maxPRegs,
+                fn i => {
+                    conflicts = setToList(Array.sub(regConflicts, i)),
+                    realConflicts = Array.sub(regRealConflicts, i)
+                }
+            )
+    in
+        (decorated, resultLoop, registerState, conflictState)
     end
 
-    fun identifyRegisters { icode, maxPRegs} =
-        (* Process the list once.  If we have one or more loops in it we have to
-           reprocess it with the loop information we found in the first pass. *)
+    fun getConflictStates(codeAndActivity, maxPRegs) =
+    let
+        val icode = List.map #1 codeAndActivity
+    in
         case identifyRegisterState(icode, [], maxPRegs) of
-            (codePass1, [], regState1) => (codePass1, regState1)
-        |   (_, loopLabels, _) =>
+            (codePass1, [], _, conflicts1) => (codePass1, conflicts1)
+        |   (_, loopLabels, _, _) =>
             let
-                val (codePass2, _, regState2) = identifyRegisterState(icode, loopLabels, maxPRegs)
+                val (codePass2, _, _, conflicts2) = identifyRegisterState(icode, loopLabels, maxPRegs)
             in
-                (codePass2, regState2)
+                (codePass2, conflicts2)
             end
+    end
 
     structure Sharing =
     struct
         type 'reg x86ICode = 'reg x86ICode
         and reg = reg
-        and pushState = pushState
         and abstract = abstract
     end
 end;

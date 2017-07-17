@@ -19,6 +19,7 @@ functor X86ICodeTransform(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
+    structure CONFLICTSETS: X86GETCONFLICTSETSIG
     structure PRETTY: PRETTYSIG
     structure STRONGLY:
         sig
@@ -26,13 +27,14 @@ functor X86ICodeTransform(
             val stronglyConnectedComponents: node list -> node list list
         end
         where type node = {src: ICODE.reg ICODE.argument, dst: ICODE.destinations}
-    sharing ICODE.Sharing = IDENTIFY.Sharing
+    sharing ICODE.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing
 ) : X86ICODETRANSFORMSIG
 =
 struct
     open ICODE
     open Address
     open IDENTIFY
+    open CONFLICTSETS
     
     exception InternalError = Misc.InternalError
 

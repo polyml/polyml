@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-17 David C.J. Matthews
+    Copyright (c) 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,25 +15,22 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86IDENTIFYREFSSIG =
+signature X86GETCONFLICTSETSIG =
 sig
     type 'reg x86ICode and reg and abstract
-
-    datatype pushState = MustPush | MustNotPush | MayPush
-
-    type regState =
-    { 
-        active: int, defs: int, refs: int, pushState: pushState
+    
+    type conflictState =
+    {
+        conflicts: int list, realConflicts: reg list
     }
     
-    val identifyRegisters:
-        {icode: abstract x86ICode list, maxPRegs: int} -> (abstract x86ICode * int list) list * regState vector
+    val getConflictStates:
+        (abstract x86ICode * int list) list * int -> (abstract x86ICode * int list) list * conflictState vector
 
     structure Sharing:
     sig
         type 'reg x86ICode = 'reg x86ICode
         and reg = reg
-        and pushState = pushState
         and abstract = abstract
     end;
 end;

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2015-16
+    Copyright David C. J. Matthews 2015-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,9 +41,15 @@ local
             structure X86CODE       = X86OutputCode
             structure X86OPTIMISE   = X86Optimise
         )
-        
+
     structure X86ICodeIdentify =
         X86ICodeIdentifyReferences (
+            structure DEBUG         = Debug
+            structure ICODE         = X86ICode
+        )
+
+    structure X86ICodeConflicts =
+        X86ICodeGetConflictSets (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
         )
@@ -72,6 +78,7 @@ local
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
+            structure CONFLICTSETS  = X86ICodeConflicts
             structure PRETTY        = Pretty
             structure STRONGLY      = Strongly
         )
