@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2187,8 +2187,26 @@ struct
     let
         val icodeTabs = [8, 20, 60]
         
-        fun printCodeAndStates(identifiedCode, regStates) =
+        fun printCode identifiedCode =
             (* Print the code before the transformation. *)
+            if DEBUG.getParameter DEBUG.icodeTag debugSwitches
+            then
+            let
+                val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+
+                fun printCode (c, _) =
+                (
+                    printICodeAbstract(c, printStream);
+                    printStream "\n"
+                )
+            in
+                printStream(functionName ^ "\n");
+                List.app printCode identifiedCode;
+                printStream "\n"
+            end
+            else ()
+        
+        fun printConflicts(regStates: conflictState vector) =
             if DEBUG.getParameter DEBUG.icodeTag debugSwitches
             then
             let
@@ -2198,37 +2216,23 @@ struct
                 |   printRegs(_, 0) = printStream "..."
                 |   printRegs([i], _) = printStream(Int.toString i)
                 |   printRegs(i::l, n) = (printStream(Int.toString i ^ ","); printRegs(l, n-1))
-
-                fun printCode (c, _) =
-                (
-                    printICodeAbstract(c, printStream);
-                    printStream "\n"
-                )
                 
-                fun printRegData(i, { conflicts, defs, refs, pushState, ... }) =
+                fun printRegData(i, { conflicts, ... }) =
                 (
                     printStream (Int.toString i ^ "\t");
                     printStream ("Conflicts="); printRegs(conflicts, 20);
-                    printStream (" Rfs=" ^ Int.toString refs);
-                    printStream (" Defs=" ^ Int.toString defs);
-                    case pushState of
-                        MustPush => printStream " Must push" | MustNotPush => printStream " No push" | MayPush => ();
                     printStream "\n"
                 )
             in
-                printStream(functionName ^ "\n");
-                List.app printCode identifiedCode;
-                printStream "\n";
                 Vector.appi printRegData regStates
             end
-            else ()
+            else ()            
 
         fun processCode(icode, maxPRegs, maxLabels, maxStack, passes) =
         let
-            val () = printCodeAndStates(List.map (fn i => (i, [])) icode, Vector.fromList[])
+            val () = printCode(List.map (fn i => (i, [])) icode)
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters {icode=icode, maxPRegs=maxPRegs}
-            val () = printCodeAndStates(identified, regStates)
             val regsToSpill = spillRegisters(identified, regStates, maxPRegs)
             val needPhase2 = Vector.exists(fn t => t) regsToSpill
         in
@@ -2265,8 +2269,12 @@ struct
                 in
                     Vector.tabulate(maxPRegs, fn i => i = choice)
                 end
+                (* Now get the conflict sets. *)
+                val (postConflict, conflictSets) = getConflictStates(identified, maxPRegs)
+                val () = printCode postConflict
+                val () = printConflicts conflictSets
             in
-                (codeAbstractToConcrete(identified, regStates, maxPRegs), maxLabels, maxStack)
+                (codeAbstractToConcrete(postConflict, conflictSets, maxPRegs), maxLabels, maxStack)
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet

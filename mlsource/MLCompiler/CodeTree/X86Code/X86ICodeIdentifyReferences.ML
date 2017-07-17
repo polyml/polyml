@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,7 +26,11 @@ struct
 
     type regState =
     { 
-        active: int, defs: int, refs: int, pushState: pushState,
+        active: int, defs: int, refs: int, pushState: pushState
+    }
+
+    type conflictState =
+    {
         conflicts: int list, realConflicts: reg list
     }
     
@@ -991,26 +995,46 @@ struct
                     active = Array.sub(regActive, i),
                     defs = Array.sub(regDefs, i),
                     refs = Array.sub(regRefs, i),
-                    pushState = Array.sub(regPushState, i),
+                    pushState = Array.sub(regPushState, i)
+                }
+            )
+        
+        val conflictState: conflictState vector =
+            Vector.tabulate(maxPRegs,
+                fn i => {
                     conflicts = setToList(Array.sub(regConflicts, i)),
                     realConflicts = Array.sub(regRealConflicts, i)
                 }
             )
     in
-        (decorated, resultLoop, registerState)
+        (decorated, resultLoop, registerState, conflictState)
     end
 
     fun identifyRegisters { icode, maxPRegs} =
         (* Process the list once.  If we have one or more loops in it we have to
            reprocess it with the loop information we found in the first pass. *)
         case identifyRegisterState(icode, [], maxPRegs) of
-            (codePass1, [], regState1) => (codePass1, regState1)
-        |   (_, loopLabels, _) =>
+            (codePass1, [], regState1, _) => (codePass1, regState1)
+        |   (_, loopLabels, _, _) =>
             let
-                val (codePass2, _, regState2) = identifyRegisterState(icode, loopLabels, maxPRegs)
+                val (codePass2, _, regState2, _) = identifyRegisterState(icode, loopLabels, maxPRegs)
             in
                 (codePass2, regState2)
             end
+
+    fun getConflictStates(codeAndActivity, maxPRegs) =
+    let
+        val icode = List.map #1 codeAndActivity
+    in
+        case identifyRegisterState(icode, [], maxPRegs) of
+            (codePass1, [], _, conflicts1) => (codePass1, conflicts1)
+        |   (_, loopLabels, _, _) =>
+            let
+                val (codePass2, _, _, conflicts2) = identifyRegisterState(icode, loopLabels, maxPRegs)
+            in
+                (codePass2, conflicts2)
+            end
+    end
 
     structure Sharing =
     struct

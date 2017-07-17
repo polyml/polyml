@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,12 +23,19 @@ sig
 
     type regState =
     { 
-        active: int, defs: int, refs: int, pushState: pushState,
-        conflicts: int list, realConflicts: reg list
+        active: int, defs: int, refs: int, pushState: pushState
     }
     
     val identifyRegisters:
         {icode: abstract x86ICode list, maxPRegs: int} -> (abstract x86ICode * int list) list * regState vector
+    
+    type conflictState =
+    {
+        conflicts: int list, realConflicts: reg list
+    }
+    
+    val getConflictStates:
+        (abstract x86ICode * int list) list * int -> (abstract x86ICode * int list) list * conflictState vector
 
     structure Sharing:
     sig
