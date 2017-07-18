@@ -18,9 +18,11 @@
 functor X86ICodeIdentifyReferences(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
+    structure INTSET: INTSETSIG
 ): X86IDENTIFYREFSSIG =
 struct
     open ICODE
+    open INTSET
     
     datatype pushState = MustPush | MustNotPush | MayPush
 
@@ -35,89 +37,7 @@ struct
     }
     
     exception InternalError = Misc.InternalError
-    
-    (* Register sets implemented as ordered lists.  These are in
-       ascending order because they are used for conflict sets.
-       Registers are added to the conflict set as we work back.
-       A register that has a long lifetime may have many conflicts and the
-       list may get long but typically items will be added to the list
-       with numbers that decrease.  N.B.  The size of the conflict set
-       does not affect whether a register needs to be spilled. *)
-    abstype intSet = IntSet of int list
-    with
-        val emptySet = IntSet []
-        
-        fun setToList(IntSet s) = s
-        
-        local
-            fun addItem(i, []) = [i]
-            |   addItem(i, hd::tl) =
-                    if i = hd then hd :: tl
-                    else if i < hd then i :: hd :: tl
-                    else hd :: addItem(i, tl)
-        in
-            fun addToList(items, IntSet toSet) = IntSet(List.foldl(fn (d, l) => addItem(d, l)) toSet items)
-            
-            fun listToSet items = addToList(items, IntSet [])
-        end
-        
-        local
-            fun removeItem(_, []) = []
-            |   removeItem(item, hd :: tl) = if item = hd then tl else hd :: removeItem(item, tl)
-        in
-            fun removeFromSet(item, IntSet fromSet) = IntSet(removeItem(item, fromSet))
-        end
-        
-        local
-            (* If the lists are already sorted we can merge them.
-               This is an allocation hot-spot.  Avoid recreating the list if possible. *)
-            fun mergeLists(listA as a::tlA, listB as b::tlB) =
-                if a = b
-                then
-                let
-                    val (tail, tailEq) = mergeLists(tlA, tlB)
-                in
-                    if PolyML.pointerEq(tlA, tail)
-                    then (listA, tailEq)
-                    else if PolyML.pointerEq(tlB, tail)
-                    then (listB, tailEq)
-                    else (a :: tail, false)
-                end
-                else if a < b
-                then
-                let
-                    val (tail, tailEq) = mergeLists(tlA, listB)
-                in
-                    if PolyML.pointerEq(tail, tlA) orelse tailEq
-                    then (listA, false)
-                    else (a :: tail, false)
-                end
-                else
-                let
-                    val (tail, tailEq) = mergeLists(listA, tlB)
-                in
-                    if PolyML.pointerEq(tail, tlB) orelse tailEq
-                    then (listB, false)
-                    else (b :: tail, false)
-                end
-            |   mergeLists([], []) = ([], true)
-            |   mergeLists([], b) = (b, false)
-            |   mergeLists(a, []) = (a, false)
-            
-        in
-            fun union(IntSet setA, IntSet setB) =
-            let
-                val (result, _) = mergeLists(setA, setB)
-            in
-                IntSet result
-            end
-        end
-        
-        fun cardinality(IntSet l) = List.length l
-        
-        fun filterSet f (IntSet l) = IntSet(List.filter f l)
-    end
-    
+     
     (* This function scans the Icode to identify the usage patterns of the pseudo-registers.
        It scans forward building up a list of the registers that have been defined then
        scans backwards building up a list of references.  A register is then "live" if
@@ -226,7 +146,7 @@ struct
         let
             (* If we must push this we don't need to include them since they can't conflict. *)
             val filtered = List.filter(fn i => Array.sub(regPushState, i) <> MustPush) sources
-            val newSet = addToList(filtered, existing)
+            val newSet = union(listToSet filtered, existing)
 
             (* If we have too many registers in the active set we select one or
                more to push to the stack.  We can then reduce the size of the

@@ -46,12 +46,14 @@ local
         X86ICodeIdentifyReferences (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
+            structure INTSET        = IntSet
         )
 
     structure X86ICodeConflicts =
         X86ICodeGetConflictSets (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
+            structure INTSET        = IntSet
         )
         
     structure Strongly =

@@ -119,6 +119,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\GENCODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ICodeSig.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\IntSet.sml" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\INTSETSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToICode.ML" />

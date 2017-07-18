@@ -59,6 +59,8 @@ use "mlsource/MLCompiler/CodeTree/X86Code/ICodeSig.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICODETRANSFORMSIG.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86IDENTIFYREFSSIG.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86GETCONFLICTSETSIG.ML";
+use "mlsource/MLCompiler/CodeTree/X86Code/INTSETSIG.sml";
+use "mlsource/MLCompiler/CodeTree/X86Code/IntSet.sml";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeToX86Code.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeTransform.ML";
 use "mlsource/MLCompiler/CodeTree/X86Code/X86ICodeIdentifyReferences.ML";

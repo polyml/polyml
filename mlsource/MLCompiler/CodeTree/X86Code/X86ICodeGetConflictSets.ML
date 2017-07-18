@@ -18,9 +18,11 @@
 functor X86ICodeGetConflictSets(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
+    structure INTSET: INTSETSIG
 ): X86GETCONFLICTSETSIG =
 struct
     open ICODE
+    open INTSET
 
     type conflictState =
     {
@@ -28,80 +30,6 @@ struct
     }
     
     exception InternalError = Misc.InternalError
-    
-    (* Register sets implemented as ordered lists. *)
-    abstype intSet = IntSet of int list
-    with
-        val emptySet = IntSet []
-        
-        fun setToList(IntSet s) = s
-        
-        local
-            fun addItem(i, []) = [i]
-            |   addItem(i, hd::tl) =
-                    if i = hd then hd :: tl
-                    else if i < hd then i :: hd :: tl
-                    else hd :: addItem(i, tl)
-        in
-            (* Turn a list into a set.  The "current" list have come from sets and so are already
-               ordered.  Process in reverse order to maintain the ordering.*)
-            fun addToList(items, IntSet toSet) = IntSet(List.foldr(fn (d, l) => addItem(d, l)) toSet items)
-            
-            fun listToSet items = addToList(items, IntSet [])
-        end
-        
-        local
-            fun removeItem(_, []) = []
-            |   removeItem(item, hd :: tl) = if item = hd then tl else hd :: removeItem(item, tl)
-        in
-            fun removeFromSet(item, IntSet fromSet) = IntSet(removeItem(item, fromSet))
-        end
-        
-        local
-            (* If the lists are already sorted we can merge them.
-               This is an allocation hot-spot.  Avoid recreating the list if possible. *)
-            fun mergeLists(listA as a::tlA, listB as b::tlB) =
-                if a = b
-                then
-                let
-                    val (tail, tailEq) = mergeLists(tlA, tlB)
-                in
-                    if PolyML.pointerEq(tlA, tail)
-                    then (listA, tailEq)
-                    else if PolyML.pointerEq(tlB, tail)
-                    then (listB, tailEq)
-                    else (a :: tail, false)
-                end
-                else if a < b
-                then
-                let
-                    val (tail, tailEq) = mergeLists(tlA, listB)
-                in
-                    if PolyML.pointerEq(tail, tlA) orelse tailEq
-                    then (listA, false)
-                    else (a :: tail, false)
-                end
-                else
-                let
-                    val (tail, tailEq) = mergeLists(listA, tlB)
-                in
-                    if PolyML.pointerEq(tail, tlB) orelse tailEq
-                    then (listB, false)
-                    else (b :: tail, false)
-                end
-            |   mergeLists([], []) = ([], true)
-            |   mergeLists([], b) = (b, false)
-            |   mergeLists(a, []) = (a, false)
-            
-        in
-            fun union(IntSet setA, IntSet setB) =
-            let
-                val (result, _) = mergeLists(setA, setB)
-            in
-                IntSet result
-            end
-        end
-    end
     
     (* Get the conflict sets.  This code was originally part of identifyRegisterState and
        was split off. *)
