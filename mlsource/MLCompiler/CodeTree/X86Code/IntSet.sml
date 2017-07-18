@@ -32,9 +32,8 @@ struct
                 else if i < hd then i :: hd :: tl
                 else hd :: addItem(i, tl)
     in
-        (* Add an item to the list.  Sometimes the list is actually from a set so is already
-           ordered.  In that case it is preferable to add them in reverse order. *)
-        fun addToList(items, IntSet toSet) = IntSet(List.foldr(fn (d, l) => addItem(d, l)) toSet items)
+        (* Add an item to the list.  It seems to be better to add in order rather than reverse order. *)
+        fun addToList(items, IntSet toSet) = IntSet(List.foldl(fn (d, l) => addItem(d, l)) toSet items)
         
         fun listToSet items = addToList(items, IntSet [])
     end

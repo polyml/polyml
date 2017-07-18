@@ -83,6 +83,7 @@ local
             structure CONFLICTSETS  = X86ICodeConflicts
             structure PRETTY        = Pretty
             structure STRONGLY      = Strongly
+            structure INTSET        = IntSet
         )
 in
 

@@ -20,6 +20,8 @@ sig
     type 'reg x86ICode and reg and abstract
 
     datatype pushState = MustPush | MustNotPush | MayPush
+    
+    type intSet
 
     type regState =
     { 
@@ -28,7 +30,7 @@ sig
     
     val identifyRegisters:
         {icode: abstract x86ICode list, maxPRegs: int} ->
-            {instr: abstract x86ICode, active:int list, current: int list} list * regState vector
+            {instr: abstract x86ICode, active: intSet, current: intSet} list * regState vector
 
     structure Sharing:
     sig
@@ -36,5 +38,6 @@ sig
         and reg = reg
         and pushState = pushState
         and abstract = abstract
+        and intSet = intSet
     end;
 end;

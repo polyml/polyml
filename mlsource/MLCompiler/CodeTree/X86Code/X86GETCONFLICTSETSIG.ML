@@ -19,18 +19,21 @@ signature X86GETCONFLICTSETSIG =
 sig
     type 'reg x86ICode and reg and abstract
     
+    type intSet
+    
     type conflictState =
     {
-        conflicts: int list, realConflicts: reg list
+        conflicts: intSet, realConflicts: reg list
     }
     
     val getConflictStates:
-        {instr: abstract x86ICode, active:int list, current: int list} list * int -> conflictState vector
+        {instr: abstract x86ICode, active: intSet, current: intSet} list * int -> conflictState vector
 
     structure Sharing:
     sig
         type 'reg x86ICode = 'reg x86ICode
         and reg = reg
         and abstract = abstract
+        and intSet = intSet
     end;
 end;

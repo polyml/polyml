@@ -27,7 +27,8 @@ functor X86ICodeTransform(
             val stronglyConnectedComponents: node list -> node list list
         end
         where type node = {src: ICODE.reg ICODE.argument, dst: ICODE.destinations}
-    sharing ICODE.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing
+    structure INTSET: INTSETSIG
+    sharing ICODE.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing = INTSET
 ) : X86ICODETRANSFORMSIG
 =
 struct
@@ -35,6 +36,7 @@ struct
     open Address
     open IDENTIFY
     open CONFLICTSETS
+    open INTSET
     
     exception InternalError = Misc.InternalError
 
@@ -59,7 +61,7 @@ struct
     fun wordOffsetAddress(offset, baseReg) =
         MemoryLocation{offset=offset*wordSize, base=(GenReg baseReg), index=NoMemIndex}
 
-    fun addRegisterPushes(code: {instr: abstract x86ICode, active:int list, current: int list} list, pushVec: bool vector, maxPRegs, maxLabels) =
+    fun addRegisterPushes(code: {instr: abstract x86ICode, active:intSet, current: intSet} list, pushVec: bool vector, maxPRegs, maxLabels) =
     let
         val labelCounter = ref maxLabels
         val pregCounter = ref 0
@@ -266,7 +268,7 @@ struct
         
         (* Rewrite the code, replacing any registers that need to be pushed with references to
            the stack.  The result is built up in reverse order and then reversed. *)
-        fun pushRegisters([]: {instr: abstract x86ICode, active:int list, current: int list} list, code: abstract x86ICode list, _: context) = code
+        fun pushRegisters([]: {instr: abstract x86ICode, active:intSet, current: intSet} list, code: abstract x86ICode list, _: context) = code
         
         |   pushRegisters({instr=LoadArgument{source, dest=PReg(dReg, dKind), kind}, ...} :: rest, code, context as {stack, oldCount, newCount}) =
             let
@@ -934,10 +936,10 @@ struct
         (resultCode, !pregCounter, !labelCounter, !maxStack)
     end
 
-    exception RegisterOverflow of int list
+    exception RegisterOverflow of intSet
 
     fun codeAbstractToConcrete(identifiedCode:
-            {instr: abstract x86ICode, active:int list, current: int list} list, regStates, maxPRegs) =
+            {instr: abstract x86ICode, active:intSet, current: intSet} list, regStates: conflictState vector, maxPRegs) =
     let
         (* Allocated registers.  This is set to the real register that is used
            for a specific pseudo-register.  Once a register is allocated that
@@ -971,7 +973,7 @@ struct
             val {conflicts, ...} = Vector.sub(regStates, src)
         in
             (* If they conflict we can't add them. *)
-            if List.exists(fn i => i=dst) conflicts
+            if member(dst, conflicts)
             then ()
             else
             let
@@ -1001,7 +1003,7 @@ struct
                     val {conflicts, realConflicts, ...} = Vector.sub(regStates, r)
                     (* Find the registers we've already allocated that may conflict. *)
                     val conflictingRegs =
-                        List.mapPartial(fn i => Array.sub(allocatedRegs, i)) conflicts @
+                        List.mapPartial(fn i => Array.sub(allocatedRegs, i)) (setToList conflicts) @
                             realConflicts
 
                     fun isFree aReg = not (List.exists(fn i => i=aReg) conflictingRegs)
@@ -1036,8 +1038,7 @@ struct
                                     (* Add the destinations of the destinations to the list
                                        if they don't conflict and haven't been seen. *)
                                     fun newFriend f =
-                                        not(List.exists (fn n => n=f) alreadySeen) andalso
-                                            not(List.exists (fn n => n=f) conflicts)
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
                                     val fOfF = List.filter newFriend (Array.sub(destinationRegs, aDest))
                                 in
                                     findAFriend(otherDests @ fOfF, sources, aDest :: alreadySeen)
@@ -1058,8 +1059,7 @@ struct
                                     (* Add the sources of the sources to the list
                                        if they don't conflict and haven't been seen. *)
                                     fun newFriend f =
-                                        not(List.exists (fn n => n=f) alreadySeen) andalso
-                                            not(List.exists (fn n => n=f) conflicts)
+                                        not(List.exists (fn n => n=f) alreadySeen) andalso not(member(f, conflicts))
                                     val fOfF = List.filter newFriend (Array.sub(sourceRegs, aSrc))
                                 in
                                     findAFriend([], otherSrcs @ fOfF, aSrc :: alreadySeen)
@@ -1285,7 +1285,7 @@ struct
                             val workReg =
                                 case getWorkRegister(reserved, cycle) of
                                     SOME workReg => workReg
-                                |   _ => raise RegisterOverflow []  (* Force an extra register spill here. *)
+                                |   _ => raise RegisterOverflow emptySet  (* Force an extra register spill here. *)
                             (* Replace any reference to the source by the new register. *)
                             val replace = RegisterArgument workReg
                             fun swapSources{src, dst} =
@@ -2116,7 +2116,7 @@ struct
         codeExtended(identifiedCode, [])
     end
     
-    fun spillRegisters(instrsAndActive, regStates: regState vector, maxPRegs) =
+    fun spillRegisters(instrsAndActive : {instr: abstract x86ICode, active: intSet, current: intSet} list, regStates: regState vector, maxPRegs) =
     let
         val pushArray = Array.array(maxPRegs, false)
         (* Mark anything already marked as "must push" *)
@@ -2128,7 +2128,7 @@ struct
             List.foldl (fn (r, l) => if Array.sub(pushArray, r) then l else r :: l) [] regs
         fun getSets({active, ...}, l) =
         let
-            val set = nowActive active
+            val set = nowActive(setToList active)
         in
             if List.length set > nGenRegs
             then set :: l
@@ -2224,7 +2224,7 @@ struct
                 fun printRegData(i, { conflicts, ... }) =
                 (
                     printStream (Int.toString i ^ "\t");
-                    printStream ("Conflicts="); printRegs(conflicts, 20);
+                    printStream ("Conflicts="); printRegs(setToList conflicts, 20);
                     printStream "\n"
                 )
             in
@@ -2271,7 +2271,7 @@ struct
                                 then chooseReg(regs, reg, active)
                                 else chooseReg(regs, bestReg, bestCost)
                         end
-                    val choice = chooseReg(active, ~1, 0)
+                    val choice = chooseReg(setToList active, ~1, 0)
                     val _ = choice >= 0 orelse raise InternalError "chooseReg"
                 in
                     Vector.tabulate(maxPRegs, fn i => i = choice)
