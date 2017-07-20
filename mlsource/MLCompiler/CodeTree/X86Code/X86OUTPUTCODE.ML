@@ -2828,19 +2828,24 @@ struct
                 cgOp remainder
             )
 
-        |   cgOp(UncondBranch(Labels{forward, reverse=ref reverse, ...}) :: remainder) =
-            (
+        |   cgOp(UncondBranch(Labels{forward, reverse, ...}) :: remainder) =
+            let
+                val Code {justComeFromAddrs, ...} = code
+            in
                 (* This may be a forward jump, in which case we don't have the destination and
                    can just record it, or it may be a backward jump in which case we already
                    have the destination. *)
-                if reverse = addrUnsetLabel (* Destination is after this. *)
+                if !reverse = addrUnsetLabel (* Destination is after this. *) andalso
+                    (* Also consider the possibility that we have an infinite loop.  This shouldn't
+                       happen because we'll always have a stack check. *)
+                    not (List.exists(fn l => l = reverse) (!justComeFromAddrs))
                 then forward := unconditionalBranch code @ ! forward
                 else 
                 let
                     (* Do any pending instructions before calculating the offset, just
                        in case we put in some instructions first. *)
                     val () = doPending (code, maxInstrSize)
-                    val offset  = reverse addrMinus (!ic); (* Negative *)
+                    val offset  = !reverse addrMinus !ic (* Negative *)
                     val offset2 = offset - 2;
                 in
                     if is8Bit offset2
@@ -2848,7 +2853,7 @@ struct
                     else ( genop  (JMP_32, NONE, code); gen32s (LargeInt.fromInt(offset - 5), code) )
                 end;
                 cgOp remainder
-            )
+            end
 
         |   cgOp(ResetStack count1 :: ResetStack count2 :: remainder) =
                 (* Combine adjacent resets. *)
