@@ -113,7 +113,7 @@ struct
     |   Jump32From of addrs 
   
     (* This is the list of outstanding labels. *)
-    type labList = jumpFrom ref list
+    type labList = jumpFrom list
     (* This is the external label type used when constructing operations.
        The ref int is just an identifier for convenience when printing. *)
     datatype label =
@@ -161,19 +161,7 @@ struct
       numOfConsts:    word ref,        (* size of constVec *)
       nonInlineConsts: int ref,
       nonAddressConstants: {const: nonAddressConsts, addrs: addrs} list ref,
-      labelList:      labList ref,    (* List of outstanding short branches. *)
-      longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
-      (* These next two are closely related but kept separate to avoid making big
-         changes to the code.  They are only non-empty immediately after JumpLabel instructions.
-         justComeFrom accumulates forward branches to the current location.  justComeFromAddrs
-         accumulates the labels themselves if they are needed for reverse jumps. *)
-      justComeFrom:   labList ref,    (* The label we have just jumped from. *)
-      justComeFromAddrs: addrs ref list ref, (* *)
-      exited:         bool ref,       (* False if we can fall-through to here *)
-      branchCheck:    addrs ref,      (* the address we last fixed up to.  I added
-                                         this to track down a bug and I've left it
-                                         in for security.  DCJM 19/1/01. *)
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
       printStream:    string->unit,   (* The stream to use *)
       lowLevelOptimise: bool,         (* Whether to do the low-level optimisation pass *)
@@ -226,13 +214,7 @@ struct
             numOfConsts    = ref 0w0,
             nonInlineConsts = ref 0,
             nonAddressConstants = ref [],
-            labelList      = ref [],
-            longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
-            justComeFrom   = ref [],
-            justComeFromAddrs = ref [],
-            exited         = ref false,
-            branchCheck    = ref addrZero,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
@@ -890,287 +872,33 @@ struct
        sizeField orb8 baseField
     end
 
-   (* Removes a label from the list when it has been fixed up
-      or converted to the long form. *)
-   fun removeLabel (lab:addrs, Code{longestBranch, labelList, ... }) : unit = 
-   let
-     fun removeEntry ([]: labList) : labList = []
-       | removeEntry ((ref (Jump32From _)) :: t) =
-           removeEntry t (* we discard long jumps *)
-         
-       | removeEntry ((entry as ref (Jump8From addr)) :: t) =
-         if lab = addr
-         then removeEntry t
-         else
-          (
-             if addr < !longestBranch
-             then longestBranch := addr
-             else ();
-              
-             entry :: removeEntry t
-          ) (* removeEntry *);
-   in
-        (* Must also find the new longest branch. *)
-        longestBranch := addrLast;
-        labelList     := removeEntry (! labelList)
-   end;
- 
-  (* Fix up the list of labels. *)
-  fun reallyFixBranches ([] : labList) _ = ()
-    | reallyFixBranches (h::t)        (cvec as Code{codeVec=cseg, ic, branchCheck, ...}) =
-   ((case !h of
-       Jump8From addr =>
-       let
-         val offset : int = get8s (addr, cseg);
-         val diff : int = (!ic addrMinus addr) - 1;
-       in
-         branchCheck := !ic;
-
-         if is8Bit diff then () else raise InternalError "jump too large";
-
-         if offset <> 0
-         then raise InternalError "reallyFixBranches: jump already patched"
-         else set8s (diff, addr, cseg);
-
-         removeLabel (addr, cvec)
-       end
-       
-     | Jump32From addr =>
-       let
-         val offset = get32s (addr, cseg);
-         val diff : int = (!ic addrMinus addr) - 4;
-       in
-         branchCheck := !ic;
-         if offset <> 0
-         then raise InternalError "reallyFixBranches: jump already patched"
-         else
-         (* A zero offset is more than simply redundant, it can
-            introduce zero words into the code which could be
-            taken as markers.  It will not normally be produced
-            but can occur in very unusual cases.  The only example
-            I've seen is a branch extension in a complicated series
-            of andalsos and orelses where the branch extension was
-            followed by an unconditional branch which was then backed
-            up by check_labs.  We simply fill it with no-ops. *)
-          if diff = 0
-          then let
-            val a    = addr;
-            val nop  = opToInt NOP;
-          in
-            csegSet (cseg, a - 0w1, nop);
-            csegSet (cseg, a,     nop);
-            csegSet (cseg, a + 0w1, nop);
-            csegSet (cseg, a + 0w2, nop);
-            csegSet (cseg, a + 0w3, nop)
-          end
-          else
-            set32s (LargeInt.fromInt diff, addr, cseg)
-       end
-    );
-   reallyFixBranches t cvec
-  )
-
     (* Makes a new label. *)
-    fun makeShortLabel (addr: addrs, Code{longestBranch, labelList ,...}) : jumpFrom ref =
+    fun makeLongLabel (addr: addrs, _) : jumpFrom = Jump32From addr
+
+    (* Fix up branches by patching the offset. *)
+    fun fixup (labs, Code{codeVec=cseg, ic, ...}) =
     let
-        val lab = ref (Jump8From addr);
+        fun fixBranch(Jump8From addr) =
+            let
+                val offset = get8s(addr, cseg)
+                val diff = (!ic addrMinus addr) - 1
+            in
+                if offset <> 0
+                then raise InternalError "fixup: jump already patched"
+                else set8s (diff, addr, cseg)
+            end
+        |   fixBranch(Jump32From addr) =
+            let
+                val offset = get32s (addr, cseg)
+                val diff = (!ic addrMinus addr) - 4
+            in
+                if offset <> 0
+                then raise InternalError "fixup: jump already patched"
+                else set32s (LargeInt.fromInt diff, addr, cseg)
+            end
     in
-        if addr < ! longestBranch
-        then longestBranch := addr
-        else ();
-        labelList := lab :: ! labelList;
-        lab
-    end;
-
-  (* Apparently fix up jumps - actually just record where we have come from *)
-  fun fixup (labs:labList, cvec as Code{justComeFrom, exited, ic, branchCheck, ...}) =
-  let
-    (* If the jump we are fixing up is immediately preceding, 
-       we can remove it.  It is particularly important to remove
-       32 bit jumps to the next instruction because they would
-       put a word of all zeros in the code, and that could be mistaken
-       for a marker word. *)
-    fun checkLabs []          = []
-      | checkLabs ((lab as ref (Jump8From addr))::labs) =
-            if !ic addrMinus addr = 1 andalso !ic <> !branchCheck
-            then
-             (
-                (* It now seems that we can have a !ic = !branchCheck in the situation where
-                   we have a handler that does nothing.  Setting the handler entry point sets
-                   branchCheck but the branch round the empty handler does nothing.
-                   This should be tidied up by peep-hole optimisation. *)
-               if !ic <= !branchCheck
-               then raise InternalError "Backing up too far (8bit)"
-               else ();
-               ic := addr addrPlus ~1; (* Back up over the opCode *)
-               removeLabel (addr, cvec);
-               exited := false;
-               checkLabs labs
-             )
-            else lab :: checkLabs labs
-          
-      | checkLabs ((lab as ref (Jump32From addr))::labs) =
-            if !ic addrMinus addr = 4
-            then
-             (
-               if !ic <= !branchCheck
-               then raise InternalError "Backing up too far (32bit)"
-               else ();
-               ic := addr addrPlus ~1; (* Back up over the opCode *)
-               exited := false;
-               checkLabs labs
-             )
-            else lab :: checkLabs labs
-
-     fun doCheck labs =
-     (* Repeatedly check the labels until we are no longer backing up.
-        We may have several to back up if we have just extended some
-        branches and then immediately fix them up.  DCJM 19/1/01. *)
-     let
-        val lastIc = !ic
-        val newLabs = checkLabs labs
-     in
-        if lastIc = !ic then newLabs
-        else doCheck newLabs
-     end
-  in
-    case labs of
-      [] => () (* we're not actually jumping from anywhere *)
-    | _ =>
-       (
-        (* Add together the jumps to here and remove redundant jumps. *)
-        justComeFrom := doCheck (labs @ !justComeFrom)
-      )
-  end;
-
-
-    fun checkBranchList
-        (cvec as Code{longestBranch, justComeFrom,
-                      exited, ic, labelList, ...}, branched, size) =
-    (* If the longest branch is close to going out of range it must
-       be converted into a long form. *)
-    (* If we have just made an unconditional branch then we make the 
-       distance shorter. *)
-    let
-        (* Generally we only need to extend the nearest short branch but it
-           is possible that two branches could be very close together.  In that
-           case extending one branch could push another out of range. *)
-        val maxDiff =
-            Int.min(if branched then 100 else 127, 127 - 5 * List.length (!labelList)) - size;
-
-        (* See if we must extend some branches.  If we are going to fix up a label
-           immediately we don't normally extend it.  The exception is if we have
-           to extend some other labels in which case we may have to extend this
-           because the jumps we add may push this label out of range. *)
-        local
-            val icOffset =
-                if branched then !ic else !ic addrPlus 2 (* Size of the initial branch. *)
-            fun checkLab (lab as ref (Jump8From addr), n) =
-                if List.exists (fn a => a = lab) (! justComeFrom)
-                then n (* Don't include it here. *)
-                else if (icOffset addrMinus addr) + n > (100 - size) then n+5 else n
-            |   checkLab (_, n) = n
-            (* Extending one branch may extend others.  We need to process the list in
-               reverse order. *)
-        in
-            val jumpSpace = List.foldr checkLab 0 (!labelList)
-        end
-
-   (* Go down the list converting any long labels, and finding the
-      longest remaining. *)
-    fun convertLabels ([]:labList) : labList = []
-      | convertLabels (lab::labs) =
-       let
-         (* Process the list starting at the end. The reason for this
-            is that more recent labels appear before earlier ones.
-            We must put the earliest labels in first because they may
-            be about to go out of range. *)
-          val convertRest = convertLabels labs
-       in
-         (* Now do this entry. *)
-         case !lab of
-           Jump32From _ => raise InternalError "Long jump in label list" (* shouldn't happen *)
-           
-         | Jump8From addr =>
-            (* If we are about to fix this label up we don't need to extend it except that we
-               must extend it if we are going to put in more branch extensions which will take
-               it out of range. DCJM 9/4/01. *)
-            if List.exists (fn a => a = lab) (! justComeFrom)
-                andalso (jumpSpace = 0 orelse !ic addrMinus addr < 127 - jumpSpace)
-            then lab :: convertRest
-            else if !ic addrMinus addr > (100 - size) orelse !ic addrMinus addr > maxDiff
-            then (* Getting close - convert it. *)
-            (
-                reallyFixBranches [lab] cvec; (* fix up short jump to here *)
-                gen8u  (opToInt JMP_32, cvec);
-                gen32u (0w0, cvec);    (* long jump to final destination *)
-                lab := Jump32From (!ic addrPlus ~4);
-                (* Return the rest of the list. *)
-                convertRest
-            )
-            else
-            (
-                (* Not ready to remove this. Just find out if this is an
-                   earlier branch and continue. *)
-                if addr < ! longestBranch
-                then longestBranch := addr
-                else ();
-           
-                lab :: convertRest
-            )
-       end (* convertLabels *);
-    in
-        if ! longestBranch <> addrLast andalso !ic addrMinus ! longestBranch > maxDiff
-        then
-        let         
-            (* Must skip round the branches unless we have just taken an
-               unconditional branch. *)
-            val lab =
-              if branched then []
-              else
-               (
-                exited := true;
-                gen8u (opToInt JMP_8, cvec);
-                gen8u (0w0, cvec);
-                [makeShortLabel (!ic addrPlus ~1, cvec)]
-               );
-        in
-            (* Find the new longest branch. *)
-            longestBranch := addrLast; (* Initial value. *)
-            labelList := convertLabels (!labelList);
-            fixup (lab, cvec) (* Continue with normal processing. *)
-        end
-        else  ()
-   end
-
-    (* Do all the outstanding operations including fixing up the branches. *)
-    fun doPending (cvec as Code{exited, justComeFromAddrs, branchCheck, ic, ...}, size) : unit =
-    let
-        (* Deal with a pending fix-up. *)
-        fun reallyFixup (Code{justComeFrom=ref [], ... }) = ()
-        |   reallyFixup (cvec as Code{justComeFrom=jcf as ref labs, exited, ... }) = 
-                (exited := false; reallyFixBranches labs cvec; jcf := []);
-    in
-        (* If we have not exited and there are branches coming in here
-            then we fix them up before jumping round any branch extensions. *)
-        if ! exited then () else reallyFixup cvec;
-   
-        checkBranchList(cvec, ! exited, size);
-
-        exited := false;
-        (* Fix up any incoming branches, including a jump round any
-           branch extensions. *)
-        reallyFixup cvec;
-        (* Finally record the current location into any reverse branches. *)
-        branchCheck := !ic;
-        List.app (fn addr => addr := !ic) (! justComeFromAddrs);
-        justComeFromAddrs := []
+        List.app fixBranch labs
     end
-
-    (* 12 is maximum size of an instruction.  It's also big
-       enough for a comparison and the following conditional
-       branch. *)
-    val maxInstrSize = if isX64 then 15 else 12
     
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
     fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
@@ -1214,67 +942,28 @@ struct
         opcodePrefix opb @ rexByte @ escapePrefix opb @ [opToInt opb]
     end
     
-    fun genop(opb, rx, cvec) = (doPending (cvec, maxInstrSize); genBytes(opCodeBytes(opb, rx), cvec))
+    fun genop(opb, rx, cvec) = genBytes(opCodeBytes(opb, rx), cvec)
 
     (* This has to be done quite carefully if we are to be able to back-up
        over jumps that point to the next instruction in fixup.  We have to
        guarantee that if we back up we haven't already set a jump to point
        beyond where we're backing up.  See below for more explanation.
        DCJM 19/1/01.*)
-    fun putConditional (br: branchOps, cvec as Code{ic, ...}) : jumpFrom ref =
-    (
-        genBytes([opToInt(CondJump br), 0w0], cvec); (* Don't use genop. *)
-        makeShortLabel (!ic addrPlus ~1, cvec)
-    )
+    fun putConditional (br: branchOps, cvec as Code{ic, ...}) : jumpFrom =
+    let
+        val brOp = CondJump32 br
+    in
+        genBytes(escapePrefix brOp @ opToInt brOp :: word32Unsigned 0w0, cvec); (* Don't use genop. *)
+        makeLongLabel (!ic addrPlus ~4, cvec)
+    end
 
     (* Generates an unconditional branch. *)
-    fun unconditionalBranch (cvec as Code {justComeFrom, exited, ic, ...}): labList =
+    fun unconditionalBranch(cvec as Code{ic, ...}): labList =
     let
-        (* If we have just jumped here we may be able to avoid generating a
-           jump instruction. *)
-        val labs = ! justComeFrom
+        val () = genBytes(opToInt JMP_32 :: word32Unsigned 0w0, cvec) (* Don't use genop. *)
+        val br = makeLongLabel (!ic addrPlus ~4, cvec)
     in
-        justComeFrom := [];
-        (* We may get the sequence:   jmp L1; L2: jmp L3.
-           If this is the "jmp L3" we can simply remember everything
-           that was supposed to jump to L2 and replace it with
-           jumps to L3. *)
-        (* This code has one disadvantage.  If we have several short branches
-           coming here we don't record against the branches themselves that
-           they're all going to the same place.  If we have to extend them
-           we put in separate long branches for each rather than pointing
-           them all at the same branch.  This doesn't increase run-time
-           but makes the code larger than it need be.  DCJM 1/1/01. *)
-        if ! exited
-        then labs
-        else
-        let
-        (* The code here has gone through various versions.  The original
-           version always fixed up pending branches so that if we had a
-           short branch coming here we might avoid having to extend it.
-           A subsequent version separated out long and short branches
-           coming here and fixed up short branches but added long ones
-           onto the label list.  I discovered a bug with this which
-           occurred when we put in branch extension code before an
-           unconditional branch and then backed up over the unconditional
-           branch and over one of the extended branches.  Since we'd
-           already fixed up (really fixed up) the branch round the
-           branch extensions we ended up with that branch now pointing into
-           the middle of the code we subsequently generated.
-           We could get a similar situation if we have a conditional
-           branch immediately before this instruction and back up over
-           both, for example (if exp then () else (); ...).  In that case
-           we have to make sure we haven't already fixed up another branch
-           to come here.  Instead we must always add it onto the label list
-           so that we only (really) fix it up when we generate something other
-           than a branch.  DCJM 19/1/01. *)
-            val () = genBytes([opToInt JMP_8, 0w0], cvec) (* Don't use genop. *)
-            val br = makeShortLabel (!ic addrPlus ~1, cvec)
-        in
-            exited := true;
-            br :: labs
-        end
-    
+        [br]
     end (* unconditionalBranch *)
 
     (* Generate an effective address. *)
@@ -1357,7 +1046,6 @@ struct
         let
             val (rbC, rbX) = getReg rb
         in
-            doPending (cvec, maxInstrSize);
             (* Any lock or opsize prefix comes before any REX prefix. *)
             genBytes(opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb], cvec);
             genEACode(offset, rbC, rrC, cvec)
@@ -1390,7 +1078,6 @@ struct
     fun genOpRegPlus2(opb:opCode, rd: genReg, op2: Word8.word, cvec) =
     let
         val (rrC, rrX) = getReg rd
-        val () = doPending (cvec, maxInstrSize);
         val rex = rexByte(opb, false, rrX, false)
         val opc = opToInt opb
         val mdrm = modrm(Register, op2, rrC)
@@ -1430,7 +1117,6 @@ struct
                     (base, SOME rb)
                 end
         in
-            doPending (cvec, maxInstrSize);
             let
                 val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
                 val rex = rexByte(opb, rrX, rbX, riX);
@@ -1462,7 +1148,6 @@ struct
         val (rc, rx) = getReg r
     in
         (* These are always 64-bit but a REX prefix may be needed for the register. *)
-        doPending (cvec, maxInstrSize);
         genBytes(opCodeBytes(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE), cvec)
     end
 
@@ -1483,7 +1168,6 @@ struct
     let
         val (rc, rx) = getReg rd
     in
-        doPending (cvec, maxInstrSize);
         let
             val opb = opCodeBytes(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false})
             val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
@@ -1525,14 +1209,12 @@ struct
     (* Call a function. *)
     fun callFunction (Recursive, cvec as Code {ic, ... }) =
         (
-            doPending (cvec, maxInstrSize);
             genBytes(opCodeBytes (CALL_32, NONE), cvec);  (* 1 byte  *)
             gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
         )
      
     |   callFunction (FullCall, cvec) =
         let
-            val () = doPending (cvec, maxInstrSize)
             val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
         in
             genBytes(opCodeBytes (Group5, NONE) @ [mdrm], cvec)
@@ -1542,7 +1224,6 @@ struct
         if isX64
         then
         let
-            val () = doPending (cvec, maxInstrSize)
             val opc = opCodeBytes(Group5, NONE)
             val mdrm = modrm(Based0, 0w2 (* call *), 0w5 (* PC rel *))
         in
@@ -1551,7 +1232,6 @@ struct
         end
         else
  	    (
-            doPending (cvec, maxInstrSize);
 	        genBytes(opCodeBytes (CALL_32, NONE), cvec);
 		    addConstToVec (WVal w, InlineRelative, cvec)
 	    )
@@ -1559,7 +1239,6 @@ struct
     |   callFunction (DirectReg reg, cvec) =
         let
             val (rc, rx) = getReg reg
-            val () = doPending (cvec, maxInstrSize)
             val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
             val mdrm = modrm(Register, 0w2 (* call *), rc)
         in
@@ -1577,20 +1256,18 @@ struct
      stack check.  We need to make sure that we check the stack in any
      function that my be recursive, directly or indirectly.
   *)
-    fun jumpToFunction (callKind, cvec as Code{exited, ic, ...}) =
+    fun jumpToFunction (callKind, cvec as Code{ic, ...}) =
     (
         case callKind of 
             Recursive =>
             (
                 (* Jump to the start of the current function. *)
-                doPending (cvec, maxInstrSize);
                 genBytes(opCodeBytes (JMP_32, NONE), cvec);
                 gen32s (~(Word.toLargeInt(!ic) + 4), cvec)
             )
            
         |   FullCall =>
             let (* Full closure call *)
-                val () = doPending (cvec, maxInstrSize)
                 val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
             in
@@ -1601,7 +1278,6 @@ struct
             if isX64
             then
             let
-                val () = doPending (cvec, maxInstrSize)
                 val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *))
             in
@@ -1610,20 +1286,16 @@ struct
             end
             else
             (
-    		    doPending (cvec, maxInstrSize);
                 genBytes(opCodeBytes (JMP_32, NONE), cvec);
     			addConstToVec (WVal w, InlineRelative, cvec)
             )
             
-        |   DirectReg _ => raise InternalError "jumpToFunction-DirectReg"; (* Can't be tail-recursive *)
-
-        exited := true (* We're not coming back. *)
+        |   DirectReg _ => raise InternalError "jumpToFunction-DirectReg" (* Can't be tail-recursive *)
     );
 
 
     (* Return and remove args. *)
-    fun returnFromFunction (args, cvec as Code{exited, ...}) : unit =
-    (
+    fun returnFromFunction (args, cvec) : unit =
         if args = 0
         then genop (RET, NONE, cvec)
         else
@@ -1633,10 +1305,7 @@ struct
             genop (RET_16, NONE, cvec);
             gen8u (wordToWord8 offset, cvec);
             gen8u (wordToWord8(offset >> 0w8), cvec)
-        end;
-     
-        exited := true (* We're not coming back. *)
-    )
+        end
 
     fun genFloatingPt({escape, md, nnn, rm}, code) =
     (
@@ -1693,18 +1362,6 @@ struct
                branch prediction to skip the test here. However doing that
                involves adding an extra branch which lengthens the code so
                it's probably not worth while. *)
-            (*val lab =
-                let
-                    val () = genop(CondJump JB, cvec);
-                    val () = gen8u (0w0, cvec);
-                    val lab2 = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                    val () = genop(JMP_8, cvec);
-                    val () = gen8u (0w0, cvec);
-                    val lab = [makeShortLabel (!ic addrPlus ~1, cvec)]
-                in
-                    fixup(lab2, cvec);
-                    lab
-                end*)
             (* Just checking against the lower limit in this way can fail
                in the situation where the heap pointer is at the low end of
                the address range and the store required is so large that the
@@ -1723,7 +1380,7 @@ struct
                 val lab1 = [putConditional(JB, cvec)]
                 val () =
                     if isX64
-                    then (doPending (cvec, maxInstrSize); genBytes(arithOpReg (CMP, resultReg, r15), cvec))
+                    then genBytes(arithOpReg (CMP, resultReg, r15), cvec)
                     else genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec) 
                 val lab2 = [putConditional(JB, cvec)]
             in
@@ -1739,7 +1396,7 @@ struct
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
                store was being allocated. *)
-            if isX64 then (doPending (cvec, maxInstrSize); genBytes(opReg(MOVL_R_A, resultReg, r15), cvec))
+            if isX64 then genBytes(opReg(MOVL_R_A, resultReg, r15), cvec)
             else genOpEA (MOVL_R_A, LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec)
         end
     in
@@ -1771,7 +1428,7 @@ struct
             genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
             (* Add this negative value to the current heap pointer. *)
             if isX64
-            then (doPending (code, maxInstrSize); genBytes(arithOpReg(ADD, resultReg, r15), code))
+            then genBytes(arithOpReg(ADD, resultReg, r15), code)
             else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, code);
             allocStoreCommonCode(resultReg, code, true, saveRegs)
         )
@@ -2158,9 +1815,8 @@ struct
        the indexed jump at the expense of doubling the size of the table
        itself.  *)
  
-    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{exited, ic, codeVec, ...}) =
+    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{ic, codeVec, ...}) =
     let
-        val nCases = List.length cases
         val (rc2, rx2) = getReg r2
         (* Load the address of the jump table.  We can use Pc-relative addressing on
            X86/64 but on X86/32 we have to load the start of the code and add
@@ -2211,20 +1867,13 @@ struct
             genBytes([mdrm], code)
         end;
 
-        exited := true;
-        (* There's a very good chance that we will now extend the branches for
-           the "out of range" checks.  The code to do that doesn't know
-           that all these branches will come to the same point so will generate three
-           separate long branches. We could combine them but it's hardly worth it. *)
-        doPending (code, nCases * 8 (* size of table. *) + 3 (* Maximum alignment *));
-
         let
             fun addJump(Labels{forward, reverse=ref reverse, ...}) =
             let
                 val _ = reverse = addrUnsetLabel orelse raise InternalError "addJump";
             in
                 genBytes(opToInt JMP_32 :: word32Unsigned 0w0, code);
-                forward := [ref(Jump32From (!ic addrPlus ~4))]  @ ! forward;
+                forward := [(Jump32From (!ic addrPlus ~4))]  @ ! forward;
                 (* Add no-ops to make it 8 bytes. *)
                 genBytes([opToInt NOP, opToInt NOP, opToInt NOP], code)
             end
@@ -2269,7 +1918,6 @@ struct
         |   cgOp(MoveToRegister{ source=RegisterArg source, output } :: remainder) =
                 (* Move from one general register to another. *)
             (
-                doPending (code, maxInstrSize);
                 genBytes(opReg(MOVL_R_A, source, output), code);
                 cgOp remainder
             )
@@ -2310,7 +1958,7 @@ struct
                     if source mod 2 = 0
                     then
                     (
-                        doPending (code, maxInstrSize); genBytes(arithOpReg(XOR, output, output), code);
+                        genBytes(arithOpReg(XOR, output, output), code);
                         if source = 0 then ()
                         else genImmed (ADD, output, source, code)
                     )
@@ -2419,7 +2067,6 @@ struct
 
         |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source } :: remainder) =
             (
-                doPending (code, maxInstrSize);
                 genBytes(arithOpReg (opc, output, source), code);
                 cgOp remainder
             )
@@ -2530,15 +2177,12 @@ struct
                 if reverse = addrUnsetLabel (* Destination is after this. *)
                 then
                 (
-                    genop(CondJump opc, NONE, code);
-                    gen8u(0w0, code);
-                    forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward
+                    genop(CondJump32 opc, NONE, code);
+                    gen32u(0w0, code);
+                    forward := makeLongLabel (!ic addrPlus ~4, code) :: !forward
                 )
                 else
                 let
-                    (* Do any pending instructions before calculating the offset, just
-                       in case we put in some instructions first. *)
-                    val () = doPending (code, maxInstrSize)
                     val offset  = reverse addrMinus (!ic); (* Negative *)
                     val offset2 = offset - 2;
                 in
@@ -2774,21 +2418,14 @@ struct
 
         |   cgOp(UncondBranch(Labels{forward, reverse, ...}) :: remainder) =
             let
-                val Code {justComeFromAddrs, ...} = code
             in
                 (* This may be a forward jump, in which case we don't have the destination and
                    can just record it, or it may be a backward jump in which case we already
                    have the destination. *)
-                if !reverse = addrUnsetLabel (* Destination is after this. *) andalso
-                    (* Also consider the possibility that we have an infinite loop.  This shouldn't
-                       happen because we'll always have a stack check. *)
-                    not (List.exists(fn l => l = reverse) (!justComeFromAddrs))
+                if !reverse = addrUnsetLabel
                 then forward := unconditionalBranch code @ ! forward
                 else 
                 let
-                    (* Do any pending instructions before calculating the offset, just
-                       in case we put in some instructions first. *)
-                    val () = doPending (code, maxInstrSize)
                     val offset  = !reverse addrMinus !ic (* Negative *)
                     val offset2 = offset - 2;
                 in
@@ -2827,17 +2464,10 @@ struct
 
         |   cgOp(JumpLabel(Labels{forward=ref forward, reverse, ...}) :: remainder) =
             let
-                (* This is a bit complicated.  We may have multiple labels at this
-                   location and they may be a combination of forward and backward labels.
-                   We don't want to put in a branch extension to this location unnecessarily
-                   and in particular we really don't want a 32-bit branch immediately before
-                   this because that would put in a zero word.  Instead we just record
-                   the branches and actually set them when we generate real code. *)
-                val Code {justComeFromAddrs, ...} = code
             in
                 fixup(forward, code); (* Fix up any forward branches to here. *)
-                (* Record the address. *)
-                justComeFromAddrs := reverse :: ! justComeFromAddrs;
+                (* Set the address. *)
+                reverse := !ic;
                 cgOp remainder
             end
 
@@ -2869,12 +2499,8 @@ struct
 
         |   cgOp(StartHandler{ handlerLab } :: remainder) =
             let
-                val Code{exited, ic, branchCheck, codeVec, ...} = code
+                val Code{ic, codeVec, ...} = code
             in
-                (* Make sure anything pending is done first. *)
-                doPending (code, maxInstrSize);
-                exited := false;
-                branchCheck := !ic;
                 (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
                 set32u(Word.toLargeWord (if isX64 then !ic - !handlerLab - 0w4 else !ic), !handlerLab, codeVec);
                 cgOp remainder
@@ -3036,7 +2662,6 @@ struct
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                doPending (code, maxInstrSize);
                 genBytes(opReg(IMUL (* 2 byte opcode *), output, source), code);
                 cgOp remainder
             )
@@ -3085,16 +2710,12 @@ struct
         |   cgOp (XMMArith { opc, source=RegisterArg(SSE2Reg rrS), output=SSE2Reg rrC } :: remainder) =
             let
                 val oper = SSE2Ops opc
+                val pref = opcodePrefix oper
+                val esc = escapePrefix oper
+                val opc = opToInt oper
+                val mdrm = modrm(Register, rrC, rrS)
             in
-                doPending (code, maxInstrSize);
-                let
-                    val pref = opcodePrefix oper
-                    val esc = escapePrefix oper
-                    val opc = opToInt oper
-                    val mdrm = modrm(Register, rrC, rrS)
-                in
-                    genBytes(pref @ esc @ [opc, mdrm], code)
-                end;
+                genBytes(pref @ esc @ [opc, mdrm], code);
                 cgOp remainder
             end
 
@@ -3119,7 +2740,6 @@ struct
                 (* The source is a general register and the output a XMM register. *)
                 val (rbC, rbX) = getReg source
             in
-                doPending (code, maxInstrSize);
                 genBytes(
                     opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
                     escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)], code);
@@ -3135,7 +2755,6 @@ struct
        |    cgOp (XChngRegisters { regX, regY} :: remainder) =
             (
                 (* We only use register-to-register exchange.  That doesn't cause a lock. *)
-                doPending (code, maxInstrSize);
                 genBytes(opReg(XCHNG, regX, regY), code);
                 cgOp remainder
             )
