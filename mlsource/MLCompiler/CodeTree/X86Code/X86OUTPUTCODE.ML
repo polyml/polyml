@@ -65,8 +65,6 @@ struct
 
     val exp2_16 =        0x10000
     val exp2_31 =        0x80000000: LargeInt.int
-    val exp2_56 = 0x100000000000000: LargeInt.int
-    val exp2_64 = 0x10000000000000000: LargeInt.int
 
     (* Returns true if this a 32-bit machine or if the constant is within 32-bits.
        This is exported to the higher levels.  N.B.  The test for not isX64
@@ -300,17 +298,6 @@ struct
     fun setWordU (ival: LargeInt.int, addr: addrs, seg) : unit =
         setBytes(seg, ival, addr, wordSize)
      
-    fun set64u (ival: LargeInt.int, addr: addrs, seg) : unit =
-        setBytes(seg, ival, addr, 8)
-     
-    fun set64s (ival: LargeInt.int, addr: addrs, seg) : unit =
-    let
-        val topByte = (ival div exp2_56) mod 256
-    in
-        setBytes(seg, ival, addr, 7);
-        setBytes(seg, if topByte < 0 then topByte + 256 else topByte, addr + 0w7, 1)
-    end
-
     (* Get 1 signed 32 bit word from the given offset in the segment. *)
     fun get32s (a: word, seg: cseg) : LargeInt.int =
     let
@@ -342,67 +329,38 @@ struct
     end
 
     (* Code-generate a byte. *)
-    fun gen8u (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
-    let
-        val icVal = !ic;
-    in
-        ic := icVal addrPlus 1;
-        set8u (ival, icVal, codeVec)  
-    end
-
-    (* Used for signed byte values. *)
-    fun gen8s (ival: int, Code {ic, codeVec, ...}) =
-    if ~0x80 <= ival andalso ival < 0x80
-    then
-    let
-        val icVal = !ic;
-    in
-        ic := icVal + 0w1;
-        set8s (ival, icVal, codeVec)  
-    end
-    else raise InternalError "gen8s: invalid byte";
-
-    (* Code-generate a 32-bit word. *)
-    fun gen32u (ival: LargeWord.word, Code {ic, codeVec, ...}) : unit =
-    let
-        val icVal = !ic;
-    in
-        ic := icVal + 0w4;
-        set32u (ival, icVal, codeVec)
-    end
-
-    fun gen32s (ival: LargeInt.int, Code {ic, codeVec, ...}) : unit =
-    if is32bit ival
-    then
-    let
-        val icVal = !ic;
-    in
-        ic := icVal + 0w4;
-        set32s (ival, icVal, codeVec)
-    end
-    else raise InternalError "gen32s: invalid word"
-
-    fun gen64u (ival: LargeInt.int, Code {ic, codeVec, ...}) : unit =
-    if 0 <= ival andalso (isShort(toMachineWord ival) orelse ival < exp2_64)
-    then
-    let
-        val icVal = !ic;
-    in
-        ic := icVal addrPlus 8;
-        set64u (ival, icVal, codeVec)
-    end
-    else raise InternalError "gen64u: invalid word"
-
-    fun genWordU(ival, code) =
-        if wordSize = 8 then gen64u(LargeWord.toLargeInt ival, code) else gen32u (ival, code)
+    fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
+        set8u (ival, !ic, codeVec) before ic := !ic + 0w1
     
-    fun gen64s (ival: LargeInt.int, Code {ic, codeVec, ...}) : unit =
-    let
-        val icVal = !ic;
-    in
-        ic := icVal addrPlus 8;
-        set64s (ival, icVal, codeVec)
-    end
+    fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
+    
+    fun byteSigned ival =
+        if ~0x80 <= ival andalso ival < 0x80
+        then Word8.fromInt ival
+        else raise InternalError "byteSigned: invalid byte"
+    
+    (* Convert a large-word value to a little-endian byte sequence. *)
+    fun largeWordToBytes(_, 0) = []
+    |   largeWordToBytes(ival: LargeWord.word, n) =
+            Word8.fromLargeWord ival :: largeWordToBytes(ival >>+ 0w8, n-1)
+
+    fun word32Unsigned(ival: LargeWord.word) = largeWordToBytes(ival, 4)
+
+    fun int32Signed(ival: LargeInt.int) =
+        if is32bit ival
+        then word32Unsigned(LargeWord.fromLargeInt ival)
+        else raise InternalError "int32Signed: invalid word"
+    
+    (* wordUnsigned is 8 bytes on 64-bits or 4-bytes on 32-bits. *)
+    fun wordUnsigned(ival: LargeWord.word) = largeWordToBytes(ival, wordSize)
+
+    val gen8u = genByte
+    
+    fun gen8s (ival: int, c) = genByte(byteSigned ival, c)
+    and gen32u (ival: LargeWord.word, c) = genBytes(word32Unsigned ival, c)
+    and gen32s (ival: LargeInt.int, c) = genBytes(int32Signed ival, c)
+    (* genWordU is 8 bytes on 64-bits or 4-bytes on 32-bits. *)
+    and genWordU(ival, code) = genBytes(wordUnsigned ival, code)
 
     (* Add a constant to the list along with its address.  We mustn't put
        the constant directly in the code since at this stage the code is
@@ -431,7 +389,7 @@ struct
            needs to contain an address within the code and this could
            be the last instruction. *)
         if isInline andalso wordSize = 8
-        then gen64s (tag 0, cvec)
+        then genWordU(LargeWord.fromLargeInt(tag 0), cvec)
         else gen32s (case posn of InlineRelative => ~5 | _ => tag 0, cvec)
     end
 
@@ -907,9 +865,6 @@ struct
         (modField <<- 0w6) orb8 (rg <<- 0w3) orb8 rm
     end
 
-    fun genmodrm (md : mode, rg: Word8.word, rm : Word8.word, cvec) : unit =
-        gen8u (modrm (md, rg, rm), cvec)
-
     (* REX prefix *)
     fun rex {w,r,x,b} =
         0wx40 orb8 (if w then 0w8 else 0w0) orb8 (if r then 0w4 else 0w0) orb8
@@ -934,8 +889,6 @@ struct
     in
        sizeField orb8 baseField
     end
-
-    fun gensib (s : indexType, b : genReg option, cvec : code) = gen8u (sib (s, b), cvec);
 
    (* Removes a label from the list when it has been fixed up
       or converted to the long form. *)
@@ -1339,22 +1292,27 @@ struct
             else if is8BitL offset
             then Based8  (* use 8-bit disp field *)
             else Based32 (* use 32-bit disp field *)
+        val modRmbytes =
+            if rb = 0w4 (* Code for esp and r12 *)
+            then (* Need to use s-i-b byte. *)
+            let
+                (* Normally we will have a non-zero offset for esp.  The
+                   exception is computing the maximum stack in the prelude. *)
+                val mdrmByte = modrm (offsetCode, r, 0w4 (* use SIB *))
+                val sibByte = sib(NoIndex, SOME esp)
+            in
+                [mdrmByte, sibByte]
+            end
+            else [modrm(offsetCode, r, rb)]
+
+        val offsetBytes =
+            (* generate the disp field (if any) *)
+            case offsetCode of
+                Based8  => [byteSigned(LargeInt.toInt offset)]
+            |   Based32 => int32Signed offset
+            |   _       => []
     in
-        if rb = 0w4 (* Code for esp and r12 *)
-        then (* Need to use s-i-b byte. *)
-        (
-            (* Normally we will have a non-zero offset for esp.  The
-               exception is computing the maximum stack in the prelude. *)
-            genmodrm (offsetCode, r, 0w4 (* use SIB *), cvec);
-            gensib   (NoIndex, SOME esp, cvec)
-        )
-        else genmodrm(offsetCode, r, rb, cvec);
-     
-        (* generate the disp field (if any) *)
-        case offsetCode of
-            Based8  => gen8s  (LargeInt.toInt offset, cvec)
-        |   Based32 => gen32s (offset, cvec)
-        |   _       => ()
+          genBytes(modRmbytes @ offsetBytes, cvec)
     end
 
     fun genRex(opb, rrX, rbX, riX, code) =
@@ -1436,7 +1394,11 @@ struct
         genRex(opb, rrX, rbX, false, cvec);
         genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
         gen8u(opToInt opb, cvec);
-        genmodrm(Register, rrC, rbC, cvec)
+        let
+            val mdrm = modrm(Register, rrC, rbC)
+        in
+            genBytes([mdrm], cvec)
+        end
     end
 
     fun genOpRegPlus2(opb:opCode, rd: genReg, op2: Word8.word, cvec) =
@@ -1446,7 +1408,11 @@ struct
         doPending (cvec, maxInstrSize);
         genRex(opb, false, rrX, false, cvec);
         gen8u(opToInt opb, cvec);
-        genmodrm(Register, op2, rrC, cvec)
+        let
+            val mdrm = modrm(Register, op2, rrC)
+        in
+            genBytes([mdrm], cvec)
+        end
     end
 
     local
@@ -1487,8 +1453,12 @@ struct
             genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
             gen8u(opToInt opb, cvec);
 
-            genmodrm (offsetCode, rrC, 0w4 (* s-i-b *), cvec);
-            gensib   (ri, basefield, cvec);
+            let
+                val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
+                val sibByte = sib(ri, basefield)
+            in
+                genBytes([mdrm, sibByte], cvec)
+            end;
     
             (* generate the disp field (if any) *)
             case offsetCode of
@@ -1531,7 +1501,11 @@ struct
         val (rc, rx) = getReg rd
     in
         genop(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false}, cvec);
-        genmodrm (Based0, rc, 0w5 (* PC-relative *), cvec);
+        let
+            val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+        in
+            genBytes([mdrm], cvec)
+        end;
         addNonAddressConstant(NonAddressInt imm, cvec)
     end
 
@@ -1622,33 +1596,36 @@ struct
         )
      
     |   callFunction (FullCall, cvec) =
-        (
-            genop (Group5, NONE, cvec);
-            genmodrm(Based0, 0w2 (* call *), #1 (getReg regClosure), cvec)
-        )
+        let
+            val () = genop (Group5, NONE, cvec)
+            val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
+        in
+            genBytes([mdrm], cvec)
+        end
 
     |   callFunction (ConstantCode w, cvec) =
-        (
-            if isX64
-            then
-            (
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w2 (* call *), 0w5 (* PC rel *), cvec);
-                addConstToVec (WVal w, ConstArea 0, cvec)
-            )
-            else
-	 	    (
-		        genop (CALL_32, NONE, cvec);
-			    addConstToVec (WVal w, InlineRelative, cvec)
-		    )
-        )
+        if isX64
+        then
+        let
+            val () = genop (Group5, NONE, cvec);
+            val mdrm = modrm(Based0, 0w2 (* call *), 0w5 (* PC rel *))
+        in
+            genBytes([mdrm], cvec);
+            addConstToVec (WVal w, ConstArea 0, cvec)
+        end
+        else
+ 	    (
+	        genop (CALL_32, NONE, cvec);
+		    addConstToVec (WVal w, InlineRelative, cvec)
+	    )
             
     |   callFunction (DirectReg reg, cvec) =
         let
             val (rc, rx) = getReg reg
+            val () = genop (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE, cvec)
+            val mdrm = modrm(Register, 0w2 (* call *), rc)
         in
-            genop (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE, cvec);
-            genmodrm(Register, 0w2 (* call *), rc, cvec)
+            genBytes([mdrm], cvec)
         end
      
 
@@ -1673,19 +1650,23 @@ struct
             )
            
         |   FullCall =>
-            ( (* Full closure call *)
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure), cvec)
-            )
+            let (* Full closure call *)
+                val () = genop (Group5, NONE, cvec);
+                val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
+            in
+                genBytes([mdrm], cvec)
+            end
 
         |   ConstantCode w =>
             if isX64
             then
-            (
-                genop (Group5, NONE, cvec);
-                genmodrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *), cvec);
+            let
+                val () = genop (Group5, NONE, cvec);
+                val mdrm = modrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *))
+            in
+                genBytes([mdrm], cvec);
                 addConstToVec (WVal w, ConstArea 0, cvec)
-            )
+            end
             else
             (
     		    genop (JMP_32, NONE, cvec);
@@ -2202,25 +2183,29 @@ struct
         )
         else if isX64
         then 
-        ( (* We can use a REX code to force it to always use the low order byte. *)
-            genop (Group3_a,
+        let
+            (* We can use a REX code to force it to always use the low order byte. *)
+            val () = genop (Group3_a,
                 if rx orelse regNum >= 0w4 then SOME{w=false, r=false, b=rx, x=false} else NONE, cvec);
-            genmodrm (Register, 0w0 (* test *), regNum, cvec);
-            gen8u(0w1, cvec)
-        )
+            val mdrm = modrm (Register, 0w0 (* test *), regNum)
+        in
+            genBytes([mdrm, 0w1], cvec)
+        end
         else if r = ebx orelse r = ecx orelse r = edx (* can we use an 8-bit test? *)
         then (* Yes. The register value refers to low-order byte. *)
-        (
-            genop    (Group3_a, NONE, cvec);
-            genmodrm (Register, 0w0 (* test *), regNum, cvec);
-            gen8u    (0w1, cvec)
-        )
+        let
+            val () = genop    (Group3_a, NONE, cvec);
+            val mdrm = modrm(Register, 0w0 (* test *), regNum)
+        in
+            genBytes([mdrm, 0w1], cvec)
+        end
         else
-        (
-            genop    (Group3_A, NONE, cvec);
-            genmodrm (Register, 0w0 (* test *), regNum, cvec);
-            gen32u   (0w1, cvec)
-        )
+        let
+            val () = genop    (Group3_A, NONE, cvec);
+            val mdrm = modrm (Register, 0w0 (* test *), regNum)
+        in
+            genBytes(mdrm :: word32Unsigned 0w1, cvec)
+        end
     end
 
     (* Previously the jump table was a vector of destination addresses.
@@ -2241,10 +2226,12 @@ struct
         val () =
             if isX64
             then
-            (
-                genop(LEAL, SOME {w=true, r=rx2, b=false, x=false}, code);
-                genmodrm(Based0, rc2, 0w5 (* Immediate address. *), code)
-            )
+            let
+                val () = genop(LEAL, SOME {w=true, r=rx2, b=false, x=false}, code)
+                val mdrm = modrm(Based0, rc2, 0w5 (* Immediate address. *))
+            in
+                genBytes([mdrm], code)
+            end
             else
             (
                 genop(MOVL_32_64_R rc2, NONE, code);
@@ -2276,7 +2263,11 @@ struct
 		end;
         (* Jump into the jump table. *)
         genop (Group5, if rx2 then SOME{w=false, r=false, b=rx2, x=false} else NONE, code);
-        genmodrm(Register, 0w4 (* jmp *), #1 (getReg r2), code);
+        let
+            val mdrm = modrm(Register, 0w4 (* jmp *), #1 (getReg r2))
+        in
+            genBytes([mdrm], code)
+        end;
 
         exited := true;
         (* There's a very good chance that we will now extend the branches for
@@ -2359,9 +2350,10 @@ struct
                     else (* Too big for 32-bits; put it in the non-word area. *)
                     let
                         val (rc, rx) = getReg output
+                        val () = genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
+                        val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
                     in
-                        genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
-                        genmodrm (Based0, rc, 0w5 (* PC-relative *), code);
+                        genBytes([mdrm], code);
                         addNonAddressConstant(NonAddressInt source, code)
                     end
                 )
@@ -2503,17 +2495,21 @@ struct
             in
                 if isX64
                 then
-                (
-                    genop(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false}, code);
-			        genmodrm(Based0, rc, 0w5 (* Immediate address. *), code);
+                let
+                    val () = genop(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false}, code);
+			        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
+                in
+                    genBytes([mdrm], code);
                     addConstToVec (WVal source, ConstArea 0, code)
-                )
+                end
                 else
-                (
-                    genop (Group1_32_A (* group1, 32 bit immediate *), NONE, code);
-                    genmodrm(Register, arithOpToWord opc, rc, code);
+                let
+                    val () = genop (Group1_32_A (* group1, 32 bit immediate *), NONE, code);
+                    val mdrm = modrm(Register, arithOpToWord opc, rc)
+                in
+                    genBytes([mdrm], code);
                     addConstToVec (WVal source, InlineAbsolute, code) (* Remember this constant and address. *)
-                );
+                end;
                 cgOp remainder
             end
 
@@ -2670,11 +2666,13 @@ struct
                 else if is32bit constnt
                 then ( genop (PUSH_32, NONE, code); gen32s(constnt, code) )
                 else (* It won't fit in the immediate; put it in the non-address area. *)
-                (
-                    genop (Group5, NONE, code);
-                    genmodrm(Based0, 0w6 (* push *), 0w5 (* PC rel *), code);
+                let
+                    val () = genop (Group5, NONE, code);
+                    val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *))
+                in
+                    genBytes([mdrm], code);
                     addNonAddressConstant(NonAddressInt constnt, code)
-                );
+                end;
                 cgOp remainder
             )
 
@@ -2682,11 +2680,13 @@ struct
             (
                 if isX64
                 then (* Put it in the constant area. *)
-		        (
-                    genop (Group5, NONE, code);
-                    genmodrm(Based0, 0w6 (* push *), 0w5 (* PC rel *), code);
+		        let
+                    val () = genop (Group5, NONE, code);
+                    val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
+                in
+                    genBytes([mdrm], code);
                     addConstToVec (WVal constnt, ConstArea 0, code)
-                )
+                end
                 else (* 32-bit *)
                 (
                     genop  (PUSH_32, NONE, code);
@@ -2819,14 +2819,16 @@ struct
             )
 
         |   cgOp(RaiseException :: remainder) =
-            (
+            let
                 (* Load the current handler into ebx.  Any register will do since we
                    don't preserve registers across exceptions. *)
-                genLoad(LargeInt.fromInt memRegHandlerRegister, ebp, ebx, code);
-                genop(Group5, NONE, code);
-                genmodrm (Based0, 0w4 (* jmp *), #1 (getReg ebx), code);
+                val () = genLoad(LargeInt.fromInt memRegHandlerRegister, ebp, ebx, code);
+                val () = genop(Group5, NONE, code);
+                val mdrm = modrm (Based0, 0w4 (* jmp *), #1 (getReg ebx))
+            in
+                genBytes([mdrm], code);
                 cgOp remainder
-            )
+            end
 
         |   cgOp(UncondBranch(Labels{forward, reverse, ...}) :: remainder) =
             let
@@ -2906,10 +2908,12 @@ struct
                    an offset. *)
                 if isX64
                 then
-                (
-                    genop(LEAL, SOME {w=true, r=rx, b=false, x=false}, code);
-                    genmodrm(Based0, rc, 0w5 (* Immediate address. *), code)
-                )
+                let
+                    val () = genop(LEAL, SOME {w=true, r=rx, b=false, x=false}, code);
+                    val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
+                in
+                    genBytes([mdrm], code)
+                end
                 else
                 (
                     genop(MOVL_32_64_R rc, NONE, code);
@@ -2992,7 +2996,11 @@ struct
                        constant at the end of the code segment and use PC-relative
                        addressing which happens to be encoded in the same way. *)
                     genop(FPESC 0w5, NONE, code); (* FLD [Constant] *)
-                    genmodrm (Based0, 0w0, 0w5 (* constant address/PC-relative *), code);
+                    let
+                        val mdrm = modrm (Based0, 0w0, 0w5 (* constant address/PC-relative *))
+                    in
+                        genBytes([mdrm], code)
+                    end;
                     if isX64
                     then addNonAddressConstant(NonAddressReal(toMachineWord realValue), code)
                     else addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code)
@@ -3033,7 +3041,11 @@ struct
             (
                 (* See comment on FPLoadFromConst *)
                 genop(FPESC 0w4, NONE, code); (* FADD etc [constnt] *)
-                genmodrm (Based0, fpOpToWord opc, 0w5 (* constant address *), code);
+                let
+                    val mdrm = modrm (Based0, fpOpToWord opc, 0w5 (* constant address *))
+                in
+                    genBytes([mdrm], code)
+                end;
                 if isX64
                 then addNonAddressConstant(NonAddressReal source, code)
                 else addConstToVec(WVal source, InlineAbsolute, code);
@@ -3116,7 +3128,11 @@ struct
                    constant at the end of the code segment and use PC-relative
                    addressing which happens to be encoded in the same way. *)
                 genop(SSE2Ops opc, NONE, code);
-                genmodrm (Based0, rrC, 0w5 (* constant address/PC-relative *), code);
+                let
+                    val mdrm = modrm (Based0, rrC, 0w5 (* constant address/PC-relative *))
+                in
+                    genBytes([mdrm], code)
+                end;
                 if isX64
                 then addNonAddressConstant(NonAddressReal constVal, code)
                 else addConstToVec(WVal constVal, InlineAbsolute, code);
@@ -3132,7 +3148,11 @@ struct
                 (* We don't currently need a REX byte but if we did it would be sandwiched in here. *)
                 genEscape(oper, code);
                 gen8u(opToInt oper, code);
-                genmodrm(Register, rrC, rrS, code);
+                let
+                    val mdrm = modrm(Register, rrC, rrS)
+                in
+                    genBytes([mdrm], code)
+                end;
                 cgOp remainder
             end
 
@@ -3163,7 +3183,11 @@ struct
                 genRex(CVTSI2SD, false, rbX, false, code);
                 gen8u(0wx0F, code);
                 gen8u(0wx2A, code);
-                genmodrm(Register, rrC, rbC, code);
+                let
+                    val mdrm = modrm(Register, rrC, rbC)
+                in
+                    genBytes([mdrm], code)
+                end;
                 cgOp remainder
             end
 
