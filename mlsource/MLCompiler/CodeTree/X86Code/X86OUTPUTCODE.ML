@@ -1173,48 +1173,48 @@ struct
     val maxInstrSize = if isX64 then 15 else 12
     
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
-    fun genPrefix(LOCK_XADD, cvec)              = gen8u(0wxF0, cvec) (* Requires LOCK prefix. *)
-    |   genPrefix(MOVL_R_A16, cvec)             = gen8u(0wx66, cvec) (* Requires OPSIZE prefix. *)
-    |   genPrefix(SSE2StoreSingle, cvec)        = gen8u(0wxf3, cvec)
-    |   genPrefix(SSE2StoreDouble, cvec)        = gen8u(0wxf2, cvec)
-    |   genPrefix(SSE2Ops SSE2Comp, cvec)       = gen8u(0wx66, cvec)
-    |   genPrefix(SSE2Ops SSE2And, cvec)        = gen8u(0wx66, cvec)
-    |   genPrefix(SSE2Ops SSE2Xor, cvec)        = gen8u(0wx66, cvec)
-    |   genPrefix(SSE2Ops SSE2MoveSingle, cvec) = gen8u(0wxf3, cvec)
-    |   genPrefix(SSE2Ops _, cvec)              = gen8u(0wxf2, cvec)
-    |   genPrefix(CVTSI2SD, cvec)               = gen8u(0wxf2, cvec)
-    |   genPrefix _ = ()
-    
+    fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
+    |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
+    |   opcodePrefix SSE2StoreSingle            = [0wxf3]
+    |   opcodePrefix SSE2StoreDouble            = [0wxf2]
+    |   opcodePrefix(SSE2Ops SSE2Comp)          = [0wx66]
+    |   opcodePrefix(SSE2Ops SSE2And)           = [0wx66]
+    |   opcodePrefix(SSE2Ops SSE2Xor)           = [0wx66]
+    |   opcodePrefix(SSE2Ops SSE2MoveSingle)    = [0wxf3]
+    |   opcodePrefix(SSE2Ops _)                 = [0wxf2]
+    |   opcodePrefix CVTSI2SD                   = [0wxf2]
+    |   opcodePrefix _                          = []
+
     (* A few instructions require an escape.  Escapes come after the REX. *)
-    fun genEscape(MOVZB, cvec)                  = gen8u(0wx0f, cvec)
-    |   genEscape(MOVZW, cvec)                  = gen8u(0wx0f, cvec)
-    |   genEscape(LOCK_XADD, cvec)              = gen8u(0wx0f, cvec)
-    |   genEscape(IMUL, cvec)                   = gen8u(0wx0f, cvec)
-    |   genEscape(CondJump32 _ , cvec)          = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2StoreSingle, cvec)        = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2StoreDouble, cvec)        = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Ops SSE2Comp, cvec)       = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Ops SSE2And, cvec)        = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Ops SSE2Xor, cvec)        = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Ops SSE2MoveSingle, cvec) = gen8u(0wx0f, cvec)
-    |   genEscape(SSE2Ops _, cvec)              = gen8u(0wx0f, cvec)
-    |   genEscape(CVTSI2SD, cvec)               = gen8u(0wx0f, cvec)
-    |   genEscape _                             = ()
+    fun escapePrefix MOVZB                      = [0wx0f]
+    |   escapePrefix MOVZW                      = [0wx0f]
+    |   escapePrefix LOCK_XADD                  = [0wx0f]
+    |   escapePrefix IMUL                       = [0wx0f]
+    |   escapePrefix(CondJump32 _)              = [0wx0f]
+    |   escapePrefix SSE2StoreSingle            = [0wx0f]
+    |   escapePrefix SSE2StoreDouble            = [0wx0f]
+    |   escapePrefix(SSE2Ops SSE2Comp)          = [0wx0f]
+    |   escapePrefix(SSE2Ops SSE2And)           = [0wx0f]
+    |   escapePrefix(SSE2Ops SSE2Xor)           = [0wx0f]
+    |   escapePrefix(SSE2Ops SSE2MoveSingle)    = [0wx0f]
+    |   escapePrefix(SSE2Ops _)                 = [0wx0f]
+    |   escapePrefix CVTSI2SD                   = [0wx0f]
+    |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
-    fun genop(opb:opCode, rx, cvec) =
-    (
-        doPending (cvec, maxInstrSize);
-        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
-        case rx of
-            NONE => ()
-        |   SOME rxx =>
-            if isX64 then gen8u(rex rxx, cvec)
-            else raise InternalError "genop: rex prefix in 32 bit mode";
-        (* Generate escape code if necessary. *)
-        genEscape(opb, cvec);
-        gen8u (opToInt opb, cvec)
-    )
+    fun opCodeBytes(opb:opCode, rx) =
+    let
+        val rexByte = 
+            case rx of
+                NONE => []
+            |   SOME rxx =>
+                if isX64 then [rex rxx]
+                else raise InternalError "opCodeBytes: rex prefix in 32 bit mode";
+    in
+        opcodePrefix opb @ rexByte @ escapePrefix opb @ [opToInt opb]
+    end
+    
+    fun genop(opb, rx, cvec) = (doPending (cvec, maxInstrSize); genBytes(opCodeBytes(opb, rx), cvec))
 
     (* This has to be done quite carefully if we are to be able to back-up
        over jumps that point to the next instruction in fixup.  We have to
@@ -1223,8 +1223,7 @@ struct
        DCJM 19/1/01.*)
     fun putConditional (br: branchOps, cvec as Code{ic, ...}) : jumpFrom ref =
     (
-        gen8u (opToInt(CondJump br), cvec); (* Don't use genop. *)
-        gen8u (0w0, cvec);
+        genBytes([opToInt(CondJump br), 0w0], cvec); (* Don't use genop. *)
         makeShortLabel (!ic addrPlus ~1, cvec)
     )
 
@@ -1269,12 +1268,8 @@ struct
            to come here.  Instead we must always add it onto the label list
            so that we only (really) fix it up when we generate something other
            than a branch.  DCJM 19/1/01. *)
-            val br =
-            (
-                gen8u (opToInt JMP_8, cvec); (* Don't use genop. *)
-                gen8u (0w0, cvec);
-                makeShortLabel (!ic addrPlus ~1, cvec)
-            )
+            val () = genBytes([opToInt JMP_8, 0w0], cvec) (* Don't use genop. *)
+            val br = makeShortLabel (!ic addrPlus ~1, cvec)
         in
             exited := true;
             br :: labs
@@ -1315,7 +1310,7 @@ struct
           genBytes(modRmbytes @ offsetBytes, cvec)
     end
 
-    fun genRex(opb, rrX, rbX, riX, code) =
+    fun rexByte(opb, rrX, rbX, riX) =
     let
         (* We need a rex prefix if we need to set the length to 64-bit. *)
         val need64bit =
@@ -1348,12 +1343,12 @@ struct
                 MOVB_R_A {forceRex=true} => (* This is allowed in X86/64 but not in X86/32. *)
                     if isX64
                     then true
-                    else raise InternalError "genRex: MOVB_R_A accessing low order byte of ESI/EDI"
+                    else raise InternalError "rexByte: MOVB_R_A accessing low order byte of ESI/EDI"
             |   _ => false
     in
         if need64bit orelse rrX orelse rbX orelse riX orelse forceRex
-        then gen8u(rex{w=need64bit, r=rrX, b=rbX, x = riX}, code)
-        else ()
+        then [rex{w=need64bit, r=rrX, b=rbX, x = riX}]
+        else []
     end
 
     local
@@ -1364,12 +1359,7 @@ struct
         in
             doPending (cvec, maxInstrSize);
             (* Any lock or opsize prefix comes before any REX prefix. *)
-            genPrefix(opb, cvec);
-            (* Add any necessary prefix. *)
-            genRex(opb, rrX, rbX, false, cvec);
-            (* Generate the escape codes for the opcodes that need them. *)
-            genEscape(opb, cvec);
-            gen8u(opToInt opb, cvec);
+            genBytes(opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb], cvec);
             genEACode(offset, rbC, rrC, cvec)
         end
     in
@@ -1384,35 +1374,28 @@ struct
     end
 
     (* Register/register operation. *)
-    fun genOpReg(opb:opCode, rd: genReg, rs: genReg, cvec) =
+    fun opReg(opb:opCode, rd: genReg, rs: genReg) =
     let
         val (rbC, rbX) = getReg rs
         val (rrC, rrX) = getReg rd
+        val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
+        val rex = rexByte(opb, rrX, rbX, false)
+        val esc = escapePrefix opb (* Generate the ESCAPE code if needed. *)
+        val opc = opToInt opb
+        val mdrm = modrm(Register, rrC, rbC)
     in
-        doPending (cvec, maxInstrSize);
-        genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
-        genRex(opb, rrX, rbX, false, cvec);
-        genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
-        gen8u(opToInt opb, cvec);
-        let
-            val mdrm = modrm(Register, rrC, rbC)
-        in
-            genBytes([mdrm], cvec)
-        end
+        pref @ rex @ esc @ [opc, mdrm]
     end
 
     fun genOpRegPlus2(opb:opCode, rd: genReg, op2: Word8.word, cvec) =
     let
         val (rrC, rrX) = getReg rd
+        val () = doPending (cvec, maxInstrSize);
+        val rex = rexByte(opb, false, rrX, false)
+        val opc = opToInt opb
+        val mdrm = modrm(Register, op2, rrC)
     in
-        doPending (cvec, maxInstrSize);
-        genRex(opb, false, rrX, false, cvec);
-        gen8u(opToInt opb, cvec);
-        let
-            val mdrm = modrm(Register, op2, rrC)
-        in
-            genBytes([mdrm], cvec)
-        end
+        genBytes(rex @ [opc, mdrm], cvec)
     end
 
     local
@@ -1448,16 +1431,15 @@ struct
                 end
         in
             doPending (cvec, maxInstrSize);
-            genPrefix(opb, cvec); (* Any opsize or lock prefix. *)
-            genRex(opb, rrX, rbX, riX, cvec);
-            genEscape(opb, cvec); (* Generate the ESCAPE code if needed. *)
-            gen8u(opToInt opb, cvec);
-
             let
+                val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
+                val rex = rexByte(opb, rrX, rbX, riX);
+                val esc = escapePrefix opb
+                val opc = opToInt opb
                 val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
                 val sibByte = sib(ri, basefield)
             in
-                genBytes([mdrm, sibByte], cvec)
+                genBytes(pref @ rex @ esc @ [opc, mdrm, sibByte], cvec)
             end;
     
             (* generate the disp field (if any) *)
@@ -1480,7 +1462,8 @@ struct
         val (rc, rx) = getReg r
     in
         (* These are always 64-bit but a REX prefix may be needed for the register. *)
-        genop(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE, cvec)
+        doPending (cvec, maxInstrSize);
+        genBytes(opCodeBytes(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE), cvec)
     end
 
     fun genImmed (opn: arithOp, rd: genReg, imm: LargeInt.int, cvec) : unit =
@@ -1500,81 +1483,32 @@ struct
     let
         val (rc, rx) = getReg rd
     in
-        genop(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false}, cvec);
+        doPending (cvec, maxInstrSize);
         let
+            val opb = opCodeBytes(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false})
             val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
         in
-            genBytes([mdrm], cvec)
+            genBytes(opb @ [mdrm], cvec)
         end;
         addNonAddressConstant(NonAddressInt imm, cvec)
     end
-
-    fun genReg (opn: arithOp, rd: genReg, rs: genReg, cvec) =
-        genOpReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs, cvec)
-      
-    (* generate padding no-ops to align to n modulo 4 *)
-    (* The Intel 64 instruction manual recommends:
-       1 byte:  NOP
-       2 bytes: 66 NOP
-       3 bytes: 0F 1F 00 - Multibyte NOP probably not generally supported. *)
-    (* generate padding no-ops to align to n modulo 4 *)
-    fun align (n, cvec as Code{ic, ...}) =
-        while (n - (!ic)) mod 0w4 <> 0w0
-        do genop (NOP, NONE, cvec);
+    
+    fun arithOpReg(opn: arithOp, rd: genReg, rs: genReg) = opReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs)
 
     (* movl offset(rb),rd. *)
     fun genLoad (offset: LargeInt.int, rb: genReg, rd: genReg, cvec) = genOpEA(MOVL_A_R, offset, rb, rd, cvec)
 
     (* Called when we have a memory operand and a constant that is an address.
        This is either a move or a comparison. *)
-    fun genMemoryConstant (cnstnt, opcode, arithOp, offset, rb, ri, cvec as Code{ic, ...}) =
-    let
-        val haveIndex = case ri of NoIndex => false | _ => true
-    in
-      (* We have a little problem here: we have to be very careful that
-         we don't end up with a full word of zeros on a word boundary because
-         that is used as an end-of-code marker.  This can arise if we have
-         zero bytes in the high order part of the offset and zero bytes in
-         the low order part of the immediate value.  We can get the former
-         if the offset is greater than 127 and we can get the latter if the
-         immediate is an address but not if it is a tagged value.  Furthermore
-         the garbage collector may change the address in the future so even
-         if it is safe now it may not always be.  We add in no-ops to align
-         the offset onto a word boundary ensuring that the offset and the
-         immediate value never come together in the same word.
-
-         There's also another case.  If the mod-rm byte is zero and aligned
-         on a word boundary then this could combine with the immediate value
-         if all three low-order words were zero.  It's very unlikely but we
-         need to consider it. *)
-        if isX64 then raise InternalError "genMemoryConstant" (* We don't have 64-bit immediates. *)
-        else if not (is8BitL offset)
-        then
-        (
-            doPending(cvec, maxInstrSize + 2);
-            (* We have a sib byte if we either have an index or the base
-               register is esp. *)
-            align(if haveIndex orelse rb = esp then 0w1 else 0w2, cvec)
-        )
-        else if offset = 0 andalso rb = eax andalso not haveIndex
-        then (* modrm will be zero.  We need to be sure that this is not the
-              first byte in a word. *)
-        (
-            doPending(cvec, maxInstrSize + 1);
-            if (!ic) mod 0w4 = 0w3 (* opcode will be the last byte in this word. *)
-            then align(0w1, cvec)
-            else ()
-        )
-        else ();
-        
+    fun genMemoryConstant (cnstnt, opcode, arithOp, offset, rb, ri, cvec) =
+    (
+        (* There used to be some code in here to ensure we didn't have a
+           full word of zeros since that was used as a marker. *)
         case ri of
             NoIndex => genOpPlus2 (opcode, offset, rb, arithOp, cvec)
         |   ri => genOpIndexed (opcode, offset, SOME rb, ri, mkReg(arithOp, false), cvec);
         addConstToVec (WVal cnstnt, InlineAbsolute, cvec)
-    end
-
-    (* Register/register move. *)
-    fun genMove (rd, rs, cvec) = genOpReg (MOVL_R_A, rs,rd, cvec)
+    )
 
     (* Add a register to a constant. *)
     fun genLeal (rd, rs, offset, cvec) = genOpEA (LEAL, offset, rs, rd, cvec)
@@ -1591,41 +1525,45 @@ struct
     (* Call a function. *)
     fun callFunction (Recursive, cvec as Code {ic, ... }) =
         (
-            genop (CALL_32, NONE, cvec);  (* 1 byte  *)
+            doPending (cvec, maxInstrSize);
+            genBytes(opCodeBytes (CALL_32, NONE), cvec);  (* 1 byte  *)
             gen32s (~(Word.toLargeInt(!ic) + 4), cvec)       (* 4 bytes *)
         )
      
     |   callFunction (FullCall, cvec) =
         let
-            val () = genop (Group5, NONE, cvec)
+            val () = doPending (cvec, maxInstrSize)
             val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
         in
-            genBytes([mdrm], cvec)
+            genBytes(opCodeBytes (Group5, NONE) @ [mdrm], cvec)
         end
 
     |   callFunction (ConstantCode w, cvec) =
         if isX64
         then
         let
-            val () = genop (Group5, NONE, cvec);
+            val () = doPending (cvec, maxInstrSize)
+            val opc = opCodeBytes(Group5, NONE)
             val mdrm = modrm(Based0, 0w2 (* call *), 0w5 (* PC rel *))
         in
-            genBytes([mdrm], cvec);
+            genBytes(opc @ [mdrm], cvec);
             addConstToVec (WVal w, ConstArea 0, cvec)
         end
         else
  	    (
-	        genop (CALL_32, NONE, cvec);
+            doPending (cvec, maxInstrSize);
+	        genBytes(opCodeBytes (CALL_32, NONE), cvec);
 		    addConstToVec (WVal w, InlineRelative, cvec)
 	    )
             
     |   callFunction (DirectReg reg, cvec) =
         let
             val (rc, rx) = getReg reg
-            val () = genop (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE, cvec)
+            val () = doPending (cvec, maxInstrSize)
+            val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
             val mdrm = modrm(Register, 0w2 (* call *), rc)
         in
-            genBytes([mdrm], cvec)
+            genBytes(opb @ [mdrm], cvec)
         end
      
 
@@ -1645,31 +1583,35 @@ struct
             Recursive =>
             (
                 (* Jump to the start of the current function. *)
-                genop (JMP_32, NONE, cvec);
+                doPending (cvec, maxInstrSize);
+                genBytes(opCodeBytes (JMP_32, NONE), cvec);
                 gen32s (~(Word.toLargeInt(!ic) + 4), cvec)
             )
            
         |   FullCall =>
             let (* Full closure call *)
-                val () = genop (Group5, NONE, cvec);
+                val () = doPending (cvec, maxInstrSize)
+                val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
             in
-                genBytes([mdrm], cvec)
+                genBytes(opb @ [mdrm], cvec)
             end
 
         |   ConstantCode w =>
             if isX64
             then
             let
-                val () = genop (Group5, NONE, cvec);
+                val () = doPending (cvec, maxInstrSize)
+                val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *))
             in
-                genBytes([mdrm], cvec);
+                genBytes(opb @ [mdrm], cvec);
                 addConstToVec (WVal w, ConstArea 0, cvec)
             end
             else
             (
-    		    genop (JMP_32, NONE, cvec);
+    		    doPending (cvec, maxInstrSize);
+                genBytes(opCodeBytes (JMP_32, NONE), cvec);
     			addConstToVec (WVal w, InlineRelative, cvec)
             )
             
@@ -1781,7 +1723,7 @@ struct
                 val lab1 = [putConditional(JB, cvec)]
                 val () =
                     if isX64
-                    then genReg (CMP, resultReg, r15, cvec)
+                    then (doPending (cvec, maxInstrSize); genBytes(arithOpReg (CMP, resultReg, r15), cvec))
                     else genOpEA(Arith (CMP, 0w3), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec) 
                 val lab2 = [putConditional(JB, cvec)]
             in
@@ -1797,7 +1739,7 @@ struct
             (* Update the heap pointer now we have the store.  This is also
                used by the RTS in the event of a trap to work out how much
                store was being allocated. *)
-            if isX64 then genMove(r15, resultReg, cvec)
+            if isX64 then (doPending (cvec, maxInstrSize); genBytes(opReg(MOVL_R_A, resultReg, r15), cvec))
             else genOpEA (MOVL_R_A, LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, cvec)
         end
     in
@@ -1829,7 +1771,7 @@ struct
             genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
             (* Add this negative value to the current heap pointer. *)
             if isX64
-            then genReg(ADD, resultReg, r15, code)
+            then (doPending (code, maxInstrSize); genBytes(arithOpReg(ADD, resultReg, r15), code))
             else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg, code);
             allocStoreCommonCode(resultReg, code, true, saveRegs)
         )
@@ -2278,16 +2220,14 @@ struct
 
         let
             fun addJump(Labels{forward, reverse=ref reverse, ...}) =
-            (
-                reverse = addrUnsetLabel orelse raise InternalError "addJump";
-                gen8u (opToInt JMP_32, code);
-                gen32u (0w0, code);
+            let
+                val _ = reverse = addrUnsetLabel orelse raise InternalError "addJump";
+            in
+                genBytes(opToInt JMP_32 :: word32Unsigned 0w0, code);
                 forward := [ref(Jump32From (!ic addrPlus ~4))]  @ ! forward;
                 (* Add no-ops to make it 8 bytes. *)
-                gen8u (opToInt NOP, code);
-                gen8u (opToInt NOP, code);
-                gen8u (opToInt NOP, code)
-            )
+                genBytes([opToInt NOP, opToInt NOP, opToInt NOP], code)
+            end
         in
             (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
             set32u(Word.toLargeWord (if isX64 then !ic - startJumpTable - 0w4 else !ic), startJumpTable, codeVec);
@@ -2329,7 +2269,8 @@ struct
         |   cgOp(MoveToRegister{ source=RegisterArg source, output } :: remainder) =
                 (* Move from one general register to another. *)
             (
-                genMove(output, source, code);
+                doPending (code, maxInstrSize);
+                genBytes(opReg(MOVL_R_A, source, output), code);
                 cgOp remainder
             )
 
@@ -2369,7 +2310,7 @@ struct
                     if source mod 2 = 0
                     then
                     (
-                        genReg(XOR, output, output, code);
+                        doPending (code, maxInstrSize); genBytes(arithOpReg(XOR, output, output), code);
                         if source = 0 then ()
                         else genImmed (ADD, output, source, code)
                     )
@@ -2478,7 +2419,8 @@ struct
 
         |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source } :: remainder) =
             (
-                genReg (opc, output, source, code);
+                doPending (code, maxInstrSize);
+                genBytes(arithOpReg (opc, output, source), code);
                 cgOp remainder
             )
 
@@ -3094,7 +3036,8 @@ struct
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                genOpReg(IMUL (* 2 byte opcode *), output, source, code);
+                doPending (code, maxInstrSize);
+                genBytes(opReg(IMUL (* 2 byte opcode *), output, source), code);
                 cgOp remainder
             )
 
@@ -3144,14 +3087,13 @@ struct
                 val oper = SSE2Ops opc
             in
                 doPending (code, maxInstrSize);
-                genPrefix(oper, code);
-                (* We don't currently need a REX byte but if we did it would be sandwiched in here. *)
-                genEscape(oper, code);
-                gen8u(opToInt oper, code);
                 let
+                    val pref = opcodePrefix oper
+                    val esc = escapePrefix oper
+                    val opc = opToInt oper
                     val mdrm = modrm(Register, rrC, rrS)
                 in
-                    genBytes([mdrm], code)
+                    genBytes(pref @ esc @ [opc, mdrm], code)
                 end;
                 cgOp remainder
             end
@@ -3178,16 +3120,9 @@ struct
                 val (rbC, rbX) = getReg source
             in
                 doPending (code, maxInstrSize);
-                (* This is a real mess!.  The sequence is F2 Rex 0F 2A. *)
-                gen8u(0wxF2, code);
-                genRex(CVTSI2SD, false, rbX, false, code);
-                gen8u(0wx0F, code);
-                gen8u(0wx2A, code);
-                let
-                    val mdrm = modrm(Register, rrC, rbC)
-                in
-                    genBytes([mdrm], code)
-                end;
+                genBytes(
+                    opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
+                    escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)], code);
                 cgOp remainder
             end
 
@@ -3200,7 +3135,8 @@ struct
        |    cgOp (XChngRegisters { regX, regY} :: remainder) =
             (
                 (* We only use register-to-register exchange.  That doesn't cause a lock. *)
-                genOpReg(XCHNG, regX, regY, code);
+                doPending (code, maxInstrSize);
+                genBytes(opReg(XCHNG, regX, regY), code);
                 cgOp remainder
             )
     in
