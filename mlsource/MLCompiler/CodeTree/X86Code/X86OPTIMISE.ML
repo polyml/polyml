@@ -172,6 +172,32 @@ struct
             end
             else forward(b :: tl, a :: list, rep)
 
+        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output}) :: (reset as ResetStack count) :: tl,
+                    list, rep) =
+            (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
+               we can't we may be better to split the stack reset in case there's another load that could. *)
+            if base = esp andalso offset < count * Address.wordSize
+            then (* Can use a pop instruction. *)
+            let
+                val resetBefore = Int.min(offset div Address.wordSize, count)
+            in
+                if resetBefore = 0 (* So offset must be zero. *)
+                then
+                let
+                    val _ = offset = 0 orelse raise InternalError "forward: offset non-zero"
+                    val resetAfter = count - resetBefore - 1
+                in
+                    forward(if resetAfter = 0 then tl else ResetStack resetAfter :: tl,
+                        PopR output :: list, true)
+                end
+                else forward(
+                        MoveToRegister{
+                            source=MemoryArg{base=base, offset=offset-resetBefore*Address.wordSize, index=NoIndex}, output=output} ::
+                        (if count = resetBefore then tl else ResetStack(count - resetBefore) :: tl),
+                        ResetStack resetBefore :: list, true)
+            end
+            else forward(reset::tl, mv::list, rep)
+
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
         and reverse([], list, rep) = (list, rep)
