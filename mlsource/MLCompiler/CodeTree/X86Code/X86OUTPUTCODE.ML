@@ -1181,110 +1181,6 @@ struct
             callInstr @ regSetInstr
         end
 
-    (* Allocate store and put the resulting pointer in the result register. *)
-    local
-        fun putConditional (br: branchOps, cvec as Code{ic, ...}) =
-        let
-            val brOp = CondJump32 br
-            val instrBytes = escapePrefix brOp @ opToInt brOp :: word32Unsigned 0w0
-            val label = makeLongLabel (!ic addrPlus (List.length instrBytes -4), cvec)
-        in
-            (instrBytes, label)
-        end
-
-        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc, regSaveSet: genReg list) =
-        let
-            (* Common code.  resultReg contains the possible new address. *)
-            val () = genBytes(opEA(Arith (CMP, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMbottom, ebp, resultReg), cvec);
-
-            (* Normally we won't have run out of store so we want the default
-               branch prediction to skip the test here. However doing that
-               involves adding an extra branch which lengthens the code so
-               it's probably not worth while. *)
-            (* Just checking against the lower limit in this way can fail
-               in the situation where the heap pointer is at the low end of
-               the address range and the store required is so large that the
-               subtraction results in a negative number.  In that case it
-               will be > (unsigned) lower_limit so in addition we have
-               to check that the result is < (unsigned) heap_pointer.
-               This actually happened on Windows with X86-64.
-               In theory this can happen with fixed-size allocations as
-               well as variable allocations but in practice fixed-size
-               allocations are going to be small enough that it's not a
-               problem.  *)
-            val lab =
-            if isVarAlloc
-            then
-            let
-                val (brOps1, lab1) = putConditional(JB, cvec)
-                val () = genBytes(brOps1, cvec)
-                val () =
-                    if isX64
-                    then genBytes(arithOpReg (CMP, resultReg, r15), cvec)
-                    else genBytes(opEA(Arith (CMP, 0w3), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg), cvec) 
-                val (brOps2, lab2) = putConditional(JB, cvec)
-                val () = genBytes(brOps2, cvec)
-            in
-                fixup([lab1], cvec);
-                [lab2]
-            end
-            else
-            let
-                val (brOps, lab) = putConditional(JNB, cvec)
-                val () = genBytes(brOps, cvec)
-            in
-                [lab]
-            end
-        in
-            (* If we don't have enough store for this allocation we call this
-               function.  Push the registers before the call and pop them afterwards. *)
-            genBytes(rtsCall(HeapOverflowCall, regSaveSet), cvec);
-            fixup(lab, cvec);
-            (* Update the heap pointer now we have the store.  This is also
-               used by the RTS in the event of a trap to work out how much
-               store was being allocated. *)
-            if isX64 then genBytes(opReg(MOVL_R_A, resultReg, r15), cvec)
-            else genBytes(opEA(MOVL_R_A, LargeInt.fromInt memRegLocalMPointer, ebp, resultReg), cvec)
-        end
-    in
-        fun allocStoreCode (size: int, resultReg, saveRegs, cvec as Code { inAllocation as ref false, ...}) =
-        let
-            val _ = inAllocation := true
-            val bytes = LargeInt.fromInt (size + 1) * LargeInt.fromInt wordSize
-        in
-            if isX64
-            then genBytes(opEA(LEAL, ~ bytes, r15, resultReg), cvec) (* TODO: What if it's too big to fit? *)
-            else
-            (
-                (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
-            	   call 40[%ebp]; 1f: movl r,0(%ebp); movl size,-4(r); *)
-                genBytes(opEA(MOVL_A_R, LargeInt.fromInt memRegLocalMPointer, ebp, resultReg), cvec);
-                genBytes(opEA(LEAL, ~ bytes, resultReg, resultReg), cvec)
-            );
-            allocStoreCommonCode(resultReg, cvec, false, saveRegs)
-        end
-        |  allocStoreCode _ =
-            raise InternalError "Allocation started but not complete"
-
-        and allocStoreVarCode(resultReg, saveRegs, code as Code { inAllocation as ref false, ...}) =
-            (* The result reg contains the requested size as a number of bytes
-               on entry and returns with the base address. *)
-        let
-            val () = inAllocation := true
-            (* Turn this into a negative value. *)
-            val opb = opRegPlus2(Group3_A, resultReg, 0w3 (* neg *))
-        in
-            genBytes(opb, code);
-            (* Add this negative value to the current heap pointer. *)
-            if isX64
-            then genBytes(arithOpReg(ADD, resultReg, r15), code)
-            else genBytes(opEA(Arith (ADD, 0w3 (* r/m to reg *)), LargeInt.fromInt memRegLocalMPointer, ebp, resultReg), code);
-            allocStoreCommonCode(resultReg, code, true, saveRegs)
-        end
-        | allocStoreVarCode _ =
-            raise InternalError "Allocation started but not complete"
-    end
-
     (* Operations. *)
     type cases = word * label
 
@@ -1360,6 +1256,7 @@ struct
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   Negative of { output: genReg }
 
     type operations = operation list
 
@@ -1584,6 +1481,7 @@ struct
             )
         |   SignExtendForDivide => stream "SignExtendForDivide"
         |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
+        |   Negative { output } => (stream "Negative "; printGReg output)
         ;
  
         stream "\n"
@@ -2046,26 +1944,12 @@ struct
         |   cgOp(StoreNonWordConst{ size=Size32Bit, ... }) =
                 raise InternalError "StoreNonWordConst: 32Bit"
 
-        |   cgOp(AllocStore{ size, output, saveRegs }) =
-            (
-                if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ();
-                allocStoreCode(size, output, saveRegs, code)
-            )
+            (* Allocation is dealt with by expanding the code. *)
+        |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
 
-        |   cgOp(AllocStoreVariable{output, saveRegs}) =
-            (
-                if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStoreVariable: in set" else ();
-                allocStoreVarCode(output, saveRegs, code)
-            )
+        |   cgOp(AllocStoreVariable _) = raise InternalError "cgOp: AllocStoreVariable"
 
-        |   cgOp(StoreInitialised) =
-            (
-                (* This is just for debugging to ensure we have properly initialised a
-                   piece of memory before allocating a new one. *)
-                case code of
-                    Code { inAllocation as ref true, ...} => inAllocation := false
-                |   _ => raise InternalError "Found StoreInitialised but not in allocation"
-            )
+        |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
         |   cgOp(CallFunction Recursive) =
                 genBytes(opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 4)), code)
@@ -2412,8 +2296,108 @@ struct
         |   cgOp (XChngRegisters { regX, regY}) =
                 (* We only use register-to-register exchange.  That doesn't cause a lock. *)
                 genBytes(opReg(XCHNG, regX, regY), code)
+
+        |   cgOp (Negative {output}) =
+                genBytes(opRegPlus2(Group3_A, output, 0w3 (* neg *)), code)
     in
         List.app cgOp ops
+    end
+
+    (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
+       level but at this point it's better to expand them into their basic instructions. *)
+    local
+        (* A number of bugs have turned out to be related to starting a second allocation before the
+           first area is fully initialised. This is intended to avoid them. *)
+        val inAllocation = ref false
+
+        (* On X86/64 the local pointer is in r15.  On X86/32 it's in memRegs. *)
+        val localPointer =
+            if isX64 then RegisterArg r15 else MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex}
+
+        fun allocStoreCommonCode (resultReg, isVarAlloc, regSaveSet: genReg list) =
+        let
+            val compare =
+                ArithToGenReg{opc=CMP, output=resultReg, source=MemoryArg{base=ebp, offset=memRegLocalMbottom, index=NoIndex}}
+            (* Normally we won't have run out of store so we want the default
+               branch prediction to skip the test here. However doing that
+               involves adding an extra branch which lengthens the code so
+               it's probably not worth while. *)
+            (* Just checking against the lower limit can fail
+               in the situation where the heap pointer is at the low end of
+               the address range and the store required is so large that the
+               subtraction results in a negative number.  In that case it
+               will be > (unsigned) lower_limit so in addition we have
+               to check that the result is < (unsigned) heap_pointer.
+               This actually happened on Windows with X86-64.
+               In theory this can happen with fixed-size allocations as
+               well as variable allocations but in practice fixed-size
+               allocations are going to be small enough that it's not a
+               problem.  *)
+            val destLabel = mkLabel()
+            val branches =
+                if isVarAlloc
+                then
+                let
+                    val extraLabel = mkLabel()
+                in
+                    [ConditionalBranch{test=JB, label=extraLabel, predict=PredictNotTaken},
+                     ArithToGenReg{opc=CMP, output=resultReg, source=localPointer},
+                     ConditionalBranch{test=JB, label=destLabel, predict=PredictTaken},
+                     JumpLabel extraLabel]
+                end
+                else [ConditionalBranch{test=JNB, label=destLabel, predict=PredictTaken}]
+            val callRts = CallRTS{rtsEntry=HeapOverflowCall, saveRegs=regSaveSet}
+            val fixup = JumpLabel destLabel
+            (* Update the heap pointer now we have the store.  This is also
+               used by the RTS in the event of a trap to work out how much
+               store was being allocated. *)
+            val update =
+                if isX64 then MoveToRegister{source=RegisterArg resultReg, output=r15}
+                else StoreRegToMemory{toStore=resultReg, address={base=ebp, offset=memRegLocalMPointer, index=NoIndex}}
+        in
+            compare :: branches @ [callRts, fixup, update]
+        end
+        
+        fun doExpansion([], code) = code
+
+        |   doExpansion(AllocStore {size, output, saveRegs} :: instrs, code) =
+            let
+                val _ = !inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
+                val _ = inAllocation := true
+                val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
+                val bytes = (size + 1) * wordSize
+                val startCode =
+                    if isX64
+                    then [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex}]
+                             (* TODO: What if it's too big to fit? *)
+                    else
+                        [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex}, output=output},
+                         LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex}]
+                val resultCode = startCode @ allocStoreCommonCode(output, false, saveRegs)
+            in
+                doExpansion(instrs, (List.rev resultCode) @ code)
+            end
+
+        |   doExpansion(AllocStoreVariable {output, saveRegs} :: instrs, code) =
+            let
+                (* Allocates memory whose size as a number of bytes is in the output register. *)
+                val _ = !inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
+                val _ = inAllocation := true
+                val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
+                (* Negate the length and add it to the current heap pointer. *)
+                val startCode =
+                    [Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer}]
+                val resultCode = startCode @ allocStoreCommonCode(output, true, saveRegs)
+            in
+                doExpansion(instrs, (List.rev resultCode) @ code)
+            end
+
+        |   doExpansion(StoreInitialised :: instrs, code) =
+                (inAllocation := false; doExpansion(instrs, code))
+
+        |   doExpansion(instr :: instrs, code) = doExpansion(instrs, instr::code)
+    in
+        fun expandComplexOperations instrs = List.rev(doExpansion(instrs, []))
     end
 
 
@@ -3160,7 +3144,8 @@ struct
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun createCodeSegment (operations, cvec) : address =
     let
-        val () = codeGenerate(operations, cvec)
+        val expanded = expandComplexOperations operations
+        val () = codeGenerate(expanded, cvec)
         val () = genBytes(opCodeBytes(HLT, NONE), cvec) (* Marker - this is used by ScanConstants in the RTS. *)
 
         (* After code generation get the final values of some refs. *)

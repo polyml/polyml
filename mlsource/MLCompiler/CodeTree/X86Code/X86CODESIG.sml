@@ -183,6 +183,7 @@ sig
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   Negative of { output: genReg }
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
