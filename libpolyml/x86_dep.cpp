@@ -1056,9 +1056,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
     while (true)
     {
-        // We've finished when this is word aligned and points to a zero word.
-        if (((POLYUNSIGNED)pt & (0-sizeof(POLYUNSIGNED))) && ((PolyWord*)pt)->AsUnsigned() == 0)
-            break;
         // Escape prefixes come before any Rex byte
         if (*pt == 0xf2 || *pt == 0xf3 || *pt == 0x66)
             pt++;
@@ -1075,6 +1072,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 #endif /* HOSTARCHITECTURE_X86_64 */
         switch (*pt)
         {
+        case 0x00: return; // This is actually the first byte of the old "marker" word.
+        case 0xf4: return; // Halt - now used as a marker.
         case 0x50: case 0x51: case 0x52: case 0x53:
         case 0x54: case 0x55: case 0x56: case 0x57: /* Push */
         case 0x58: case 0x59: case 0x5a: case 0x5b:

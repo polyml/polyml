@@ -769,6 +769,7 @@ struct
     |   CQO_CDQ (* Sign extend before divide.. *)
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
     |   CVTSI2SD
+    |   HLT     (* End of code marker. *)
 
     fun opToInt Group1_8_A    =  0wx83
     |   opToInt Group1_32_A   =  0wx81
@@ -825,6 +826,7 @@ struct
     |   opToInt (SSE2Ops SSE2MoveSingle)  = 0wx5A (* Needs F3 0F escape. *)
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
+    |   opToInt HLT           = 0wxf4
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -1771,69 +1773,51 @@ struct
                 genBytes(opReg(MOVL_R_A, source, output), code)
 
         |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output}) =
-            let
-                val () =
-                if isX64
+            if isX64
+            then
+            (
+                if source >= ~0x40000000 andalso source < 0x40000000
+                then (* Signed 32-bits. *)
+                (
+                    (* This is not scanned in 64-bit mode because 32-bit values aren't
+                       big enough to contain addresses. *)
+                    genOpRegPlus2 (MOVL_32_A, output, 0w0, code);
+                    gen32s (source, code)
+                )
+                else (* Too big for 32-bits; put it in the non-word area. *)
+                let
+                    val (rc, rx) = getReg output
+                    val () = genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
+                    val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+                in
+                    genBytes([mdrm], code);
+                    addNonAddressConstant(NonAddressInt source, code)
+                end
+            )
+            else (* 32-bit mode. *)
+            (
+                (* The RTS scans for possible addresses in MOV instructions so we
+                   can only use MOV if this is a tagged value.  If it isn't we have
+                   to use something else such as XOR/ADD.  In particular this is used
+                   before LOCK XADD for atomic inc/dec.
+                   TODO: There are various special cases such as setting to -1 can
+                   be done with an OR whatever the initial value.  INC can be used
+                   in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
+                if source mod 2 = 0
                 then
                 (
-                    if source >= ~0x40000000 andalso source < 0x40000000
-                    then (* Signed 32-bits. *)
-                    (
-                        (* This is not scanned in 64-bit mode because 32-bit values aren't
-                           big enough to contain addresses. *)
-                        genOpRegPlus2 (MOVL_32_A, output, 0w0, code);
-                        gen32s (source, code)
-                    )
-                    else (* Too big for 32-bits; put it in the non-word area. *)
-                    let
-                        val (rc, rx) = getReg output
-                        val () = genop(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false}, code);
-                        val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
-                    in
-                        genBytes([mdrm], code);
-                        addNonAddressConstant(NonAddressInt source, code)
-                    end
+                    genBytes(arithOpReg(XOR, output, output), code);
+                    if source = 0 then ()
+                    else genImmed (ADD, output, source, code)
                 )
-                else (* 32-bit mode. *)
-                (
-                    (* The RTS scans for possible addresses in MOV instructions so we
-                       can only use MOV if this is a tagged value.  If it isn't we have
-                       to use something else such as XOR/ADD.  In particular this is used
-                       before LOCK XADD for atomic inc/dec.
-                       TODO: There are various special cases such as setting to -1 can
-                       be done with an OR whatever the initial value.  INC can be used
-                       in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
-                    if source mod 2 = 0
-                    then
-                    (
-                        genBytes(arithOpReg(XOR, output, output), code);
-                        if source = 0 then ()
-                        else genImmed (ADD, output, source, code)
-                    )
-                    else
-                    let
-                        val (rc, _) = getReg output
-                    in
-                        genop (MOVL_32_64_R rc, NONE, code);
-                        gen32s (source, code)
-                    end
-                )
-            in
-                ()
-            end
-
-(*        |   cgOp(MoveConstFPR{ source, output}) =
-            let
-                val _ = addDests[output]
-                    (* We seem to get a short zero here as a result of putting in a
-                       void value. I think this occurs when a dummy value is put on
-                       when one side of a branch raises an exception. *)
-                val _ = source = tag 0 orelse raise InternalError "Move LiteralSource to fp reg: invalid source"
-            in
-                genFloatingPt({escape=0w1, md=0w3, nnn=0w5, rm=0w6}, code); (* FLDZ *)
-                storeFpRegFromStack(output, code);
-                ()
-            end*)
+                else
+                let
+                    val (rc, _) = getReg output
+                in
+                    genop (MOVL_32_64_R rc, NONE, code);
+                    gen32s (source, code)
+                end
+            )
 
         |   cgOp(MoveToRegister{ source=AddressConstArg source, output }) =
             let
@@ -2551,7 +2535,7 @@ struct
     end
 
 
-    fun printCode (Code{procName, printStream, ...}) seg endcode =
+    fun printCode (Code{procName, printStream, ...}, seg) =
     let
         val print = printStream
         val ptr = ref 0w0;
@@ -2805,7 +2789,7 @@ struct
         if procName = "" (* No name *) then print "?" else print procName;
         print ":\n";
  
-        while !ptr < endcode do
+        while get8u (!ptr, seg) <> 0wxf4 (* HLT. *) do
         let
             val () = print (Word.fmt StringCvt.HEX (!ptr)) (* The address in hex. *)
             val () = print "\t"
@@ -3223,6 +3207,8 @@ struct
                 end
 
             |   0wxeb => (print "jmp \t"; printJmp())
+            
+            |   0wxf4 => print "hlt" (* Marker to indicate end-of-code. *)
         
             |   0wxf6 => (* Group3_a *)
                 let
@@ -3293,6 +3279,7 @@ struct
     fun createCodeSegment (operations, cvec) : address =
     let
         val () = codeGenerate(operations, cvec)
+        val () = genop(HLT, NONE, cvec) (* Marker - this is used by ScanConstants in the RTS. *)
 
         (* After code generation get the final values of some refs. *)
         val Code{codeVec, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
@@ -3300,11 +3287,7 @@ struct
                  procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
-        val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genop(NOP, NONE, cvec)
-        val endic = !ic (* Remember end *)
-        val ()   = genWordU(0w0, cvec) (* Marker - 0 (changes !ic) *)
-        (* Byte offset of start of code. (changes !ic) *)
-        val () = genWordU(Word.toLargeWord(!ic), cvec)
+        val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genop(HLT, NONE, cvec)
         
         (* Copy the non-address constants.  These are currently only used for real
            constants in 64-bit mode.  Other constants are left until we have a
@@ -3406,7 +3389,7 @@ struct
                 if printAssemblyCode
                 then (* print out the code *)
                 (
-                    printCode cvec seg endic;
+                    printCode(cvec, seg);
                     printStream "\n\n"
                 )
             else ()
