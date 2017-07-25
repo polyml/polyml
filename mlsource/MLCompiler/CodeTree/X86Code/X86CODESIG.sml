@@ -50,7 +50,7 @@ sig
 
     val regRepr: reg -> string
     
-    type addrs and labList
+    type addrs
     val addrZero: addrs
 
     structure RegSet:
@@ -94,8 +94,7 @@ sig
     datatype label =
         Labels of
         {
-            forward: labList ref,
-            reverse: addrs ref,
+            destination: addrs ref,
             labId: int ref,
             uses: int ref,
             chain: label option ref
@@ -216,7 +215,6 @@ sig
         and  operation      = operation
         and  regSet         = RegSet.regSet
         and  label          = label
-        and  labList        = labList
         and  branchOps      = branchOps
     end
 end;

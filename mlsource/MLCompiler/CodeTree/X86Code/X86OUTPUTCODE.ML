@@ -104,30 +104,19 @@ struct
     val addrZero = 0w0;
     val addrLast = wordsToBytes maxAllocation (* A large address. *)
     val addrUnsetLabel = addrLast (* An invalid address *)
-
-    (* The "value" points at the jump instruction, or rather at the
-       jump offset part of it.  It is a ref because we may have to change
-       it if we have to put in a jump with a 32-bit offset. *)
-    datatype jumpFrom =
-        Jump8From  of addrs
-    |   Jump32From of addrs 
-  
-    (* This is the list of outstanding labels. *)
-    type labList = jumpFrom list
+ 
     (* This is the external label type used when constructing operations.
        The ref int is just an identifier for convenience when printing. *)
     datatype label =
         Labels of
         {
-            forward: labList ref,
-            reverse: addrs ref,
+            destination: addrs ref,
             labId: int ref,
             uses: int ref,
             chain: label option ref
         }
 
-    fun mkLabel() =
-        Labels{forward = ref [], reverse=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
+    fun mkLabel() = Labels{destination=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
    
   (* Constants which are too large to go inline in the code are put in
      a list and put at the end of the code. They are arranged so that
@@ -859,34 +848,6 @@ struct
        sizeField orb8 baseField
     end
 
-    (* Makes a new label. *)
-    fun makeLongLabel (addr: addrs, _) : jumpFrom = Jump32From addr
-
-    (* Fix up branches by patching the offset. *)
-    fun fixup (labs, Code{codeVec=cseg, ic, ...}) =
-    let
-        fun fixBranch(Jump8From addr) =
-            let
-                val offset = get8s(addr, cseg)
-                val diff = (!ic addrMinus addr) - 1
-            in
-                if offset <> 0
-                then raise InternalError "fixup: jump already patched"
-                else set8s (diff, addr, cseg)
-            end
-        |   fixBranch(Jump32From addr) =
-            let
-                val offset = get32s (addr, cseg)
-                val diff = (!ic addrMinus addr) - 4
-            in
-                if offset <> 0
-                then raise InternalError "fixup: jump already patched"
-                else set32s (LargeInt.fromInt diff, addr, cseg)
-            end
-    in
-        List.app fixBranch labs
-    end
-    
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
     fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
     |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
@@ -1547,19 +1508,6 @@ struct
         end
 
         local
-            val prejumpSize = List.length preJumpTable
-            
-            fun setJumpAddress(Labels{forward, ...}, n) =
-            let
-                (* Each item is 8 bytes.  Then we add the size of the JMP_32 opcode. *)
-                val jumpAddr = !ic addrPlus (prejumpSize + n*8 + 1)
-            in
-                forward := [Jump32From jumpAddr]  @ ! forward;
-                n+1
-            end
-            
-            val _ = List.foldl setJumpAddress 0 cases
-            
             (* Make one jump for each case and pad it 8 bytes with Nops. *)
             fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
         in
@@ -1781,23 +1729,22 @@ struct
                 (* Test the tag bit and set the condition code. *)
                 opPlus2(Group3_a, LargeInt.fromInt offset, base, 0w0 (* test *)) @ [wordToWord8 bits]
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse=ref reverse, ...}, ... }) =
+        |   cgOp(ConditionalBranch{ test=opc, label=Labels{destination=ref destination, ...}, ... }) =
             let
                 val Code{ic, ...} = code
             in
                 (* Almost always conditional branches are forward but it is possible that a
                    conditional branch has been combined with a loop jump to give a backwards jump. *)
-                if reverse = addrUnsetLabel (* Destination is after this. *)
+                if destination = addrUnsetLabel (* Destination is after this. *)
                 then
                 let
                     val opb = opCodeBytes(CondJump32 opc, NONE)
                 in
-                    forward := makeLongLabel (!ic addrPlus (List.length opb), code) :: !forward;
                     opb @ word32Unsigned 0w0
                 end
                 else
                 let
-                    val offset  = reverse addrMinus (!ic) (* Negative *)
+                    val offset  = destination addrMinus (!ic) (* Negative *)
                     val offset2 = offset - 2
                 in
                     if is8Bit offset2
@@ -2038,25 +1985,23 @@ struct
                 loadInstr @ opb @ [mdrm]
             end
 
-        |   cgOp(UncondBranch(Labels{forward, reverse, ...})) =
+        |   cgOp(UncondBranch(Labels{destination, ...})) =
             let
                 val Code{ic, ...} = code
             in
                 (* This may be a forward jump, in which case we don't have the destination and
                    can just record it, or it may be a backward jump in which case we already
                    have the destination. *)
-                if !reverse = addrUnsetLabel
+                if !destination = addrUnsetLabel
                 then
                 let
                     val brOp = opToInt JMP_32 :: word32Unsigned 0w0
-                    val br = makeLongLabel (!ic addrPlus (List.length brOp - 4), code)
                 in
-                    forward := br :: ! forward;
                     brOp
                 end
                 else 
                 let
-                    val offset  = !reverse addrMinus !ic (* Negative *)
+                    val offset  = !destination addrMinus !ic (* Negative *)
                     val offset2 = offset - 2;
                 in
                     if is8Bit offset2
@@ -2079,13 +2024,12 @@ struct
                         int32Signed(LargeInt.fromInt sr)
             end
 
-        |   cgOp(JumpLabel(Labels{forward=ref forward, reverse, ...})) =
+        |   cgOp(JumpLabel(Labels{destination, ...})) =
             let
                 val Code{ic, ...} = code
             in
-                fixup(forward, code); (* Fix up any forward branches to here. *)
                 (* Set the address. *)
-                reverse := !ic;
+                destination := !ic;
                 [] (* No code. *)
             end
 
@@ -2305,7 +2249,7 @@ struct
                     escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)]
             end
 
-        |   cgOp (SignExtendForDivide ) =
+        |   cgOp SignExtendForDivide =
                 opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE)
             
         |   cgOp (XChngRegisters { regX, regY}) =
@@ -2332,6 +2276,65 @@ struct
         
     in
         List.rev(List.foldl (createCode code) [] ops)
+    end
+    
+    (* Go through the code updating the destinations of branches. *)
+    fun patchLabels(ops, bytesList, Code{codeVec, ...}) =
+    let
+        fun fixupBranch(destination, brLength, ic) =
+        let
+            (* The offset is relative to the end of the branch instruction. *)
+            val diff = Word.toInt destination - ic - brLength
+        in
+            if brLength = 2
+            then (* It's a short branch. *)
+            let
+                val addr = Word.fromInt(ic+1)
+                val oldDiff = get8s(addr, codeVec)
+                val _ = oldDiff = 0 orelse oldDiff = diff orelse raise InternalError "mismatch"
+            in
+                set8s(diff, addr, codeVec)
+            end
+            else (* Long branch - may be 5 or 6 bytes. *)
+            let
+                val addr = Word.fromInt(ic+brLength-4)
+                val oldDiff = get32s (addr, codeVec)
+                val _ = oldDiff = 0 orelse oldDiff = LargeInt.fromInt diff orelse raise InternalError "mismatch"
+            in
+                set32s (LargeInt.fromInt diff, addr, codeVec)
+            end
+        end
+        
+        fun patchBranch(UncondBranch(Labels{destination=ref destination, ...}), brCode, ic) =
+                fixupBranch(destination, List.length brCode, ic)
+
+        |   patchBranch(ConditionalBranch{label=Labels{destination=ref destination, ...}, ... }, brCode, ic) =
+                fixupBranch(destination, List.length brCode, ic)
+
+        |   patchBranch(IndexedCase{cases, ...}, brCode, ic) =
+                (* An indexed case contains a list of branches that have to be fixed up. *)
+            let
+                val nCases = List.length cases
+                (* For the moment every branch is a 32-bit jump padded up to 8 bytes. *)
+                val startAddress = ic + List.length brCode - 8*nCases
+                fun processBranch(Labels{destination=ref destination, ...}, offset) =
+                let
+                    val () = fixupBranch(destination, 5 (* Length of an unconditional branch. *), offset)
+                in
+                    offset+8
+                end
+                val _ = List.foldl processBranch startAddress cases
+            in
+                ()
+            end
+
+        |   patchBranch _ = ()
+        
+        fun patchBranches(oper :: operList, bytes :: byteList, ic) =
+            (patchBranch(oper, bytes, ic); patchBranches(operList, byteList, ic + List.length bytes))
+        |   patchBranches _ = ()
+    in
+        patchBranches(ops, bytesList, 0)
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -3179,7 +3182,9 @@ struct
                 set8u (ival, !ic, codeVec) before ic := !ic + 0w1
             fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
         val expanded = expandComplexOperations operations
-        val _ = codeGenerate(expanded, cvec)
+        val bytesList = codeGenerate(expanded, cvec)
+        val () = patchLabels(expanded, bytesList, cvec)
+        
         val () = genBytes(opCodeBytes(HLT, NONE), cvec) (* Marker - this is used by ScanConstants in the RTS. *)
 
         (* After code generation get the final values of some refs. *)
@@ -3309,7 +3314,6 @@ struct
         and  operation      = operation
         and  regSet         = RegSet.regSet
         and  label          = label
-        and  labList        = labList
         and  branchOps      = branchOps
     end
 

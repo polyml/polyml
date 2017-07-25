@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016
+    Copyright David C. J. Matthews 2010, 2012, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -64,12 +64,12 @@ struct
             then forward(next :: tl, u :: list, rep)
             else (eliminate next; forward(u :: tl, list, true))
 
-            (* Eliminate Unconditional branches to the next instruction. *)
+(*            (* Eliminate Unconditional branches to the next instruction. *)
         |   forward((u as UncondBranch(Labels{forward=source, ...})) ::
                     (next as JumpLabel(Labels{forward=dest, ...})) :: tl, list, rep) =
             if source = dest
             then (eliminate u; forward(next :: tl, list, true))
-            else forward(next :: tl, u :: list, rep)
+            else forward(next :: tl, u :: list, rep)*)
            
             (* Eliminate dead instructions after UnconditionalBranch up to the next label. *)
         |   forward((u as UncondBranch _) :: next :: tl, list, rep) =
@@ -104,7 +104,7 @@ struct
             (* Reorder conditional and unconditional branches.  If we have a conditional branch
                followed by an unconditional branch followed by the destination of the conditional
                branch we can turn the test round. *)
-        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
+(*        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
                     (u as UncondBranch uncondLab) ::
                     (d as JumpLabel(Labels{forward=nextLabel, ...})) :: tl, list, rep) =
             let
@@ -143,7 +143,7 @@ struct
                             list, true)
                 )
                 else forward(u :: d :: tl, c :: list, rep)
-            end
+            end*)
 
         |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
                 (* Combine adjacent resets. *)
