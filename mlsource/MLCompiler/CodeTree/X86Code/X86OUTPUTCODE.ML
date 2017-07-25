@@ -1498,7 +1498,7 @@ struct
        the indexed jump at the expense of doubling the size of the table
        itself.  *)
  
-    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{ic, codeVec, ...}) =
+    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{ic, ...}) =
     let
         val (rc2, rx2) = getReg r2
         (* Load the address of the jump table.  We can use Pc-relative addressing on
@@ -1516,56 +1516,66 @@ struct
             else
             let
                 val opb1 = opCodeBytes(MOVL_32_64_R rc2, NONE)
-                val opb2 = opRegPlus2(Group1_32_A, r2, arithOpToWord ADD)
             in
-                addConstToVec (SelfVal, InlineAbsolute, code, opb1) @ opb2
+                addConstToVec (SelfVal, InlineAbsolute, code, opb1) @
+                    opRegPlus2(Group1_32_A, r2, arithOpToWord ADD)
             end
-        val () = genBytes(loadAddress @ int32Signed 0, code) (* Patched with address. *)
-        val startJumpTable = !ic addrPlus ~4
-    in
+
         (* Compute the jump address.  The index is a tagged
            integer so it is already multiplied by 2.  We need to
            multiply by four to get the correct size. We subtract off
            the minimum value and also the shifted tag. *)
-		let
+		local
 			val adjustment = Word.toLargeIntX min * ~8 - 4
-		in
 			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
 			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
 			(* We don't need to consider any possible overflow in the execution 
 			   because we've already checked that the value is within the range. *)
-			if is32bit adjustment
-			then
-			(
-                genBytes(immediateOperand(ADD, r2, adjustment, code), code);
-			 	genBytes(opIndexed(LEAL, 0, SOME r2, Index4 r1, r2), code)
-			)
-        	else genBytes(opIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2), code)
-		end;
-        (* Jump into the jump table. *)
-        let
+            val computeJump =
+    			if is32bit adjustment
+    			then immediateOperand(ADD, r2, adjustment, code) @
+    			 	    opIndexed(LEAL, 0, SOME r2, Index4 r1, r2)
+            	else opIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2)
+            (* Jump into the jump table. *)
             val opb = opCodeBytes(Group5, if rx2 then SOME{w=false, r=false, b=rx2, x=false} else NONE)
             val mdrm = modrm(Register, 0w4 (* jmp *), #1 (getReg r2))
         in
-            genBytes(opb @ [mdrm], code)
+            val computeAndIndex = computeJump @ opb @ [mdrm]
         end;
-
-        let
-            fun addJump(Labels{forward, reverse=ref reverse, ...}) =
-            let
-                val _ = reverse = addrUnsetLabel orelse raise InternalError "addJump";
-            in
-                genBytes(opToInt JMP_32 :: word32Unsigned 0w0, code);
-                forward := [(Jump32From (!ic addrPlus ~4))]  @ ! forward;
-                (* Add no-ops to make it 8 bytes. *)
-                genBytes([opToInt NOP, opToInt NOP, opToInt NOP], code)
-            end
+        local
+            (* We need to put in the offset of the jump table.
+               On X86/64 we're using a relative address so it's just the length of
+               computeAndIndex but on X86/32 it's relative to the start of the code. *)
+            val offset =
+                if isX64
+                then List.length computeAndIndex
+                else Word.toInt(!ic) + List.length loadAddress + List.length computeAndIndex + 4
         in
-            (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
-            set32u(Word.toLargeWord (if isX64 then !ic - startJumpTable - 0w4 else !ic), startJumpTable, codeVec);
-            List.app addJump cases
+            val preJumpTable = loadAddress @ int32Signed(LargeInt.fromInt offset) @ computeAndIndex
         end
-    end;
+
+        local
+            val prejumpSize = List.length preJumpTable
+            
+            fun setJumpAddress(Labels{forward, ...}, n) =
+            let
+                (* Each item is 8 bytes.  Then we add the size of the JMP_32 opcode. *)
+                val jumpAddr = !ic addrPlus (prejumpSize + n*8 + 1)
+            in
+                forward := [Jump32From jumpAddr]  @ ! forward;
+                n+1
+            end
+            
+            val _ = List.foldl setJumpAddress 0 cases
+            
+            (* Make one jump for each case and pad it 8 bytes with Nops. *)
+            fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
+        in
+            val jumpTable = List.foldl makeJump [] cases
+        end
+    in
+        preJumpTable @ jumpTable
+    end
 
     fun printLowLevelCode(ops, Code{printAssemblyCode, printStream, procName, ...}) =
         if printAssemblyCode
@@ -2107,7 +2117,7 @@ struct
             end
 
         |   cgOp(IndexedCase { testReg, workReg, min, cases }) =
-                indexedCase(testReg, workReg, min, cases, code)
+                genBytes(indexedCase(testReg, workReg, min, cases, code), code)
 
         |   cgOp (FreeRegisters _ ) = ()
 
