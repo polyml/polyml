@@ -309,14 +309,6 @@ struct
         ((((((((b7' * 0x100 + b6) * 0x100 + b5) * 0x100 + b4) * 0x100 + b3)
              * 0x100 + b2) * 0x100) + b1) * 0x100) + b0
     end
-
-    local
-        (* Code-generate a byte. *)
-        fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
-            set8u (ival, !ic, codeVec) before ic := !ic + 0w1
-    in
-        fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
-    end
     
     fun byteSigned ival =
         if ~0x80 <= ival andalso ival < 0x80
@@ -1594,17 +1586,17 @@ struct
         else ()
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
-    fun codeGenerate (ops, code as Code{ic, ...}) =
+    fun codeGenerate (ops, code) =
     let
         val () = printLowLevelCode(ops, code)
 
         fun cgOp(LockMutableSegment baseReg) =
                 (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
-                genBytes(opPlus2(Group1_8_a, ~1, baseReg, arithOpToWord AND) @ [0wxff - 0wx40], code)
+                opPlus2(Group1_8_a, ~1, baseReg, arithOpToWord AND) @ [0wxff - 0wx40]
 
         |   cgOp(MoveToRegister{ source=RegisterArg source, output }) =
                 (* Move from one general register to another. *)
-                genBytes(opReg(MOVL_R_A, source, output), code)
+                opReg(MOVL_R_A, source, output)
 
         |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output}) =
             if isX64
@@ -1614,14 +1606,14 @@ struct
                 then (* Signed 32-bits. *)
                     (* This is not scanned in 64-bit mode because 32-bit values aren't
                        big enough to contain addresses. *)
-                    genBytes(opRegPlus2(MOVL_32_A, output, 0w0) @ int32Signed source, code)
+                    opRegPlus2(MOVL_32_A, output, 0w0) @ int32Signed source
                 else (* Too big for 32-bits; put it in the non-word area. *)
                 let
                     val (rc, rx) = getReg output
                     val opb = opCodeBytes(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false})
                     val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
                 in
-                    genBytes(addNonAddressConstant(NonAddressInt source, code, opb @ [mdrm]), code)
+                    addNonAddressConstant(NonAddressInt source, code, opb @ [mdrm])
                 end
             )
             else (* 32-bit mode. *)
@@ -1634,18 +1626,15 @@ struct
                    be done with an OR whatever the initial value.  INC can be used
                    in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
                 if source mod 2 = 0
-                then
-                (
-                    genBytes(arithOpReg(XOR, output, output), code);
-                    if source = 0 then ()
-                    else genBytes(immediateOperand(ADD, output, source, code), code)
-                )
+                then arithOpReg(XOR, output, output) @
+                        (if source = 0 then []
+                         else immediateOperand(ADD, output, source, code))
                 else
                 let
                     val (rc, _) = getReg output
                     val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
                 in
-                    genBytes(opb @ int32Signed source, code)
+                    opb @ int32Signed source
                 end
             )
 
@@ -1656,35 +1645,35 @@ struct
                     opCodeBytes(MOVL_32_64_R rc,
                             if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE)
             in
-                genBytes(addConstToVec (WVal source, InlineAbsolute, code, opb), code)
+                addConstToVec (WVal source, InlineAbsolute, code, opb)
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output }) =
             (
                 case index of
-                    NoIndex => genBytes(opEA(MOVL_A_R, LargeInt.fromInt offset, base, output), code)
-                |   _ => genBytes(opIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output), code)
+                    NoIndex => opEA(MOVL_A_R, LargeInt.fromInt offset, base, output)
+                |   _ => opIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output)
             )
 
         |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output }) =
             (
                 case index of
-                    NoIndex => genBytes(opEA(MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output), code)
-                |   _ => genBytes(opIndexed(MOVZB, LargeInt.fromInt offset, SOME base, index, output), code)
+                    NoIndex => opEA(MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
+                |   _ => opIndexed(MOVZB, LargeInt.fromInt offset, SOME base, index, output)
             )
 
         |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output }) =
             (
                 case index of
-                    NoIndex => genBytes(opEA(MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output), code)
-                |   _ => genBytes(opIndexed(MOVZW, LargeInt.fromInt offset, SOME base, index, output), code)
+                    NoIndex => opEA(MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
+                |   _ => opIndexed(MOVZW, LargeInt.fromInt offset, SOME base, index, output)
             )
 
         |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
             (
                 case index of
-                    NoIndex => genBytes(opEA(MOVL_A_R32, LargeInt.fromInt offset, base, output), code)
-                |   _ => genBytes(opIndexed(MOVL_A_R32, LargeInt.fromInt offset, SOME base, index, output), code)
+                    NoIndex => opEA(MOVL_A_R32, LargeInt.fromInt offset, base, output)
+                |   _ => opIndexed(MOVL_A_R32, LargeInt.fromInt offset, SOME base, index, output)
             )
 
         |   cgOp(LoadAddress{ offset, base, index, output }) =
@@ -1692,16 +1681,16 @@ struct
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
                 case (index, base) of
-                    (NoIndex, SOME base) => genBytes(opEA(LEAL, LargeInt.fromInt offset, base, output), code)
+                    (NoIndex, SOME base) => opEA(LEAL, LargeInt.fromInt offset, base, output)
                 |   (NoIndex, NONE) => raise InternalError "LoadAddress: no base or index"
-                |   _ => genBytes(opIndexed(LEAL, LargeInt.fromInt offset, base, index, output), code)
+                |   _ => opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
             )
 
         |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source }) =
-                genBytes(arithOpReg (opc, output, source), code)
+                arithOpReg (opc, output, source)
 
         |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source }) =
-                genBytes(immediateOperand(opc, output, source, code), code)
+                immediateOperand(opc, output, source, code)
 
         |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg source }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
@@ -1714,42 +1703,42 @@ struct
                     val opb = opCodeBytes(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
 			        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
                 in
-                    genBytes(addConstToVec (WVal source, ConstArea 0, code, opb @ [mdrm]), code)
+                    addConstToVec (WVal source, ConstArea 0, code, opb @ [mdrm])
                 end
                 else
                 let
                     val opb = opCodeBytes(Group1_32_A (* group1, 32 bit immediate *), NONE)
                     val mdrm = modrm(Register, arithOpToWord opc, rc)
                 in
-                    genBytes(addConstToVec (WVal source, InlineAbsolute, code, opb @ [mdrm]), code)
+                    addConstToVec (WVal source, InlineAbsolute, code, opb @ [mdrm])
                 end
             end
 
         |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index=NoIndex} }) =
-                genBytes(opEA(Arith (opc, 0w3), LargeInt.fromInt offset, base, output), code)
+                opEA(Arith (opc, 0w3), LargeInt.fromInt offset, base, output)
 
         |   cgOp(ArithToGenReg _) = raise InternalError "cgOp: ArithToGenReg"
 
         |   cgOp(ArithMemConst{ opc, offset, base, source }) =
                 if is8BitL source
                 then (* Can use one byte immediate *) 
-                    genBytes(opPlus2(Group1_8_A (* group1, 8 bit immediate *),
-                               LargeInt.fromInt offset, base, arithOpToWord opc) @ [Word8.fromLargeInt source], code)
+                    opPlus2(Group1_8_A (* group1, 8 bit immediate *),
+                               LargeInt.fromInt offset, base, arithOpToWord opc) @ [Word8.fromLargeInt source]
                 else (* Need 32 bit immediate. *)
-                    genBytes(opPlus2(Group1_32_A (* group1, 32 bit immediate *), 
-                               LargeInt.fromInt offset, base, arithOpToWord opc) @ int32Signed source, code)
+                    opPlus2(Group1_32_A (* group1, 32 bit immediate *), 
+                               LargeInt.fromInt offset, base, arithOpToWord opc) @ int32Signed source
 
         |   cgOp(ArithMemLongConst{ opc, offset, base, source }) =
                 (* Currently this is always a comparison. *)
-                genBytes(memoryConstant(source, Group1_32_A, arithOpToWord opc, LargeInt.fromInt offset, base, NoIndex, code), code)
+                memoryConstant(source, Group1_32_A, arithOpToWord opc, LargeInt.fromInt offset, base, NoIndex, code)
 
         |   cgOp(ShiftConstant { shiftType, output, shift }) =
                 if shift = 0w1
-                then genBytes(opRegPlus2(Group2_1_A, output, shiftTypeToWord shiftType), code)
-                else genBytes(opRegPlus2(Group2_8_A, output, shiftTypeToWord shiftType) @ [shift], code)
+                then opRegPlus2(Group2_1_A, output, shiftTypeToWord shiftType)
+                else opRegPlus2(Group2_8_A, output, shiftTypeToWord shiftType) @ [shift]
 
         |   cgOp(ShiftVariable { shiftType, output }) =
-                genBytes(opRegPlus2(Group2_CL_A, output, shiftTypeToWord shiftType), code)
+                opRegPlus2(Group2_CL_A, output, shiftTypeToWord shiftType)
 
         |   cgOp(TestTagR reg) =
             let
@@ -1760,7 +1749,7 @@ struct
             in
                 if reg = eax
                 then (* Special instruction for testing accumulator.  Can use an 8-bit test. *)
-                    genBytes(opCodeBytes(TEST_ACC8, NONE) @ [0w1], code)
+                    opCodeBytes(TEST_ACC8, NONE) @ [0w1]
                 else if isX64
                 then 
                 let
@@ -1769,7 +1758,7 @@ struct
                         if rx orelse regNum >= 0w4 then SOME{w=false, r=false, b=rx, x=false} else NONE)
                     val mdrm = modrm (Register, 0w0 (* test *), regNum)
                 in
-                    genBytes(opb @ [mdrm, 0w1], code)
+                    opb @ [mdrm, 0w1]
                 end
                 else if reg = ebx orelse reg = ecx orelse reg = edx (* can we use an 8-bit test? *)
                 then (* Yes. The register value refers to low-order byte. *)
@@ -1777,22 +1766,25 @@ struct
                     val opb = opCodeBytes(Group3_a, NONE)
                     val mdrm = modrm(Register, 0w0 (* test *), regNum)
                 in
-                    genBytes(opb @ [mdrm, 0w1], code)
+                    opb @ [mdrm, 0w1]
                 end
                 else
                 let
                     val opb = opCodeBytes(Group3_A, NONE)
                     val mdrm = modrm (Register, 0w0 (* test *), regNum)
                 in
-                    genBytes(opb @ mdrm :: word32Unsigned 0w1, code)
+                    opb @ mdrm :: word32Unsigned 0w1
                 end
             end
 
         |   cgOp(TestByteMem{base, offset, bits}) =
                 (* Test the tag bit and set the condition code. *)
-                genBytes(opPlus2(Group3_a, LargeInt.fromInt offset, base, 0w0 (* test *)) @ [wordToWord8 bits], code)
+                opPlus2(Group3_a, LargeInt.fromInt offset, base, 0w0 (* test *)) @ [wordToWord8 bits]
 
         |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse=ref reverse, ...}, ... }) =
+            let
+                val Code{ic, ...} = code
+            in
                 (* Almost always conditional branches are forward but it is possible that a
                    conditional branch has been combined with a loop jump to give a backwards jump. *)
                 if reverse = addrUnsetLabel (* Destination is after this. *)
@@ -1800,8 +1792,8 @@ struct
                 let
                     val opb = opCodeBytes(CondJump32 opc, NONE)
                 in
-                    genBytes(opb @ word32Unsigned 0w0, code);
-                    forward := makeLongLabel (!ic addrPlus ~4, code) :: !forward
+                    forward := makeLongLabel (!ic addrPlus (List.length opb), code) :: !forward;
+                    opb @ word32Unsigned 0w0
                 end
                 else
                 let
@@ -1809,11 +1801,12 @@ struct
                     val offset2 = offset - 2
                 in
                     if is8Bit offset2
-                    then genBytes(opCodeBytes(CondJump opc, NONE) @ [Word8.fromInt offset2], code)
-                    else genBytes(opCodeBytes(CondJump32 opc, NONE) @ int32Signed(LargeInt.fromInt(offset - 6)), code)
+                    then opCodeBytes(CondJump opc, NONE) @ [Word8.fromInt offset2]
+                    else opCodeBytes(CondJump32 opc, NONE) @ int32Signed(LargeInt.fromInt(offset - 6))
                 end
+            end
 
-        |   cgOp(CallRTS{rtsEntry, saveRegs}) = genBytes(rtsCall(rtsEntry, saveRegs), code)
+        |   cgOp(CallRTS{rtsEntry, saveRegs}) = rtsCall(rtsEntry, saveRegs)
 
         |   cgOp(RepeatOperation repOp) =
             let
@@ -1826,43 +1819,43 @@ struct
                     else []
                 val repOp = repOpsToWord repOp
             in
-                genBytes(opb @ optRex @ [repOp], code)
+                opb @ optRex @ [repOp]
             end
 
-        |   cgOp(DivideAccR{arg, isSigned}) = genBytes(opRegPlus2(Group3_A, arg, if isSigned then 0w7 else 0w6), code)
+        |   cgOp(DivideAccR{arg, isSigned}) = opRegPlus2(Group3_A, arg, if isSigned then 0w7 else 0w6)
 
         |   cgOp(DivideAccM{base, offset, isSigned}) =
-                genBytes(opPlus2(Group3_A, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6), code)
+                opPlus2(Group3_A, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6)
 
         |   cgOp(AtomicXAdd{base, output}) =
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
-                genBytes(opEA(LOCK_XADD, 0, base, output), code)
+                opEA(LOCK_XADD, 0, base, output)
 
         |   cgOp(PushToStack(RegisterArg reg)) =
             let
                 val (rc, rx) = getReg reg
             in
                 (* Always 64-bit but a REX prefix may be needed for the register. *)
-                genBytes(opCodeBytes(PUSH_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE), code)
+                opCodeBytes(PUSH_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
             end
 
         |   cgOp(PushToStack(MemoryArg{base, offset, index=NoIndex})) =
-                genBytes(opPlus2(Group5, LargeInt.fromInt offset, base, 0w6 (* push *)), code)
+                opPlus2(Group5, LargeInt.fromInt offset, base, 0w6 (* push *))
 
         |   cgOp(PushToStack(MemoryArg{base, offset, index})) =
-                genBytes(opIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false)), code)
+                opIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false))
 
         |   cgOp(PushToStack(NonAddressConstArg constnt)) = 
                 if is8BitL constnt
-                then genBytes(opCodeBytes(PUSH_8, NONE) @ [Word8.fromLargeInt constnt], code)
+                then opCodeBytes(PUSH_8, NONE) @ [Word8.fromLargeInt constnt]
                 else if is32bit constnt
-                then genBytes(opCodeBytes(PUSH_32, NONE) @ int32Signed constnt, code)
+                then opCodeBytes(PUSH_32, NONE) @ int32Signed constnt
                 else (* It won't fit in the immediate; put it in the non-address area. *)
                 let
                     val opb = opCodeBytes(Group5, NONE)
                     val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *))
                 in
-                    genBytes(addNonAddressConstant(NonAddressInt constnt, code, opb @ [mdrm]), code)
+                    addNonAddressConstant(NonAddressInt constnt, code, opb @ [mdrm])
                 end
 
         |   cgOp(PushToStack(AddressConstArg constnt)) = 
@@ -1872,13 +1865,13 @@ struct
                     val opb = opCodeBytes(Group5, NONE)
                     val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
                 in
-                    genBytes(addConstToVec(WVal constnt, ConstArea 0, code, opb @ [mdrm]), code)
+                    addConstToVec(WVal constnt, ConstArea 0, code, opb @ [mdrm])
                 end
                 else (* 32-bit *)
                 let
                     val opb = opCodeBytes(PUSH_32, NONE)
                 in
-                    genBytes(addConstToVec(WVal constnt, InlineAbsolute, code, opb), code)
+                    addConstToVec(WVal constnt, InlineAbsolute, code, opb)
                 end
 
         |   cgOp(PopR reg ) =
@@ -1886,14 +1879,14 @@ struct
                     val (rc, rx) = getReg reg
                 in
                     (* Always 64-bit but a REX prefix may be needed for the register. *)
-                    genBytes(opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE), code)
+                    opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
                 end
 
         |   cgOp(StoreRegToMemory{toStore, address={offset, base, index=NoIndex}}) =
-                genBytes(opEA(MOVL_R_A, LargeInt.fromInt offset, base, toStore), code) 
+                opEA(MOVL_R_A, LargeInt.fromInt offset, base, toStore) 
           
         |   cgOp(StoreRegToMemory{toStore, address={offset, base, index}}) =
-                genBytes(opIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore), code)
+                opIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore)
 
         |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} }) =
             (
@@ -1905,14 +1898,14 @@ struct
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
                 case index of
                     NoIndex =>
-                        genBytes(opPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed toStore, code)
+                        opPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed toStore
                 |   index =>
-                        genBytes(opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
-                            int32Signed toStore, code)
+                        opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                            int32Signed toStore
             )
 
         |   cgOp(StoreLongConstToMemory{ toStore=toStore, address={offset, base, index} }) =
-                genBytes(memoryConstant(toStore, MOVL_32_A, 0w0, LargeInt.fromInt offset, base, index, code), code)
+                memoryConstant(toStore, MOVL_32_A, 0w0, LargeInt.fromInt offset, base, index, code)
 
         |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address }) =
             let
@@ -1924,29 +1917,29 @@ struct
             in
                 case address of
                     {offset, base, index=NoIndex} =>
-                        genBytes(opEA(opcode, LargeInt.fromInt offset, base, toStore), code) 
+                        opEA(opcode, LargeInt.fromInt offset, base, toStore) 
                 |   {offset, base, index} =>
-                        genBytes(opIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore), code)
+                        opIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore)
             end
 
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index=NoIndex}}) =
-                genBytes(opEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore), code) 
+                opEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore) 
 
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
-                genBytes(opIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore), code)
+                opIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore)
 
         |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index=NoIndex}}) =
-                genBytes(opEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore), code) 
+                opEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore) 
             
         |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index}}) =
-                genBytes(opIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore), code)
+                opIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore)
 
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index=NoIndex}}) =
-                genBytes(opPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0) @ [Word8.fromLargeInt toStore], code)
+                opPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0) @ [Word8.fromLargeInt toStore]
 
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
-                genBytes(opIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
-                    [Word8.fromLargeInt toStore], code)
+                opIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                    [Word8.fromLargeInt toStore]
 
         |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
                 raise InternalError "StoreNonWordConst: 16Bit"
@@ -1962,13 +1955,17 @@ struct
         |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
         |   cgOp(CallFunction Recursive) =
-                genBytes(opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5)), code)
+            let
+                val Code{ic, ...} = code
+            in
+                opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5))
+            end
      
         |   cgOp(CallFunction FullCall) =
             let
                 val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
             in
-                genBytes(opCodeBytes (Group5, NONE) @ [mdrm], code)
+                opCodeBytes (Group5, NONE) @ [mdrm]
             end
 
         |   cgOp(CallFunction(ConstantCode w)) =
@@ -1978,9 +1975,9 @@ struct
                 val opc = opCodeBytes(Group5, NONE)
                 val mdrm = modrm(Based0, 0w2 (* call *), 0w5 (* PC rel *))
             in
-                genBytes(addConstToVec (WVal w, ConstArea 0, code, opc @ [mdrm]), code)
+                addConstToVec (WVal w, ConstArea 0, code, opc @ [mdrm])
             end
-            else genBytes(addConstToVec (WVal w, InlineRelative, code, opCodeBytes (CALL_32, NONE)), code)
+            else addConstToVec (WVal w, InlineRelative, code, opCodeBytes (CALL_32, NONE))
             
         |   cgOp(CallFunction(DirectReg reg)) =
             let
@@ -1988,19 +1985,23 @@ struct
                 val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
                 val mdrm = modrm(Register, 0w2 (* call *), rc)
             in
-                genBytes(opb @ [mdrm], code)
+                opb @ [mdrm]
             end
 
         |   cgOp(JumpToFunction Recursive) =
+            let
+                val Code{ic, ...} = code
+            in
                 (* Jump to the start of the current function. *)
-                genBytes(opCodeBytes (JMP_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5)), code)
+                opCodeBytes (JMP_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5))
+            end
            
         |   cgOp(JumpToFunction FullCall) =
             let (* Full closure call *)
                 val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
             in
-                genBytes(opb @ [mdrm], code)
+                opb @ [mdrm]
             end
 
         |   cgOp(JumpToFunction (ConstantCode w)) =
@@ -2010,20 +2011,20 @@ struct
                 val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *))
             in
-                genBytes(addConstToVec (WVal w, ConstArea 0, code, opb @ [mdrm]), code)
+                addConstToVec (WVal w, ConstArea 0, code, opb @ [mdrm])
             end
-            else genBytes(addConstToVec (WVal w, InlineRelative, code, opCodeBytes (JMP_32, NONE)), code)
+            else addConstToVec (WVal w, InlineRelative, code, opCodeBytes (JMP_32, NONE))
             
         |   cgOp(JumpToFunction (DirectReg _ )) = raise InternalError "jumpToFunction-DirectReg" (* Can't be tail-recursive *)
     
         |   cgOp(ReturnFromFunction args) =
             if args = 0
-            then genBytes(opCodeBytes(RET, NONE), code)
+            then opCodeBytes(RET, NONE)
             else
             let
                 val offset = Word.fromInt(args * wordSize)
             in
-                genBytes(opCodeBytes(RET_16, NONE) @ [wordToWord8 offset, wordToWord8(offset >> 0w8)], code)
+                opCodeBytes(RET_16, NONE) @ [wordToWord8 offset, wordToWord8(offset >> 0w8)]
             end
 
         |   cgOp RaiseException =
@@ -2034,30 +2035,34 @@ struct
                 val opb = opCodeBytes(Group5, NONE)
                 val mdrm = modrm (Based0, 0w4 (* jmp *), #1 (getReg ebx))
             in
-                genBytes(loadInstr @ opb @ [mdrm], code)
+                loadInstr @ opb @ [mdrm]
             end
 
         |   cgOp(UncondBranch(Labels{forward, reverse, ...})) =
-            (* This may be a forward jump, in which case we don't have the destination and
-               can just record it, or it may be a backward jump in which case we already
-               have the destination. *)
-            if !reverse = addrUnsetLabel
-            then
             let
-                val brOp = opToInt JMP_32 :: word32Unsigned 0w0
-                val br = makeLongLabel (!ic addrPlus (List.length brOp - 4), code)
+                val Code{ic, ...} = code
             in
-                forward := br :: ! forward;
-                genBytes(brOp, code)
-            end
-            else 
-            let
-                val offset  = !reverse addrMinus !ic (* Negative *)
-                val offset2 = offset - 2;
-            in
-                if is8Bit offset2
-                then genBytes(opCodeBytes(JMP_8, NONE) @ [Word8.fromInt offset2], code)
-                else genBytes(opCodeBytes(JMP_32, NONE) @ int32Signed(LargeInt.fromInt(offset - 5)), code)
+                (* This may be a forward jump, in which case we don't have the destination and
+                   can just record it, or it may be a backward jump in which case we already
+                   have the destination. *)
+                if !reverse = addrUnsetLabel
+                then
+                let
+                    val brOp = opToInt JMP_32 :: word32Unsigned 0w0
+                    val br = makeLongLabel (!ic addrPlus (List.length brOp - 4), code)
+                in
+                    forward := br :: ! forward;
+                    brOp
+                end
+                else 
+                let
+                    val offset  = !reverse addrMinus !ic (* Negative *)
+                    val offset2 = offset - 2;
+                in
+                    if is8Bit offset2
+                    then opCodeBytes(JMP_8, NONE) @ [Word8.fromInt offset2]
+                    else opCodeBytes(JMP_32, NONE) @ int32Signed(LargeInt.fromInt(offset - 5))
+                end
             end
 
         |   cgOp(ResetStack count) =
@@ -2066,46 +2071,50 @@ struct
             in
                 if is8Bit sr
                 then (* Can use one byte immediate *)
-                    genBytes(
+                    
                         opRegPlus2(Group1_8_A (* group1, 8-bit immediate *), esp, arithOpToWord ADD) @
-                            [Word8.fromInt sr], code)
+                            [Word8.fromInt sr]
                 else (* Need 32 bit immediate. *)
-                    genBytes(opRegPlus2(Group1_32_A (* group1, 32-bit immediate *), esp, arithOpToWord ADD) @
-                        int32Signed(LargeInt.fromInt sr), code)
+                    opRegPlus2(Group1_32_A (* group1, 32-bit immediate *), esp, arithOpToWord ADD) @
+                        int32Signed(LargeInt.fromInt sr)
             end
 
         |   cgOp(JumpLabel(Labels{forward=ref forward, reverse, ...})) =
             let
+                val Code{ic, ...} = code
             in
                 fixup(forward, code); (* Fix up any forward branches to here. *)
                 (* Set the address. *)
-                reverse := !ic
+                reverse := !ic;
+                [] (* No code. *)
             end
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output }) =
             let
                 val (rc, rx) = getReg output
+                val Code{ic, ...} = code
+                val handleCode =
+                    (* On X86/64 we can use pc-relative addressing to set the start of the handler.
+                       On X86/32 we have to load the address of the start of the code and add
+                       an offset. *)
+                    if isX64
+                    then
+                    let
+                        val opb = opCodeBytes(LEAL, SOME {w=true, r=rx, b=false, x=false})
+                        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
+                    in
+                        opb @ mdrm :: int32Signed 0
+                    end
+                    else
+                    let
+                        val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
+                    in
+                        addConstToVec (SelfVal, InlineAbsolute, code, opb) @
+                            opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
+                    end
             in
-                (* On X86/64 we can use pc-relative addressing to set the start of the handler.
-                   On X86/32 we have to load the address of the start of the code and add
-                   an offset. *)
-                if isX64
-                then
-                let
-                    val opb = opCodeBytes(LEAL, SOME {w=true, r=rx, b=false, x=false})
-                    val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
-                in
-                    genBytes(opb @ [mdrm], code)
-                end
-                else
-                let
-                    val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
-                in
-                    genBytes(addConstToVec (SelfVal, InlineAbsolute, code, opb), code);
-                    genBytes(opRegPlus2(Group1_32_A, output, arithOpToWord ADD), code)
-                end;
-                handlerLab := !ic;
-                genBytes(int32Signed 0, code)
+                handlerLab := !ic addrPlus (List.length handleCode -4);
+                handleCode
             end
 
         |   cgOp(StartHandler{ handlerLab }) =
@@ -2113,13 +2122,14 @@ struct
                 val Code{ic, codeVec, ...} = code
             in
                 (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
-                set32u(Word.toLargeWord (if isX64 then !ic - !handlerLab - 0w4 else !ic), !handlerLab, codeVec)
+                set32u(Word.toLargeWord (if isX64 then !ic - !handlerLab - 0w4 else !ic), !handlerLab, codeVec);
+                [] (* No code. *)
             end
 
         |   cgOp(IndexedCase { testReg, workReg, min, cases }) =
-                genBytes(indexedCase(testReg, workReg, min, cases, code), code)
+                indexedCase(testReg, workReg, min, cases, code)
 
-        |   cgOp (FreeRegisters _ ) = ()
+        |   cgOp (FreeRegisters _ ) = []
 
         |   cgOp (FPLoadFromMemory {address={ base, offset, index }, precision}) =
             let
@@ -2129,13 +2139,13 @@ struct
                     |   SinglePrecision => FPESC 0w1
             in
                 case index of
-                    NoIndex => genBytes(opPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0), code)
-                |   index => genBytes(opIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0), code)
+                    NoIndex => opPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0)
+                |   index => opIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0)
             end
 
         |   cgOp (FPLoadFromFPReg{source=FloatingPtReg fp, ...}) =
                 (* Assume there's nothing currently on the stack. *)
-                genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w0, rm= fp + 0w0}), code) (* FLD ST(r1) *)
+                floatingPtOp({escape=0w1, md=0w3, nnn=0w0, rm= fp + 0w0}) (* FLD ST(r1) *)
 
         |   cgOp (FPLoadFromConst realValue ) =
             let
@@ -2144,21 +2154,16 @@ struct
             in
                 (* Treat +/- 0,1 as special cases. *)
                 if realValue == 0.0 (* This is also true for -0.0 *)
-                then
-                (
-                    genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w6}), code); (* FLDZ *)
-                    if signBit realValue
-                    then genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0}), code)
-                    else ()
-                )
+                then floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w6}) (* FLDZ *) @
+                        (if signBit realValue
+                         then floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0})
+                         else [])
                 else if realValue == 1.0
-                then genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}), code) (* FLD1 *)
+                then floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}) (* FLD1 *)
                 else if realValue == ~1.0
                 then
-                (
-                    genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}), code); (* FLD1 *)
-                    genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0}), code) (* FCHS *)
-                )
+                    floatingPtOp({escape=0w1, md=0w3, nnn=0w5, rm=0w0}) @ (* FLD1 *)
+                        floatingPtOp({escape=0w1, md=0w3, nnn=0w4, rm=0w0}) (* FCHS *)
                 else
                 (* The real constant here is actually the address of an 8-byte memory
                    object.  FLD takes the address as the argument and in 32-bit mode
@@ -2170,15 +2175,15 @@ struct
                     val mdrm = modrm (Based0, 0w0, 0w5 (* constant address/PC-relative *))
                 in
                     if isX64
-                    then genBytes(addNonAddressConstant(NonAddressReal(toMachineWord realValue), code, opb @ [mdrm]), code)
-                    else genBytes(addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code, opb @ [mdrm]), code)
+                    then addNonAddressConstant(NonAddressReal(toMachineWord realValue), code, opb @ [mdrm])
+                    else addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code, opb @ [mdrm])
                 end
             end
 
         |   cgOp (FPStoreToFPReg{ output=FloatingPtReg dest, andPop }) =
                 (* Assume there's one item on the stack. *)
-                genBytes(floatingPtOp({escape=0w5, md=0w3, nnn=if andPop then 0wx3 else 0wx2,
-                               rm = dest+0w1(* One item *)}), code) (* FSTP ST(n+1) *)
+                floatingPtOp({escape=0w5, md=0w3, nnn=if andPop then 0wx3 else 0wx2,
+                               rm = dest+0w1(* One item *)}) (* FSTP ST(n+1) *)
 
         |   cgOp (FPStoreToMemory{address={ base, offset, index}, precision, andPop }) =
             let
@@ -2189,13 +2194,13 @@ struct
                 val subInstr = if andPop then 0wx3 else 0wx2
             in
                 case index of
-                    NoIndex => genBytes(opPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr), code)
-                |   index => genBytes(opIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr), code)
+                    NoIndex => opPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr)
+                |   index => opIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr)
             end
 
         |   cgOp (FPArithR{ opc, source = FloatingPtReg src}) =
-                genBytes(floatingPtOp({escape=0w0, md=0w3, nnn=fpOpToWord opc,
-                        rm=src + 0w1 (* One item already there *)}), code)
+                floatingPtOp({escape=0w0, md=0w3, nnn=fpOpToWord opc,
+                        rm=src + 0w1 (* One item already there *)})
 
         |   cgOp (FPArithConst{ opc, source }) =
                 (* See comment on FPLoadFromConst *)
@@ -2204,51 +2209,51 @@ struct
                 val mdrm = modrm (Based0, fpOpToWord opc, 0w5 (* constant address *))
             in
                 if isX64
-                then genBytes(addNonAddressConstant(NonAddressReal source, code, opb @ [mdrm]), code)
-                else genBytes(addConstToVec(WVal source, InlineAbsolute, code, opb @ [mdrm]), code)
+                then addNonAddressConstant(NonAddressReal source, code, opb @ [mdrm])
+                else addConstToVec(WVal source, InlineAbsolute, code, opb @ [mdrm])
             end
 
         |   cgOp (FPArithMemory{ opc, base, offset }) =
-                genBytes(opPlus2(FPESC 0w4, LargeInt.fromInt offset, base, fpOpToWord opc), code) (* FADD/FMUL etc [r2] *)
+                opPlus2(FPESC 0w4, LargeInt.fromInt offset, base, fpOpToWord opc) (* FADD/FMUL etc [r2] *)
 
         |   cgOp (FPUnary opc ) =
             let
                 val {rm, nnn} = fpUnaryToWords opc
             in
-                genBytes(floatingPtOp({escape=0w1, md=0w3, nnn=nnn, rm=rm}), code) (* FCHS etc *)
+                floatingPtOp({escape=0w1, md=0w3, nnn=nnn, rm=rm}) (* FCHS etc *)
             end
 
         |   cgOp (FPStatusToEAX ) =
-                genBytes(opCodeBytes(FPESC 0w7, NONE) @ [0wxe0], code) (* FNSTSW AX *)
+                opCodeBytes(FPESC 0w7, NONE) @ [0wxe0] (* FNSTSW AX *)
 
         |   cgOp (FPFree(FloatingPtReg reg)) =
-                genBytes(floatingPtOp({escape=0w5, md=0w3, nnn=0w0, rm=reg}), code) (* FFREE FP(n) *)
+                floatingPtOp({escape=0w5, md=0w3, nnn=0w0, rm=reg}) (* FFREE FP(n) *)
 
         |   cgOp (FPLoadInt{base, offset}) =
                 (* fildl (esp) in 32-bit mode or fildq (esp) in 64-bit mode. *)
                 if isX64
-                then genBytes(opPlus2(FPESC 0w7, LargeInt.fromInt offset, base, 0w5), code)
-                else genBytes(opPlus2(FPESC 0w3, LargeInt.fromInt offset, base, 0w0), code)
+                then opPlus2(FPESC 0w7, LargeInt.fromInt offset, base, 0w5)
+                else opPlus2(FPESC 0w3, LargeInt.fromInt offset, base, 0w0)
 
         |   cgOp (MultiplyRR {source, output}) =
                 (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                genBytes(opReg(IMUL (* 2 byte opcode *), output, source), code)
+                opReg(IMUL (* 2 byte opcode *), output, source)
 
         |   cgOp (MultiplyRM {base, offset, output}) =
                 (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                genBytes(opEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output), code)
+                opEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index=NoIndex}, output }) =
-                genBytes(mMXEA(SSE2Ops opc, LargeInt.fromInt offset, base, output), code)
+                mMXEA(SSE2Ops opc, LargeInt.fromInt offset, base, output)
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
-                genBytes(mMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output), code)
+                mMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp (XMMArith { opc, source=AddressConstArg constVal, output=SSE2Reg rrC }) =
             let
@@ -2261,8 +2266,8 @@ struct
                 val mdrm = modrm (Based0, rrC, 0w5 (* constant address/PC-relative *))
             in
                 if isX64
-                then genBytes(addNonAddressConstant(NonAddressReal constVal, code, opb @ [mdrm]), code)
-                else genBytes(addConstToVec(WVal constVal, InlineAbsolute, code, opb @ [mdrm]), code)
+                then addNonAddressConstant(NonAddressReal constVal, code, opb @ [mdrm])
+                else addConstToVec(WVal constVal, InlineAbsolute, code, opb @ [mdrm])
             end
 
         |   cgOp (XMMArith { opc, source=RegisterArg(SSE2Reg rrS), output=SSE2Reg rrC }) =
@@ -2273,7 +2278,7 @@ struct
                 val opc = opToInt oper
                 val mdrm = modrm(Register, rrC, rrS)
             in
-                genBytes(pref @ esc @ [opc, mdrm], code)
+                pref @ esc @ [opc, mdrm]
             end
 
         |   cgOp (XMMArith _) = raise InternalError "cgOp: XMMArith"
@@ -2286,8 +2291,8 @@ struct
                     |   SinglePrecision => SSE2StoreSingle
             in
                 case index of
-                    NoIndex => genBytes(mMXEA(oper, LargeInt.fromInt offset, base, toStore), code)
-                |   index => genBytes(mMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore), code)
+                    NoIndex => mMXEA(oper, LargeInt.fromInt offset, base, toStore)
+                |   index => mMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore)
             end
 
         |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC }) =
@@ -2295,22 +2300,38 @@ struct
                 (* The source is a general register and the output a XMM register. *)
                 val (rbC, rbX) = getReg source
             in
-                genBytes(
+                
                     opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
-                    escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)], code)
+                    escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)]
             end
 
         |   cgOp (SignExtendForDivide ) =
-                genBytes(opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE), code)
+                opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE)
             
         |   cgOp (XChngRegisters { regX, regY}) =
                 (* We only use register-to-register exchange.  That doesn't cause a lock. *)
-                genBytes(opReg(XCHNG, regX, regY), code)
+                opReg(XCHNG, regX, regY)
 
         |   cgOp (Negative {output}) =
-                genBytes(opRegPlus2(Group3_A, output, 0w3 (* neg *)), code)
+                opRegPlus2(Group3_A, output, 0w3 (* neg *))
+    
+        local
+            (* Code-generate a byte. *)
+            fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
+                set8u (ival, !ic, codeVec) before ic := !ic + 0w1
+            fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
+        in
+            fun createCode code (c, list) =
+            let
+                val bytes = cgOp c
+                val () = genBytes(bytes, code)
+            in
+                bytes :: list
+            end
+        end
+        
     in
-        List.app cgOp ops
+        List.rev(List.foldl (createCode code) [] ops)
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -3154,8 +3175,11 @@ struct
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun createCodeSegment (operations, cvec) : address =
     let
+            fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
+                set8u (ival, !ic, codeVec) before ic := !ic + 0w1
+            fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
         val expanded = expandComplexOperations operations
-        val () = codeGenerate(expanded, cvec)
+        val _ = codeGenerate(expanded, cvec)
         val () = genBytes(opCodeBytes(HLT, NONE), cvec) (* Marker - this is used by ScanConstants in the RTS. *)
 
         (* After code generation get the final values of some refs. *)
