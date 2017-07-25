@@ -1952,7 +1952,7 @@ struct
         |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
         |   cgOp(CallFunction Recursive) =
-                genBytes(opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 4)), code)
+                genBytes(opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5)), code)
      
         |   cgOp(CallFunction FullCall) =
             let
@@ -1983,7 +1983,7 @@ struct
 
         |   cgOp(JumpToFunction Recursive) =
                 (* Jump to the start of the current function. *)
-                genBytes(opCodeBytes (JMP_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 4)), code)
+                genBytes(opCodeBytes (JMP_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5)), code)
            
         |   cgOp(JumpToFunction FullCall) =
             let (* Full closure call *)
