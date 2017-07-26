@@ -106,7 +106,8 @@ struct
     val addrUnsetLabel = addrLast (* An invalid address *)
  
     (* This is the external label type used when constructing operations.
-       The ref int is just an identifier for convenience when printing. *)
+       The ref int is just an identifier for convenience when printing.
+       "chain" is only used in the peep-hole optimiser. *)
     datatype label =
         Labels of
         {
@@ -117,6 +118,9 @@ struct
         }
 
     fun mkLabel() = Labels{destination=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
+    
+    (* Used in the optimiser to see if we have the same label in two places. *)
+    fun sameLabel(Labels{destination=d1, ...}, Labels{destination=d2, ...}) = d1 = d2
    
   (* Constants which are too large to go inline in the code are put in
      a list and put at the end of the code. They are arranged so that

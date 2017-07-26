@@ -64,12 +64,12 @@ struct
             then forward(next :: tl, u :: list, rep)
             else (eliminate next; forward(u :: tl, list, true))
 
-(*            (* Eliminate Unconditional branches to the next instruction. *)
-        |   forward((u as UncondBranch(Labels{forward=source, ...})) ::
-                    (next as JumpLabel(Labels{forward=dest, ...})) :: tl, list, rep) =
-            if source = dest
+            (* Eliminate Unconditional branches to the next instruction. *)
+        |   forward((u as UncondBranch ucLabel) ::
+                    (next as JumpLabel jLabel) :: tl, list, rep) =
+            if sameLabel(ucLabel, jLabel)
             then (eliminate u; forward(next :: tl, list, true))
-            else forward(next :: tl, u :: list, rep)*)
+            else forward(next :: tl, u :: list, rep)
            
             (* Eliminate dead instructions after UnconditionalBranch up to the next label. *)
         |   forward((u as UncondBranch _) :: next :: tl, list, rep) =
@@ -104,16 +104,16 @@ struct
             (* Reorder conditional and unconditional branches.  If we have a conditional branch
                followed by an unconditional branch followed by the destination of the conditional
                branch we can turn the test round. *)
-(*        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
+        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
                     (u as UncondBranch uncondLab) ::
-                    (d as JumpLabel(Labels{forward=nextLabel, ...})) :: tl, list, rep) =
+                    (d as JumpLabel nextLabel) :: tl, list, rep) =
             let
                 (* See where the ultimate destination of the conditional branch is.
                    If it's already been forwarded we don't want to change that. *)
                 fun follow(Labels{chain=ref(SOME c), ...}) = follow c
                 |   follow c = c
 
-                val Labels{forward=condRef, ...} = follow condDest
+                val condRef = follow condDest
 
                 fun reverseTest JE  = JNE
                 |   reverseTest JNE = JE
@@ -134,7 +134,7 @@ struct
                 |   reversePrediction PredictTaken = PredictNotTaken
                 |   reversePrediction PredictNotTaken = PredictTaken
             in
-                if condRef = nextLabel
+                if sameLabel(condRef, nextLabel)
                 then
                 (
                     eliminate c;
@@ -143,7 +143,7 @@ struct
                             list, true)
                 )
                 else forward(u :: d :: tl, c :: list, rep)
-            end*)
+            end
 
         |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
                 (* Combine adjacent resets. *)

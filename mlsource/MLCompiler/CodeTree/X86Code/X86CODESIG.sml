@@ -101,6 +101,7 @@ sig
         }
 
     val mkLabel: unit -> label
+    val sameLabel: label * label -> bool
 
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
