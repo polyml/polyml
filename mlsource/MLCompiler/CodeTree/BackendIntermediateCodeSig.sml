@@ -101,8 +101,7 @@ sig
     |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
-        CaseInt
-    |   CaseWord
+        CaseWord        (* Word or fixed-precision integer. *)
     |   CaseTag of word
 
     and bicLoadForm =

@@ -184,6 +184,7 @@ sig
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
     |   Negative of { output: genReg }
+    |   JumpTable of label list
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit

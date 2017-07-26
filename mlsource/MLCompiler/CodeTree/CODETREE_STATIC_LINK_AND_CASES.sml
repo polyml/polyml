@@ -493,31 +493,25 @@ struct
 
                 (* If we have a call to the int equality operation *)
                 (* then we may be able to use a case statement. *)
-                fun (*findCase (BICBuiltIn(function, argList)) =
+                fun findCase (BICBinary{oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, ...}, arg1, arg2}) =
                 let
-                    val isArbitrary = function = RuntimeCalls.POLY_SYS_equal_short_arb
-                    val isWord = function = RuntimeCalls.POLY_SYS_word_eq
                 in
-                    if isArbitrary orelse isWord
-                    then  (* Should be just two arguments. *)
-                    case argList of
-                        [BICConstnt(c1, _), arg2] =>
+                    case (arg1, arg2) of
+                        (BICConstnt(c1, _), arg2) =>
                         if isShort c1
-                        then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
+                        then SOME{tag=toShort c1, test=arg2, caseType = CaseWord}
                         else NONE (* Not a short constant. *)
                     
-                     | [arg1, BICConstnt(c2, _)] =>
+                     | (arg1, BICConstnt(c2, _)) =>
                         if isShort c2
-                        then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
+                        then SOME{tag=toShort c2, test=arg1, caseType = CaseWord}
                         else NONE (* Not a short constant. *)
                     
                     | _ => NONE
                        (* Wrong number of arguments - should raise exception? *)
-                
-                    else NONE (* Function is not a comparison. *)
                 end
 
-             |  *)findCase(BICTagTest { test, tag, maxTag }) =
+             |  findCase(BICTagTest { test, tag, maxTag }) =
                     SOME { tag=tag, test=test, caseType=CaseTag maxTag }
 
              |  findCase _ = NONE
@@ -607,10 +601,7 @@ struct
                             let
                                 val test =
                                     case caseType of
-                                        CaseInt => raise InternalError "reconvertCase"
-                                            (*mkEval(BICConstnt(ioOp RuntimeCalls.POLY_SYS_equal_short_arb, []),
-                                                   [test, BICConstnt(toMachineWord t, [])])*)
-                                    |   CaseWord =>
+                                        CaseWord =>
                                             BICBinary{
                                                 oper=BuiltIns.WordComparison{test=BuiltIns.TestEqual, isSigned=false},
                                                 arg1=test, arg2=BICConstnt(toMachineWord t, [])}

@@ -210,8 +210,7 @@ struct
     |   BICDecContainer of { addr: int, size: int } (* Create a container for a tuple on the stack. *)
 
     and caseType =
-        CaseInt
-    |   CaseWord
+        CaseWord        (* Word or fixed-precision integer. *)
     |   CaseTag of word
 
     and bicLoadForm =
@@ -540,7 +539,7 @@ struct
             PrettyBlock (1, true, [],
                 PrettyString
                     (concat ["CASE ",
-                        case caseType of CaseInt => "INT" | CaseWord => "WORD" | CaseTag n => "TAG " ^ Word.toString n,
+                        case caseType of CaseWord => "WORD" | CaseTag n => "TAG " ^ Word.toString n,
                         " (" ]) ::
                 pretty test ::
                 PrettyBreak (1, 0) ::

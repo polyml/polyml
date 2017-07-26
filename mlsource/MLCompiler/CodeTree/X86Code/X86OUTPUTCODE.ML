@@ -1214,6 +1214,7 @@ struct
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
     |   Negative of { output: genReg }
+    |   JumpTable of label list
 
     type operations = operation list
 
@@ -1439,87 +1440,14 @@ struct
         |   SignExtendForDivide => stream "SignExtendForDivide"
         |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         |   Negative { output } => (stream "Negative "; printGReg output)
+        |   JumpTable cases =>
+                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab))) cases
         ;
  
         stream "\n"
     end
 
     datatype implement = ImplementGeneral | ImplementLiteral of machineWord
-
-
-    (* Previously the jump table was a vector of destination addresses.
-       Now changed to use a vector of jump instructions.  These are padded
-       out to 8 bytes with no-ops.  The reason for the change is to ensure
-       that the code segment only contains instructions so that we can scan
-       for addresses within the code.  It also simplifies and speeds up
-       the indexed jump at the expense of doubling the size of the table
-       itself.  *)
- 
-    fun indexedCase (r1:genReg, r2:genReg, min:word, cases, code as Code{ic, ...}) =
-    let
-        val (rc2, rx2) = getReg r2
-        (* Load the address of the jump table.  We can use Pc-relative addressing on
-           X86/64 but on X86/32 we have to load the start of the code and add
-           the offset. *)
-        val loadAddress =
-            if isX64
-            then
-            let
-                val opb = opCodeBytes(LEAL, SOME {w=true, r=rx2, b=false, x=false})
-                val mdrm = modrm(Based0, rc2, 0w5 (* Immediate address. *))
-            in
-                opb @ [mdrm]
-            end
-            else
-            let
-                val opb1 = opCodeBytes(MOVL_32_64_R rc2, NONE)
-            in
-                addConstToVec (SelfVal, InlineAbsolute, code, opb1) @
-                    opRegPlus2(Group1_32_A, r2, arithOpToWord ADD)
-            end
-
-        (* Compute the jump address.  The index is a tagged
-           integer so it is already multiplied by 2.  We need to
-           multiply by four to get the correct size. We subtract off
-           the minimum value and also the shifted tag. *)
-		local
-			val adjustment = Word.toLargeIntX min * ~8 - 4
-			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
-			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
-			(* We don't need to consider any possible overflow in the execution 
-			   because we've already checked that the value is within the range. *)
-            val computeJump =
-    			if is32bit adjustment
-    			then immediateOperand(ADD, r2, adjustment, code) @
-    			 	    opIndexed(LEAL, 0, SOME r2, Index4 r1, r2)
-            	else opIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2)
-            (* Jump into the jump table. *)
-            val opb = opCodeBytes(Group5, if rx2 then SOME{w=false, r=false, b=rx2, x=false} else NONE)
-            val mdrm = modrm(Register, 0w4 (* jmp *), #1 (getReg r2))
-        in
-            val computeAndIndex = computeJump @ opb @ [mdrm]
-        end;
-        local
-            (* We need to put in the offset of the jump table.
-               On X86/64 we're using a relative address so it's just the length of
-               computeAndIndex but on X86/32 it's relative to the start of the code. *)
-            val offset =
-                if isX64
-                then List.length computeAndIndex
-                else Word.toInt(!ic) + List.length loadAddress + List.length computeAndIndex + 4
-        in
-            val preJumpTable = loadAddress @ int32Signed(LargeInt.fromInt offset) @ computeAndIndex
-        end
-
-        local
-            (* Make one jump for each case and pad it 8 bytes with Nops. *)
-            fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
-        in
-            val jumpTable = List.foldl makeJump [] cases
-        end
-    in
-        preJumpTable @ jumpTable
-    end
 
     fun printLowLevelCode(ops, Code{printAssemblyCode, printStream, procName, ...}) =
         if printAssemblyCode
@@ -1905,12 +1833,8 @@ struct
 
         |   cgOp StoreInitialised = raise InternalError "cgOp: StoreInitialised"
 
-        |   cgOp(CallFunction Recursive) =
-            let
-                val Code{ic, ...} = code
-            in
-                opCodeBytes (CALL_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5))
-            end
+        |   cgOp(CallFunction Recursive) = (* Call to the start of the code.  Offset is patched in later. *)
+                opCodeBytes (CALL_32, NONE) @ int32Signed 0
      
         |   cgOp(CallFunction FullCall) =
             let
@@ -1940,12 +1864,8 @@ struct
             end
 
         |   cgOp(JumpToFunction Recursive) =
-            let
-                val Code{ic, ...} = code
-            in
-                (* Jump to the start of the current function. *)
-                opCodeBytes (JMP_32, NONE) @ int32Signed (~(Word.toLargeInt(!ic) + 5))
-            end
+                (* Jump to the start of the current function.  Offset is patched in later. *)
+                opCodeBytes (JMP_32, NONE) @ int32Signed 0
            
         |   cgOp(JumpToFunction FullCall) =
             let (* Full closure call *)
@@ -1966,7 +1886,15 @@ struct
             end
             else addConstToVec (WVal w, InlineRelative, code, opCodeBytes (JMP_32, NONE))
             
-        |   cgOp(JumpToFunction (DirectReg _ )) = raise InternalError "jumpToFunction-DirectReg" (* Can't be tail-recursive *)
+        |   cgOp(JumpToFunction (DirectReg reg)) =
+            (* Used as part of indexed case - not for entering a function. *)
+            let
+                val (rc, rx) = getReg reg
+                val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
+                val mdrm = modrm(Register, 0w4 (* jmp *), rc)
+            in
+                opb @ [mdrm]
+            end
     
         |   cgOp(ReturnFromFunction args) =
             if args = 0
@@ -2028,14 +1956,7 @@ struct
                         int32Signed(LargeInt.fromInt sr)
             end
 
-        |   cgOp(JumpLabel(Labels{destination, ...})) =
-            let
-                val Code{ic, ...} = code
-            in
-                (* Set the address. *)
-                destination := !ic;
-                [] (* No code. *)
-            end
+        |   cgOp(JumpLabel _) = [] (* No code. *)
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output }) =
             let
@@ -2074,8 +1995,7 @@ struct
                 [] (* No code. *)
             end
 
-        |   cgOp(IndexedCase { testReg, workReg, min, cases }) =
-                indexedCase(testReg, workReg, min, cases, code)
+        |   cgOp(IndexedCase _) = raise InternalError "IndexedCase - now expanded"
 
         |   cgOp (FreeRegisters _ ) = []
 
@@ -2262,6 +2182,15 @@ struct
 
         |   cgOp (Negative {output}) =
                 opRegPlus2(Group3_A, output, 0w3 (* neg *))
+
+        |   cgOp (JumpTable cases) =
+            let
+                (* Make one jump for each case and pad it 8 bytes with Nops. *)
+                fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
+            in
+                List.foldl makeJump [] cases
+            end
+
     
         local
             (* Code-generate a byte. *)
@@ -2285,15 +2214,25 @@ struct
     (* Go through the code updating the destinations of branches. *)
     fun patchLabels(ops, bytesList, Code{codeVec, ...}) =
     let
+        (* First pass - Set the addresses of labels. *)
+        fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
+            (
+                case oper of
+                    JumpLabel(Labels{destination, ...}) => destination := ic
+                |   _ => ();
+                setLabelAddresses(operList, byteList, ic + Word.fromInt(List.length bytes))
+            )
+        |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
+
         fun fixupBranch(destination, brLength, ic) =
         let
             (* The offset is relative to the end of the branch instruction. *)
-            val diff = Word.toInt destination - ic - brLength
+            val diff = Word.toInt destination - Word.toInt ic - brLength
         in
             if brLength = 2
             then (* It's a short branch. *)
             let
-                val addr = Word.fromInt(ic+1)
+                val addr = ic+0w1
                 val oldDiff = get8s(addr, codeVec)
                 val _ = oldDiff = 0 orelse oldDiff = diff orelse raise InternalError "mismatch"
             in
@@ -2301,7 +2240,7 @@ struct
             end
             else (* Long branch - may be 5 or 6 bytes. *)
             let
-                val addr = Word.fromInt(ic+brLength-4)
+                val addr = ic + Word.fromInt brLength - 0w4
                 val oldDiff = get32s (addr, codeVec)
                 val _ = oldDiff = 0 orelse oldDiff = LargeInt.fromInt diff orelse raise InternalError "mismatch"
             in
@@ -2320,25 +2259,60 @@ struct
             let
                 val nCases = List.length cases
                 (* For the moment every branch is a 32-bit jump padded up to 8 bytes. *)
-                val startAddress = ic + List.length brCode - 8*nCases
+                val startAddress = ic + Word.fromInt(List.length brCode - 8*nCases)
                 fun processBranch(Labels{destination=ref destination, ...}, offset) =
                 let
                     val () = fixupBranch(destination, 5 (* Length of an unconditional branch. *), offset)
                 in
-                    offset+8
+                    offset+0w8
                 end
                 val _ = List.foldl processBranch startAddress cases
             in
                 ()
             end
 
+        |   patchBranch(JumpTable cases, _, ic) =
+                (* An indexed case contains a list of branches that have to be fixed up. *)
+            let
+                (* For the moment every branch is a 32-bit jump padded up to 8 bytes. *)
+                val startAddress = ic
+                fun processBranch(Labels{destination=ref destination, ...}, offset) =
+                let
+                    val () = fixupBranch(destination, 5 (* Length of an unconditional branch. *), offset)
+                in
+                    offset+0w8
+                end
+                val _ = List.foldl processBranch startAddress cases
+            in
+                ()
+            end
+
+        |   patchBranch(CallFunction Recursive, brCode, ic) =
+            let
+                val brLen = List.length brCode
+            in
+                (* Call to the start of the code.  Offset is -(bytes to start). *)
+                set32s (LargeInt.fromInt(~(Word.toInt ic+brLen)), ic + Word.fromInt brLen - 0w4, codeVec)
+            end
+
+        |   patchBranch(JumpToFunction Recursive, brCode, ic) =
+            let
+                val brLen = List.length brCode
+            in
+                (* Jump to the start of the code.  Offset is -(bytes to start). *)
+                set32s (LargeInt.fromInt(~(Word.toInt ic+brLen)), ic + Word.fromInt brLen - 0w4, codeVec)
+            end
+
         |   patchBranch _ = ()
         
         fun patchBranches(oper :: operList, bytes :: byteList, ic) =
-            (patchBranch(oper, bytes, ic); patchBranches(operList, byteList, ic + List.length bytes))
-        |   patchBranches _ = ()
+            (patchBranch(oper, bytes, ic); patchBranches(operList, byteList, ic + Word.fromInt(List.length bytes)))
+        |   patchBranches(_, _, ic) = ic (* Return the length of the code. *)
+        
+        val _ = setLabelAddresses(ops, bytesList, 0w0)
+        val _ = patchBranches(ops, bytesList, 0w0)
     in
-        patchBranches(ops, bytesList, 0)
+        ()
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -2432,6 +2406,33 @@ struct
 
         |   doExpansion(StoreInitialised :: instrs, code) =
                 (inAllocation := false; doExpansion(instrs, code))
+
+        |   doExpansion(IndexedCase { testReg, workReg, min, cases } :: instrs, code) =
+            let
+                val label = ref 0w0
+                val loadAddress = LoadHandlerAddress{handlerLab=label, output=workReg}
+                (* Compute the jump address.  The index is a tagged
+                   integer so it is already multiplied by 2.  We need to
+                   multiply by four to get the correct size. We subtract off
+                   the minimum value and also the shifted tag. *)
+    			val adjustment = Word.toLargeIntX min * ~8 - 4
+    			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
+    			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
+    			(* We don't need to consider any possible overflow in the execution 
+    			   because we've already checked that the value is within the range. *)
+                val computeJump =
+                    if is32bit adjustment
+                    then [LoadAddress{ output=workReg, offset=LargeInt.toInt adjustment, base=SOME workReg, index=Index4 testReg}]
+                    else
+                        [ArithToGenReg{source=NonAddressConstArg adjustment, output=workReg, opc=ADD},
+                        LoadAddress{ output=workReg, offset=0, base=SOME workReg, index=Index4 testReg}]
+                (* We use JumpToFunction even though we're not actually going to a new function. *)
+                val resultCode =
+                    loadAddress :: computeJump @
+                        [JumpToFunction(DirectReg workReg), StartHandler { handlerLab=label}, JumpTable cases]
+            in
+                doExpansion(instrs, (List.rev resultCode) @ code)
+            end
 
         |   doExpansion(instr :: instrs, code) = doExpansion(instrs, instr::code)
     in
