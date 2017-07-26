@@ -41,9 +41,8 @@ struct
         (* Print the pre-optimised code if required. *)
         val () = printLowLevelCode(ops, code)
 
-        (* All these instructions can't be eliminated after a jump. *)
+        (* Labels can't be eliminated after a jump. *)
         fun labelInstruction(JumpLabel(Labels{uses=ref uses, ...})) = uses > 0
-        |   labelInstruction(StartHandler _) = true
         |   labelInstruction _ = false
 
         (* If we remove a branch the use counts are reduced. *)
@@ -253,8 +252,7 @@ struct
 
             (* Branch chaining with indexed branches.  We may be able to forward
                branch table entries to their new location. *)
-        |   reverse(
-                (i as IndexedCase{testReg, workReg, min, cases}) :: tl, list, rep) =
+        |   reverse((i as JumpTable cases) :: tl, list, rep) =
             let
                 val changed = ref false
                 fun forwardBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) =
@@ -274,9 +272,7 @@ struct
                 val newList = List.map forwardBranch cases
             in
                 if ! changed
-                then reverse(tl,
-                        IndexedCase{testReg=testReg, workReg=workReg, min=min, cases=newList} :: list,
-                        true)
+                then reverse(tl, JumpTable newList :: list, true)
                 else reverse(tl, i :: list, rep)
             end
 

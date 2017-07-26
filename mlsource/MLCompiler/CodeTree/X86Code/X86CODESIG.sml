@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016
+    Copyright David C. J. Matthews 2010, 2012, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -155,10 +155,7 @@ sig
     |   UncondBranch of label
     |   ResetStack of int
     |   JumpLabel of label
-        (* Some of these operations are higher-level and should be reduced. *)
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
-    |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
+    |   LoadLabelAddress of { label: label, output: genReg }
     |   FreeRegisters of RegSet.regSet
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }

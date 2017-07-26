@@ -1185,10 +1185,7 @@ struct
     |   UncondBranch of label
     |   ResetStack of int
     |   JumpLabel of label
-        (* Some of these operations are higher-level and should be reduced. *)
-    |   LoadHandlerAddress of { handlerLab: addrs ref, output: genReg }
-    |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of { testReg: genReg, workReg: genReg, min: word, cases: label list }
+    |   LoadLabelAddress of { label: label, output: genReg }
     |   FreeRegisters of regSet
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }
@@ -1377,19 +1374,8 @@ struct
                 (stream "ResetStack "; stream(Int.toString i))
         |   JumpLabel(Labels{labId=ref lab, ...}) =>
                 (stream "L"; stream(Int.toString lab); stream ":")
-        |   LoadHandlerAddress { handlerLab=_, output=_ } =>
-                stream "LoadHandlerAddress"
-        |   StartHandler { handlerLab=_ } =>
-                stream "StartHandler"
-        |   IndexedCase { testReg, workReg, min, cases } =>
-            (
-                stream "IndexedCase "; printGReg testReg; stream " with "; printGReg workReg;
-                stream "\n";
-                List.foldl(fn(Labels{labId=ref lab, ...}, v) =>
-                    (stream(Word.toString v); stream " => L"; stream(Int.toString lab); stream "\n"; v+0w1))
-                    min cases;
-                ()
-            )
+        |   LoadLabelAddress{ label=Labels{labId=ref lab, ...}, output } =>
+                (stream "LoadLabelAddress L"; stream(Int.toString lab); stream "=>"; printGReg output)
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
@@ -1958,44 +1944,30 @@ struct
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 
-        |   cgOp(LoadHandlerAddress{ handlerLab, output }) =
+        |   cgOp(LoadLabelAddress{ output, ... }) =
+            (* Load the address of a label.  Used when setting up an exception handler or
+               in indexed cases. *)
             let
                 val (rc, rx) = getReg output
-                val Code{ic, ...} = code
-                val handleCode =
-                    (* On X86/64 we can use pc-relative addressing to set the start of the handler.
-                       On X86/32 we have to load the address of the start of the code and add
-                       an offset. *)
-                    if isX64
-                    then
-                    let
-                        val opb = opCodeBytes(LEAL, SOME {w=true, r=rx, b=false, x=false})
-                        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
-                    in
-                        opb @ mdrm :: int32Signed 0
-                    end
-                    else
-                    let
-                        val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
-                    in
-                        addConstToVec (SelfVal, InlineAbsolute, code, opb) @
-                            opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
-                    end
             in
-                handlerLab := !ic addrPlus (List.length handleCode -4);
-                handleCode
+                (* On X86/64 we can use pc-relative addressing to set the start of the handler.
+                   On X86/32 we have to load the address of the start of the code and add an offset. *)
+                if isX64
+                then
+                let
+                    val opb = opCodeBytes(LEAL, SOME {w=true, r=rx, b=false, x=false})
+                    val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
+                in
+                    opb @ mdrm :: int32Signed 0
+                end
+                else
+                let
+                    val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
+                in
+                    addConstToVec (SelfVal, InlineAbsolute, code, opb) @
+                        opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
+                end
             end
-
-        |   cgOp(StartHandler{ handlerLab }) =
-            let
-                val Code{ic, codeVec, ...} = code
-            in
-                (* On X86/64 this is a relative offset on X86/32 it is absolute. *)
-                set32u(Word.toLargeWord (if isX64 then !ic - !handlerLab - 0w4 else !ic), !handlerLab, codeVec);
-                [] (* No code. *)
-            end
-
-        |   cgOp(IndexedCase _) = raise InternalError "IndexedCase - now expanded"
 
         |   cgOp (FreeRegisters _ ) = []
 
@@ -2254,21 +2226,17 @@ struct
         |   patchBranch(ConditionalBranch{label=Labels{destination=ref destination, ...}, ... }, brCode, ic) =
                 fixupBranch(destination, List.length brCode, ic)
 
-        |   patchBranch(IndexedCase{cases, ...}, brCode, ic) =
-                (* An indexed case contains a list of branches that have to be fixed up. *)
+        |   patchBranch(LoadLabelAddress{ label=Labels{destination=ref destination, ...}, ... }, brCode, ic) =
+            if isX64
+            then (* This is a relative offset on the X86/64. *)
+                fixupBranch(destination, List.length brCode, ic)
+            else
             let
-                val nCases = List.length cases
-                (* For the moment every branch is a 32-bit jump padded up to 8 bytes. *)
-                val startAddress = ic + Word.fromInt(List.length brCode - 8*nCases)
-                fun processBranch(Labels{destination=ref destination, ...}, offset) =
-                let
-                    val () = fixupBranch(destination, 5 (* Length of an unconditional branch. *), offset)
-                in
-                    offset+0w8
-                end
-                val _ = List.foldl processBranch startAddress cases
+                (* On X86/32 the address is relative to the start of the code. *)
+                val brLength = List.length brCode
+                val addr = ic + Word.fromInt brLength - 0w4
             in
-                ()
+                set32s (Word.toLargeInt destination, addr, codeVec)
             end
 
         |   patchBranch(JumpTable cases, _, ic) =
@@ -2406,33 +2374,6 @@ struct
 
         |   doExpansion(StoreInitialised :: instrs, code) =
                 (inAllocation := false; doExpansion(instrs, code))
-
-        |   doExpansion(IndexedCase { testReg, workReg, min, cases } :: instrs, code) =
-            let
-                val label = ref 0w0
-                val loadAddress = LoadHandlerAddress{handlerLab=label, output=workReg}
-                (* Compute the jump address.  The index is a tagged
-                   integer so it is already multiplied by 2.  We need to
-                   multiply by four to get the correct size. We subtract off
-                   the minimum value and also the shifted tag. *)
-    			val adjustment = Word.toLargeIntX min * ~8 - 4
-    			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
-    			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
-    			(* We don't need to consider any possible overflow in the execution 
-    			   because we've already checked that the value is within the range. *)
-                val computeJump =
-                    if is32bit adjustment
-                    then [LoadAddress{ output=workReg, offset=LargeInt.toInt adjustment, base=SOME workReg, index=Index4 testReg}]
-                    else
-                        [ArithToGenReg{source=NonAddressConstArg adjustment, output=workReg, opc=ADD},
-                        LoadAddress{ output=workReg, offset=0, base=SOME workReg, index=Index4 testReg}]
-                (* We use JumpToFunction even though we're not actually going to a new function. *)
-                val resultCode =
-                    loadAddress :: computeJump @
-                        [JumpToFunction(DirectReg workReg), StartHandler { handlerLab=label}, JumpTable cases]
-            in
-                doExpansion(instrs, (List.rev resultCode) @ code)
-            end
 
         |   doExpansion(instr :: instrs, code) = doExpansion(instrs, instr::code)
     in
