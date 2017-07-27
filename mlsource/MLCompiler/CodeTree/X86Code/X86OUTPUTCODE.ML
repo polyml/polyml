@@ -97,9 +97,6 @@ struct
   
     (* + is defined to add an integer to an address *)
     fun a addrPlus b = a + Word.fromInt b;
-      
-    (* The difference between two addresses is an integer *)
-    fun a addrMinus b = Word.toInt a - Word.toInt b
   
     val addrZero = 0w0;
     val addrLast = wordsToBytes maxAllocation (* A large address. *)
@@ -144,22 +141,14 @@ struct
         NonAddressReal of machineWord
     |   NonAddressInt of LargeInt.int
 
-  and code = Code of 
-    { codeVec:        cseg,           (* This segment is used as a buffer. When the
-                                         procedure has been code generated it is
-                                         copied into a new segment of the correct size *)
-      ic:             addrs ref,      (* Pointer to first free location in "codevec" *)
-      constVec:                       (* Constants used in the code *)
-           {const: const, addrs: addrs, posn: ConstPosn} list ref,
-      numOfConsts:    word ref,        (* size of constVec *)
-      nonInlineConsts: int ref,
-      nonAddressConstants: {const: nonAddressConsts, addrs: addrs} list ref,
-      procName:       string,         (* Name of the procedure. *)
-      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
-      printStream:    string->unit,   (* The stream to use *)
-      lowLevelOptimise: bool,         (* Whether to do the low-level optimisation pass *)
-      profileObject   : machineWord,  (* The profile object for this code. *)
-      inAllocation:   bool ref        (* Whether we have an incomplete allocation. *)
+    and code =
+    Code of 
+    {
+        procName:       string,         (* Name of the procedure. *)
+        printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+        printStream:    string->unit,   (* The stream to use *)
+        lowLevelOptimise: bool,         (* Whether to do the low-level optimisation pass *)
+        profileObject   : machineWord  (* The profile object for this code. *)
     }
 
     (* Exported functions *)
@@ -201,21 +190,13 @@ struct
     in
         Code
         { 
-            codeVec        = csegMake initialCodeSize, (* a byte array *)
-            ic             = ref addrZero,
-            constVec       = ref [],
-            numOfConsts    = ref 0w0,
-            nonInlineConsts = ref 0,
-            nonAddressConstants = ref [],
             procName       = name,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
-            profileObject  = profObj,
-            inAllocation   = ref false
+            profileObject  = profObj
           }
     end
-           
 
     (* Put 1 unsigned byte at a given offset in the segment. *)
     fun set8u (b, addr, seg) = csegSet (seg, addr,  b)
@@ -322,43 +303,6 @@ struct
     
     (* wordUnsigned is 8 bytes on 64-bits or 4-bytes on 32-bits. *)
     fun wordUnsigned(ival: LargeWord.word) = largeWordToBytes(ival, wordSize)
-
-    (* Add a constant to the list along with its address.  We mustn't put
-       the constant directly in the code since at this stage the code is
-       simply a byte segment and if we have a garbage collection the value
-       won't be updated. *)
-    fun addConstToVec (valu: const, posn: ConstPosn,
-                       Code{numOfConsts, constVec, ic, nonInlineConsts, ...}, prefixBytes) =
-    let
-      (* Inline constants are in the body of the code.  Non-inline constants are
-         stored in the constant vector at the end of the code.  The value that goes
-         in here is the PC-relative offset of the constant. *)
-        val realPosn =
-            case posn of
-                ConstArea _ => (nonInlineConsts := ! nonInlineConsts + 1; ConstArea(!nonInlineConsts))
-            |  p => p
-        val isInline =
-            case posn of ConstArea _ => false | _ => true
-    in
-	    numOfConsts := ! numOfConsts + 0w1;
-        constVec    := {const = valu, addrs = !ic addrPlus List.length prefixBytes, posn = realPosn} :: ! constVec;
-        (* We must put a valid tagged integer in here because we might
-           get a garbage collection after we have copied this code into
-           the new code segment but before we've put in the real constant.
-           If this is a relative branch we need to point this at itself.
-           Until it is set to the relative offset of the destination it
-           needs to contain an address within the code and this could
-           be the last instruction. *)
-        if isInline andalso wordSize = 8
-        then prefixBytes @ wordUnsigned(LargeWord.fromLargeInt(tag 0))
-        else prefixBytes @ int32Signed(case posn of InlineRelative => ~5 | _ => tag 0)
-    end
-
-    fun addNonAddressConstant(valu: nonAddressConsts, Code{ic, nonAddressConstants, ...}, prefixBytes) =
-    (
-        nonAddressConstants  := {const = valu, addrs = !ic addrPlus List.length prefixBytes} :: ! nonAddressConstants;
-        prefixBytes @ int32Signed(tag 0)
-    )
 
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
@@ -1069,7 +1013,7 @@ struct
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
-    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int, cvec) =
+    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int) =
     if is8BitL imm
     then (* Can use one byte immediate *)
         opRegPlus2(Group1_8_A, rd, arithOpToWord opn) @ [Word8.fromLargeInt imm]
@@ -1082,22 +1026,10 @@ struct
         val opb = opCodeBytes(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false})
         val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
     in
-        addNonAddressConstant(NonAddressInt imm, cvec, opb @ [mdrm])
+        opb @ [mdrm] @ int32Signed(tag 0)
     end
     
     fun arithOpReg(opn: arithOp, rd: genReg, rs: genReg) = opReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs)
-
-    (* Called when we have a memory operand and a constant that is an address.
-       This is either a move or a comparison. *)
-    fun memoryConstant (cnstnt, opcode, arithOp, offset, rb, ri, cvec) =
-    let
-        val opb =
-            case ri of
-                NoIndex => opPlus2 (opcode, offset, rb, arithOp)
-            |   ri => opIndexed(opcode, offset, SOME rb, ri, mkReg(arithOp, false))
-    in
-        addConstToVec(WVal cnstnt, InlineAbsolute, cvec, opb)
-    end
 
     type handlerLab = addrs ref
 
@@ -1452,10 +1384,8 @@ struct
         else ()
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
-    fun codeGenerate (ops, code) =
+    fun codeGenerate ops =
     let
-        val () = printLowLevelCode(ops, code)
-
         fun cgOp(LockMutableSegment baseReg) =
                 (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
                 opPlus2(Group1_8_a, ~1, baseReg, arithOpToWord AND) @ [0wxff - 0wx40]
@@ -1479,7 +1409,7 @@ struct
                     val opb = opCodeBytes(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false})
                     val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
                 in
-                    addNonAddressConstant(NonAddressInt source, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0)
                 end
             )
             else (* 32-bit mode. *)
@@ -1494,7 +1424,7 @@ struct
                 if source mod 2 = 0
                 then arithOpReg(XOR, output, output) @
                         (if source = 0 then []
-                         else immediateOperand(ADD, output, source, code))
+                         else immediateOperand(ADD, output, source))
                 else
                 let
                     val (rc, _) = getReg output
@@ -1504,14 +1434,18 @@ struct
                 end
             )
 
-        |   cgOp(MoveToRegister{ source=AddressConstArg source, output }) =
+        |   cgOp(MoveToRegister{ source=AddressConstArg _, output }) =
             let
                 val (rc, rx) = getReg output
                 val opb =
                     opCodeBytes(MOVL_32_64_R rc,
                             if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE)
+                val constnt =
+                    if wordSize = 8
+                    then wordUnsigned(LargeWord.fromLargeInt(tag 0))
+                    else int32Signed(tag 0)
             in
-                addConstToVec (WVal source, InlineAbsolute, code, opb)
+                opb @ constnt
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output }) =
@@ -1556,9 +1490,9 @@ struct
                 arithOpReg (opc, output, source)
 
         |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source }) =
-                immediateOperand(opc, output, source, code)
+                immediateOperand(opc, output, source)
 
-        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg source }) =
+        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _ }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
             let
                 val (rc, rx) = getReg output
@@ -1569,14 +1503,14 @@ struct
                     val opb = opCodeBytes(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
 			        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
                 in
-                    addConstToVec (WVal source, ConstArea 0, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0) (* This is the address of the constant. *)
                 end
                 else
                 let
                     val opb = opCodeBytes(Group1_32_A (* group1, 32 bit immediate *), NONE)
                     val mdrm = modrm(Register, arithOpToWord opc, rc)
                 in
-                    addConstToVec (WVal source, InlineAbsolute, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0)
                 end
             end
 
@@ -1594,9 +1528,17 @@ struct
                     opPlus2(Group1_32_A (* group1, 32 bit immediate *), 
                                LargeInt.fromInt offset, base, arithOpToWord opc) @ int32Signed source
 
-        |   cgOp(ArithMemLongConst{ opc, offset, base, source }) =
-                (* Currently this is always a comparison. *)
-                memoryConstant(source, Group1_32_A, arithOpToWord opc, LargeInt.fromInt offset, base, NoIndex, code)
+        |   cgOp(ArithMemLongConst{ opc, offset, base, ... }) =
+                (* Currently this is always a comparison.  It is only valid in 32-bit mode because
+                   the constant is only 32-bits. *)
+                if isX64
+                then raise InternalError "ArithMemLongConst in 64-bit mode"
+                else 
+                let
+                    val opb = opPlus2 (Group1_32_A, LargeInt.fromInt offset, base, arithOpToWord opc)
+                in
+                    opb @ int32Signed(tag 0)
+                end
 
         |   cgOp(ShiftConstant { shiftType, output, shift }) =
                 if shift = 0w1
@@ -1647,29 +1589,7 @@ struct
                 (* Test the tag bit and set the condition code. *)
                 opPlus2(Group3_a, LargeInt.fromInt offset, base, 0w0 (* test *)) @ [wordToWord8 bits]
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels{destination=ref destination, ...}, ... }) =
-            let
-                val Code{ic, ...} = code
-            in
-                (* Almost always conditional branches are forward but it is possible that a
-                   conditional branch has been combined with a loop jump to give a backwards jump. *)
-                if destination = addrUnsetLabel (* Destination is after this. *)
-                then
-                let
-                    val opb = opCodeBytes(CondJump32 opc, NONE)
-                in
-                    opb @ word32Unsigned 0w0
-                end
-                else
-                let
-                    val offset  = destination addrMinus (!ic) (* Negative *)
-                    val offset2 = offset - 2
-                in
-                    if is8Bit offset2
-                    then opCodeBytes(CondJump opc, NONE) @ [Word8.fromInt offset2]
-                    else opCodeBytes(CondJump32 opc, NONE) @ int32Signed(LargeInt.fromInt(offset - 6))
-                end
-            end
+        |   cgOp(ConditionalBranch{ test=opc, ... }) = opCodeBytes(CondJump32 opc, NONE) @ word32Unsigned 0w0
 
         |   cgOp(CallRTS{rtsEntry, saveRegs}) = rtsCall(rtsEntry, saveRegs)
 
@@ -1720,24 +1640,19 @@ struct
                     val opb = opCodeBytes(Group5, NONE)
                     val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *))
                 in
-                    addNonAddressConstant(NonAddressInt constnt, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0)
                 end
 
-        |   cgOp(PushToStack(AddressConstArg constnt)) = 
+        |   cgOp(PushToStack(AddressConstArg _)) = 
                 if isX64
                 then (* Put it in the constant area. *)
 		        let
                     val opb = opCodeBytes(Group5, NONE)
                     val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
                 in
-                    addConstToVec(WVal constnt, ConstArea 0, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0)
                 end
-                else (* 32-bit *)
-                let
-                    val opb = opCodeBytes(PUSH_32, NONE)
-                in
-                    addConstToVec(WVal constnt, InlineAbsolute, code, opb)
-                end
+                else (* 32-bit *) opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
 
         |   cgOp(PopR reg ) =
                 let
@@ -1769,8 +1684,16 @@ struct
                             int32Signed toStore
             )
 
-        |   cgOp(StoreLongConstToMemory{ toStore=toStore, address={offset, base, index} }) =
-                memoryConstant(toStore, MOVL_32_A, 0w0, LargeInt.fromInt offset, base, index, code)
+        |   cgOp(StoreLongConstToMemory{ address={offset, base, index}, ... }) =
+                (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
+                if isX64
+                then raise InternalError "StoreLongConstToMemory in 64-bit mode"
+                else
+                (
+                    case index of
+                        NoIndex => opPlus2 (MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed (tag 0)
+                    |   ri => opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, ri, mkReg(0w0, false)) @ int32Signed (tag 0)
+                )
 
         |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address }) =
             let
@@ -1829,16 +1752,20 @@ struct
                 opCodeBytes (Group5, NONE) @ [mdrm]
             end
 
-        |   cgOp(CallFunction(ConstantCode w)) =
+        |   cgOp(CallFunction(ConstantCode _)) =
             if isX64
             then
             let
                 val opc = opCodeBytes(Group5, NONE)
                 val mdrm = modrm(Based0, 0w2 (* call *), 0w5 (* PC rel *))
             in
-                addConstToVec (WVal w, ConstArea 0, code, opc @ [mdrm])
+                opc @ [mdrm] @ int32Signed(tag 0)
             end
-            else addConstToVec (WVal w, InlineRelative, code, opCodeBytes (CALL_32, NONE))
+            (* Because this is a relative branch we need to point this at itself.
+               Until it is set to the relative offset of the destination it
+               needs to contain an address within the code and this could
+               be the last instruction. *)
+            else opCodeBytes (CALL_32, NONE) @ int32Signed ~5
             
         |   cgOp(CallFunction(DirectReg reg)) =
             let
@@ -1861,16 +1788,16 @@ struct
                 opb @ [mdrm]
             end
 
-        |   cgOp(JumpToFunction (ConstantCode w)) =
+        |   cgOp(JumpToFunction (ConstantCode _)) =
             if isX64
             then
             let
                 val opb = opCodeBytes (Group5, NONE)
                 val mdrm = modrm(Based0, 0w4 (* jmp *), 0w5 (* PC rel *))
             in
-                addConstToVec (WVal w, ConstArea 0, code, opb @ [mdrm])
+                opb @ [mdrm] @ int32Signed(tag 0)
             end
-            else addConstToVec (WVal w, InlineRelative, code, opCodeBytes (JMP_32, NONE))
+            else opCodeBytes (JMP_32, NONE) @ int32Signed ~5 (* As with Call. *)
             
         |   cgOp(JumpToFunction (DirectReg reg)) =
             (* Used as part of indexed case - not for entering a function. *)
@@ -1903,30 +1830,7 @@ struct
                 loadInstr @ opb @ [mdrm]
             end
 
-        |   cgOp(UncondBranch(Labels{destination, ...})) =
-            let
-                val Code{ic, ...} = code
-            in
-                (* This may be a forward jump, in which case we don't have the destination and
-                   can just record it, or it may be a backward jump in which case we already
-                   have the destination. *)
-                if !destination = addrUnsetLabel
-                then
-                let
-                    val brOp = opToInt JMP_32 :: word32Unsigned 0w0
-                in
-                    brOp
-                end
-                else 
-                let
-                    val offset  = !destination addrMinus !ic (* Negative *)
-                    val offset2 = offset - 2;
-                in
-                    if is8Bit offset2
-                    then opCodeBytes(JMP_8, NONE) @ [Word8.fromInt offset2]
-                    else opCodeBytes(JMP_32, NONE) @ int32Signed(LargeInt.fromInt(offset - 5))
-                end
-            end
+        |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
         |   cgOp(ResetStack count) =
             let
@@ -1960,13 +1864,8 @@ struct
                 in
                     opb @ mdrm :: int32Signed 0
                 end
-                else
-                let
-                    val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
-                in
-                    addConstToVec (SelfVal, InlineAbsolute, code, opb) @
+                else opCodeBytes(MOVL_32_64_R rc, NONE) @ int32Signed(tag 0) @
                         opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
-                end
             end
 
         |   cgOp (FreeRegisters _ ) = []
@@ -2014,9 +1913,7 @@ struct
                     val opb = opCodeBytes(FPESC 0w5, NONE) (* FLD [Constant] *)
                     val mdrm = modrm (Based0, 0w0, 0w5 (* constant address/PC-relative *))
                 in
-                    if isX64
-                    then addNonAddressConstant(NonAddressReal(toMachineWord realValue), code, opb @ [mdrm])
-                    else addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code, opb @ [mdrm])
+                    opb @ [mdrm] @ int32Signed(tag 0)
                 end
             end
 
@@ -2042,15 +1939,13 @@ struct
                 floatingPtOp({escape=0w0, md=0w3, nnn=fpOpToWord opc,
                         rm=src + 0w1 (* One item already there *)})
 
-        |   cgOp (FPArithConst{ opc, source }) =
+        |   cgOp (FPArithConst{ opc, ... }) =
                 (* See comment on FPLoadFromConst *)
             let
                 val opb = opCodeBytes(FPESC 0w4, NONE) (* FADD etc [constnt] *)
                 val mdrm = modrm (Based0, fpOpToWord opc, 0w5 (* constant address *))
             in
-                if isX64
-                then addNonAddressConstant(NonAddressReal source, code, opb @ [mdrm])
-                else addConstToVec(WVal source, InlineAbsolute, code, opb @ [mdrm])
+                opb @ [mdrm] @ int32Signed(tag 0)
             end
 
         |   cgOp (FPArithMemory{ opc, base, offset }) =
@@ -2095,7 +1990,7 @@ struct
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
                 mMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp (XMMArith { opc, source=AddressConstArg constVal, output=SSE2Reg rrC }) =
+        |   cgOp (XMMArith { opc, source=AddressConstArg _, output=SSE2Reg rrC }) =
             let
                (* The real constant here is actually the address of an 8-byte memory
                    object.  The SSE2 instruction takes the address as the argument and in 32-bit mode
@@ -2105,9 +2000,7 @@ struct
                 val opb = opCodeBytes(SSE2Ops opc, NONE)
                 val mdrm = modrm (Based0, rrC, 0w5 (* constant address/PC-relative *))
             in
-                if isX64
-                then addNonAddressConstant(NonAddressReal constVal, code, opb @ [mdrm])
-                else addConstToVec(WVal constVal, InlineAbsolute, code, opb @ [mdrm])
+                opb @ [mdrm] @ int32Signed(tag 0)
             end
 
         |   cgOp (XMMArith { opc, source=RegisterArg(SSE2Reg rrS), output=SSE2Reg rrC }) =
@@ -2162,29 +2055,12 @@ struct
             in
                 List.foldl makeJump [] cases
             end
-
-    
-        local
-            (* Code-generate a byte. *)
-            fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
-                set8u (ival, !ic, codeVec) before ic := !ic + 0w1
-            fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
-        in
-            fun createCode code (c, list) =
-            let
-                val bytes = cgOp c
-                val () = genBytes(bytes, code)
-            in
-                bytes :: list
-            end
-        end
-        
     in
-        List.rev(List.foldl (createCode code) [] ops)
+        List.rev(List.foldl (fn (c, list) => cgOp c :: list) [] ops)
     end
     
     (* Go through the code updating the destinations of branches. *)
-    fun patchLabels(ops, bytesList, Code{codeVec, ...}) =
+    fun patchLabels(ops, bytesList, codeVec) =
     let
         (* First pass - Set the addresses of labels. *)
         fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
@@ -2281,6 +2157,95 @@ struct
         val _ = patchBranches(ops, bytesList, 0w0)
     in
         ()
+    end
+    
+    (* Get the constants in the code. *)
+    datatype constant =
+        AddrConst of {const: const, addrs: addrs, posn: ConstPosn}
+    |   NonAddrConst of {const: nonAddressConsts, addrs: addrs}
+
+    local
+        fun getConstant(MoveToRegister{ source=NonAddressConstArg source, ...}, bytes, ic, l) =
+            if isX64
+            then
+            (
+                if source >= ~0x40000000 andalso source < 0x40000000
+                then (* Signed 32-bits. *) l
+                else (* Too big for 32-bits. *)
+                    NonAddrConst{const=NonAddressInt source, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+            )
+            else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
+
+        |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
+                (* This is the only InlineAbsolute constant form that is valid on X86/64 as well as X86/32. *)
+                AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - Word.fromInt wordSize, posn = InlineAbsolute} :: l
+
+        |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
+                if is32bit source
+                then l
+                else NonAddrConst{const=NonAddressInt source, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+
+        |   getConstant(ArithToGenReg{ source=AddressConstArg source, ... }, bytes, ic, l) =
+                if isX64
+                then AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
+                else AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, l) =
+                (* 32-bit only. *)
+                AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(PushToStack(NonAddressConstArg constnt), bytes, ic, l) =
+                if is32bit constnt then l
+                else NonAddrConst{const=NonAddressInt constnt, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+
+        |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, l) =
+                if isX64
+                then AddrConst{const = WVal constnt, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
+                else AddrConst{const = WVal constnt, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) =
+                AddrConst{const = WVal toStore, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(CallFunction(ConstantCode w), bytes, ic, l) =
+                if isX64
+                then AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
+                else AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineRelative} :: l
+
+        |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, l) =
+                if isX64
+                then AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
+                else AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineRelative} :: l
+
+        |   getConstant(LoadLabelAddress _, _, ic, l) =
+                (* We need the address of the code itself but it's in the first of a pair of instructions. *)
+                if isX64
+                then l
+                else AddrConst{const = SelfVal, addrs = ic + 0w1, posn = InlineAbsolute} :: l
+
+        |   getConstant(FPLoadFromConst realValue, bytes, ic, l) =
+                if Real.==(realValue, 0.0) orelse Real.==(realValue, 1.0) orelse Real.==(realValue, ~1.0)
+                then l
+                else if isX64
+                then NonAddrConst{const=NonAddressReal(toMachineWord realValue), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                else AddrConst{const = WVal(toMachineWord realValue), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(FPArithConst{ source, ... }, bytes, ic, l) =
+                if isX64
+                then NonAddrConst{const=NonAddressReal(toMachineWord source), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                else AddrConst{const = WVal(toMachineWord source), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
+                if isX64
+                then NonAddrConst{const=NonAddressReal(toMachineWord constVal), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                else AddrConst{const = WVal(toMachineWord constVal), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+
+        |   getConstant(_, _, _, l) = l
+
+        fun getConstantList(oper :: operList, bytes :: byteList, ic, l) =
+            (getConstantList(operList, byteList, ic + Word.fromInt(List.length bytes), getConstant(oper, bytes, ic, l)))
+        |   getConstantList(_, _, _, l) = l
+    in
+        fun getConstants(ops, byteList): constant list = getConstantList(ops, byteList, 0w0, [])
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -3122,24 +3087,27 @@ struct
     end (* printCode *);
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun createCodeSegment (operations, cvec) : address =
+    fun createCodeSegment (operations, cvec as Code{procName, printAssemblyCode, printStream, profileObject, ...}) : address =
     let
-            fun genByte (ival: Word8.word, Code {ic, codeVec, ...}) : unit =
-                set8u (ival, !ic, codeVec) before ic := !ic + 0w1
-            fun genBytes(l, c) = List.app (fn i => genByte(i, c)) l
+        val ic = ref addrZero
+        val codeVec = csegMake initialCodeSize 
+        fun genByte (ival: Word8.word) : unit = set8u (ival, !ic, codeVec) before ic := !ic + 0w1
+        fun genBytes l = List.app (fn i => genByte i) l
         val expanded = expandComplexOperations operations
-        val bytesList = codeGenerate(expanded, cvec)
-        val () = patchLabels(expanded, bytesList, cvec)
+        val () = printLowLevelCode(expanded, cvec)
+        val bytesList = codeGenerate expanded
+        val () = List.app (fn b => genBytes b) bytesList
+        val () = patchLabels(expanded, bytesList, codeVec)
         
-        val () = genBytes(opCodeBytes(HLT, NONE), cvec) (* Marker - this is used by ScanConstants in the RTS. *)
-
-        (* After code generation get the final values of some refs. *)
-        val Code{codeVec, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
-                 nonAddressConstants = ref nonAddressConstants,
-                 procName, printAssemblyCode, printStream, profileObject, ...} = cvec
+        val () = genBytes(opCodeBytes(HLT, NONE)) (* Marker - this is used by ScanConstants in the RTS. *)
+        
+        val constantList = getConstants(expanded, bytesList)
+        val nonAddressConstants = List.mapPartial(fn NonAddrConst s => SOME s | _ => NONE) constantList
+        val constVec = List.mapPartial(fn AddrConst s => SOME s | _ => NONE) constantList        
+        val constsInConstArea = List.foldl (fn ({posn=ConstArea _, ...}, n) => n+1 | (_, n) => n) 0 constVec
     
         (* This aligns ic onto a fullword boundary. *)
-        val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genBytes(opCodeBytes(HLT, NONE), cvec)
+        val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genBytes(opCodeBytes(HLT, NONE))
         
         (* Copy the non-address constants.  These are currently only used for real
            constants in 64-bit mode.  Other constants are left until we have a
@@ -3161,7 +3129,7 @@ struct
                                             raise InternalError "putNonAddrConst: Not a real number"
                                 fun doCopy n =
                                     if n = cLength then ()
-                                    else (genBytes([loadByte(cAsAddr, n)], cvec); doCopy(n+0w1))
+                                    else (genBytes([loadByte(cAsAddr, n)]); doCopy(n+0w1))
                             in
                                 doCopy 0w0
                             end
@@ -3171,7 +3139,7 @@ struct
                                 if n = Word.fromInt wordSize then ()
                                 else 
                                 (
-                                    genBytes([Word8.fromLargeInt(m mod 0x100)], cvec);
+                                    genBytes([Word8.fromLargeInt(m mod 0x100)]);
                                     setMem(m div 0x100, n+0w1)
                                 )
                             in
@@ -3215,15 +3183,15 @@ struct
         end
     in
         let
-            fun putConst {const, addrs, posn, ...} =
+            fun putConst ({const, addrs, posn, ...}, nonInlineCount) =
             let
                 val value =
                     case const of WVal c => c | SelfVal => toMachineWord(csegAddr seg)
             in
                 case posn of
-                    InlineAbsolute => csegPutConstant (seg, addrs, value, 0w0)
-                |   InlineRelative => csegPutConstant (seg, addrs, value, 0w1)
-                |   ConstArea nonInlineCount =>
+                    InlineAbsolute => (csegPutConstant (seg, addrs, value, 0w0); nonInlineCount)
+                |   InlineRelative => (csegPutConstant (seg, addrs, value, 0w1); nonInlineCount)
+                |   ConstArea _ =>
                     (* Not inline.  Put the constant in the constant area and set the original address
                         to be the relative offset to the constant itself. *)
                     let
@@ -3231,11 +3199,12 @@ struct
                         val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1) * wordSize
                     in
                         csegPutConstant (seg, addrOfConst, value, 0w0);
-                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, seg)
+                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, seg);
+                        nonInlineCount+1
                     end
             end
 
-            val () = List.app putConst constVec
+            val _ = List.foldl putConst 0 constVec
 
             val () = 
                 if printAssemblyCode
