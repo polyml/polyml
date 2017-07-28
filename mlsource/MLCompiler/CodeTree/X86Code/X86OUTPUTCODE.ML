@@ -125,23 +125,7 @@ struct
      A reference to a constant is treated like a forward reference to a
      label. *)
 
-  (* A code list is used to hold a list of code-vectors which must have the
-     address of this code-vector put into it. *)
-
-    datatype const =
-        WVal of machineWord        (* an existing constant *)
-    |   SelfVal (* The address of the start of the code. *)
-
-    and ConstPosn =
-        InlineAbsolute      (* The constant is within the code. *)
-    |   InlineRelative      (* The constant is within the code but is PC relative (call or jmp). *)
-    |   ConstArea of int    (* The constant is in the constant area (64-bit only). *)
-
-    and nonAddressConsts =
-        NonAddressReal of machineWord
-    |   NonAddressInt of LargeInt.int
-
-    and code =
+    datatype code =
     Code of 
     {
         procName:       string,         (* Name of the procedure. *)
@@ -2158,11 +2142,23 @@ struct
     in
         ()
     end
-    
-    (* Get the constants in the code. *)
-    datatype constant =
-        AddrConst of {const: const, addrs: addrs, posn: ConstPosn}
-    |   NonAddrConst of {const: nonAddressConsts, addrs: addrs}
+
+    (* The handling of constants generally differs between 32- and 64-bits.  In 32-bits we put all constants
+       inline and the GC processes the code to find the addresss.  For real values the "constant" is actually
+       the address of the boxed real value.
+       In 64-bit mode only the MOV instruction allows a 64-bit quantity so in all other cases only non-addresses
+       that will fit in 32-bits are inline.  Other constants are stored in one of two areas at the end of the
+       code segment.  Non-addresses, including the actual values of reals, are stored in the non-address area
+       and addresses go in the address area.  Only the latter is scanned by the GC.
+       The address area is also used in 32-bit mode but only has the address of the function name and the
+       address of the profile ref in it. *)
+    datatype constnts =
+        SelfAddress                             (* The address of the start of the code - inline absolute address 32-bit only *)
+    |   InlineAbsoluteAddress of machineWord    (* An address in the code *)
+    |   InlineRelativeAddress of machineWord    (* A relative address: 32-bit only. *)
+    |   ConstantArea of machineWord             (* A PC-relative address to the constant area - 64-bit only. *)
+    |   RealConstant of machineWord             (* A PC-relative address to the non-address area - 64-bit only.*)
+    |   IntConstant of LargeInt.int             (* A PC-relative address to the non-address area - 64-bit only.*)
 
     local
         fun getConstant(MoveToRegister{ source=NonAddressConstArg source, ...}, bytes, ic, l) =
@@ -2172,80 +2168,71 @@ struct
                 if source >= ~0x40000000 andalso source < 0x40000000
                 then (* Signed 32-bits. *) l
                 else (* Too big for 32-bits. *)
-                    NonAddrConst{const=NonAddressInt source, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                    (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant source) :: l
             )
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
                 (* This is the only InlineAbsolute constant form that is valid on X86/64 as well as X86/32. *)
-                AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - Word.fromInt wordSize, posn = InlineAbsolute} :: l
+                (ic + Word.fromInt(List.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
                 if is32bit source
                 then l
-                else NonAddrConst{const=NonAddressInt source, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                else (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant source) :: l
 
         |   getConstant(ArithToGenReg{ source=AddressConstArg source, ... }, bytes, ic, l) =
-                if isX64
-                then AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
-                else AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                    if isX64 then ConstantArea source else InlineAbsoluteAddress source) :: l
 
-        |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, l) =
-                (* 32-bit only. *)
-                AddrConst{const = WVal source, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+        |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, l) = (* 32-bit only. *)
+                (ic + Word.fromInt(List.length bytes) - 0w4, InlineAbsoluteAddress source) :: l
 
         |   getConstant(PushToStack(NonAddressConstArg constnt), bytes, ic, l) =
                 if is32bit constnt then l
-                else NonAddrConst{const=NonAddressInt constnt, addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
+                else (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant constnt) :: l
 
         |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, l) =
-                if isX64
-                then AddrConst{const = WVal constnt, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
-                else AddrConst{const = WVal constnt, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                    if isX64 then ConstantArea constnt else InlineAbsoluteAddress constnt) :: l
 
-        |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) =
-                AddrConst{const = WVal toStore, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+        |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) = (* 32-bit only. *)
+                (ic + Word.fromInt(List.length bytes) - 0w4, InlineAbsoluteAddress toStore) :: l
 
         |   getConstant(CallFunction(ConstantCode w), bytes, ic, l) =
-                if isX64
-                then AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
-                else AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineRelative} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                    if isX64 then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, l) =
-                if isX64
-                then AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = ConstArea 0} :: l
-                else AddrConst{const = WVal w, addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineRelative} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                    if isX64 then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(LoadLabelAddress _, _, ic, l) =
                 (* We need the address of the code itself but it's in the first of a pair of instructions. *)
-                if isX64
-                then l
-                else AddrConst{const = SelfVal, addrs = ic + 0w1, posn = InlineAbsolute} :: l
+                if isX64 then l else (ic + 0w1, SelfAddress) :: l
 
         |   getConstant(FPLoadFromConst realValue, bytes, ic, l) =
                 if Real.==(realValue, 0.0) orelse Real.==(realValue, 1.0) orelse Real.==(realValue, ~1.0)
                 then l
-                else if isX64
-                then NonAddrConst{const=NonAddressReal(toMachineWord realValue), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
-                else AddrConst{const = WVal(toMachineWord realValue), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+                else (ic + Word.fromInt(List.length bytes) - 0w4,
+                        if isX64 then RealConstant(toMachineWord realValue) else InlineAbsoluteAddress (toMachineWord realValue)) :: l
 
         |   getConstant(FPArithConst{ source, ... }, bytes, ic, l) =
-                if isX64
-                then NonAddrConst{const=NonAddressReal(toMachineWord source), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
-                else AddrConst{const = WVal(toMachineWord source), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                        if isX64 then RealConstant(toMachineWord source) else InlineAbsoluteAddress (toMachineWord source)) :: l
 
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
-                if isX64
-                then NonAddrConst{const=NonAddressReal(toMachineWord constVal), addrs=ic + Word.fromInt(List.length bytes) - 0w4} :: l
-                else AddrConst{const = WVal(toMachineWord constVal), addrs = ic + Word.fromInt(List.length bytes) - 0w4, posn = InlineAbsolute} :: l
+                (ic + Word.fromInt(List.length bytes) - 0w4,
+                        if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
 
         |   getConstant(_, _, _, l) = l
 
         fun getConstantList(oper :: operList, bytes :: byteList, ic, l) =
             (getConstantList(operList, byteList, ic + Word.fromInt(List.length bytes), getConstant(oper, bytes, ic, l)))
         |   getConstantList(_, _, _, l) = l
+        
     in
-        fun getConstants(ops, byteList): constant list = getConstantList(ops, byteList, 0w0, [])
+        fun getConstants(ops, byteList) = getConstantList(ops, byteList, 0w0, [])
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -3102,9 +3089,6 @@ struct
         val () = genBytes(opCodeBytes(HLT, NONE)) (* Marker - this is used by ScanConstants in the RTS. *)
         
         val constantList = getConstants(expanded, bytesList)
-        val nonAddressConstants = List.mapPartial(fn NonAddrConst s => SOME s | _ => NONE) constantList
-        val constVec = List.mapPartial(fn AddrConst s => SOME s | _ => NONE) constantList        
-        val constsInConstArea = List.foldl (fn ({posn=ConstArea _, ...}, n) => n+1 | (_, n) => n) 0 constVec
     
         (* This aligns ic onto a fullword boundary. *)
         val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genBytes(opCodeBytes(HLT, NONE))
@@ -3113,45 +3097,48 @@ struct
            constants in 64-bit mode.  Other constants are left until we have a
            valid code object. *)
         local
-            fun putNonAddrConst{const, addrs} =
+            fun putNonAddrConst(addrs, RealConstant m) =
                 let
                     val addrOfConst = ! ic
-                    val () =
-                        case const of
-                            NonAddressReal c =>
-                            let
-                                val cAsAddr = toAddress c
-                                (* For the moment this should always be a real number contained in
-                                   a byte segment.  If this changes in the future we may need to
-                                   align this back onto a 4/8-byte boundary. *)
-                                val cLength = length cAsAddr * Word.fromInt wordSize
-                                val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
-                                            raise InternalError "putNonAddrConst: Not a real number"
-                                fun doCopy n =
-                                    if n = cLength then ()
-                                    else (genBytes([loadByte(cAsAddr, n)]); doCopy(n+0w1))
-                            in
-                                doCopy 0w0
-                            end
-                        |   NonAddressInt imm =>
-                            let
-                                fun setMem(m, n) = 
-                                if n = Word.fromInt wordSize then ()
-                                else 
-                                (
-                                    genBytes([Word8.fromLargeInt(m mod 0x100)]);
-                                    setMem(m div 0x100, n+0w1)
-                                )
-                            in
-                                setMem(imm, 0w0)
-                            end
+                    val c = toMachineWord m
+                    val cAsAddr = toAddress c
+                    (* For the moment this should always be a real number contained in
+                       a byte segment.  If this changes in the future we may need to
+                       align this back onto a 4/8-byte boundary. *)
+                    val cLength = length cAsAddr * Word.fromInt wordSize
+                    val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
+                                raise InternalError "putNonAddrConst: Not a real number"
+                    fun doCopy n =
+                        if n = cLength then ()
+                        else (genBytes([loadByte(cAsAddr, n)]); doCopy(n+0w1))
+                    val () = doCopy 0w0
                 in
                     set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeVec)
                 end
+
+            |   putNonAddrConst(addrs, IntConstant imm) =
+                let
+                    val addrOfConst = ! ic
+                    fun setMem(m, n) = 
+                    if n = Word.fromInt wordSize then ()
+                    else 
+                    (
+                        genBytes([Word8.fromLargeInt(m mod 0x100)]);
+                        setMem(m div 0x100, n+0w1)
+                    )
+
+                    val () = setMem(imm, 0w0)
+                in
+                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeVec)
+                end
+
+            |   putNonAddrConst _ = ()
         in
-            val () = List.app putNonAddrConst nonAddressConstants
+            val () = List.app putNonAddrConst constantList
         end
 
+        (* Get the number of constants that need to be added to the address area. *)
+        val constsInConstArea = List.foldl (fn ((_, ConstantArea _), n) => n+1 | (_, n) => n) 0 constantList
         (* +4 for code size, function name, register mask (no longer used) and profile object. *)
         val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4
 
@@ -3183,28 +3170,31 @@ struct
         end
     in
         let
-            fun putConst ({const, addrs, posn, ...}, nonInlineCount) =
-            let
-                val value =
-                    case const of WVal c => c | SelfVal => toMachineWord(csegAddr seg)
-            in
-                case posn of
-                    InlineAbsolute => (csegPutConstant (seg, addrs, value, 0w0); nonInlineCount)
-                |   InlineRelative => (csegPutConstant (seg, addrs, value, 0w1); nonInlineCount)
-                |   ConstArea _ =>
+            fun putConst ((addrs, SelfAddress), constOffset) =
+                    (* Self address goes inline. *)
+                    (csegPutConstant (seg, addrs, toMachineWord(csegAddr seg), 0w0); constOffset)
+
+            |   putConst ((addrs, InlineAbsoluteAddress m), constOffset) =
+                    (csegPutConstant (seg, addrs, m, 0w0); constOffset)
+
+            |   putConst ((addrs, InlineRelativeAddress m), constOffset) =
+                    (csegPutConstant (seg, addrs, m, 0w1); constOffset)
+
+            |   putConst ((addrs, ConstantArea m), constOffset) =
                     (* Not inline.  Put the constant in the constant area and set the original address
                         to be the relative offset to the constant itself. *)
                     let
                         val ref endByte = ic
-                        val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1) * wordSize
+                        val addrOfConst = endByte addrPlus (constOffset-1 + 2+1) * wordSize
                     in
-                        csegPutConstant (seg, addrOfConst, value, 0w0);
+                        csegPutConstant (seg, addrOfConst, m, 0w0);
                         set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, seg);
-                        nonInlineCount+1
+                        constOffset+1
                     end
-            end
 
-            val _ = List.foldl putConst 0 constVec
+            |   putConst (_, constOffset) = constOffset
+
+            val _ = List.foldl putConst 0 constantList
 
             val () = 
                 if printAssemblyCode
