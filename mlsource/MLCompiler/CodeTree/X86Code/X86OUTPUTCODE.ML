@@ -185,15 +185,6 @@ struct
     (* Put 1 unsigned byte at a given offset in the segment. *)
     fun set8u (b, addr, seg) = csegSet (seg, addr,  b)
 
-    (* Put 1 signed byte at a given offset in the segment. *)
-    fun set8s (b : int, addr, seg) =
-    let
-        val a = addr;
-        val b' = if b < 0 then b + 0x100 else b;
-    in
-        csegSet (seg, a, Word8.fromInt b')
-    end;
-
     (* Get 1 unsigned byte from the given offset in the segment. *)
     fun get8u (a: word, seg: cseg) : Word8.word = csegGet (seg, a);
 
@@ -2043,106 +2034,130 @@ struct
         List.rev(List.foldl (fn (c, list) => cgOp c :: list) [] ops)
     end
     
-    (* Go through the code updating the destinations of branches. *)
-    fun patchLabels(ops, bytesList, codeVec) =
+    (* General function to process the code.  ic is the byte counter within the original code. *)
+    fun foldCode foldFn n (ops, byteList) =
     let
-        (* First pass - Set the addresses of labels. *)
-        fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
-            (
-                case oper of
-                    JumpLabel(Labels{destination, ...}) => destination := ic
-                |   _ => ();
-                setLabelAddresses(operList, byteList, ic + Word.fromInt(List.length bytes))
-            )
-        |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
+        fun doFold(oper :: operList, bytes :: byteList, ic, acc) =
+            doFold(operList, byteList, ic + Word.fromInt(List.length bytes),
+                foldFn(oper, bytes, ic, acc))
+        |   doFold(_, _, _, n) = n
+    in
+        doFold(ops, byteList, 0w0, n)
+    end
 
-        fun fixupBranch(destination, brLength, ic) =
+    (* First pass - Set the addresses of labels. *)
+    fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
+        (
+            case oper of
+                JumpLabel(Labels{destination, ...}) => destination := ic
+            |   _ => ();
+            setLabelAddresses(operList, byteList, ic + Word.fromInt(List.length bytes))
+        )
+    |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
+
+
+    (* Go through the code and update branch and similar instructions with the destinations
+       of the branches.  Long branches are converted to short where possible and the code
+       is reprocessed.  That might repeat if the effect of shorting one branch allows
+       another to be shortened. *)
+    fun fixupLabels(ops, bytesList) =
+    let
+        fun fixup32(destination, bytes, ic) =
         let
+            val brLength = List.length bytes
             (* The offset is relative to the end of the branch instruction. *)
             val diff = Word.toInt destination - Word.toInt ic - brLength
         in
-            if brLength = 2
-            then (* It's a short branch. *)
-            let
-                val addr = ic+0w1
-                val oldDiff = get8s(addr, codeVec)
-                val _ = oldDiff = 0 orelse oldDiff = diff orelse raise InternalError "mismatch"
-            in
-                set8s(diff, addr, codeVec)
-            end
-            else (* Long branch - may be 5 or 6 bytes. *)
-            let
-                val addr = ic + Word.fromInt brLength - 0w4
-                val oldDiff = get32s (addr, codeVec)
-                val _ = oldDiff = 0 orelse oldDiff = LargeInt.fromInt diff orelse raise InternalError "mismatch"
-            in
-                set32s (LargeInt.fromInt diff, addr, codeVec)
-            end
+            List.take(bytes, brLength-4) @ int32Signed(LargeInt.fromInt diff)
         end
         
-        fun patchBranch(UncondBranch(Labels{destination=ref destination, ...}), brCode, ic) =
-                fixupBranch(destination, List.length brCode, ic)
+        fun fixupAddress(UncondBranch(Labels{destination=ref destination, ...}), bytes, ic, list) =
+            let
+                val brLength = List.length bytes
+                (* The offset is relative to the end of the branch instruction. *)
+                val diff = Word.toInt destination - Word.toInt ic - brLength
+            in
+                if brLength = 2
+                then (* It's a short branch.  Take the original operand and set the relative offset. *)
+                    [opToInt JMP_8, byteSigned diff] :: list
+                else if brLength <> 5
+                then raise InternalError "fixupAddress"
+                else (* 32-bit offset.  If it will fit in a byte we can use a short branch.
+                        If this is a reverse branch we can actually use values up to -131
+                        here because we've calculated using the end of the long branch. *)
+                    if diff <= 127 andalso diff >= ~(128 + 3)
+                then [opToInt JMP_8, 0w0 (* Fixed on next pass *)] :: list
+                else (opToInt JMP_32 :: int32Signed(LargeInt.fromInt diff)) :: list
+            end
 
-        |   patchBranch(ConditionalBranch{label=Labels{destination=ref destination, ...}, ... }, brCode, ic) =
-                fixupBranch(destination, List.length brCode, ic)
+        |   fixupAddress(ConditionalBranch{label=Labels{destination=ref destination, ...}, test, ...}, bytes, ic, list) =
+            let
+                val brLength = List.length bytes
+                (* The offset is relative to the end of the branch instruction. *)
+                val diff = Word.toInt destination - Word.toInt ic - brLength
+            in
+                if brLength = 2
+                then (* It's a short branch.  Take the original operand and set the relative offset. *)
+                    [opToInt(CondJump test), byteSigned diff]  :: list
+                else if brLength <> 6
+                then raise InternalError "fixupAddress"
+                else if diff <= 127 andalso diff >= ~(128+4)
+                then [opToInt(CondJump test), 0w0 (* Fixed on next pass *)] :: list
+                else (opCodeBytes(CondJump32 test, NONE) @ int32Signed(LargeInt.fromInt diff))  :: list
+            end
 
-        |   patchBranch(LoadLabelAddress{ label=Labels{destination=ref destination, ...}, ... }, brCode, ic) =
+        |   fixupAddress(LoadLabelAddress{ label=Labels{destination=ref destination, ...}, ... }, brCode, ic, list) =
             if isX64
             then (* This is a relative offset on the X86/64. *)
-                fixupBranch(destination, List.length brCode, ic)
-            else
+                fixup32(destination, brCode, ic) :: list
+            else (* On X86/32 the address is relative to the start of the code so we simply put in
+                    the destination address. *)
+                (List.take(brCode, List.length brCode-4) @ int32Signed(Word.toLargeInt destination)) :: list
+
+        |   fixupAddress(JumpTable cases, brCode: Word8.word list, ic, list) =
             let
-                (* On X86/32 the address is relative to the start of the code. *)
-                val brLength = List.length brCode
-                val addr = ic + Word.fromInt brLength - 0w4
+                (* At the moment every branch is a 32-bit jump padded up to 8 bytes. *)
+                fun processCase(Labels{destination=ref destination, ...} :: cases, brCode, ic) =
+                    fixup32(destination, List.take(brCode, 5), ic) @ List.take(List.drop(brCode, 5), 3) @
+                        processCase(cases, List.drop(brCode, 8), ic+0w8)
+                |   processCase _ = []
             in
-                set32s (Word.toLargeInt destination, addr, codeVec)
+                (processCase(cases, brCode, ic) : Word8.word list) :: list
             end
 
-        |   patchBranch(JumpTable cases, _, ic) =
-                (* An indexed case contains a list of branches that have to be fixed up. *)
-            let
-                (* For the moment every branch is a 32-bit jump padded up to 8 bytes. *)
-                val startAddress = ic
-                fun processBranch(Labels{destination=ref destination, ...}, offset) =
-                let
-                    val () = fixupBranch(destination, 5 (* Length of an unconditional branch. *), offset)
-                in
-                    offset+0w8
-                end
-                val _ = List.foldl processBranch startAddress cases
-            in
-                ()
-            end
-
-        |   patchBranch(CallFunction Recursive, brCode, ic) =
+        |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let
                 val brLen = List.length brCode
             in
                 (* Call to the start of the code.  Offset is -(bytes to start). *)
-                set32s (LargeInt.fromInt(~(Word.toInt ic+brLen)), ic + Word.fromInt brLen - 0w4, codeVec)
+                (List.take(brCode, brLen-4) @ int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))) :: list
             end
 
-        |   patchBranch(JumpToFunction Recursive, brCode, ic) =
+        |   fixupAddress(JumpToFunction Recursive, brCode, ic, list) =
             let
                 val brLen = List.length brCode
             in
-                (* Jump to the start of the code.  Offset is -(bytes to start). *)
-                set32s (LargeInt.fromInt(~(Word.toInt ic+brLen)), ic + Word.fromInt brLen - 0w4, codeVec)
+                (* Call to the start of the code.  Offset is -(bytes to start). *)
+                (List.take(brCode, brLen-4) @ int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))) :: list
             end
 
-        |   patchBranch _ = ()
+        |   fixupAddress(_, bytes, _, list) = bytes :: list
         
-        fun patchBranches(oper :: operList, bytes :: byteList, ic) =
-            (patchBranch(oper, bytes, ic); patchBranches(operList, byteList, ic + Word.fromInt(List.length bytes)))
-        |   patchBranches(_, _, ic) = ic (* Return the length of the code. *)
-        
-        val _ = setLabelAddresses(ops, bytesList, 0w0)
-        val _ = patchBranches(ops, bytesList, 0w0)
+        fun reprocess(bytesList, lastCodeSize) =
+        let
+            val fixedList = List.rev(foldCode fixupAddress [] (ops, bytesList))
+            val newCodeSize = setLabelAddresses(ops, fixedList, 0w0)
+        in
+            if newCodeSize = lastCodeSize
+            then fixedList
+            else if newCodeSize > lastCodeSize
+            then raise InternalError "reprocess - size increased"
+            else reprocess(fixedList, newCodeSize)
+        end
     in
-        ()
+        reprocess(bytesList, setLabelAddresses(ops, bytesList, 0w0))
     end
-
+ 
     (* The handling of constants generally differs between 32- and 64-bits.  In 32-bits we put all constants
        inline and the GC processes the code to find the addresss.  For real values the "constant" is actually
        the address of the boxed real value.
@@ -2225,14 +2240,9 @@ struct
                 (ic + Word.fromInt(List.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
 
-        |   getConstant(_, _, _, l) = l
-
-        fun getConstantList(oper :: operList, bytes :: byteList, ic, l) =
-            (getConstantList(operList, byteList, ic + Word.fromInt(List.length bytes), getConstant(oper, bytes, ic, l)))
-        |   getConstantList(_, _, _, l) = l
-        
+        |   getConstant(_, _, _, l) = l        
     in
-        fun getConstants(ops, byteList) = getConstantList(ops, byteList, 0w0, [])
+        val getConstants = foldCode getConstant []
     end
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
@@ -3082,9 +3092,13 @@ struct
         fun genBytes l = List.app (fn i => genByte i) l
         val expanded = expandComplexOperations operations
         val () = printLowLevelCode(expanded, cvec)
-        val bytesList = codeGenerate expanded
+        local
+            val initialBytesList = codeGenerate expanded
+        in
+            (* Fixup labels and shrink long branches to short. *)
+            val bytesList = fixupLabels(expanded, initialBytesList)
+        end 
         val () = List.app (fn b => genBytes b) bytesList
-        val () = patchLabels(expanded, bytesList, codeVec)
         
         val () = genBytes(opCodeBytes(HLT, NONE)) (* Marker - this is used by ScanConstants in the RTS. *)
         
