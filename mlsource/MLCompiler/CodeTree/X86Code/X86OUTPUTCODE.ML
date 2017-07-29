@@ -2261,10 +2261,6 @@ struct
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
        level but at this point it's better to expand them into their basic instructions. *)
     local
-        (* A number of bugs have turned out to be related to starting a second allocation before the
-           first area is fully initialised. This is intended to avoid them. *)
-        val inAllocation = ref false
-
         (* On X86/64 the local pointer is in r15.  On X86/32 it's in memRegs. *)
         val localPointer =
             if isX64 then RegisterArg r15 else MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex}
@@ -2313,12 +2309,11 @@ struct
             compare :: branches @ [callRts, fixup, update]
         end
         
-        fun doExpansion([], code) = code
+        fun doExpansion([], code, _) = code
 
-        |   doExpansion(AllocStore {size, output, saveRegs} :: instrs, code) =
+        |   doExpansion(AllocStore {size, output, saveRegs} :: instrs, code, inAllocation) =
             let
-                val _ = !inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
-                val _ = inAllocation := true
+                val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
                 val bytes = (size + 1) * wordSize
                 val startCode =
@@ -2330,29 +2325,27 @@ struct
                          LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex}]
                 val resultCode = startCode @ allocStoreCommonCode(output, false, saveRegs)
             in
-                doExpansion(instrs, (List.rev resultCode) @ code)
+                doExpansion(instrs, (List.rev resultCode) @ code, true)
             end
 
-        |   doExpansion(AllocStoreVariable {output, saveRegs} :: instrs, code) =
+        |   doExpansion(AllocStoreVariable {output, saveRegs} :: instrs, code, inAllocation) =
             let
                 (* Allocates memory whose size as a number of bytes is in the output register. *)
-                val _ = !inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
-                val _ = inAllocation := true
+                val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
                 (* Negate the length and add it to the current heap pointer. *)
                 val startCode =
                     [Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer}]
                 val resultCode = startCode @ allocStoreCommonCode(output, true, saveRegs)
             in
-                doExpansion(instrs, (List.rev resultCode) @ code)
+                doExpansion(instrs, (List.rev resultCode) @ code, true)
             end
 
-        |   doExpansion(StoreInitialised :: instrs, code) =
-                (inAllocation := false; doExpansion(instrs, code))
+        |   doExpansion(StoreInitialised :: instrs, code, _) = doExpansion(instrs, code, false)
 
-        |   doExpansion(instr :: instrs, code) = doExpansion(instrs, instr::code)
+        |   doExpansion(instr :: instrs, code, inAlloc) = doExpansion(instrs, instr::code, inAlloc)
     in
-        fun expandComplexOperations instrs = List.rev(doExpansion(instrs, []))
+        fun expandComplexOperations instrs = List.rev(doExpansion(instrs, [], false))
     end
 
 
