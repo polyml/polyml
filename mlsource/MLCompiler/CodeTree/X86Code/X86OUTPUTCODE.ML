@@ -2031,14 +2031,14 @@ struct
                 List.foldl makeJump [] cases
             end
     in
-        List.rev(List.foldl (fn (c, list) => cgOp c :: list) [] ops)
+        List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
     
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode foldFn n (ops, byteList) =
     let
         fun doFold(oper :: operList, bytes :: byteList, ic, acc) =
-            doFold(operList, byteList, ic + Word.fromInt(List.length bytes),
+            doFold(operList, byteList, ic + Word.fromInt(Word8Vector.length bytes),
                 foldFn(oper, bytes, ic, acc))
         |   doFold(_, _, _, n) = n
     in
@@ -2051,7 +2051,7 @@ struct
             case oper of
                 JumpLabel(Labels{destination, ...}) => destination := ic
             |   _ => ();
-            setLabelAddresses(operList, byteList, ic + Word.fromInt(List.length bytes))
+            setLabelAddresses(operList, byteList, ic + Word.fromInt(Word8Vector.length bytes))
         )
     |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
 
@@ -2064,46 +2064,49 @@ struct
     let
         fun fixup32(destination, bytes, ic) =
         let
-            val brLength = List.length bytes
+            val brLength = Word8Vector.length bytes
             (* The offset is relative to the end of the branch instruction. *)
             val diff = Word.toInt destination - Word.toInt ic - brLength
         in
-            List.take(bytes, brLength-4) @ int32Signed(LargeInt.fromInt diff)
+            Word8VectorSlice.concat[
+                Word8VectorSlice.slice(bytes, 0, SOME(brLength-4)), (* The original opcode. *)
+                Word8VectorSlice.full(Word8Vector.fromList(int32Signed(LargeInt.fromInt diff)))
+            ]
         end
         
         fun fixupAddress(UncondBranch(Labels{destination=ref destination, ...}), bytes, ic, list) =
             let
-                val brLength = List.length bytes
+                val brLength = Word8Vector.length bytes
                 (* The offset is relative to the end of the branch instruction. *)
                 val diff = Word.toInt destination - Word.toInt ic - brLength
             in
                 if brLength = 2
                 then (* It's a short branch.  Take the original operand and set the relative offset. *)
-                    [opToInt JMP_8, byteSigned diff] :: list
+                    Word8Vector.fromList [opToInt JMP_8, byteSigned diff] :: list
                 else if brLength <> 5
                 then raise InternalError "fixupAddress"
                 else (* 32-bit offset.  If it will fit in a byte we can use a short branch.
                         If this is a reverse branch we can actually use values up to -131
                         here because we've calculated using the end of the long branch. *)
                     if diff <= 127 andalso diff >= ~(128 + 3)
-                then [opToInt JMP_8, 0w0 (* Fixed on next pass *)] :: list
-                else (opToInt JMP_32 :: int32Signed(LargeInt.fromInt diff)) :: list
+                then Word8Vector.fromList [opToInt JMP_8, 0w0 (* Fixed on next pass *)] :: list
+                else Word8Vector.fromList(opToInt JMP_32 :: int32Signed(LargeInt.fromInt diff)) :: list
             end
 
         |   fixupAddress(ConditionalBranch{label=Labels{destination=ref destination, ...}, test, ...}, bytes, ic, list) =
             let
-                val brLength = List.length bytes
+                val brLength = Word8Vector.length bytes
                 (* The offset is relative to the end of the branch instruction. *)
                 val diff = Word.toInt destination - Word.toInt ic - brLength
             in
                 if brLength = 2
                 then (* It's a short branch.  Take the original operand and set the relative offset. *)
-                    [opToInt(CondJump test), byteSigned diff]  :: list
+                    Word8Vector.fromList [opToInt(CondJump test), byteSigned diff]  :: list
                 else if brLength <> 6
                 then raise InternalError "fixupAddress"
                 else if diff <= 127 andalso diff >= ~(128+4)
-                then [opToInt(CondJump test), 0w0 (* Fixed on next pass *)] :: list
-                else (opCodeBytes(CondJump32 test, NONE) @ int32Signed(LargeInt.fromInt diff))  :: list
+                then Word8Vector.fromList[opToInt(CondJump test), 0w0 (* Fixed on next pass *)] :: list
+                else Word8Vector.fromList(opCodeBytes(CondJump32 test, NONE) @ int32Signed(LargeInt.fromInt diff))  :: list
             end
 
         |   fixupAddress(LoadLabelAddress{ label=Labels{destination=ref destination, ...}, ... }, brCode, ic, list) =
@@ -2112,33 +2115,43 @@ struct
                 fixup32(destination, brCode, ic) :: list
             else (* On X86/32 the address is relative to the start of the code so we simply put in
                     the destination address. *)
-                (List.take(brCode, List.length brCode-4) @ int32Signed(Word.toLargeInt destination)) :: list
+                Word8VectorSlice.concat[
+                    Word8VectorSlice.slice(brCode, 0, SOME(Word8Vector.length brCode-4)),
+                    Word8VectorSlice.full(Word8Vector.fromList(int32Signed(Word.toLargeInt destination)))] :: list
 
-        |   fixupAddress(JumpTable cases, brCode: Word8.word list, ic, list) =
+        |   fixupAddress(JumpTable cases, brCode: Word8Vector.vector, ic, list) =
             let
                 (* At the moment every branch is a 32-bit jump padded up to 8 bytes. *)
-                fun processCase(Labels{destination=ref destination, ...} :: cases, brCode, ic) =
-                    fixup32(destination, List.take(brCode, 5), ic) @ List.take(List.drop(brCode, 5), 3) @
-                        processCase(cases, List.drop(brCode, 8), ic+0w8)
+                fun processCase(Labels{destination=ref destination, ...} :: cases, offset, ic) =
+                    fixup32(destination,
+                        Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset, SOME 5)), ic) ::
+                    Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset+5, SOME 3)) ::
+                    processCase(cases, offset+8, ic+0w8)
                 |   processCase _ = []
             in
-                (processCase(cases, brCode, ic) : Word8.word list) :: list
+                Word8Vector.concat(processCase(cases, 0, ic)) :: list
             end
 
         |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let
-                val brLen = List.length brCode
+                val brLen = Word8Vector.length brCode
             in
                 (* Call to the start of the code.  Offset is -(bytes to start). *)
-                (List.take(brCode, brLen-4) @ int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))) :: list
+                Word8VectorSlice.concat[
+                    Word8VectorSlice.slice(brCode, 0, SOME(brLen-4)), (* The original opcode. *)
+                    Word8VectorSlice.full(Word8Vector.fromList(int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))))
+                ] :: list
             end
 
         |   fixupAddress(JumpToFunction Recursive, brCode, ic, list) =
             let
-                val brLen = List.length brCode
+                val brLen = Word8Vector.length brCode
             in
                 (* Call to the start of the code.  Offset is -(bytes to start). *)
-                (List.take(brCode, brLen-4) @ int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))) :: list
+                Word8VectorSlice.concat[
+                    Word8VectorSlice.slice(brCode, 0, SOME(brLen-4)), (* The original opcode. *)
+                    Word8VectorSlice.full(Word8Vector.fromList(int32Signed(LargeInt.fromInt(~(Word.toInt ic+brLen)))))
+                ] :: list
             end
 
         |   fixupAddress(_, bytes, _, list) = bytes :: list
@@ -2183,43 +2196,43 @@ struct
                 if source >= ~0x40000000 andalso source < 0x40000000
                 then (* Signed 32-bits. *) l
                 else (* Too big for 32-bits. *)
-                    (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant source) :: l
+                    (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
             )
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
                 (* This is the only InlineAbsolute constant form that is valid on X86/64 as well as X86/32. *)
-                (ic + Word.fromInt(List.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
+                (ic + Word.fromInt(Word8Vector.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
                 if is32bit source
                 then l
-                else (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant source) :: l
+                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
 
         |   getConstant(ArithToGenReg{ source=AddressConstArg source, ... }, bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                     if isX64 then ConstantArea source else InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, l) = (* 32-bit only. *)
-                (ic + Word.fromInt(List.length bytes) - 0w4, InlineAbsoluteAddress source) :: l
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress source) :: l
 
         |   getConstant(PushToStack(NonAddressConstArg constnt), bytes, ic, l) =
                 if is32bit constnt then l
-                else (ic + Word.fromInt(List.length bytes) - 0w4, IntConstant constnt) :: l
+                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant constnt) :: l
 
         |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                     if isX64 then ConstantArea constnt else InlineAbsoluteAddress constnt) :: l
 
         |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) = (* 32-bit only. *)
-                (ic + Word.fromInt(List.length bytes) - 0w4, InlineAbsoluteAddress toStore) :: l
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress toStore) :: l
 
         |   getConstant(CallFunction(ConstantCode w), bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                     if isX64 then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                     if isX64 then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(LoadLabelAddress _, _, ic, l) =
@@ -2229,15 +2242,15 @@ struct
         |   getConstant(FPLoadFromConst realValue, bytes, ic, l) =
                 if Real.==(realValue, 0.0) orelse Real.==(realValue, 1.0) orelse Real.==(realValue, ~1.0)
                 then l
-                else (ic + Word.fromInt(List.length bytes) - 0w4,
+                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord realValue) else InlineAbsoluteAddress (toMachineWord realValue)) :: l
 
         |   getConstant(FPArithConst{ source, ... }, bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord source) else InlineAbsoluteAddress (toMachineWord source)) :: l
 
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
-                (ic + Word.fromInt(List.length bytes) - 0w4,
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
 
         |   getConstant(_, _, _, l) = l        
@@ -3098,7 +3111,11 @@ struct
             (* Fixup labels and shrink long branches to short. *)
             val bytesList = fixupLabels(expanded, initialBytesList)
         end 
-        val () = List.app (fn b => genBytes b) bytesList
+        local
+            fun genBytes l = Word8Vector.app (fn i => genByte i) l
+        in
+            val () = List.app (fn b => genBytes b) bytesList
+        end
         
         val () = genBytes(opCodeBytes(HLT, NONE)) (* Marker - this is used by ScanConstants in the RTS. *)
         
