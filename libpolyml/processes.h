@@ -58,6 +58,10 @@ typedef void *HANDLE;
 #include <ucontext.h>
 #endif
 
+#ifdef HAVE_PTHREAD_H
+#include <pthread.h>
+#endif
+
 // SIGNALCONTEXT is the argument type that is passed to GetPCandSPFromContext
 // to get the actual PC and SP in a profiling trap.
 #if defined(HAVE_WINDOWS_H)
