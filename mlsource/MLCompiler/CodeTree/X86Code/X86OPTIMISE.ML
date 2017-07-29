@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010, 2012, 2016
+    Copyright David C. J. Matthews 2010, 2012, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -41,9 +41,8 @@ struct
         (* Print the pre-optimised code if required. *)
         val () = printLowLevelCode(ops, code)
 
-        (* All these instructions can't be eliminated after a jump. *)
+        (* Labels can't be eliminated after a jump. *)
         fun labelInstruction(JumpLabel(Labels{uses=ref uses, ...})) = uses > 0
-        |   labelInstruction(StartHandler _) = true
         |   labelInstruction _ = false
 
         (* If we remove a branch the use counts are reduced. *)
@@ -65,9 +64,9 @@ struct
             else (eliminate next; forward(u :: tl, list, true))
 
             (* Eliminate Unconditional branches to the next instruction. *)
-        |   forward((u as UncondBranch(Labels{forward=source, ...})) ::
-                    (next as JumpLabel(Labels{forward=dest, ...})) :: tl, list, rep) =
-            if source = dest
+        |   forward((u as UncondBranch ucLabel) ::
+                    (next as JumpLabel jLabel) :: tl, list, rep) =
+            if sameLabel(ucLabel, jLabel)
             then (eliminate u; forward(next :: tl, list, true))
             else forward(next :: tl, u :: list, rep)
            
@@ -106,14 +105,14 @@ struct
                branch we can turn the test round. *)
         |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
                     (u as UncondBranch uncondLab) ::
-                    (d as JumpLabel(Labels{forward=nextLabel, ...})) :: tl, list, rep) =
+                    (d as JumpLabel nextLabel) :: tl, list, rep) =
             let
                 (* See where the ultimate destination of the conditional branch is.
                    If it's already been forwarded we don't want to change that. *)
                 fun follow(Labels{chain=ref(SOME c), ...}) = follow c
                 |   follow c = c
 
-                val Labels{forward=condRef, ...} = follow condDest
+                val condRef = follow condDest
 
                 fun reverseTest JE  = JNE
                 |   reverseTest JNE = JE
@@ -134,7 +133,7 @@ struct
                 |   reversePrediction PredictTaken = PredictNotTaken
                 |   reversePrediction PredictNotTaken = PredictTaken
             in
-                if condRef = nextLabel
+                if sameLabel(condRef, nextLabel)
                 then
                 (
                     eliminate c;
@@ -171,6 +170,32 @@ struct
                 forward(ArithToGenReg{ opc=opc, output=outA, source=NonAddressConstArg result } :: tl, list, true)
             end
             else forward(b :: tl, a :: list, rep)
+
+        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output}) :: (reset as ResetStack count) :: tl,
+                    list, rep) =
+            (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
+               we can't we may be better to split the stack reset in case there's another load that could. *)
+            if base = esp andalso offset < count * Address.wordSize
+            then (* Can use a pop instruction. *)
+            let
+                val resetBefore = Int.min(offset div Address.wordSize, count)
+            in
+                if resetBefore = 0 (* So offset must be zero. *)
+                then
+                let
+                    val _ = offset = 0 orelse raise InternalError "forward: offset non-zero"
+                    val resetAfter = count - resetBefore - 1
+                in
+                    forward(if resetAfter = 0 then tl else ResetStack resetAfter :: tl,
+                        PopR output :: list, true)
+                end
+                else forward(
+                        MoveToRegister{
+                            source=MemoryArg{base=base, offset=offset-resetBefore*Address.wordSize, index=NoIndex}, output=output} ::
+                        (if count = resetBefore then tl else ResetStack(count - resetBefore) :: tl),
+                        ResetStack resetBefore :: list, true)
+            end
+            else forward(reset::tl, mv::list, rep)
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
@@ -227,8 +252,7 @@ struct
 
             (* Branch chaining with indexed branches.  We may be able to forward
                branch table entries to their new location. *)
-        |   reverse(
-                (i as IndexedCase{testReg, workReg, min, cases}) :: tl, list, rep) =
+        |   reverse((i as JumpTable cases) :: tl, list, rep) =
             let
                 val changed = ref false
                 fun forwardBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) =
@@ -248,9 +272,7 @@ struct
                 val newList = List.map forwardBranch cases
             in
                 if ! changed
-                then reverse(tl,
-                        IndexedCase{testReg=testReg, workReg=workReg, min=min, cases=newList} :: list,
-                        true)
+                then reverse(tl, JumpTable newList :: list, true)
                 else reverse(tl, i :: list, rep)
             end
 

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -676,7 +676,7 @@ struct
         |   argAsGenReg _ = raise InternalError "argAsGenReg"
         
         (* Labels.  Create an array and fill in the entries. *)
-        datatype labelKind = NormalLabel of label | HandlerLab of addrs ref | NoLabel
+        datatype labelKind = NormalLabel of label | NoLabel
         val labelArray = Array.array(maxLabels, NoLabel)
 
         fun addLabels(ForwardJumpLabel{label=ILabel labno, ...}) =
@@ -692,7 +692,7 @@ struct
         |   addLabels(PushExceptionHandler{ handleStart=ILabel labno, ... }) =
             (
                 case Array.sub(labelArray, labno) of NoLabel => () | _ => raise InternalError "addLabels: redefined";
-                Array.update(labelArray, labno, HandlerLab(ref addrZero))
+                Array.update(labelArray, labno, NormalLabel(mkLabel()))
             )
         |   addLabels _ = ()
         
@@ -983,8 +983,28 @@ struct
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
                 val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
                 val caseLabels = map findLabelRef cases
+                val startJumpTable = let val l as Labels{uses, ...} = mkLabel() in uses := 1; l end
+                (* Compute the jump address.  The index is a tagged
+                   integer so it is already multiplied by 2.  We need to
+                   multiply by four to get the correct size. We subtract off
+                   the minimum value and also the shifted tag. *)
+    			val adjustment = Word.toLargeIntX startValue * ~8 - 4
+    			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
+    			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
+    			(* We don't need to consider any possible overflow in the execution 
+    			   because we've already checked that the value is within the range. *)
+                val computeJump =
+                    if is32bit adjustment
+                    then [LoadAddress{ output=wReg, offset=LargeInt.toInt adjustment, base=SOME wReg, index=Index4 rReg}]
+                    else
+                        [LoadAddress{ output=wReg, offset=0, base=SOME wReg, index=Index4 rReg},
+                         ArithToGenReg{source=NonAddressConstArg adjustment, output=wReg, opc=ADD}]
+                (* We use JumpToFunction even though we're not actually going to a new function. *)
+                val resultCode =
+                    JumpTable caseLabels :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                        computeJump @ LoadLabelAddress{label=startJumpTable, output=wReg} :: code
             in
-                codeGenICode(rest, IndexedCase{testReg=rReg, workReg=wReg, min=startValue, cases=caseLabels} :: code)
+                codeGenICode(rest, resultCode)
             end
 
         |   codeGenICode(LockMutable { addr } :: rest, code) =
@@ -1005,15 +1025,12 @@ struct
         |   codeGenICode(WordComparison _ :: _, _) =
                 raise InternalError "codeGenICode: TODO WordComparison"
 
-        |   codeGenICode(PushExceptionHandler { workReg, handleStart=ILabel hStart, ... } :: rest, code) =
+        |   codeGenICode(PushExceptionHandler { workReg, handleStart, ... } :: rest, code) =
             let (* Set up an exception handler. *)
                 (* Although we're pushing this to the stack we need to use LEA on the
                    X86/64 and some arithmetic on the X86/32.  We need a work reg for that. *)
                 val handleReg = asGenReg workReg
-                val labelRef =
-                    case Array.sub(labelArray, hStart) of
-                        HandlerLab addr => addr
-                    |   _ => raise InternalError "codeGenICode: PushExceptionHandler not handler"
+                val labelRef = findLabelRef handleStart
                 (* Set up the handler by pushing the old handler to the stack, pushing the
                    entry point and setting the handler address to the current stack pointer. *)
             in
@@ -1021,7 +1038,7 @@ struct
                     StoreRegToMemory{
                         toStore=esp, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PushToStack(RegisterArg handleReg) ::
-                    LoadHandlerAddress{ handlerLab=labelRef, output=handleReg} ::
+                    LoadLabelAddress{ label=labelRef, output=handleReg} ::
                     PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}) :: code)
             end
 
@@ -1038,14 +1055,11 @@ struct
                     ResetStack 1 :: code)
             end
  
-        |   codeGenICode(BeginHandler {handleStart=ILabel hStart, workReg, packetReg} :: rest, code) =
+        |   codeGenICode(BeginHandler {handleStart, workReg, packetReg} :: rest, code) =
             let
                 val _ = asGenReg packetReg = eax orelse raise InternalError "codeGenICode: BeginHandler"
                 val wReg = asGenReg workReg
-                val labelRef =
-                    case Array.sub(labelArray, hStart) of
-                        HandlerLab addr => addr
-                    |   _ => raise InternalError "codeGenICode: BeginHandler not handler"
+                val labelRef = findLabelDef handleStart
             in
                 (* The code here is almost the same as PopExceptionHandler.  The only real difference
                    is that PopExceptionHandler needs to pass the result of executing the handled code
@@ -1056,7 +1070,7 @@ struct
                         toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                     PopR wReg :: ResetStack 1 ::
                     MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } ::
-                    StartHandler{handlerLab=labelRef} :: code)
+                    JumpLabel labelRef :: code)
             end
 
         |   codeGenICode(ReturnResultFromFunction { numStackArgs, ... } :: rest, code) =
