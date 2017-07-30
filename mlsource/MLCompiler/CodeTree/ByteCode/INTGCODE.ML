@@ -47,8 +47,6 @@ struct
     open BACKENDTREE
     open MISC
 
-    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
-
     val word0 = toMachineWord 0;
   
     val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
@@ -241,7 +239,7 @@ struct
                 val argIndexList = map genLoopArg args;
 
                 val startSp = ! realstackptr; (* Remember the current top of stack. *)
-                val startLoop : addrs = ic cvec; (* Start of loop *)
+                val startLoop = setBackJumpLabel cvec (* Start of loop *)
             in
                 (* Process the body, passing the jump-back address down for the Loop instruction(s). *)
                 gencde (body, whereto, tailKind, SOME(startLoop, startSp, argIndexList))
@@ -293,14 +291,15 @@ struct
                 (* Save old handler *)
                 val () = genPushHandler cvec
                 val () = incsp ()
-                val genTag = putBranchInstruction (setHandler, cvec) before incsp()
+                val genTag = putBranchInstruction (SetHandler, cvec) before incsp()
                 (* Code generate the body; "NotEnd" because we have to come back
                  to remove the handler; "ToStack" because delHandler needs
                  a result to carry down. *)
                 val () = gencde (exp, ToStack, NotEnd, loopAddr)
       
                 (* Now get out of the handler and restore the old one. *)
-                val skipHandler = putBranchInstruction (delHandler, cvec)
+                val () = genOpcode(opcode_deleteHandler, cvec)
+                val skipHandler = putBranchInstruction (Jump, cvec)
           
                 (* Now process the handler itself. First we have to reset the stack.
                    Note that we have to use "ToStack" again to be consistent with
@@ -335,80 +334,103 @@ struct
                 (* The exit jumps are chained together. *)
                 val lastEndJump : labels ref = ref noJump;
 
-                val (_, min: LargeInt.int, max:LargeInt.int) =
+                (* Sort the cases into ascending order.  It's possible that we may have
+                   duplicates if this came from an if-then-else construction so we
+                   need to retain the ordering for items with the same case label. *)
+                (* TODO: This should be done in the higher level. *)
+                local
+                    val labelCount = List.length cases
+                    (* Add an extra field before sorting which retains the ordering for
+                       equal labels. *)
+                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
+                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
+                        if w1 = w2 then n1 <= n2 else w1 < w2
+                    val sorted = List.map #1 (Misc.quickSort leq ordered)
+                    (* Filter out any duplicates. *)
+                    fun filter [] = []
+                    |   filter [p] = [p]
+                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
+                            if lab1 = lab2
+                            then p :: filter tl
+                            else p :: filter (q :: tl)
+                in
+                    val cases = filter sorted
+                end
+
+                val (_, min, max) =
                     case caseType of
-                        CaseTag max => (true, 0, Word.toLargeInt max)
+                        CaseTag max => (true, 0w0, max)
                 |   _ =>
                     let
                         val (_, aLabel) = hd cases
                         fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
                         val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
                     in
-                        (false, Word.toLargeInt min, Word.toLargeInt max)
+                        (false, min, max)
                     end
 
-                val limit : int = Int.fromLarge(max - min)
+                val limit : int = Word.toInt(max - min)
 
                 val () =
-                    if min = 0 then ()
+                    if min = 0w0 then ()
                     else
-                    ( (* Subtract lower limit. *)
+                    (   (* Subtract lower limit.  Don't check for overflow.  Instead
+                           allow large value to wrap around and check in "case" instruction. *)
                         pushConst(toMachineWord min, cvec);
-                        genOpcode(opcode_fixedSub, cvec) (* Is this fixed, word or arbitrary? *)
+                        genOpcode(opcode_wordSub, cvec)
                     )
 
-                val () = genCase (limit, cvec);
-                val () = decsp ();
- 
-                (* Addresses are relative to the first entry in the vector. *)
-                val startVec : addrs = ic cvec;
+                (* Create labels for each of the cases.  Fill in any gaps with entries that
+                   will point to the default. *)
+                fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
+                    if indexVal = caseValue
+                    then SOME c :: extendCase(indexVal+0w1, cps)
+                    else NONE :: extendCase(indexVal+0w1, cl)
 
-                (* Set each address in the vector to point to the default - they
-                 will be overwritten by the actual address later. *)
-                val defaultAddr : int = (limit + 1) * 2;
+                |   extendCase(indexVal, []) =
+                    (* We may not be at the end if this came from a CaseTag *)
+                        if indexVal > max
+                        then []
+                        else NONE :: extendCase(indexVal+0w1, [])
+                
+                (* We now have a list for each entry in the case containing either
+                   SOME c for cases that are present or NONE for those that default. *) 
+                val fullCaseRange = extendCase(min, cases)
 
-                val () = forLoop (fn (_ : int) => genWord (defaultAddr, cvec)) 0 limit;
+                (* Generate the case instruction followed by the table of jumps.  *)
+                val caseLabels = genCase (limit+1, cvec)
+                val () = decsp ()
 
                 (* The default case, if any, follows the case statement. *)
+                (* Fix up any defaults to come here. *)
+                local
+                    fun fixDefault(NONE, defCase) = fixup(defCase, cvec)
+                    |   fixDefault(SOME _, _) = ()
+                in
+                    val () = ListPair.appEq fixDefault (fullCaseRange, caseLabels)
+                end
                 val () = gencde (default, whereto, tailKind, loopAddr);
 
                 val () = exited := false;
-
-                (* Now generate the code for each of the cases. *)
-                fun genEachCase ([] : (backendIC * word) list) : unit = ()
-                |   genEachCase ((body : backendIC, matches : word) :: otherCases) : unit =
-                    let
-                     (* First exit from the previous case or the default if
-                        this is the first. *)
-                        val () = 
-                            lastEndJump := linkLabels
-                                (!lastEndJump,
-                                if !exited then noJump else putBranchInstruction(jump, cvec),
-                                cvec)
+                
+                fun genCases(SOME body, label) =
+                    (
+                        (* First exit from the previous case or the default if
+                           this is the first. *) 
+                        lastEndJump := linkLabels
+                            (!lastEndJump,
+                            if !exited then noJump else putBranchInstruction(Jump, cvec),
+                            cvec);
                         (* Remove the result - the last case will leave it. *)
-                        val () = case whereto of ToStack => decsp () | NoResult => ();
-     
-                        (* Now put the address of this code into the table if
-                           an entry has not already been set. If it has the new
-                           entry should be ignored. It is NOT an error (just
-                           redundant). *)
-                        local
-                            val entryAddr : addrs = addrPlus(startVec, Int.fromLarge(Word.toLargeInt matches - min) * 2)
-                        in
-                            val () =
-                                if getBytes(2, entryAddr, cvec) = defaultAddr
-                                then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
-                                else ()
-                        end
-
-                        (* Generate code for this case *)
-                        val () = exited := false;
-                        val () = gencde (body, whereto, tailKind, loopAddr);
-                    in
-                        genEachCase otherCases
-                    end; (* genEachCase *)
-         
-                val () = genEachCase cases
+                        case whereto of ToStack => decsp () | NoResult => ();
+                        (* Fix up the jump to come here. *)
+                        fixup(label, cvec);
+                        exited := false;
+                        gencde (body, whereto, tailKind, loopAddr)
+                    )
+                |   genCases(NONE, _) = ()
+                
+                val () = ListPair.appEq genCases (fullCaseRange, caseLabels)
      
                 (* Finally go down the list of exit labels pointing them to here. *)
                 val () = fixup (!lastEndJump, cvec);
@@ -981,7 +1003,7 @@ struct
                 loopAddr) : unit =
    let
      val () = gencde (first, ToStack, NotEnd, loopAddr)
-     val toElse : labels = putBranchInstruction(jumpFalse, cvec)
+     val toElse : labels = putBranchInstruction(JumpFalse, cvec)
      val () = decsp();
    in
         let
@@ -994,7 +1016,7 @@ struct
  
      val toExit : labels =
        if thenExited then noJump
-       else putBranchInstruction (jump, cvec);
+       else putBranchInstruction (Jump, cvec);
     
      (* start of "else part" *)
      val () = fixup (toElse, cvec);

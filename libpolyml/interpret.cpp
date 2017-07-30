@@ -4,7 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2015-16.
+    Further development Copyright David C.J. Matthews 2015-17.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -337,6 +337,23 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_jump: pc += *pc + 1; break;
 
+        case INSTR_jump32False:
+        {
+            PolyWord u = *sp++; /* Pop argument */
+            if (u == True) { pc += 4; break; }
+            /* else - false - take the jump */
+        }
+
+        case INSTR_jump32:
+        {
+            POLYSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+#if (SIZEOF_VOIDP > 4)
+            if (pc[3] & 0x80) offset += -1 << 32; // Sign extend
+#endif
+            pc += offset + 4;
+            break;
+        }
+
         case INSTR_push_handler: /* Save the old handler value. */
             *(--sp) = PolyWord::FromStackAddr(this->hr); /* Push old handler */
             break;
@@ -346,6 +363,15 @@ int IntTaskData::SwitchToPoly()
             this->hr = sp;
             pc += 1;
             break;
+
+        case INSTR_setHandler32: /* Set up a handler */
+        {
+            POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+            *(--sp) = PolyWord::FromCodePtr(pc + offset + 4); /* Address of handler */
+            this->hr = sp;
+            pc += 4;
+            break;
+        }
 
         case INSTR_del_handler: /* Delete handler retaining the result. */
             {
@@ -359,6 +385,16 @@ int IntTaskData::SwitchToPoly()
                 pc += *pc + 1; /* Skip the handler */
                 break;
             }
+
+        case INSTR_deleteHandler: /* Delete handler retaining the result. */
+        {
+            PolyWord u = *sp++;
+            sp = this->hr;
+            sp++; // Remove handler entry point
+            this->hr = (*sp).AsStackAddr(); // Restore old handler
+            *sp = u; // Put back the result
+            break;
+        }
 
         case INSTR_jump_i_false:
             if (*sp++ == True) { pc += 1; break; }
@@ -398,6 +434,7 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_case:
             {
+                // arg1 is the largest value that is in the range
                 POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
                 if (u > arg1 || u < 0) pc += (arg1+2)*2; /* Out of range */
                 else {
@@ -405,6 +442,21 @@ int IntTaskData::SwitchToPoly()
                     pc += /* Index */pc[u*2]+pc[u*2 + 1]*256; }
                 break;
             }
+
+        case INSTR_indexedJump:
+        {
+            // arg1 is the number of cases i.e. one more than the largest value
+            // This is followed by that number of jump32 instructions.
+            // If the value is out of range the default case is immediately after the table.
+            POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
+            if (u >= arg1 || u < 0) pc += 2 + arg1 * 5; /* Out of range */
+            else
+            {
+                pc += 2;
+                pc += u * 5;
+            }
+            break;
+        }
 
         case INSTR_tail_3_b:
            tailCount = 3;
@@ -501,9 +553,6 @@ int IntTaskData::SwitchToPoly()
         case INSTR_get_store_w:
         // Get_store is now only used for mutually recursive closures.  It allocates mutable store
         // initialised to zero.
-        case INSTR_legacy_container: /* Create a container. */
-                /* This is supposed to be on the stack but that causes problems in gencde
-                   so we create a mutable segment on the heap. */
         {
             storeWords = arg1;
             pc += 2;
@@ -591,19 +640,17 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_addr:
             *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; break;
 
-        case INSTR_const_addr_Xb:
-            *(--sp) = (PolyWord::FromCodePtr(pc + (pc[0]+4)*sizeof(PolyWord) + pc[1] + pc[2]*256 + 3)).AsObjPtr()->Get(0);
-            pc += 3;
-            break;
-
-        case INSTR_const_addr_Xw:
-            *(--sp) = (PolyWord::FromCodePtr(pc + (arg1+4)*sizeof(PolyWord)+arg2 + 4)).AsObjPtr()->Get(0);
+        case INSTR_constAddr32:
+        {
+            POLYUNSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
+            *(--sp) = *(PolyWord*)(pc + offset + 4);
             pc += 4;
             break;
+        }
 
         case INSTR_const_int_w: *(--sp) = TAGGED(arg1); pc += 2; break;
 
-        case INSTR_jump_back: pc -= *pc + 1; break;
+        case INSTR_jump_back8: pc -= *pc + 1; break;
 
         case INSTR_jump_back16:
             pc -= arg1 + 1; break;
@@ -715,19 +762,6 @@ int IntTaskData::SwitchToPoly()
                 t = (*t).AsStackAddr() - 1;
                 *(--sp) = (*t).AsStackAddr()[(uu & 0xf) - 6];
                 pc += 1; break;
-            }
-
-        case INSTR_set_container: /* Copy a tuple into a container. */
-            {
-                PolyWord u = *sp++; /* Pop the source tuple address. */
-                for (POLYSIGNED uu = arg1; uu > 0; )
-                {
-                    uu--;
-                    (*sp).AsObjPtr()->Set(uu, u.AsObjPtr()->Get(uu)); /* Copy the items. */
-                }
-                sp++;
-                pc += 2;
-                break;
             }
 
         case INSTR_stack_container:
@@ -1207,15 +1241,6 @@ int IntTaskData::SwitchToPoly()
             POLYUNSIGNED u = UNTAGGED_UNSIGNED(*sp++);
             *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) % u);
             break;
-        }
-
-        case INSTR_setStringLength: // Now replaced by storeUntagged
-        {
-            /* Store the length word of a string. */
-            POLYUNSIGNED len = UNTAGGED(*sp++);
-            ((PolyStringObject*)(*sp).AsObjPtr())->length = len;
-            *sp = Zero;
-            break; 
         }
 
         case INSTR_wordAnd:
