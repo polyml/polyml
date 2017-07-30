@@ -64,7 +64,6 @@
 	<source name="basis\Real.sml" />
 	<source name="basis\RealArray.sml" />
 	<source name="basis\RealSignature.sml" />
-	<source name="basis\RuntimeCalls.ML" />
 	<source name="basis\Signal.sml" />
 	<source name="basis\SingleAssignment.sml" />
 	<source name="basis\SML90.sml" />
