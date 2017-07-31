@@ -252,7 +252,7 @@ struct
 
             (* Branch chaining with indexed branches.  We may be able to forward
                branch table entries to their new location. *)
-        |   reverse((i as JumpTable cases) :: tl, list, rep) =
+        |   reverse((i as JumpTable{cases, jumpSize}) :: tl, list, rep) =
             let
                 val changed = ref false
                 fun forwardBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) =
@@ -272,7 +272,7 @@ struct
                 val newList = List.map forwardBranch cases
             in
                 if ! changed
-                then reverse(tl, JumpTable newList :: list, true)
+                then reverse(tl, JumpTable{cases=newList, jumpSize=jumpSize} :: list, true)
                 else reverse(tl, i :: list, rep)
             end
 

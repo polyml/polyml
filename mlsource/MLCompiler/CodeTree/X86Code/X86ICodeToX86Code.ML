@@ -987,10 +987,11 @@ struct
                    integer so it is already multiplied by 2.  We need to
                    multiply by four to get the correct size. Subtract off the
                    shifted tag. *)
+                val jumpSize = ref JumpSize8
                 (* We use JumpToFunction even though we're not actually going to a new function. *)
                 val resultCode =
-                    JumpTable caseLabels :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
-                        LoadAddress{ output=wReg, offset= ~4, base=SOME wReg, index=Index4 rReg} ::
+                    JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                        IndexedJumpCalc{ addrReg=wReg, indexReg=rReg, jumpSize=jumpSize } ::
                         LoadLabelAddress{label=startJumpTable, output=wReg} :: code
             in
                 codeGenICode(rest, resultCode)

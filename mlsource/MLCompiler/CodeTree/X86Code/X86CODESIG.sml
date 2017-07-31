@@ -181,7 +181,10 @@ sig
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
     |   Negative of { output: genReg }
-    |   JumpTable of label list
+    |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
+    |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+
+    and jumpSize = JumpSize2 | JumpSize8
 
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
