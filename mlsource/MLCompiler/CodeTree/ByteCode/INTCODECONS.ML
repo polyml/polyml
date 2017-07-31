@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
     
-    Further development Copyright (c) 2015, 2016 David C.J. Matthews
+    Further development Copyright (c) 2015-17 David C.J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -96,8 +96,8 @@ struct
         datatype opcode = Opcode of int;
     in
     type opcode = opcode;
-    fun opcode_down (Opcode n) : int = n;
-    fun opcode_up (n : int) : opcode = Opcode n;
+    fun opcode_down (Opcode n) = n;
+    fun opcode_up (n) : opcode = Opcode n;
     
     val opcode_enterInt          = Opcode 0x00
     and opcode_jump              = Opcode 0x02    (* 8-bit unsigned jump forward. *)
@@ -321,7 +321,7 @@ struct
  
     local
       val repArray : string Array.array = 
-        Array.tabulate (256, fn (i : int) => "<UNKNOWN " ^ Int.toString i ^ ">");
+        Array.tabulate (256, fn (i) => "<UNKNOWN " ^ Int.toString i ^ ">");
       
       fun repUpdate (Opcode n, s) = Array.update (repArray, n, s);
 
@@ -591,7 +591,7 @@ struct
         val () = sizeUpdate(opcode_constAddr32,  5)
         val () = sizeUpdate(opcode_setHandler32, 5)
     in
-      fun size (Opcode n) : int = Array.sub (sizeArray, n);
+      fun size (Opcode n) = Array.sub (sizeArray, n);
     end;
     end (* opcode abstype *)
 
@@ -610,82 +610,65 @@ struct
     type labels = (jumpFrom ref) list;
   
     val noJump : labels = []; 
-  
-  (* This is the list of outstanding labels.  Use a separate type from
-      "labels" for extra security. *)
-  type labList = (jumpFrom ref) list;
 
-(*****************************************************************************)
-(*                  The main "code" datatype                                 *)
-(*****************************************************************************)
+    (* Used for jump, jumpFalse, setHandler and delHandler. *)
+    datatype jumpTypes = Jump | JumpFalse | SetHandler
 
-  datatype const =
-     WVal of machineWord        (* an existing constant *)
+    datatype codeItem =
+        SimpleCode of int list                  (* Bytes that don't need any special treatment *)
+    |   LabelCode of labels                     (* A label - forwards or backwards. *)
+    |   JumpInstruction of labels * jumpTypes   (* Jumps or SetHandler. *)
+    |   PushConstant of machineWord
 
-  and setCodeseg =
-     Unset
-   | Set of cseg   (* Used for completing forward references. *)
+    datatype const = WVal of machineWord        (* an existing constant *)
 
-  and code = Code of 
-    { codeVec:        cseg,           (* This segment is used as a buffer. When the
-                                         procedure has been code generated it is
-                                         copied into a new segment of the correct size *)
-      ic:             addrs ref,      (* Pointer to first free location in "codevec" *)
-      constVec:       const list ref, (* Vector of words to be put at end *)
-      numOfConsts:    int ref,        (* size of constVec *)
-      stackReset:     int ref,        (* Distance to reset the stack before the next instr. *)
-      carry:          bool ref,       (* Should a value be moved down if stackReset <> 0? *)
+    and code = Code of 
+    {
+        codeVec:        cseg,           (* This segment is used as a buffer. When the
+                                             procedure has been code generated it is
+                                             copied into a new segment of the correct size *)
+        ic:             addrs ref,      (* Pointer to first free location in "codevec" *)
+        constVec:       const list ref, (* Vector of words to be put at end *)
+        numOfConsts:    int ref,        (* size of constVec *)
+        stackReset:     int ref,        (* Distance to reset the stack before the next instr. *)
+        carry:          bool ref,       (* Should a value be moved down if stackReset <> 0? *)
 
-      procName:       string,         (* Name of the procedure. *)
-      resultSeg:      setCodeseg ref, (* The segment as the final result. *)
-      constLoads:     (addrs * int) list ref, (* where do we load constants? *)
-      printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
-      printStream:    string->unit    (* The stream to use *)
+        procName:       string,         (* Name of the procedure. *)
+        resultSeg:      cseg option ref, (* The segment as the final result. *)
+        constLoads:     (addrs * int) list ref, (* where do we load constants? *)
+        printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
+        printStream:    string->unit,    (* The stream to use *)
+        stage1Code:     codeItem list ref
     };
-
-(*****************************************************************************)
-(*                  Auxiliary functions on "code"                            *)
-(*****************************************************************************)
-
-  fun codeVec        (Code {codeVec,...})          = codeVec;
-  fun ic             (Code {ic,...})               = ic;
-  fun constVec       (Code {constVec,...})         = constVec;
-  fun numOfConsts    (Code {numOfConsts,...})      = numOfConsts;
-  fun stackReset     (Code {stackReset ,...})      = stackReset;
-  fun carry          (Code {carry,...})            = carry;
-  fun procName       (Code {procName,...})         = procName;
-  fun resultSeg      (Code {resultSeg,...})        = resultSeg;
-  fun constLoads     (Code {constLoads,...})       = constLoads;
-
-  fun scSet (Set x) = x | scSet _ = raise Match;
 
   val codesize = 32; (* bytes. Initial size of segment. *)
 
   fun sameConst (WVal w1, WVal w2) = wordEq (w1, w2)
 
-  (* create and initialise a code segment *)
-  fun codeCreate (name : string, parameters) : code = 
-  let
-    val words : int = codesize div wordLength
-    val printStream = PRETTY.getSimplePrinter(parameters, []);
-  in
-    Code
-      { 
-         codeVec          = csegMake(Word.fromInt words), (* a byte array *)
-         ic               = ref addrZero,
-         constVec         = ref [],
-         numOfConsts      = ref 0,
-         stackReset       = ref 0, (* stack adjustment in WORDs *)
-         carry            = ref false,
-         procName         = name,
-         resultSeg        = ref Unset,   (* Not yet done *)
-         constLoads       = ref [],
-         printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-         printStream    = printStream
-      }
-  end;
+    (* create and initialise a code segment *)
+    fun codeCreate (name : string, parameters) = 
+    let
+        val words = codesize div wordLength
+        val printStream = PRETTY.getSimplePrinter(parameters, []);
+    in
+        Code
+        { 
+            codeVec          = csegMake(Word.fromInt words), (* a byte array *)
+            ic               = ref addrZero,
+            constVec         = ref [],
+            numOfConsts      = ref 0,
+            stackReset       = ref 0, (* stack adjustment in WORDs *)
+            carry            = ref false,
+            procName         = name,
+            resultSeg        = ref NONE,   (* Not yet done *)
+            constLoads       = ref [],
+            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printStream    = printStream,
+            stage1Code       = ref []
+        }
+    end
 
-    fun setLong (value : int, Addr a : addrs, seg : cseg) =
+    fun setLong (value, Addr a : addrs, seg : cseg) =
     let
         fun putBytes(value, a, seg, i) =
         if i = wordLength then ()
@@ -700,18 +683,17 @@ struct
         putBytes(value, a, seg, 0)
     end
 
-  fun putByte (ival: int, Addr a, cvec: code) =
-    csegSet(codeVec cvec, Word.fromInt a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
+    fun putByte (ival, Addr a, Code{codeVec, ...}) =
+        csegSet(codeVec, Word.fromInt a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
 
-  fun genByte (ival: int, cvec: code) = 
-  let
-    val icVal : addrs = ! (ic cvec);
-    val () = putByte (ival, icVal, cvec);
-  in
-    ic cvec := icVal addrPlus 1
-  end;
+    fun genByte (ival, cvec as Code{ic as ref icVal, ...}) = 
+    let
+        val () = putByte (ival, icVal, cvec);
+    in
+        ic := icVal addrPlus 1
+    end
    
-  fun genBytes (ival: int, length: int, cvec: code) =
+  fun genBytes (ival, length, cvec) =
   let
     val () = genByte (ival mod 256, cvec);
   in
@@ -719,8 +701,7 @@ struct
     else genBytes (ival div 256, length - 1, cvec)
   end;
 
-  fun genWord (ival : int, cvec : code) =
-    genBytes (ival, 2, cvec);
+    fun genWord (ival, cvec) = genBytes (ival, 2, cvec);
 
     (* puts "length" bytes of "val" into locations "addr", "addr"+1... *)
     fun putBytes (_, 0, _, _) = ()
@@ -730,12 +711,11 @@ struct
             putBytes (ival div 256, length - 1, addr addrPlus 1, cvec)
         )
 
-  fun getByte (Addr a, cvec : code) : int =
-    Word8.toInt (csegGet(codeVec cvec, Word.fromInt a));
+    fun getByte (Addr a, Code{codeVec, ...}) = Word8.toInt (csegGet(codeVec, Word.fromInt a))
 
   (* Gets "length" bytes from locations "addr", "addr"+1...
      Returns an unsigned number. *)
-  fun getB (length : int, addr : int, seg: cseg) : int =
+  fun getB (length, addr, seg: cseg) =
   let
     val byte = Word8.toInt (csegGet (seg, Word.fromInt addr));
   in
@@ -748,12 +728,11 @@ struct
     end
   end;
 
-  fun getBytes (length: int, Addr a, cvec : code) : int =
-    getB (length, a, codeVec cvec);
+    fun getBytes (length, Addr a, Code{codeVec, ...}) = getB (length, a, codeVec)
 
-  fun resetSp (cvec: code) =
+    fun resetSp (cvec as Code{stackReset, carry, ...}) =
   let 
-    val offset = !(stackReset cvec);
+    val offset = !stackReset
 
     val () =
       if offset < 0
@@ -764,13 +743,13 @@ struct
      
       else if 255 <= offset
         then let
-          val opc = if !(carry cvec) then opcode_resetR_w else opcode_resetW;
+          val opc = if !carry then opcode_resetR_w else opcode_resetW;
           val () = genByte (opcode_down opc, cvec);
         in
           genWord (offset, cvec)
         end
          
-      else if !(carry cvec)
+      else if !carry
     then if 3 < offset
       then let
         val () = genByte (opcode_down opcode_resetRB, cvec);
@@ -778,7 +757,7 @@ struct
         genByte (offset, cvec)
       end
       else let
-        val opc : int = opcode_down opcode_resetR_1 + offset - 1;
+        val opc = opcode_down opcode_resetR_1 + offset - 1;
       in
         genByte(opc, cvec)
       end
@@ -790,24 +769,24 @@ struct
       genByte (offset, cvec)
     end
     else let
-      val opc : int = opcode_down opcode_reset_1 + offset - 1;
+      val opc = opcode_down opcode_reset_1 + offset - 1;
     in
       genByte(opc, cvec)
     end
   in
-    stackReset cvec := 0
+    stackReset := 0
   end; (* resetSp *)
 
     fun fixupOffset (Jump8From addr, target, cvec) =
         let
             (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
-            val newOffset : int = target addrMinus (addr addrPlus 1);
+            val newOffset = target addrMinus (addr addrPlus 1);
     
             val () = 
                 if 0 <= newOffset andalso newOffset < 256 then ()
                 else raise InternalError "fixupOffset: jump too far (8-bit offset)"
     
-            val oldOffset : int = getByte (addr, cvec);
+            val oldOffset = getByte (addr, cvec);
     
             val () = 
                 if oldOffset = 0 then ()
@@ -850,34 +829,34 @@ struct
 
 
     fun fixup ([], _)  = ()
-    |   fixup (lab, cvec) =
-    let
-        (* Deal with any pending resets. *)
-        val () = resetSp cvec
-        val target = ! (ic cvec)
-    in
-        List.app (fn (ref jf) => fixupOffset (jf, target, cvec)) lab
-    end;
+    |   fixup (lab, cvec as Code{ic, ...}) =
+        let
+            (* Deal with any pending resets. *)
+            val () = resetSp cvec
+            val target = ! ic
+        in
+            List.app (fn (ref jf) => fixupOffset (jf, target, cvec)) lab
+        end;
     
     fun makeLongLabel addr = [ref (Jump32From addr)]
 
-    fun linkLabels (lab1 : labels, lab2 : labels, _ : code) : labels = lab1 @ lab2;
+    fun linkLabels (lab1 : labels, lab2 : labels, _) : labels = lab1 @ lab2;
 
     (* Put in the opcode for an instruction. *)
     fun genOpc (opc, _, cvec) = (resetSp cvec; genByte (opcode_down opc, cvec))
   
     fun genOpcode (oper, code) = genOpc(oper, 1, code)
 
-  fun genRaiseEx (cvec: code) =
+  fun genRaiseEx (cvec) =
     genOpc (opcode_raiseEx, 1, cvec);
   
-  fun genLock(cvec: code) =
+  fun genLock(cvec) =
     genOpc (opcode_lock, 1, cvec);
   
-  fun genLdexc (cvec: code) =
+  fun genLdexc (cvec) =
     genOpc (opcode_ldexc, 1, cvec);
 
-  fun genPushHandler (cvec: code) =
+  fun genPushHandler (cvec) =
     genOpc (opcode_pushHandler, 1, cvec);
 
   (* Generate word, byte or single opcodes. The values from ``f''  to ``l''
@@ -885,7 +864,7 @@ struct
      Other arguments which will fit into a byte generate opB followed by
      the argument. The rest require opW and a word argument. *)
   fun gen1 (opW: opcode, opB: opcode, opF: opcode,
-        first : int, last : int, arg1: int, cvec: code) =
+        first, last, arg1, cvec) =
         
     if (first <= arg1 andalso arg1 <= last)
     then genOpc (opcode_up (opcode_down opF + arg1 - first), 1, cvec)
@@ -903,43 +882,43 @@ struct
       genWord(arg1, cvec)
     end;
 
-  fun genReturn (arg1 : int, cvec : code) =
+  fun genReturn (arg1, cvec) =
     gen1 (opcode_returnW,
       opcode_returnB,
       opcode_return_0,
       0, 3, arg1, cvec)
 
-  fun genLocal (arg1 : int, cvec : code) =
+  fun genLocal (arg1, cvec) =
     gen1 (opcode_localW, 
       opcode_localB, 
       opcode_local_0,
       0, 11, arg1, cvec);
 
-  fun genIndirect (arg1 : int, cvec : code) =
+  fun genIndirect (arg1, cvec) =
     gen1 (opcode_indirectW, 
       opcode_indirectB,
       opcode_indirect_0,
       0, 5, arg1, cvec);
 
-  fun genMoveToVec (arg1 : int, cvec : code) =
+  fun genMoveToVec (arg1, cvec) =
     gen1 (opcode_moveToVecW,
       opcode_moveToVecB,
       opcode_moveToVec_0,
       0, 7, arg1, cvec);
 
-  fun genSetStackVal (arg1 : int, cvec : code) =
+  fun genSetStackVal (arg1, cvec) =
     gen1 (opcode_setStackValW,
       opcode_setStackValB,
       opcode_setStackValB, (* Don't care - no "implied" form exists *)
       1, 0, arg1, cvec);
 
-  fun genTuple (arg1: int, cvec: code) =
+  fun genTuple (arg1, cvec) =
     gen1 (opcode_tupleW,
       opcode_tupleB,
       opcode_tuple_2,
       2, 4, arg1, cvec)
 
-    fun genEnterInt (cvec: code, args: int) =
+    fun genEnterInt (cvec, args) =
     if generateEnterInt
     then
     (
@@ -948,7 +927,7 @@ struct
     )
     else ()
 
-  fun genEnterIntCall (cvec: code, args: int) =
+  fun genEnterIntCall (cvec, args) =
   let
     val () =
       if args < MAXINTARGS then ()
@@ -960,17 +939,17 @@ struct
   local
     val enterHandlerCode = (*2 * MAXINTARGS *) 254;
   in
-    fun genEnterIntCatch (cvec: code) =
+    fun genEnterIntCatch (cvec) =
       genEnterInt(cvec, enterHandlerCode);
   end;
 
-  fun genEnterIntProc (cvec: code, args: int) =
+  fun genEnterIntProc (cvec, args) =
   let
     val () =
       if args < MAXINTARGS then ()
       else raise InternalError "genEnterIntProc: too many arguments";
       
-    val argCode : int = MAXINTARGS + args; 
+    val argCode = MAXINTARGS + args; 
   
     (* Primary entry point (address 0) *)
     val () = genEnterInt(cvec, argCode);
@@ -978,28 +957,25 @@ struct
     ()
   end;
 
-    (* Used for jump, jumpFalse, setHandler and delHandler. *)
-    datatype jumpTypes = Jump | JumpFalse | SetHandler
-
-    fun putBranchInstruction (SetHandler, cvec) =
+    fun putBranchInstruction (SetHandler, cvec as Code{ic, ...}) =
         (
             genOpc (opcode_setHandler32, 5, cvec);
             genBytes (0, 4, cvec);
-            makeLongLabel (!(ic cvec) addrPlus ~4)
+            makeLongLabel (! ic addrPlus ~4)
         )
 
-    |   putBranchInstruction (JumpFalse, cvec) =
+    |   putBranchInstruction (JumpFalse, cvec as Code{ic, ...}) =
         (
             genOpc (opcode_jump32False, 5, cvec);
             genBytes (0, 4, cvec);
-            makeLongLabel (!(ic cvec) addrPlus ~4)
+            makeLongLabel (! ic addrPlus ~4)
         )
     
-    |   putBranchInstruction (Jump, cvec) =
+    |   putBranchInstruction (Jump, cvec as Code{ic, ...}) =
         (
             genOpc (opcode_jump32, 5, cvec);
             genBytes (0, 4, cvec);
-            makeLongLabel (!(ic cvec) addrPlus ~4)
+            makeLongLabel (! ic addrPlus ~4)
         )
 
     fun genCase (nCases, cvec) =
@@ -1013,10 +989,10 @@ struct
     fun setBackJumpLabel (code as Code {ic, ...}) = (resetSp code; !ic)
 
     (* Always generate a 32-bit jump at the moment *)
-    fun jumpback (lab: backJumpLabel, cvec: code) =
+    fun jumpback (lab: backJumpLabel, cvec as Code {ic, ...}) =
     let
         val () = resetSp cvec;
-        val newOffset = lab addrMinus (!(ic cvec) addrPlus 5)
+        val newOffset = lab addrMinus (! ic addrPlus 5)
         val _ = newOffset < 0 orelse raise InternalError "jumpback"
     in
         genOpc(opcode_jump32, 5, cvec);
@@ -1061,64 +1037,67 @@ struct
     end
 
 
-    (* Find the offset in the constant area of a constant. *)
-    (* The first has offset 0.                             *)
-    fun addConstToVec (valu : const, cvec : code) : int =
-    let
-        (* Search the list to see if the constant is already there. *)
-        fun findConst valu [] num =
-            (* Add to the list *)
-            (
-                numOfConsts cvec := ! (numOfConsts cvec) + 1;
-                constVec cvec    := ! (constVec cvec) @ [valu];
-                num
-            )
-        |   findConst valu (h :: t) num =
-                if sameConst (valu, h)
-                then num
-                else findConst valu t (num + 1) (* Not equal *)
-    in
-        findConst valu (! (constVec cvec)) 0
-    end
-
-    fun genConstRef (constNum : int, cvec : code) =
-    let
-        (* Remember address of the indirection so we can fix it up later *)
-        val fixupAddrs : addrs = !(ic cvec)
-    in
-        genBytes (0, 4, cvec);
-        constLoads cvec := (fixupAddrs, constNum) :: !(constLoads cvec)
-    end
-
-    fun pushConst (value : machineWord, cvec : code) =
-        if isShort value andalso toShort value < 0w32768
-        then
+    local
+        (* Find the offset in the constant area of a constant. *)
+        (* The first has offset 0.                             *)
+        fun addConstToVec (valu : const, Code{numOfConsts, constVec, ...}) =
         let
-            val iVal: int = Word.toInt (toShort value);
+            (* Search the list to see if the constant is already there. *)
+            fun findConst valu [] num =
+                (* Add to the list *)
+                (
+                    numOfConsts := ! numOfConsts + 1;
+                    constVec    := ! constVec @ [valu];
+                    num
+                )
+            |   findConst valu (h :: t) num =
+                    if sameConst (valu, h)
+                    then num
+                    else findConst valu t (num + 1) (* Not equal *)
         in
-            if iVal = 10
-            then genOpc (opcode_const_10, 1, cvec)
+            findConst valu (! constVec) 0
+        end
+
+        fun genConstRef (constNum, cvec as Code {ic, constLoads, ...}) =
+        let
+            (* Remember address of the indirection so we can fix it up later *)
+            val fixupAddrs = !ic
+        in
+            genBytes (0, 4, cvec);
+            constLoads := (fixupAddrs, constNum) :: ! constLoads
+        end
+
+    in
+        fun pushConst (value : machineWord, cvec) =
+            if isShort value andalso toShort value < 0w32768
+            then
+            let
+                val iVal = Word.toInt (toShort value);
+            in
+                if iVal = 10
+                then genOpc (opcode_const_10, 1, cvec)
       
-            else if iVal <= 4
-            then genOpc (opcode_up (opcode_down opcode_const_0 + iVal), 1, cvec)
+                else if iVal <= 4
+                then genOpc (opcode_up (opcode_down opcode_const_0 + iVal), 1, cvec)
   
-            else if iVal < 256
-            then (genOpc (opcode_constIntB, 2, cvec); genByte (iVal, cvec))
+                else if iVal < 256
+                then (genOpc (opcode_constIntB, 2, cvec); genByte (iVal, cvec))
       
-            else ( genOpc (opcode_constIntW, 3, cvec); genWord (iVal, cvec))
-        end
+                else ( genOpc (opcode_constIntW, 3, cvec); genWord (iVal, cvec))
+            end
 
-        else
-        let (* address or large short *)
-            val constNum = addConstToVec (WVal value, cvec);
-        in
-            genOpc (opcode_constAddr32, 5, cvec);
-            genConstRef (constNum, cvec)
-        end
+            else
+            let (* address or large short *)
+                val constNum = addConstToVec (WVal value, cvec);
+            in
+                genOpc (opcode_constAddr32, 5, cvec);
+                genConstRef (constNum, cvec)
+            end
+    end
 
-    fun genCallClosure (cvec: code) = genOpc (opcode_callClosure, 1, cvec)
+    fun genCallClosure (cvec) = genOpc (opcode_callClosure, 1, cvec)
     
-    fun genTailCall (toslide : int, slideby: int, cvec: code) =
+    fun genTailCall (toslide, slideby, cvec) =
     if toslide < 256 andalso slideby < 256
     then case (toslide, slideby) of
         (3, 2) =>  genOpc (opcode_tail3_2, 1, cvec)
@@ -1156,33 +1135,33 @@ struct
          genWord(slideby, cvec)
     end; (* genTailCall *)
 
-  fun genContainer (size : int, cvec: code) =
+  fun genContainer (size, cvec) =
     (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));
 
-  fun genTupleFromContainer (size : int, cvec: code) =
+  fun genTupleFromContainer (size, cvec) =
     (genOpc(opcode_tuple_containerW, 3, cvec); genWord(size, cvec));
 
 
   (* Adds in the reset. *)
-  fun resetStack (offset : int, carryValue : bool, cvec : code) =
+  fun resetStack (offset, carryValue, Code{stackReset, carry, ...}) =
   let
     val () =
       if 0 < offset then ()
       else raise InternalError ("resetStack: bad offset " ^ Int.toString offset);
   
-    val () = stackReset cvec := !(stackReset cvec) + offset;
+    val () = stackReset := ! stackReset + offset
   in
-     carry cvec := carryValue
+     carry := carryValue
   end;
 
-    fun printCode (seg: cseg, procName: string, endcode : int, printStream) =
+    fun printCode (seg: cseg, procName: string, endcode, printStream) =
     let
         val () = printStream "\n";
         val () = if procName = "" (* No name *) then printStream "?" else printStream procName;
         val () = printStream ":\n";
 
         (* prints a string representation of a number *)
-        fun printHex (v : int) = printStream(Int.fmt StringCvt.HEX v);
+        fun printHex (v) = printStream(Int.fmt StringCvt.HEX v);
  
         val ptr = ref 0;
  
@@ -1191,22 +1170,22 @@ struct
            and print values at those addresses as addresses.
            This list is sorted with the lowest address first. *)
  
-        val indirections : int list ref = ref [];
+        val indirections = ref [];
  
         local
-            fun addL (n, [] : int list) : int list = [n]
+            fun addL (n, []) = [n]
             |   addL (n, l as (x :: xs)) =
                     if n < x then n :: l
                     else if n = x then l
                     else x :: addL (n, xs)
         in
-            fun addInd (ind : int) = indirections := addL (ind, !indirections)
+            fun addInd (ind) = indirections := addL (ind, !indirections)
         end
  
         (* Prints a relative address. *)
-        fun printDisp (len: int, spacer: string, addToList: bool) =
+        fun printDisp (len, spacer: string, addToList: bool) =
         let
-            val ad : int = getB(len, !ptr, seg) + !ptr + len;
+            val ad = getB(len, !ptr, seg) + !ptr + len;
             val () = if addToList then addInd ad else ();
             val () = printStream spacer;
             val () = printHex ad;
@@ -1215,7 +1194,7 @@ struct
         end
 
         (* Prints an operand of an instruction *)
-        fun printOp (len: int, spacer : string) =
+        fun printOp (len, spacer : string) =
         let
             val () = printStream spacer;
             val () = printHex (getB (len, !ptr, seg));
@@ -1226,7 +1205,7 @@ struct
     in
         while !ptr < endcode do
         let
-            val addr : int = !ptr
+            val addr = !ptr
         in
             printHex addr; (* The address. *)
 
@@ -1247,7 +1226,7 @@ struct
                 val ()  = ptr := !ptr + 1;
                 val ()  = printStream (repr opc);
 
-                val sz : int = size opc;
+                val sz = size opc;
             in
                 if sz = 1 then ()
     
@@ -1287,9 +1266,9 @@ struct
                 then
                 let
                     (* Have to find out how many items there are. *)
-                    val limit : int = getB (2, !ptr, seg);
+                    val limit = getB (2, !ptr, seg);
                     val () = printOp (2, "\t");
-                    val base : int = !ptr;
+                    val base = !ptr;
         
                     fun printEntry _ = (printStream "\n\t"; printHex(base + getB(2, !ptr, seg)); ptr := !ptr + 2)
         
@@ -1312,14 +1291,14 @@ struct
     end (* printCode *)
 
     (* The count of the number of constants is an untagged value so we can't use loadWord. *)
-    fun loadConstCount (a : address, offset : int) : int =
+    fun loadConstCount (a : address, offset) =
     let
-        val byteOffset : int = wordLength * offset
-        fun loadBytes (i: int) (acc: int) : int =
+        val byteOffset = wordLength * offset
+        fun loadBytes (i) (acc) =
         if i = wordLength then acc
         else
         let
-            val addr: int =
+            val addr =
                 if littleEndian() then byteOffset + wordLength - i - 1
                 else byteOffset + i;
             val b = loadByte (a, Word.fromInt addr);
@@ -1343,7 +1322,7 @@ struct
     end
 
     (* prints a string representation of a number *)
-    fun printHex (v : int, printStream) = printStream(Int.fmt StringCvt.HEX v);
+    fun printHex (v, printStream) = printStream(Int.fmt StringCvt.HEX v);
 
     fun printConstCode (a : address, printStream) = printStream ("code:\t" ^ nameOfCode a);
   
@@ -1351,7 +1330,7 @@ struct
   
     fun printWords (a : address, printStream) =
     let
-        val objLength : int = Word.toInt (Address.length a)
+        val objLength = Word.toInt (Address.length a)
     in
         if objLength = 1
         then printStream ("long:\t1 word")
@@ -1360,7 +1339,7 @@ struct
   
     fun printBytes (a : address, printStream) =
     let
-        val objLength  : int = Word.toInt (Address.length a)
+        val objLength  = Word.toInt (Address.length a)
     in
         if objLength = 1
         then printStream ("bytes:\t1 word")
@@ -1371,7 +1350,7 @@ struct
     if isShort w
     then
     let
-        val value : int = Word.toInt (toShort w)
+        val value = Word.toInt (toShort w)
     in
         printStream "short:\t";
         printHex(value, printStream);
@@ -1406,8 +1385,8 @@ struct
         else printWords(a, printStream) (* Not a proper tuple (shouldn't occur) *)
     end
            
-    fun printConstants (_    : int, [] : const list, _) = ()
-    |   printConstants (addr : int, h :: t, printStream) =
+    fun printConstants (_   , [] : const list, _) = ()
+    |   printConstants (addr, h :: t, printStream) =
         (
             printHex(addr, printStream);
             printStream "\t";
@@ -1416,19 +1395,20 @@ struct
         )
 
     (* set the num'th constant in cvec to be value *)
-    fun constLabels (cvec : code, num : int, value : machineWord) =
+    fun constLabels (Code { resultSeg=ref resultSeg, ic, ...}, num , value ) =
     let
-        val seg       = scSet (!(resultSeg cvec));
+        val seg       = valOf resultSeg
         (* The +2 in the next instruction is because ic is always the byte count of
            the word after the marker word.  We need to skip over the function name
            and the profile count. *)
-        val constAddr = (getAddr (!(ic cvec))) div wordLength + num + 2;
+        val constAddr = (getAddr (! ic)) div wordLength + num + 2;
     in
         csegPutWord (seg, Word.fromInt constAddr, value)
     end
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun copyCode (cvec: code as Code{ printAssemblyCode, printStream, ...}) : address =
+    fun copyCode (cvec as
+                    Code{ printAssemblyCode, printStream, resultSeg, ic, numOfConsts, codeVec, constLoads, procName, constVec, ...}) : address =
     let
         (* Pad out to long word boundary. Don't just leave as zero because, if
            the last instruction (return) had a zero argument, this could give
@@ -1436,27 +1416,27 @@ struct
         *)
         val alignTo = wordLength
         val () = 
-            while (getAddr (! (ic cvec)) mod alignTo) <> 0
+            while (getAddr (! ic) mod alignTo) <> 0
             do genByte (opcode_down opcode_pad, cvec);
 
         (* This also aligns ic onto a fullword boundary. *)
-        val endIC    = !(ic cvec); (* Remember end *)
+        val endIC    = !ic; (* Remember end *)
         val () = genBytes (0, wordLength, cvec) (* Marker *)
 
         (* +4 for code size, profile count, function name and constants count *)
-        val numOfConst = !(numOfConsts cvec)
-        val endOfCode : int = getAddr (! (ic cvec)) div wordLength
-        val segSize   : int = endOfCode + numOfConst + 4
+        val numOfConst = ! numOfConsts
+        val endOfCode = getAddr (! ic) div wordLength
+        val segSize   = endOfCode + numOfConst + 4
 
         (* fix-up all the constant loads (or indirections) *)
-        val () = fixupConstantLoads (cvec, endIC, !(constLoads cvec))
+        val () = fixupConstantLoads (cvec, endIC, ! constLoads)
 
         (* Now make the byte segment that we'll turn into the code segment *)
         val seg : cseg = csegMake(Word.fromInt segSize)
-        val ()   = resultSeg cvec := Set seg
+        val ()   = resultSeg := SOME seg
     
         (* Copy the code into the new segment. *)
-        val () = csegCopySeg (codeVec cvec, seg, Word.fromInt(getAddr (!(ic cvec))), 0w0);
+        val () = csegCopySeg (codeVec, seg, Word.fromInt(getAddr (!ic)), 0w0);
 
         (* Byte offset of start of code. *)
         local
@@ -1486,7 +1466,7 @@ struct
         val () = csegConvertToCode seg;
 
         local
-            val name     : string = procName cvec
+            val name     : string = procName
             val nameWord : machineWord = toMachineWord name
         in
             val () = csegPutWord (seg, Word.fromInt endOfCode + 0w2, nameWord)
@@ -1498,19 +1478,19 @@ struct
         |   putLocalConsts (WVal w::cs) num =
                 (constLabels (cvec, num, w); putLocalConsts cs (num + 1))
     
-        val () = putLocalConsts (! (constVec cvec)) 1;
+        val () = putLocalConsts (! constVec) 1;
 
         val () = 
             if printAssemblyCode
             then
             let (* print out the code *)
-                val () = printCode (seg, procName cvec, getAddr endIC, printStream);
+                val () = printCode (seg, procName, getAddr endIC, printStream);
                 (* Skip: byte offset of start of code segment, 
                      number of constants,
                      profiling word,
                      name of code segment
                 *)
-                val constants : const list = ! (constVec cvec);
+                val constants = ! constVec
                 val () = printConstants (getAddr endIC + 4*wordLength, constants, printStream);
             in
                 printStream"\n"
