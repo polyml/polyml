@@ -996,7 +996,18 @@ struct
     end
 
     (* Arbitrary precision operations.  This is a sort of mixture of a built-in and a conditional. *)
-    and simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
+    and simpArbitraryCompare(TestEqual, shortCond, arg1, arg2, longCall, context, tailDecs) =
+            (* Equality is a special case and is only there to ensure that it is not accidentally converted into
+               an indexed case further down.  We must leave it as it is. *)
+        let
+            val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
+            val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
+            val (genArg2, decArgs, _ (*specArg2*)) = simpSpecial(arg2, context, decArg1)
+        in
+            (Arbitrary{oper=ArbCompare TestEqual, shortCond=genCond, arg1=genArg1, arg2=genArg2, longCall=simplify(longCall, context)}, decArgs, EnvSpecNone)
+        end
+
+    |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
     let
         val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
         val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
