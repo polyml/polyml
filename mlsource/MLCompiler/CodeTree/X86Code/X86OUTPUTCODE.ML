@@ -1334,7 +1334,7 @@ struct
         |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         |   Negative { output } => (stream "Negative "; printGReg output)
         |   JumpTable cases =>
-                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab))) cases
+                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab); stream "\n")) cases
         ;
  
         stream "\n"
