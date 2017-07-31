@@ -509,7 +509,7 @@ struct
                 pushRegisters(rest, destCode @ ReserveContainer{size=size, address=destVal} :: code, newContext)
             end
 
-        |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg, cases, startValue}, ...} :: rest, code, context) =
+        |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg, cases}, ...} :: rest, code, context) =
             let
                 val (srcVal, srcCode) = mapSrcReg(testReg, context)
                 val newWorkReg = mapWorkReg workReg
@@ -517,7 +517,7 @@ struct
                 val () = List.app (fn caseLab => addNewLabel(caseLab, context)) cases
             in
                 (* This is an unconditional branch. *)
-                skipToLabel(rest, IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases, startValue=startValue} :: srcCode @ code)
+                skipToLabel(rest, IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases} :: srcCode @ code)
             end
 
         |   pushRegisters({instr=LockMutable{addr}, ...} :: rest, code, context) =
@@ -1658,14 +1658,14 @@ struct
                 pushAll @ LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord} :: code
             end
 
-        |   codeExtended({instr=IndexedCaseOperation{testReg=PReg(tReg, _), workReg=PReg(wReg, _), cases, startValue}, ...} :: rest, context) =
+        |   codeExtended({instr=IndexedCaseOperation{testReg=PReg(tReg, _), workReg=PReg(wReg, _), cases}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 val testReg = findRegister(tReg, NONE, generalRegisters)
                 val workReg = findRegister(wReg, NONE, generalRegisters)
                 val _ = testReg <> workReg orelse raise InternalError "IndexedCaseOperation - same registers"
             in
-                IndexedCaseOperation{ testReg=testReg, workReg=workReg, cases=cases, startValue=startValue} :: code
+                IndexedCaseOperation{ testReg=testReg, workReg=workReg, cases=cases} :: code
             end
 
         |   codeExtended({instr=LockMutable{addr=PReg(pr, _)}, ...} :: rest, context) =

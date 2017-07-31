@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -179,7 +179,7 @@ sig
     |   ReserveContainer of { size: int, address: 'reg }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
+    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: 'reg }

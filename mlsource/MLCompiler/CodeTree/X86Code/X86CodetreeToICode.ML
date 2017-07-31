@@ -706,37 +706,48 @@ struct
                         else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, [])
                 
                 val fullCaseRange = extendCase(min, cases)
-
-                val testReg = newPReg() and workReg = newPReg()
-                val (testCode, _, _) = codeToICodeRev(test, context, false, SpecificPReg testReg, tailCode)
                 
-                (* Unless this is exhaustive we need to add some range checks.  These all
-                   jump to the default case. *)
-                val (rangeChecks, extraDefaults) =
+                local
+                    val initialTestReg = newPReg()
+                    val (testCode, _, _) = codeToICodeRev(test, context, false, SpecificPReg initialTestReg, tailCode)
+                    (* Subtract the minimum value so the value we're testing is always in the range of
+                       (tagged) 0 to the maximum.  It is possible to adjust the value when computing the index
+                       but that can lead to overflows during compilation if the minimum is very large or small.
+                       We can ignore overflow and allow values to wrap round. *)
+                in
+                    val (testCode, testReg) =
+                        if min = 0w0
+                        then (testCode, initialTestReg)
+                        else
+                        let
+                            val newTestReg = newPReg()
+                            val subtract =
+                                ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=RegisterArgument initialTestReg,
+                                                   operand2=IntegerConstant(semitag(Word.toLargeInt min)), ccRef=newCCRef()}
+                        in
+                            (subtract :: testCode, newTestReg)
+                        end
+                end
+
+                val workReg = newPReg()
+               
+                (* Unless this is exhaustive we need to add a range check. *)
+                val (rangeCheck, extraDefaults) =
                     if isExhaustive
                     then (testCode, [])
                     else
                     let
-                        val (testTag, tagDefault) =
-                            let
-                                val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
-                            in
-                                (ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab} ::
-                                 TestTagBit{arg=RegisterArgument tReg, ccRef=ccRef} ::
-                                 LoadArgument {source=RegisterArgument testReg, dest=tReg, kind=MoveWord} :: testCode, [defLab])
-                            end
-                        val defLab1 = newLabel() and defLab2 = newLabel()
-                        val tReg1 = newPReg() and tReg2 = newPReg()
-                        val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                        val defLab1 = newLabel() 
+                        val tReg1 = newPReg()
+                        val ccRef1 = newCCRef()
+                        (* Since we've subtracted any minimum we only have to check whether the value is greater (unsigned)
+                           than the maximum. *)
                         val testCode2 =
-                                ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2} ::
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2} ::
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg2, kind=MoveWord} ::
                                 ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1} ::
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1} ::
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testTag
+                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt(max-min))), ccRef=ccRef1} ::
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testCode
                     in
-                        (testCode2, defLab1 :: defLab2 :: tagDefault)
+                        (testCode2, [defLab1])
                     end
 
                 (* Generate the code for each of the cases and the default.  We need to put an
@@ -792,7 +803,7 @@ struct
                     
                 val codedCases =
                     codeCases(fullCaseRange,
-                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels, startValue=min} :: rangeChecks)
+                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels} :: rangeCheck)
                 (* We can now copy to the target.  If we need to push the result this load
                    will be converted into a push. *)
                 val target = asTarget destination

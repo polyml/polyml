@@ -2128,6 +2128,19 @@ struct
                     Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset+5, SOME 3)) ::
                     processCase(cases, offset+8, ic+0w8)
                 |   processCase _ = []
+                (* Could we use short branches?  If all of the branches were short the
+                   table would be smaller so the offsets we use would be less.
+                   Ignore backwards branches - could only occur if we have linked labels
+                   in a loop. *)
+                val newStartOfCode = ic + Word.fromInt(List.length cases * 6)
+                fun tryShort(Labels{destination=ref destination, ...} :: cases, ic) =
+                    if destination > ic + 0w2 andalso destination - ic - 0w2 < 0w127
+                    then tryShort(cases, ic+0w2)
+                    else false
+                |   tryShort _ = true
+
+                val allShort = tryShort(cases, newStartOfCode)
+                (*val _ = if allShort then print "Cases - could be short\n" else print "Cases - must be long\n"*)
             in
                 Word8Vector.concat(processCase(cases, 0, ic)) :: list
             end
