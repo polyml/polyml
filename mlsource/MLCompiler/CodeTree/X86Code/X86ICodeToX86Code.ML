@@ -156,7 +156,7 @@ struct
     |   ReserveContainer of { size: int, address: 'reg }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list, startValue: word }
+    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: 'reg }
@@ -413,12 +413,11 @@ struct
         |   printICode(ReserveContainer{size, address}, stream, printReg) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printReg(address, stream))
 
-        |   printICode(IndexedCaseOperation{testReg, workReg, cases, startValue}, stream, printReg) =
+        |   printICode(IndexedCaseOperation{testReg, workReg, cases}, stream, printReg) =
             (
                 stream "\tIndexedCase\t";
                 stream "test="; printReg(testReg, stream);
                 stream "work="; printReg(workReg, stream);
-                stream "from="; stream(Word.toString startValue);
                 List.app(fn l => (stream " "; printLabel(l, stream))) cases
             )
 
@@ -978,7 +977,7 @@ struct
         |   codeGenICode(RaiseExceptionPacket _ :: rest, code) =
                 codeGenICode(rest, RaiseException :: code)
 
-        |   codeGenICode(IndexedCaseOperation { testReg, workReg, cases, startValue} :: rest, code) =
+        |   codeGenICode(IndexedCaseOperation { testReg, workReg, cases} :: rest, code) =
             let
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
                 val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
@@ -986,23 +985,14 @@ struct
                 val startJumpTable = let val l as Labels{uses, ...} = mkLabel() in uses := 1; l end
                 (* Compute the jump address.  The index is a tagged
                    integer so it is already multiplied by 2.  We need to
-                   multiply by four to get the correct size. We subtract off
-                   the minimum value and also the shifted tag. *)
-    			val adjustment = Word.toLargeIntX startValue * ~8 - 4
-    			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
-    			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
-    			(* We don't need to consider any possible overflow in the execution 
-    			   because we've already checked that the value is within the range. *)
-                val computeJump =
-                    if is32bit adjustment
-                    then [LoadAddress{ output=wReg, offset=LargeInt.toInt adjustment, base=SOME wReg, index=Index4 rReg}]
-                    else
-                        [LoadAddress{ output=wReg, offset=0, base=SOME wReg, index=Index4 rReg},
-                         ArithToGenReg{source=NonAddressConstArg adjustment, output=wReg, opc=ADD}]
+                   multiply by four to get the correct size. Subtract off the
+                   shifted tag. *)
+                val jumpSize = ref JumpSize8
                 (* We use JumpToFunction even though we're not actually going to a new function. *)
                 val resultCode =
-                    JumpTable caseLabels :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
-                        computeJump @ LoadLabelAddress{label=startJumpTable, output=wReg} :: code
+                    JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                        IndexedJumpCalc{ addrReg=wReg, indexReg=rReg, jumpSize=jumpSize } ::
+                        LoadLabelAddress{label=startJumpTable, output=wReg} :: code
             in
                 codeGenICode(rest, resultCode)
             end

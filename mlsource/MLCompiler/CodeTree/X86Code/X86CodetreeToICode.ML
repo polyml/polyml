@@ -652,97 +652,63 @@ struct
                 (thenLabel @ exitElse, RegisterArgument target, isTail orelse thenExited andalso elseExited)
             end
 
-        |   codeToICodeRev(BICCase { cases, test, caseType, default}, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICCase { cases, test, default, isExhaustive, firstIndex}, context, isTail, destination, tailCode) =
             let
                 (* We have to create a new preg for the result in case we need to push
                    it to the stack. *)
                 val targetReg = newPReg()
-                (* Sort the cases into ascending order.  It's possible that we may have
-                   duplicates if this came from an if-then-else construction so we
-                   need to retain the ordering for items with the same case label. *)
-                (* TODO: This should be done in the higher level. *)
+                
                 local
-                    val labelCount = List.length cases
-                    (* Add an extra field before sorting which retains the ordering for
-                       equal labels. *)
-                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
-                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
-                        if w1 = w2 then n1 <= n2 else w1 < w2
-                    val sorted = List.map #1 (Misc.quickSort leq ordered)
-                    (* Filter out any duplicates. *)
-                    fun filter [] = []
-                    |   filter [p] = [p]
-                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
-                            if lab1 = lab2
-                            then p :: filter tl
-                            else p :: filter (q :: tl)
+                    val initialTestReg = newPReg()
+                    val (testCode, _, _) = codeToICodeRev(test, context, false, SpecificPReg initialTestReg, tailCode)
+                    (* Subtract the minimum value so the value we're testing is always in the range of
+                       (tagged) 0 to the maximum.  It is possible to adjust the value when computing the index
+                       but that can lead to overflows during compilation if the minimum is very large or small.
+                       We can ignore overflow and allow values to wrap round. *)
                 in
-                    val cases = filter sorted
+                    val (testCode, testReg) =
+                        if firstIndex = 0w0
+                        then (testCode, initialTestReg)
+                        else
+                        let
+                            val newTestReg = newPReg()
+                            val subtract =
+                                ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=RegisterArgument initialTestReg,
+                                                   operand2=IntegerConstant(semitag(Word.toLargeInt firstIndex)), ccRef=newCCRef()}
+                        in
+                            (subtract :: testCode, newTestReg)
+                        end
                 end
 
-                val (isExhaustive, min, max) =
-                    case caseType of
-                        CaseTag max => (true, 0w0, max)
-                    |   _ =>
-                        let
-                            val (_, aLabel) = hd cases
-                            fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                            val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                        in
-                            (false, min, max)
-                        end
-
-                (* Create labels for each of the cases.  Fill in any gaps with entries that
-                   will point to the default. *)
-                fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
-                    if indexVal = caseValue
-                    then (newLabel(), SOME c, caseValue) :: extendCase(indexVal+0w1, cps)
-                    else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, cl)
-
-                |   extendCase(indexVal, []) =
-                    (* We may not be at the end if this came from a CaseTag *)
-                        if indexVal > max
-                        then []
-                        else (newLabel(), NONE, indexVal) :: extendCase(indexVal+0w1, [])
-                
-                val fullCaseRange = extendCase(min, cases)
-
-                val testReg = newPReg() and workReg = newPReg()
-                val (testCode, _, _) = codeToICodeRev(test, context, false, SpecificPReg testReg, tailCode)
-                
-                (* Unless this is exhaustive we need to add some range checks.  These all
-                   jump to the default case. *)
-                val (rangeChecks, extraDefaults) =
+                val workReg = newPReg()
+               
+                (* Unless this is exhaustive we need to add a range check. *)
+                val (rangeCheck, extraDefaults) =
                     if isExhaustive
                     then (testCode, [])
                     else
                     let
-                        val (testTag, tagDefault) =
-                            let
-                                val defLab = newLabel() and tReg = newPReg() and ccRef = newCCRef()
-                            in
-                                (ConditionalForwardJump{ccRef=ccRef, condition=JE, label=defLab} ::
-                                 TestTagBit{arg=RegisterArgument tReg, ccRef=ccRef} ::
-                                 LoadArgument {source=RegisterArgument testReg, dest=tReg, kind=MoveWord} :: testCode, [defLab])
-                            end
-                        val defLab1 = newLabel() and defLab2 = newLabel()
-                        val tReg1 = newPReg() and tReg2 = newPReg()
-                        val ccRef1 = newCCRef() and ccRef2 = newCCRef()
+                        val defLab1 = newLabel() 
+                        val tReg1 = newPReg()
+                        val ccRef1 = newCCRef()
+                        (* Since we've subtracted any minimum we only have to check whether the value is greater (unsigned)
+                           than the maximum. *)
+                        val numberOfCases = LargeInt.fromInt(List.length cases)
                         val testCode2 =
-                                ConditionalForwardJump{ccRef=ccRef2, condition=JB, label=defLab2} ::
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt min)), ccRef=ccRef2} ::
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg2, kind=MoveWord} ::
-                                ConditionalForwardJump{ccRef=ccRef1, condition=JA, label=defLab1} ::
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag(Word.toLargeInt max)), ccRef=ccRef1} ::
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testTag
+                                ConditionalForwardJump{ccRef=ccRef1, condition=JNB, label=defLab1} ::
+                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1} ::
+                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testCode
                     in
-                        (testCode2, defLab1 :: defLab2 :: tagDefault)
+                        (testCode2, [defLab1])
                     end
+                
+                (* Make a label for each item in the list. *)
+                val codeLabels = map (fn _ => newLabel()) cases
 
                 (* Generate the code for each of the cases and the default.  We need to put an
                    unconditional branch after each to skip the other cases.
                    TODO: This could be replaced by "returns" if we're at the tail. *)
-                fun codeCases ((startLabel, SOME c, _) :: otherCases, tailCode) =
+                fun codeCases (SOME c :: otherCases, startLabel :: otherLabels, tailCode) =
                     let
                         val caseTarget = if isTail then newPReg() else targetReg
                         (* Put in the case with a jump to the end of the sequence. *)
@@ -759,22 +725,22 @@ struct
                                 (UnconditionalForwardJump{label=exitLabel} :: codeThisCase,
                                  [ForwardJumpLabel{label=exitLabel, result=SOME targetReg}])
                             end
-                        val codeRest = codeCases(otherCases, exitThisCase)
+                        val codeRest = codeCases(otherCases, otherLabels, exitThisCase)
                     in
                         exitLabel @ codeRest
                     end
 
-                |   codeCases((_, NONE, _) :: otherCases, tailCode) = codeCases(otherCases, tailCode)
+                |   codeCases(NONE :: otherCases, _ :: otherLabels, tailCode) = codeCases(otherCases, otherLabels, tailCode)
                         
-                |   codeCases ([], tailCode) =
+                |   codeCases ([], [], tailCode) =
                     let
                         (* We need to add labels for all the gaps we filled and also for a "default" label for
                            the indexed-case instruction itself as well as any range checks. *)
-                        fun addDefault ((startLabel, NONE, _), l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
-                        |   addDefault ((_, SOME _, _), l) = l
+                        fun addDefault (startLabel, NONE, l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
+                        |   addDefault (_, SOME _, l) = l
                         fun asForward l = ForwardJumpLabel{label=l, result=NONE}
                         val dLabs = map asForward extraDefaults @ tailCode
-                        val defLabels = List.foldl addDefault dLabs fullCaseRange
+                        val defLabels = ListPair.foldlEq addDefault dLabs (codeLabels, cases)
                         val defaultTarget = if isTail then newPReg() else targetReg
                         val (defaultCode, _, defaultExited) =
                             codeToICodeRev(default, context, isTail, SpecificPReg defaultTarget, defLabels)
@@ -788,11 +754,11 @@ struct
                          else defaultCode
                     end
 
-                val codeLabels = map (fn (lab, _, _) => lab) fullCaseRange
+                |   codeCases _ = raise InternalError "codeCases: mismatch"
                     
                 val codedCases =
-                    codeCases(fullCaseRange,
-                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels, startValue=min} :: rangeChecks)
+                    codeCases(cases, codeLabels,
+                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels} :: rangeCheck)
                 (* We can now copy to the target.  If we need to push the result this load
                    will be converted into a push. *)
                 val target = asTarget destination

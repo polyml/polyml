@@ -1118,7 +1118,10 @@ struct
     |   SignExtendForDivide
     |   XChngRegisters of { regX: genReg, regY: genReg }
     |   Negative of { output: genReg }
-    |   JumpTable of label list
+    |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
+    |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
+
+    and jumpSize = JumpSize2 | JumpSize8
 
     type operations = operation list
 
@@ -1333,8 +1336,13 @@ struct
         |   SignExtendForDivide => stream "SignExtendForDivide"
         |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         |   Negative { output } => (stream "Negative "; printGReg output)
-        |   JumpTable cases =>
-                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab))) cases
+        |   JumpTable{cases, ...} =>
+                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab); stream "\n")) cases
+        |   IndexedJumpCalc { addrReg, indexReg, jumpSize=ref jumpSize } =>
+            (
+                stream "IndexedJumpCalc "; printGReg addrReg; stream " += "; printGReg indexReg;
+                print (case jumpSize of JumpSize2 => " * 2" | JumpSize8 => " * 8 ")
+            )
         ;
  
         stream "\n"
@@ -2023,13 +2031,22 @@ struct
         |   cgOp (Negative {output}) =
                 opRegPlus2(Group3_A, output, 0w3 (* neg *))
 
-        |   cgOp (JumpTable cases) =
+        |   cgOp (JumpTable{cases, jumpSize=ref jumpSize}) =
             let
+                val _ = jumpSize = JumpSize8 orelse raise InternalError "cgOp: JumpTable"
                 (* Make one jump for each case and pad it 8 bytes with Nops. *)
                 fun makeJump (_, l) = opToInt JMP_32 :: word32Unsigned 0w0 @ [opToInt NOP, opToInt NOP, opToInt NOP] @ l
             in
                 List.foldl makeJump [] cases
             end
+
+        |   cgOp(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref jumpSize }) =
+            (
+                jumpSize = JumpSize8 orelse raise InternalError "cgOp: IndexedJumpCalc";
+                (* Should currently be JumpSize8 which requires a multiplier of 4 and
+                   4 to be subtracted to remove the shifted tag. *)
+                opIndexed(LEAL, ~4, SOME addrReg, Index4 indexReg, addrReg)
+            )
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
     end
@@ -2119,18 +2136,58 @@ struct
                     Word8VectorSlice.slice(brCode, 0, SOME(Word8Vector.length brCode-4)),
                     Word8VectorSlice.full(Word8Vector.fromList(int32Signed(Word.toLargeInt destination)))] :: list
 
-        |   fixupAddress(JumpTable cases, brCode: Word8Vector.vector, ic, list) =
+        |   fixupAddress(JumpTable{cases, jumpSize as ref JumpSize8}, brCode: Word8Vector.vector, ic, list) =
             let
-                (* At the moment every branch is a 32-bit jump padded up to 8 bytes. *)
+                (* Each branch is a 32-bit jump padded up to 8 bytes. *)
                 fun processCase(Labels{destination=ref destination, ...} :: cases, offset, ic) =
                     fixup32(destination,
                         Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset, SOME 5)), ic) ::
                     Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset+5, SOME 3)) ::
                     processCase(cases, offset+8, ic+0w8)
                 |   processCase _ = []
+                (* Could we use short branches?  If all of the branches were short the
+                   table would be smaller so the offsets we use would be less.
+                   Ignore backwards branches - could only occur if we have linked labels
+                   in a loop. *)
+                val newStartOfCode = ic + Word.fromInt(List.length cases * 6)
+                fun tryShort(Labels{destination=ref destination, ...} :: cases, ic) =
+                    if destination > ic + 0w2 andalso destination - ic - 0w2 < 0w127
+                    then tryShort(cases, ic+0w2)
+                    else false
+                |   tryShort _ = true
+
+                val newCases =
+                    if tryShort(cases, newStartOfCode)
+                    then
+                    (
+                        jumpSize := JumpSize2;
+                        (* Generate a short branch table. *)
+                        List.map(fn _ => Word8Vector.fromList [opToInt JMP_8, 0w0 (* Fixed on next pass *)]) cases
+                    )
+                    else processCase(cases, 0, ic)
+            in
+                Word8Vector.concat newCases :: list
+            end
+
+        |   fixupAddress(JumpTable{cases, jumpSize=ref JumpSize2}, _, ic, list) =
+            let
+                (* Each branch is a short jump. *)
+                fun processCase(Labels{destination=ref destination, ...} :: cases, offset, ic) =
+                    let
+                        val brLength = 2
+                        val diff = Word.toInt destination - Word.toInt ic - brLength
+                    in
+                        Word8Vector.fromList[opToInt JMP_8, byteSigned diff] :: processCase(cases, offset+2, ic+0w2)
+                    end
+                |   processCase _ = []
             in
                 Word8Vector.concat(processCase(cases, 0, ic)) :: list
             end
+
+            (* If we've shortened a jump table we have to change the indexing. *)
+        |   fixupAddress(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref JumpSize2 }, _, _, list) =
+                (* On x86/32 it might be shorter to use DEC addrReg; ADD addrReg, indexReg. *)
+                Word8Vector.fromList(opIndexed(LEAL, ~1, SOME addrReg, Index1 indexReg, addrReg)) :: list
 
         |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let

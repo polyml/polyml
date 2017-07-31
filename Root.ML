@@ -20,7 +20,6 @@
    It was constructed from the Poly/ML make files. *)
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
-use "basis/RuntimeCalls.ML";
 use "mlsource/MLCompiler/Address.ML";
 use "mlsource/MLCompiler/Misc.ML";
 use "mlsource/MLCompiler/HashTable.ML";

@@ -18,7 +18,6 @@
 
 (* Thread, Weak and Signal are Poly/ML extensions. *)
 
-val () = Bootstrap.use "basis/RuntimeCalls.ML";
 val () = Bootstrap.use "basis/InitialBasis.ML";
 val () = Bootstrap.use "basis/Universal.ML";
 val () = Bootstrap.use "basis/General.sml";
