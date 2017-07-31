@@ -35,47 +35,15 @@
 functor INTCODECONS (
 structure DEBUG: DEBUGSIG
 
-(*****************************************************************************)
-(*                  PRETTY for compilerOutTag                                *)
-(*****************************************************************************)
 structure PRETTY: PRETTYSIG
-
-
-(*****************************************************************************)
-(*                  MISC                                                     *)
-(*****************************************************************************)
-structure MISC :
-  sig
-    exception InternalError of string
-  end
 
 ) : INTCODECONSSIG =
 
 struct
-    structure CODESEG :
-    sig
-        type machineWord
-        type address
-        type cseg
-
-        val csegMake:          word  -> cseg
-        val csegConvertToCode: cseg -> unit
-        val csegGet:           cseg * word -> Word8.word
-        val csegSet:           cseg * word * Word8.word -> unit
-        val csegGetWord:       cseg * word -> machineWord
-        val csegPutWord:       cseg * word * machineWord -> unit
-        val csegCopySeg:       cseg * cseg * word * word -> unit
-        val csegAddr:          cseg -> address
-        val csegLockAndGetExecutable: cseg -> address
-        val csegPutConstant:   cseg * word * machineWord * word -> unit
-    end = CODE_ARRAY
-
-    structure ADDRESS : AddressSig = Address
-
-    open CODESEG;
-    open DEBUG;
-    open ADDRESS;
-    open MISC;
+    open CODE_ARRAY
+    open DEBUG
+    open Address
+    open Misc
   
     (* The "enterInt" instruction is only used when porting to a new architecture.  Since
        we only use the interpreted version to support non-X86 architectures we don't need
@@ -1366,7 +1334,7 @@ struct
     (* Bootstrapping problems currently prevent us from using Address.nameOfCode.  Has this been fixed?? *)
     fun nameOfCode (a : address) =
     let
-        val objLength = Word.toInt (ADDRESS.length a);
+        val objLength = Word.toInt (Address.length a);
         val lastWord = objLength - 1;
         val constCount= loadConstCount (a, lastWord);
         val codeName = loadWord (a, Word.fromInt (lastWord - constCount));
@@ -1383,7 +1351,7 @@ struct
   
     fun printWords (a : address, printStream) =
     let
-        val objLength : int = Word.toInt (ADDRESS.length a)
+        val objLength : int = Word.toInt (Address.length a)
     in
         if objLength = 1
         then printStream ("long:\t1 word")
@@ -1392,7 +1360,7 @@ struct
   
     fun printBytes (a : address, printStream) =
     let
-        val objLength  : int = Word.toInt (ADDRESS.length a)
+        val objLength  : int = Word.toInt (Address.length a)
     in
         if objLength = 1
         then printStream ("bytes:\t1 word")
@@ -1419,7 +1387,7 @@ struct
         then printConstCode(a, printStream)
         else if isBytes a
         then printBytes(a, printStream)
-        else if isWords a andalso 0w1 <= ADDRESS.length a
+        else if isWords a andalso 0w1 <= Address.length a
         then
         let
             val w' = loadWord (a, 0w0)

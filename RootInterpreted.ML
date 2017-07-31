@@ -20,7 +20,6 @@
    It was constructed from the Poly/ML make files. *)
 PolyML.print_depth 1;
 PolyML.Compiler.reportUnreferencedIds := true;
-use "basis/RuntimeCalls.ML";
 use "mlsource/MLCompiler/Address.ML";
 use "mlsource/MLCompiler/Misc.ML";
 use "mlsource/MLCompiler/HashTable.ML";
@@ -55,8 +54,11 @@ use "mlsource/MLCompiler/CodeTree/CODETREE.ML";
 use "mlsource/MLCompiler/Pretty.sml";
 use "mlsource/MLCompiler/CodeTree/CODE_ARRAY.ML";
 use "mlsource/MLCompiler/CodeTree/ByteCode/INTCODECONSSIG.sml";
-use "mlsource/MLCompiler/CodeTree/ByteCode/INTCODECONS.sml";
-use "mlsource/MLCompiler/CodeTree/ByteCode/INTGCODE.sml";
+use "mlsource/MLCompiler/CodeTree/ByteCode/INTCODECONS.ML";
+use "mlsource/MLCompiler/CodeTree/ByteCode/INTGCODE.ML";
+use "mlsource/MLCompiler/Debug.ML";
+use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";
+use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";
 use "mlsource/MLCompiler/CodeTree/ByteCode/ml_bind.interpreted.ML";
 use "mlsource/MLCompiler/CodeTree/GCode.interpreted.ML";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";

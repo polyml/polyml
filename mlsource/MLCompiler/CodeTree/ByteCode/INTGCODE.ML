@@ -1,6 +1,8 @@
 (*
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+        
+    Further development copyright David C.J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,13 +30,7 @@
    was being developed and the "enter-int" instructions that were needed
    for that have been retained although they no longer actually generate code. *)
 functor INTGCODE (
-
     structure CODECONS : INTCODECONSSIG
-
-    structure MISC:
-    sig
-        exception InternalError of string;
-    end;
 
     structure BACKENDTREE: BackendIntermediateCodeSig
 
@@ -45,7 +41,7 @@ struct
     open CODECONS
     open Address
     open BACKENDTREE
-    open MISC
+    open Misc
 
     val word0 = toMachineWord 0;
   
@@ -328,77 +324,24 @@ struct
                 exited := false
             end
   
-        |   BICCase ({cases, caseType, test, default, ...}) =>
+        |   BICCase ({cases, test, default, firstIndex, ...}) =>
             let
                 val () = gencde (test, ToStack, NotEnd, loopAddr)
                 (* The exit jumps are chained together. *)
                 val lastEndJump : labels ref = ref noJump;
 
-                (* Sort the cases into ascending order.  It's possible that we may have
-                   duplicates if this came from an if-then-else construction so we
-                   need to retain the ordering for items with the same case label. *)
-                (* TODO: This should be done in the higher level. *)
-                local
-                    val labelCount = List.length cases
-                    (* Add an extra field before sorting which retains the ordering for
-                       equal labels. *)
-                    val ordered = ListPair.zipEq (cases, List.tabulate(labelCount, fn n=>n))
-                    fun leq ((_, w1: word), n1: int) ((_, w2), n2) =
-                        if w1 = w2 then n1 <= n2 else w1 < w2
-                    val sorted = List.map #1 (Misc.quickSort leq ordered)
-                    (* Filter out any duplicates. *)
-                    fun filter [] = []
-                    |   filter [p] = [p]
-                    |   filter ((p as (_, lab1)) :: (q as (_, lab2)) :: tl) =
-                            if lab1 = lab2
-                            then p :: filter tl
-                            else p :: filter (q :: tl)
-                in
-                    val cases = filter sorted
-                end
-
-                val (_, min, max) =
-                    case caseType of
-                        CaseTag max => (true, 0w0, max)
-                |   _ =>
-                    let
-                        val (_, aLabel) = hd cases
-                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
-                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
-                    in
-                        (false, min, max)
-                    end
-
-                val limit : int = Word.toInt(max - min)
-
                 val () =
-                    if min = 0w0 then ()
+                    if firstIndex = 0w0 then ()
                     else
                     (   (* Subtract lower limit.  Don't check for overflow.  Instead
                            allow large value to wrap around and check in "case" instruction. *)
-                        pushConst(toMachineWord min, cvec);
+                        pushConst(toMachineWord firstIndex, cvec);
                         genOpcode(opcode_wordSub, cvec)
                     )
 
-                (* Create labels for each of the cases.  Fill in any gaps with entries that
-                   will point to the default. *)
-                fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
-                    if indexVal = caseValue
-                    then SOME c :: extendCase(indexVal+0w1, cps)
-                    else NONE :: extendCase(indexVal+0w1, cl)
-
-                |   extendCase(indexVal, []) =
-                    (* We may not be at the end if this came from a CaseTag *)
-                        if indexVal > max
-                        then []
-                        else NONE :: extendCase(indexVal+0w1, [])
-                
-                (* We now have a list for each entry in the case containing either
-                   SOME c for cases that are present or NONE for those that default. *) 
-                val fullCaseRange = extendCase(min, cases)
-
                 (* Generate the case instruction followed by the table of jumps.  *)
-                val caseLabels = genCase (limit+1, cvec)
+                val nCases = List.length cases
+                val caseLabels = genCase (nCases, cvec)
                 val () = decsp ()
 
                 (* The default case, if any, follows the case statement. *)
@@ -407,7 +350,7 @@ struct
                     fun fixDefault(NONE, defCase) = fixup(defCase, cvec)
                     |   fixDefault(SOME _, _) = ()
                 in
-                    val () = ListPair.appEq fixDefault (fullCaseRange, caseLabels)
+                    val () = ListPair.appEq fixDefault (cases, caseLabels)
                 end
                 val () = gencde (default, whereto, tailKind, loopAddr);
 
@@ -430,7 +373,7 @@ struct
                     )
                 |   genCases(NONE, _) = ()
                 
-                val () = ListPair.appEq genCases (fullCaseRange, caseLabels)
+                val () = ListPair.appEq genCases (cases, caseLabels)
      
                 (* Finally go down the list of exit labels pointing them to here. *)
                 val () = fixup (!lastEndJump, cvec);
