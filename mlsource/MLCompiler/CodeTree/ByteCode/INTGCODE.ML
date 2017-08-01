@@ -235,7 +235,8 @@ struct
                 val argIndexList = map genLoopArg args;
 
                 val startSp = ! realstackptr; (* Remember the current top of stack. *)
-                val startLoop = setBackJumpLabel cvec (* Start of loop *)
+                val startLoop = createLabel ()
+                val () = setLabel(startLoop, cvec) (* Start of loop *)
             in
                 (* Process the body, passing the jump-back address down for the Loop instruction(s). *)
                 gencde (body, whereto, tailKind, SOME(startLoop, startSp, argIndexList))
@@ -271,7 +272,7 @@ struct
                 else ();
             
                 (* Jump back to the start of the loop. *)
-                jumpback (startLoop, cvec)
+                putBranchInstruction(Jump, startLoop, cvec)
             end
   
         |   BICRaise exp =>
@@ -287,7 +288,9 @@ struct
                 (* Save old handler *)
                 val () = genPushHandler cvec
                 val () = incsp ()
-                val genTag = putBranchInstruction (SetHandler, cvec) before incsp()
+                val handlerLabel = createLabel()
+                val () = putBranchInstruction (SetHandler, handlerLabel, cvec)
+                val () = incsp()
                 (* Code generate the body; "NotEnd" because we have to come back
                  to remove the handler; "ToStack" because delHandler needs
                  a result to carry down. *)
@@ -295,7 +298,8 @@ struct
       
                 (* Now get out of the handler and restore the old one. *)
                 val () = genOpcode(opcode_deleteHandler, cvec)
-                val skipHandler = putBranchInstruction (Jump, cvec)
+                val skipHandler = createLabel()
+                val () = putBranchInstruction (Jump, skipHandler, cvec)
           
                 (* Now process the handler itself. First we have to reset the stack.
                    Note that we have to use "ToStack" again to be consistent with
@@ -306,7 +310,7 @@ struct
                 *)
                 val () = realstackptr := oldsp
                 val () = exited := false
-                val () = fixup (genTag, cvec)
+                val () = setLabel (handlerLabel, cvec)
                 (* If we were executing machine code we must re-enter the interpreter. *)
                 val () = genEnterIntCatch cvec
                 (* Push the exception packet and set the address. *)
@@ -319,7 +323,7 @@ struct
                 val () = decsp()
           
                 (* Finally fix-up the jump around the handler *)
-                val () = fixup (skipHandler, cvec)
+                val () = setLabel (skipHandler, cvec)
             in
                 exited := false
             end
@@ -327,8 +331,8 @@ struct
         |   BICCase ({cases, test, default, firstIndex, ...}) =>
             let
                 val () = gencde (test, ToStack, NotEnd, loopAddr)
-                (* The exit jumps are chained together. *)
-                val lastEndJump : labels ref = ref noJump;
+                (* Label to jump to at the end of each case. *)
+                val exitJump = createLabel()
 
                 val () =
                     if firstIndex = 0w0 then ()
@@ -345,9 +349,9 @@ struct
                 val () = decsp ()
 
                 (* The default case, if any, follows the case statement. *)
-                (* Fix up any defaults to come here. *)
+                (* If we have a jump to the default set it to jump here. *)
                 local
-                    fun fixDefault(NONE, defCase) = fixup(defCase, cvec)
+                    fun fixDefault(NONE, defCase) = setLabel(defCase, cvec)
                     |   fixDefault(SOME _, _) = ()
                 in
                     val () = ListPair.appEq fixDefault (cases, caseLabels)
@@ -359,15 +363,12 @@ struct
                 fun genCases(SOME body, label) =
                     (
                         (* First exit from the previous case or the default if
-                           this is the first. *) 
-                        lastEndJump := linkLabels
-                            (!lastEndJump,
-                            if !exited then noJump else putBranchInstruction(Jump, cvec),
-                            cvec);
+                           this is the first. *)
+                        if !exited then () else putBranchInstruction(Jump, exitJump, cvec);
                         (* Remove the result - the last case will leave it. *)
                         case whereto of ToStack => decsp () | NoResult => ();
                         (* Fix up the jump to come here. *)
-                        fixup(label, cvec);
+                        setLabel(label, cvec);
                         exited := false;
                         gencde (body, whereto, tailKind, loopAddr)
                     )
@@ -375,8 +376,8 @@ struct
                 
                 val () = ListPair.appEq genCases (cases, caseLabels)
      
-                (* Finally go down the list of exit labels pointing them to here. *)
-                val () = fixup (!lastEndJump, cvec);
+                (* Finally set the exit jump to come here. *)
+                val () = setLabel (exitJump, cvec)
             in
                 exited := false
             end
@@ -938,41 +939,32 @@ struct
             end
         end
 
-   and genCond (first: backendIC,
-                second: backendIC,
-                third: backendIC,
-                whereto: whereto,
-                tailKind: tail,
-                loopAddr) : unit =
-   let
-     val () = gencde (first, ToStack, NotEnd, loopAddr)
-     val toElse : labels = putBranchInstruction(JumpFalse, cvec)
-     val () = decsp();
-   in
-        let
-     val () = gencde (second, whereto, tailKind, loopAddr);
-     (* Get rid of the result from the stack. If there is a result then the
+    and genCond (testCode, thenCode, elseCode, whereto, tailKind, loopAddr) =
+    let
+        val () = gencde (testCode, ToStack, NotEnd, loopAddr)
+        val toElse = createLabel() and exitJump = createLabel()
+        val () = putBranchInstruction(JumpFalse, toElse, cvec)
+        val () = decsp()
+        val () = gencde (thenCode, whereto, tailKind, loopAddr)
+        (* Get rid of the result from the stack. If there is a result then the
         ``else-part'' will push it. *)
-     val () = case whereto of ToStack => decsp () | NoResult => ();
-     
-     val thenExited : bool = !exited;
- 
-     val toExit : labels =
-       if thenExited then noJump
-       else putBranchInstruction (Jump, cvec);
-    
-     (* start of "else part" *)
-     val () = fixup (toElse, cvec);
-     val () = exited := false;
-     val () = gencde (third, whereto, tailKind, loopAddr);
- 
-     val elseExited : bool= !exited;
-     
-     val () = fixup (toExit, cvec);
-       in
-     exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
-       end
-   end (* genCond *)
+        val () = case whereto of ToStack => decsp () | NoResult => ()
+
+        val thenExited = !exited
+
+        val () = if thenExited then () else putBranchInstruction (Jump, exitJump, cvec)
+
+        (* start of "else part" *)
+        val () = setLabel (toElse, cvec)
+        val () = exited := false
+        val () = gencde (elseCode, whereto, tailKind, loopAddr)
+
+        val elseExited = !exited
+
+        val () = setLabel (exitJump, cvec)
+    in
+        exited := (thenExited andalso elseExited) (* Only exited if both sides did. *)
+    end (* genCond *)
 
     and genEval (eval, tailKind : tail) : unit =
     let

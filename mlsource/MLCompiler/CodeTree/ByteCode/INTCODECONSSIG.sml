@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -21,11 +21,8 @@ sig
     type address = Address.address
     type code
     type opcode
-    type backJumpLabel
     type labels
 
-    val noJump: labels
-    
     val opcode_notBoolean: opcode
     val opcode_isTagged: opcode
     and opcode_cellLength: opcode
@@ -177,13 +174,12 @@ sig
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
    datatype jumpTypes = Jump | JumpFalse | SetHandler
-   val putBranchInstruction: jumpTypes * code -> labels
+   val putBranchInstruction: jumpTypes * labels * code -> unit
    
-   (* Instruction to delete a handler and skip round it. *)
-   val fixup: labels * code -> unit (* Fix up a forward reference. *)
+   val createLabel: unit -> labels
    
-   val linkLabels: labels * labels * code -> labels (* Link label lists. *)
-   val setBackJumpLabel: code -> backJumpLabel
-   val jumpback: backJumpLabel * code -> unit (* Backwards jump. *)
+   (* Define the position of a label. *)
+   val setLabel: labels * code -> unit
+   
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
 end ;

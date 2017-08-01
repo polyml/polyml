@@ -346,10 +346,12 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_jump32:
         {
-            POLYSIGNED offset = pc[0] + (pc[1] << 8) + (pc[2] << 16) + (pc[3] << 24);
-#if (SIZEOF_VOIDP > 4)
-            if (pc[3] & 0x80) offset += -1 << 32; // Sign extend
-#endif
+            // This is a 32-bit signed quantity on both 64-bits and 32-bits.
+            POLYSIGNED offset = pc[3] & 0x80 ? -1 : 0;
+            offset = (offset << 8) | pc[3];
+            offset = (offset << 8) | pc[2];
+            offset = (offset << 8) | pc[1];
+            offset = (offset << 8) | pc[0];
             pc += offset + 4;
             break;
         }
