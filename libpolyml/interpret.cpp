@@ -128,8 +128,8 @@ public:
     virtual void SetException(poly_exn *exc);
     virtual void InterruptCode();
 
-    // AddTimeProfileCount is used in time profiling.  We can't get accurate info so return false.
-    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context) { return false; }
+    // AddTimeProfileCount is used in time profiling.
+    virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
@@ -2045,6 +2045,22 @@ void IntTaskData::AtomicReset(Handle mutexp)
 {
     (void)ProcessAtomicReset(this, mutexp);
 }
+
+bool IntTaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
+{
+    if (pc != 0)
+    {
+        // See if the PC we've got is an ML code address.
+        MemSpace *space = gMem.SpaceForAddress(pc);
+        if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
+        {
+            add_count(this, pc, 1);
+            return true;
+        }
+    }
+    return false;
+}
+
 
 static Interpreter interpreterObject;
 
