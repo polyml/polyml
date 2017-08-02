@@ -199,7 +199,7 @@ public:
     PolyWord        *sp; /* Stack pointer. */
     PolyWord        *hr;
     PolyWord        exception_arg;
-    unsigned        lastInstr; /* Last instruction. */
+    bool            raiseException;
     PolyWord        *sl; /* Stack limit register. */
 
     PolyObject      *overflowPacket, *dividePacket;
@@ -232,7 +232,6 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     this->pc = *(byte**)(closure);
     this->sp  = (PolyWord*)stack + stack_size-3; /* sp */
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
-    this->lastInstr = 256; /* No instruction. */
     this->sp  = (PolyWord*)stack + stack_size;
 
     /* Set up exception handler */
@@ -282,7 +281,7 @@ void IntTaskData::InterruptCode()
 void IntTaskData::SetException(poly_exn *exc)
 /* Set up the stack of a process to raise an exception. */
 {
-    this->lastInstr = INSTR_raise_ex;
+    this->raiseException = true;
     *(--this->sp) = (PolyWord)exc; /* push exception data */
 }
 
@@ -298,33 +297,11 @@ int IntTaskData::SwitchToPoly()
 
     sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
-    if (lastInstr != 256) goto RETRY; /* Re-execute instruction if necessary. */
+    // We may have taken an interrupt which has set an exception.
+    if (this->raiseException) goto RAISE_EXCEPTION;
 
     for(;;){ /* Each instruction */
-
-        lastInstr = *pc++; /* Get next instruction. */
-
-        RETRY:
-
-        // Check for stack overflow and interrupts. These can be done less
-        // frequently than every instruction.
-        // Don't do this if we're raising an exception: we may be raising
-        // it because we can't grow the stack.  Once we've processed the
-        // exception and produced any exception trace the stack will have been
-        // reset to the last handler.
-        if (sp < sl && lastInstr != INSTR_raise_ex)
-        {
-            POLYUNSIGNED min_size = this->stack->top - this->sp + OVERFLOW_STACK_SIZE;
-            CheckAndGrowStack(this, min_size);
-            sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
-        }
-
-        if (this->interrupt_requested) {
-            this->interrupt_requested = false;
-            return -1;
-        }
-
-        switch(lastInstr) {
+        switch(*pc++) {
 
         case INSTR_enter_int: pc++; /* Skip the argument. */ break;
 
@@ -518,7 +495,6 @@ int IntTaskData::SwitchToPoly()
            if (tailCount < 2) Crash("Invalid argument\n");
            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
            pc = (*sp++).AsCodePtr(); /* Pop the original return address. */
-           lastInstr = INSTR_call_closure; /* If we have to re-execute. */
            /* And drop through. */
 
         case INSTR_call_closure: /* Closure call. */
@@ -529,6 +505,19 @@ int IntTaskData::SwitchToPoly()
             *sp = sp[1];      /* Move closure up. */
             sp[1] = PolyWord::FromCodePtr(pc); /* Save return address. */
             pc = u.AsCodePtr();    /* Get entry point. */
+            // Check for stack overflow.
+            if (sp < sl)
+            {
+                POLYUNSIGNED min_size = this->stack->top - this->sp + OVERFLOW_STACK_SIZE;
+                CheckAndGrowStack(this, min_size);
+                sl = (PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE;
+            }
+            if (this->interrupt_requested)
+            {
+                // Check for interrupts
+                this->interrupt_requested = false;
+                return -1;
+            }
             break;
         }
 
@@ -557,7 +546,8 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_raise_ex:
             {
-            RAISE_EXCEPTION:
+                RAISE_EXCEPTION:
+                this->raiseException = false;
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
                 this->exception_arg = exn; /* Get exception data */
                 sp = this->hr;
@@ -668,10 +658,25 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_const_int_w: *(--sp) = TAGGED(arg1); pc += 2; break;
 
-        case INSTR_jump_back8: pc -= *pc + 1; break;
+        case INSTR_jump_back8:
+            pc -= *pc + 1;
+            if (this->interrupt_requested)
+            {
+                // Check for interrupt in case we're in a loop
+                this->interrupt_requested = false;
+                return -1;
+            }
+            break;
 
         case INSTR_jump_back16:
-            pc -= arg1 + 1; break;
+            pc -= arg1 + 1;
+            if (this->interrupt_requested)
+            {
+                // Check for interrupt in case we're in a loop
+                this->interrupt_requested = false;
+                return -1;
+            }
+            break;
 
         case INSTR_lock:
             {
@@ -811,9 +816,10 @@ int IntTaskData::SwitchToPoly()
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 callFastRts0 doCall = (callFastRts0)rtsCall.AsCodePtr();
+                this->raiseException = false;
                 POLYUNSIGNED result = doCall();
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -823,9 +829,10 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg1 = *sp++;
                 callFastRts1 doCall = (callFastRts1)rtsCall.AsCodePtr();
+                this->raiseException = false;
                 POLYUNSIGNED result = doCall(rtsArg1);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -835,10 +842,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFastRts2 doCall = (callFastRts2)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -849,10 +857,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFastRts3 doCall = (callFastRts3)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -864,10 +873,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsArg3 = *sp++;
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFastRts4 doCall = (callFastRts4)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -880,10 +890,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsArg3 = *sp++;
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFastRts5 doCall = (callFastRts5)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -892,9 +903,10 @@ int IntTaskData::SwitchToPoly()
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 callFullRts0 doCall = (callFullRts0)rtsCall.AsCodePtr();
+                this->raiseException = false;
                 POLYUNSIGNED result = doCall(this->threadObject);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -903,11 +915,12 @@ int IntTaskData::SwitchToPoly()
             {
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFullRts1 doCall = (callFullRts1)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1);
                 sp = this->sp; // May have changed if there was an exception
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -917,10 +930,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsCall = (*sp++).AsObjPtr()->Get(0); // Value holds address.
                 PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFullRts2 doCall = (callFullRts2)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -931,10 +945,11 @@ int IntTaskData::SwitchToPoly()
                 PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
                 PolyWord rtsArg2 = *sp++;
                 PolyWord rtsArg1 = *sp++;
+                this->raiseException = false;
                 callFullRts3 doCall = (callFullRts3)rtsCall.AsCodePtr();
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2, rtsArg3);
                 // If this raised an exception 
-                if (this->lastInstr == INSTR_raise_ex) goto RAISE_EXCEPTION;
+                if (this->raiseException) goto RAISE_EXCEPTION;
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
             }
@@ -1885,7 +1900,7 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        default: Crash("Unknown instruction %x\n", lastInstr);
+        default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */
      } /* for */

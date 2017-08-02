@@ -814,7 +814,7 @@ struct
         fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
             let
                 val diff =
-                    if dest < ic
+                    if dest <= ic (* N.B. Include infinite loops as backwards. *)
                     then ic - dest (* Backwards - Counts from start of instruction. *)
                     else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
             in
@@ -826,7 +826,7 @@ struct
             end
 
         |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
-            if dest < ic
+            if dest <= ic
             then if ic - dest < 0wx100 then size := Size8 else ()
             else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
         
@@ -889,7 +889,7 @@ struct
             end
 
         |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size16, ...}, ic, _) =
-            if dest < ic
+            if dest <= ic
             then (* Jump back. *)
             let
                 val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
@@ -916,7 +916,7 @@ struct
             end
 
         |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size8, ...}, ic, _) =
-            if dest < ic
+            if dest <= ic
             then (* Jump back. *)
             let
                 val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
