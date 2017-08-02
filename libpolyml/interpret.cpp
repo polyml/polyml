@@ -645,7 +645,10 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_const_addr:
+        case INSTR_constAddr8:
+            *(--sp) = *(PolyWord*)(pc + pc[0] + 1); pc += 1; break;
+
+        case INSTR_constAddr16:
             *(--sp) = *(PolyWord*)(pc + arg1 + 2); pc += 2; break;
 
         case INSTR_constAddr32:

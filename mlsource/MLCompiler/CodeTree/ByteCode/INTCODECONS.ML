@@ -52,14 +52,11 @@ struct
     and opcode_jumpFalse         = 0wx03    (* Test top of stack. Take 8-bit unsigned jump if false. *)
     and opcode_delHandler        = 0wx05
     and opcode_alloc_ref         = 0wx06
-    and opcode_jumpIFalse        = 0wx07
-    and opcode_delHandlerI       = 0wx09
     and opcode_case16            = 0wx0a
     and opcode_containerW        = 0wx0b
     and opcode_callClosure       = 0wx0c
     and opcode_returnW           = 0wx0d
     and opcode_pad               = 0wx0e
-    and opcode_jumpI             = 0wx0f (* Unsigned indirect jump. *)
     and opcode_raiseEx           = 0wx10
     and opcode_getStoreW         = 0wx11
     and opcode_nonLocal          = 0wx12
@@ -69,7 +66,7 @@ struct
     and opcode_setStackValW      = 0wx17
     and opcode_resetW            = 0wx18
     and opcode_resetR_w          = 0wx19
-    and opcode_constAddr         = 0wx1a
+    and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
@@ -145,7 +142,6 @@ struct
     and opcode_tail3_2           = 0wx7f
     and opcode_tail3_3           = 0wx80
     and opcode_setHandler        = 0wx81
-    and opcode_setHandlerI       = 0wx82
 
     and opcode_callFastRTS0      = 0wx83
     and opcode_callFastRTS1      = 0wx84
@@ -269,6 +265,7 @@ struct
     and opcode_jump16            = 0wxf7
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
+    and opcode_constAddr8        = 0wxfa
 
  
     local
@@ -282,9 +279,6 @@ struct
         val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
         val () = repUpdate(opcode_delHandler,   "delHandler");
         val () = repUpdate(opcode_alloc_ref,    "alloc_ref");
-        val () = repUpdate(opcode_jumpI,        "jumpI");
-        val () = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
-        val () = repUpdate(opcode_delHandlerI,  "delHandlerI");
         val () = repUpdate(opcode_case16,       "case16");
         val () = repUpdate(opcode_callClosure,  "callClosure");
         val () = repUpdate(opcode_returnW,      "returnW");
@@ -298,7 +292,7 @@ struct
         val () = repUpdate(opcode_setStackValW, "setStackValW");
         val () = repUpdate(opcode_resetW,        "resetW");
         val () = repUpdate(opcode_resetR_w,      "resetR_w");
-        val () = repUpdate(opcode_constAddr,     "constAddr");
+        val () = repUpdate(opcode_constAddr16,   "constAddr16");
         val () = repUpdate(opcode_constIntW,     "constIntW");
         val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
         val () = repUpdate(opcode_returnB,       "returnB");
@@ -367,7 +361,6 @@ struct
         val () = repUpdate(opcode_ldexc,         "ldexc");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
-        val () = repUpdate(opcode_setHandlerI,   "setHandlerI");
         val () = repUpdate(opcode_tailbb,        "tailbb");
         val () = repUpdate(opcode_tail,          "tail");
         val () = repUpdate(opcode_tail3b,        "tail3b");
@@ -492,6 +485,7 @@ struct
         val () = repUpdate(opcode_case32,       "case32")
         val () = repUpdate(opcode_jump16False,  "jump16false")
         val () = repUpdate(opcode_setHandler16, "setHandler16")
+        val () = repUpdate(opcode_constAddr8,   "constAddr8")
     in
         fun repr n : string = Array.sub (repArray, Word8.toInt n);
     end;
@@ -506,8 +500,6 @@ struct
         val () = sizeUpdate(opcode_jump        , 2);
         val () = sizeUpdate(opcode_jumpFalse   , 2);
         val () = sizeUpdate(opcode_delHandler  , 2);
-        val () = sizeUpdate(opcode_jumpIFalse  , 2);
-        val () = sizeUpdate(opcode_delHandlerI , 2);
         val () = sizeUpdate(opcode_case16      , 3);
         val () = sizeUpdate(opcode_returnW     , 3);
         val () = sizeUpdate(opcode_getStoreW   , 3);
@@ -518,7 +510,7 @@ struct
         val () = sizeUpdate(opcode_setStackValW, 3);
         val () = sizeUpdate(opcode_resetW      , 3);
         val () = sizeUpdate(opcode_resetR_w    , 3);
-        val () = sizeUpdate(opcode_constAddr   , 3);
+        val () = sizeUpdate(opcode_constAddr16  , 3);
         val () = sizeUpdate(opcode_constIntW   , 3);
         val () = sizeUpdate(opcode_jumpBack8   , 2);
         val () = sizeUpdate(opcode_returnB     , 2);
@@ -537,7 +529,6 @@ struct
         val () = sizeUpdate(opcode_tupleW      , 3);
         val () = sizeUpdate(opcode_tupleB      , 2);
         val () = sizeUpdate(opcode_setHandler  , 2);
-        val () = sizeUpdate(opcode_setHandlerI , 2);
         val () = sizeUpdate(opcode_tailbb      , 3);
         val () = sizeUpdate(opcode_tail        , 5);
         val () = sizeUpdate(opcode_tail3b      , 2);
@@ -547,6 +538,7 @@ struct
         val () = sizeUpdate(opcode_jump32False,  5)
         val () = sizeUpdate(opcode_constAddr32,  5)
         val () = sizeUpdate(opcode_setHandler32, 5)
+        val () = sizeUpdate(opcode_constAddr8  , 2);
     in
         fun size n = Array.sub (sizeArray, Word8.toInt n);
     end
@@ -561,70 +553,43 @@ struct
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
     |   LabelCode of labels                     (* A label - forwards or backwards. *)
     |   JumpInstruction of { label: labels, jumpType: jumpTypes, size : jumpSize ref }   (* Jumps or SetHandler. *)
-    |   PushConstant of { value: machineWord, size : jumpSize ref }
+    |   PushConstant of { constNum: int, size : jumpSize ref }
     |   IndexedCase of { labels: labels list, size : jumpSize ref }
     
     and jumpSize = Size8 | Size16 | Size32
 
     and code = Code of 
     {
-        codeVec:        cseg,           (* This segment is used as a buffer. When the
-                                             function has been code generated it is
-                                             copied into a new segment of the correct size *)
-        ic:             word ref,      (* Pointer to first free location in "codevec" *)
         constVec:       machineWord list ref, (* Vector of words to be put at end *)
-        numOfConsts:    int ref,        (* size of constVec *)
         procName:       string,         (* Name of the procedure. *)
-        resultSeg:      cseg option ref, (* The segment as the final result. *)
-        constLoads:     (word * int) list ref, (* where do we load constants? *)
         printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
         printStream:    string->unit,    (* The stream to use *)
         stage1Code:     opcode list ref
-    };
-
-    val codesize = 32 (* bytes. Initial size of segment. *)
+    }
 
     (* create and initialise a code segment *)
     fun codeCreate (name : string, parameters) = 
     let
-        val words = codesize div Word.toInt wordLength
         val printStream = PRETTY.getSimplePrinter(parameters, []);
     in
         Code
         { 
-            codeVec          = csegMake(Word.fromInt words), (* a byte array *)
-            ic               = ref 0w0,
             constVec         = ref [],
-            numOfConsts      = ref 0,
             procName         = name,
-            resultSeg        = ref NONE,   (* Not yet done *)
-            constLoads       = ref [],
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             stage1Code       = ref []
         }
     end
 
-    fun putByte (ival, a, Code{codeVec, ...}) =
-        csegSet(codeVec, a, Word8.fromInt (if ival < 0 then 256 + ival else ival));
-  
-    (* puts "length" bytes of "val" into locations "addr", "addr"+1... *)
-    fun putBytes (_, 0, _, _) = ()
-    |   putBytes (ival, length, addr, cvec) =
-        (
-            putByte (ival mod 256, addr, cvec);
-            putBytes (ival div 256, length - 1, addr + 0w1, cvec)
-        )
-
     (* Find the offset in the constant area of a constant. *)
     (* The first has offset 0.                             *)
-    fun addConstToVec (valu, Code{numOfConsts, constVec, ...}) =
+    fun addConstToVec (valu, Code{constVec, ...}) =
     let
         (* Search the list to see if the constant is already there. *)
         fun findConst valu [] num =
             (* Add to the list *)
             (
-                numOfConsts := ! numOfConsts + 1;
                 constVec    := ! constVec @ [valu];
                 num
             )
@@ -722,17 +687,13 @@ struct
                      opc = opcode_jumpFalse orelse
                      opc = opcode_setHandler orelse
                      opc = opcode_delHandler orelse
-                     opc = opcode_constAddr orelse
+                     opc = opcode_constAddr16 orelse
                      opc = opcode_jump32 orelse
                      opc = opcode_jump32False orelse
-                     opc = opcode_setHandler32 
+                     opc = opcode_setHandler32 orelse
+                     opc = opcode_constAddr8 orelse
+                     opc = opcode_constAddr32
                 then printDisp (sz - 1, "\t", false)
-    
-                else if opc = opcode_jumpI orelse
-                        opc = opcode_jumpIFalse orelse
-                        opc = opcode_setHandlerI orelse
-                        opc = opcode_delHandlerI
-                then printDisp (1, "\t", true)
       
                 else if opc = opcode_jumpBack8 (* Should be negative *)
                 then
@@ -810,58 +771,94 @@ struct
     |   setLabels([], ic) = ic
     
     (* Set the sizes of branches depending on the distance to the destination. *)
-    local
-        fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
-            let
-                val diff =
-                    if dest <= ic (* N.B. Include infinite loops as backwards. *)
-                    then ic - dest (* Backwards - Counts from start of instruction. *)
-                    else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
-            in
-                if diff < 0wx100
-                then size := Size8
-                else if diff < 0wx10000
-                then size := Size16
-                else ()
-            end
-
-        |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
-            if dest <= ic
-            then if ic - dest < 0wx100 then size := Size8 else ()
-            else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
-        
-        |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
-            let
-                val startAddr = ic+0w3
-                (* Use 16-bit case if all the offsets are 16-bits. *)
-                fun is16bit{destination=ref dest} =
-                    dest > startAddr andalso dest < startAddr+0wx10000
-            in
-                if List.all is16bit labels
-                then size := Size16
-                else ()
-            end
-
-        |   adjust _ = ()
-        
+    fun setLabelsAndSizes ops =
+    let
         (* Set the labels and adjust the sizes, repeating until it never gets smaller*)
         fun setLabAndSize(ops, lastSize) =
         let
+            (* Calculate offsets for constants. *)
+            val endIC = Word.andb(lastSize + wordLength - 0w1, ~ wordLength)
+            val firstConstant = endIC + wordLength * 0w3
+            (* Because the constant area is word aligned we have to allow for
+               the possibility that the distance between a "load constant"
+               instruction and the target could actually increase. *)
+            val alignment = wordLength - 0w1
+        
+            fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
+                let
+                    val diff =
+                        if dest <= ic (* N.B. Include infinite loops as backwards. *)
+                        then ic - dest (* Backwards - Counts from start of instruction. *)
+                        else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
+                in
+                    if diff < 0wx100
+                    then size := Size8
+                    else if diff < 0wx10000
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
+                if dest <= ic
+                then if ic - dest < 0wx100 then size := Size8 else ()
+                else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
+        
+            |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
+                let
+                    val startAddr = ic+0w3
+                    (* Use 16-bit case if all the offsets are 16-bits. *)
+                    fun is16bit{destination=ref dest} =
+                        dest > startAddr andalso dest < startAddr+0wx10000
+                in
+                    if List.all is16bit labels
+                    then size := Size16
+                    else ()
+                end
+
+            |   adjust(PushConstant{size as ref Size32, constNum, ...}, ic, _) =
+                let
+                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                    val offset = constAddr - (ic + 0w5)
+                in
+                    if offset < 0wx100-alignment then size := Size8
+                    else if offset < 0wx10000-alignment then size := Size16
+                    else ()
+                end
+
+            |   adjust(PushConstant{size as ref Size16, constNum, ...}, ic, _) =
+                let
+                    val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                    val offset = constAddr - (ic + 0w3)
+                in
+                    if offset < 0wx100-alignment then size := Size8
+                    else ()
+                end
+
+            |   adjust _ = ()
+
             val () = foldCode adjust () ops
             val nextSize = setLabels(ops, 0w0)
         in
             if nextSize < lastSize then setLabAndSize(ops, nextSize)
-            else if nextSize = lastSize then ()
+            else if nextSize = lastSize then lastSize
             else raise InternalError "setLabAndSize - size increased"
         end
     in
-        fun setLabelsAndSizes ops = setLabAndSize(ops, setLabels(ops, 0w0))
+        setLabAndSize(ops, setLabels(ops, 0w0))
     end
     
-    fun genCode(ops, cvec as Code {ic, codeVec, constLoads, ...}) =
+    fun genCode(ops, Code {constVec, ...}) =
     let
         (* First pass - set the labels. *)
-        val _ = setLabelsAndSizes ops
+        val codeSize = setLabelsAndSizes ops
+        (* Align to wordLength. *)
+        val endIC = Word.andb(codeSize + wordLength - 0w1, ~ wordLength)
+        val endOfCode = endIC div wordLength
+        val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
+        val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
+        val codeVec = csegMake segSize
+
+        val ic = ref 0w0
         
         fun genByte b = csegSet(codeVec, !ic, b) before ic := !ic + 0w1
 
@@ -940,19 +937,39 @@ struct
                 genByte(wordToWord8 diff)
             end
 
-        |   genByteCode(PushConstant{ value, size=ref Size32, ... }, ic, _) =
+        |   genByteCode(PushConstant{ constNum, size=ref Size32, ... }, ic, _) =
             let
-                val constNum = addConstToVec(value, cvec)
-                val () = constLoads := (ic + 0w1, constNum) :: ! constLoads
+                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                (* Offsets are calculated from the END of the instruction *)
+                val offset = constAddr - (ic + 0w5)
             in
                 genByte(opcode_constAddr32);
-                genByte 0w0; (* Filled in with the offset later. *)
-                genByte 0w0;
-                genByte 0w0;
-                genByte 0w0
+                genByte(wordToWord8 offset);
+                genByte(wordToWord8(offset >> 0w8));
+                genByte(wordToWord8(offset >> 0w16));
+                genByte(wordToWord8(offset >> 0w24))
             end
 
-        |   genByteCode(PushConstant _, _, _) = raise InternalError "genByteCode - PushConstant not 32-bit"
+        |   genByteCode(PushConstant{ constNum, size=ref Size16, ... }, ic, _) =
+            let
+                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                val offset = constAddr - (ic + 0w3)
+                val _ = offset < 0wx10000 orelse raise InternalError "genByteCode - constant range"
+            in
+                genByte(opcode_constAddr16);
+                genByte(wordToWord8 offset);
+                genByte(wordToWord8(offset >> 0w8))
+            end
+
+        |   genByteCode(PushConstant{ constNum, size=ref Size8, ... }, ic, _) =
+            let
+                val constAddr = firstConstant + Word.fromInt constNum * wordLength
+                val offset = constAddr - (ic + 0w2)
+                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+            in
+                genByte(opcode_constAddr8);
+                genByte(wordToWord8 offset)
+            end
         
         |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic, _) =
             let
@@ -1000,7 +1017,7 @@ struct
         |   genByteCode(IndexedCase{size=ref Size8, ...}, _, _) = raise InternalError "genByteCode - IndexedCase byte"
     in
         foldCode genByteCode () ops;
-        ()
+        (codeVec (* Return the completed code. *), endIC (* And the size. *))
     end
 
     fun setLong (value, addrs, seg) =
@@ -1020,49 +1037,23 @@ struct
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
-                    Code{ printAssemblyCode, printStream, resultSeg, ic, numOfConsts, codeVec,
-                           constLoads, procName, constVec, stage1Code, ...}) : address =
+                    Code{ printAssemblyCode, printStream,
+                           procName, constVec, stage1Code, ...}) : address =
     let
         val codeList = List.rev(!stage1Code)
-        val () = genCode(codeList, cvec)
-        
-        fun genByte b = csegSet(codeVec, !ic, b) before ic := !ic + 0w1
-        
-        (* Pad out to long word boundary.  We could just put zeros now. *)
-        val alignTo = wordLength
-        val () = 
-            while (! ic mod alignTo) <> 0w0
-            do genByte (opcode_pad)
-
-        val endIC    = !ic; (* Remember end *)
- 
+        val (codeVec, endIC) = genCode(codeList, cvec)
+  
         (* +3 for profile count, function name and constants count *)
-        val numOfConst = ! numOfConsts
-        val endOfCode = ! ic div wordLength
+        val numOfConst = List.length(! constVec)
+        val endOfCode = endIC div wordLength
         val segSize   = endOfCode + Word.fromInt numOfConst + 0w4
         val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
 
-        (* Set the addresses of references to the constants. *)
-        local
-            fun fixupConstantLoad (fixupAddr, constNum) =
-            let
-                val constAddr = firstConstant + Word.fromInt constNum * wordLength
-          
-                (* Offsets are calculated from the END of the instruction, which explains the "+ 4" *)
-                val newOffset = Word.toInt(constAddr - (fixupAddr + 0w4))
-            in
-                putBytes (newOffset, 4, fixupAddr, cvec)
-            end
-        in
-            val () = List.app fixupConstantLoad (!constLoads)
-        end
-        
         (* Now make the byte segment that we'll turn into the code segment *)
-        val seg : cseg = csegMake  segSize
-        val ()   = resultSeg := SOME seg
-    
+        val seg = csegMake segSize
+
         (* Copy the code into the new segment. *)
-        val () = csegCopySeg (codeVec, seg, !ic, 0w0);
+        val () = csegCopySeg (codeVec, seg, endIC, 0w0);
     
         (* Put in the number of constants. This must go in before
            we actually put in any constants. *)
@@ -1196,7 +1187,7 @@ struct
                     SimpleCode[opcode_tail, Word8.fromInt toslide, Word8.fromInt(toslide div 256),
                                Word8.fromInt slideby, Word8.fromInt (slideby div 256)], cvec)
 
-        fun pushConst (value : machineWord, cvec as Code {stage1Code, ...}) =
+        fun pushConst (value : machineWord, cvec) =
             if isShort value andalso toShort value < 0w32768
             then
             let
@@ -1215,7 +1206,7 @@ struct
             end
 
             else (* address or large short *)
-                stage1Code := PushConstant{value=value, size=ref Size32} :: !stage1Code
+                addItemToList(PushConstant{constNum = addConstToVec(value, cvec), size=ref Size32}, cvec)
 
         fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
         and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)

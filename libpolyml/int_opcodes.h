@@ -47,7 +47,7 @@
 #define INSTR_set_stack_val_w   0x17
 #define INSTR_reset_w       0x18
 #define INSTR_reset_r_w     0x19
-#define INSTR_const_addr    0x1a
+#define INSTR_constAddr16   0x1a
 #define INSTR_const_int_w   0x1b
 #define INSTR_jump_back8    0x1e
 #define INSTR_return_b      0x1f
@@ -242,4 +242,5 @@
 #define INSTR_jump16            0xf7
 #define INSTR_jump16false       0xf8
 #define INSTR_setHandler16      0xf9
+#define INSTR_constAddr8        0xfa
 
