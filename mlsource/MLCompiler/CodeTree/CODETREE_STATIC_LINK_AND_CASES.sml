@@ -641,19 +641,21 @@ struct
                                 end
 
                         (* Create labels for each of the cases.  Fill in any gaps with entries that
-                           will point to the default. *)
+                           will point to the default.  We have to be careful if max happens to be
+                           the largest value of Word.word.  In that case adding one to the range
+                           will give us a value less than max. *)
                         fun extendCase(indexVal, cl as ((c, caseValue) :: cps)) =
-                            if indexVal = caseValue
+                            if indexVal + min = caseValue
                             then SOME c :: extendCase(indexVal+0w1, cps)
                             else NONE :: extendCase(indexVal+0w1, cl)
 
                         |   extendCase(indexVal, []) =
                             (* We may not be at the end if this came from a CaseTag *)
-                                if indexVal > max
+                                if indexVal > max-min
                                 then []
                                 else NONE :: extendCase(indexVal+0w1, [])
 
-                        val fullCaseRange = extendCase(min, cases)
+                        val fullCaseRange = extendCase(0w0, cases)
                         val _ = Word.fromInt(List.length fullCaseRange) = max-min+0w1 orelse raise InternalError "Cases"
                     in
                         BICCase{cases=fullCaseRange, test=test, default=default, isExhaustive=isExhaustive, firstIndex=min}
