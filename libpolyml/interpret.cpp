@@ -328,14 +328,24 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_enter_int: pc++; /* Skip the argument. */ break;
 
-        case INSTR_jump_false:
+        case INSTR_jump8false:
             {
                 PolyWord u = *sp++; /* Pop argument */
                 if (u == True) { pc += 1; break; }
                 /* else - false - take the jump */
             }
 
-        case INSTR_jump: pc += *pc + 1; break;
+        case INSTR_jump8: pc += *pc + 1; break;
+
+        case INSTR_jump16false:
+        {
+            PolyWord u = *sp++; /* Pop argument */
+            if (u == True) { pc += 2; break; }
+            /* else - false - take the jump */
+        }
+
+        case INSTR_jump16:
+            pc += arg1 + 2; break;
 
         case INSTR_jump32False:
         {
@@ -360,10 +370,16 @@ int IntTaskData::SwitchToPoly()
             *(--sp) = PolyWord::FromStackAddr(this->hr); /* Push old handler */
             break;
 
-        case INSTR_set_handler_new: /* Set up a handler */
+        case INSTR_setHandler8: /* Set up a handler */
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
             this->hr = sp;
             pc += 1;
+            break;
+
+        case INSTR_setHandler16: /* Set up a handler */
+            *(--sp) = PolyWord::FromCodePtr(pc + arg1 + 2); /* Address of handler */
+            this->hr = sp;
+            pc += 2;
             break;
 
         case INSTR_setHandler32: /* Set up a handler */
@@ -434,7 +450,7 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_case:
+        case INSTR_case16:
             {
                 // arg1 is the largest value that is in the range
                 POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
@@ -445,17 +461,17 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_indexedJump:
+        case INSTR_case32:
         {
             // arg1 is the number of cases i.e. one more than the largest value
-            // This is followed by that number of jump32 instructions.
+            // This is followed by that number of 32-bit offsets.
             // If the value is out of range the default case is immediately after the table.
             POLYSIGNED u = UNTAGGED(*sp++); /* Get the value */
-            if (u >= arg1 || u < 0) pc += 2 + arg1 * 5; /* Out of range */
+            if (u >= arg1 || u < 0) pc += 2 + arg1 * 4; /* Out of range */
             else
             {
                 pc += 2;
-                pc += u * 5;
+                pc += /* Index */pc[u*4] + (pc[u*4+1] << 8) + (pc[u*4+2] << 16) + (pc[u*4+3] << 24);
             }
             break;
         }

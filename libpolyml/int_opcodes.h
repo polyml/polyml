@@ -26,18 +26,18 @@
 
 #define INSTR_enter_int     0x00
 
-#define INSTR_jump          0x02
-#define INSTR_jump_false    0x03
+#define INSTR_jump8         0x02
+#define INSTR_jump8false    0x03
 #define INSTR_del_handler   0x05    // Legacy
 #define INSTR_alloc_ref     0x06
-#define INSTR_jump_i_false  0x07
+#define INSTR_jump_i_false  0x07    // Legacy
 #define INSTR_del_handler_i 0x09    // Legacy
-#define INSTR_case          0x0a    // Legacy
+#define INSTR_case16        0x0a
 #define INSTR_stack_container 0x0b
 #define INSTR_call_closure  0x0c
 #define INSTR_return_w      0x0d
 #define INSTR_pad           0x0e
-#define INSTR_jump_i_u      0x0f
+#define INSTR_jump_i_u      0x0f    // Legacy
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
 #define INSTR_non_local     0x12
@@ -122,7 +122,7 @@
 #define INSTR_tail_4_b      0x7e
 #define INSTR_tail_3_2      0x7f
 #define INSTR_tail_3_3      0x80
-#define INSTR_set_handler_new 0x81      // Legacy
+#define INSTR_setHandler8   0x81
 #define INSTR_set_handler_new_i 0x82    // Legacy
 #define INSTR_callFastRTS0      0x83
 #define INSTR_callFastRTS1      0x84
@@ -238,5 +238,8 @@
 #define INSTR_jump32False       0xf3
 #define INSTR_constAddr32       0xf4
 #define INSTR_setHandler32      0xf5
-#define INSTR_indexedJump       0xf6
+#define INSTR_case32            0xf6
+#define INSTR_jump16            0xf7
+#define INSTR_jump16false       0xf8
+#define INSTR_setHandler16      0xf9
 

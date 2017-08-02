@@ -54,7 +54,7 @@ struct
     and opcode_alloc_ref         = 0wx06
     and opcode_jumpIFalse        = 0wx07
     and opcode_delHandlerI       = 0wx09
-    and opcode_caseSwitch        = 0wx0a
+    and opcode_case16            = 0wx0a
     and opcode_containerW        = 0wx0b
     and opcode_callClosure       = 0wx0c
     and opcode_returnW           = 0wx0d
@@ -265,7 +265,11 @@ struct
     and opcode_jump32False       = 0wxf3 (* Test top item. Take 32-bit signed jump if false. *)
     and opcode_constAddr32       = 0wxf4 (* Followed by a 32-bit offset. Load a constant at that address. *)
     and opcode_setHandler32      = 0wxf5 (* Setup a handler whose address is given by the 32-bit signed offset. *)
-    and opcode_indexedJump       = 0wxf6 (* Indexed jump *)
+    and opcode_case32            = 0wxf6 (* Indexed case with 32-bit offsets *)
+    and opcode_jump16            = 0wxf7
+    and opcode_jump16False       = 0wxf8
+    and opcode_setHandler16      = 0wxf9
+
  
     local
         val repArray : string Array.array = 
@@ -281,7 +285,7 @@ struct
         val () = repUpdate(opcode_jumpI,        "jumpI");
         val () = repUpdate(opcode_jumpIFalse,   "jumpIFalse");
         val () = repUpdate(opcode_delHandlerI,  "delHandlerI");
-        val () = repUpdate(opcode_caseSwitch,   "caseSwitch");
+        val () = repUpdate(opcode_case16,       "case16");
         val () = repUpdate(opcode_callClosure,  "callClosure");
         val () = repUpdate(opcode_returnW,      "returnW");
         val () = repUpdate(opcode_pad,          "pad");
@@ -484,6 +488,10 @@ struct
         val () = repUpdate(opcode_jump32False,  "jump32False")
         val () = repUpdate(opcode_constAddr32,  "constAddr32")
         val () = repUpdate(opcode_setHandler32, "setHandler32")
+        val () = repUpdate(opcode_jump16,       "jump16")
+        val () = repUpdate(opcode_case32,       "case32")
+        val () = repUpdate(opcode_jump16False,  "jump16false")
+        val () = repUpdate(opcode_setHandler16, "setHandler16")
     in
         fun repr n : string = Array.sub (repArray, Word8.toInt n);
     end;
@@ -500,7 +508,7 @@ struct
         val () = sizeUpdate(opcode_delHandler  , 2);
         val () = sizeUpdate(opcode_jumpIFalse  , 2);
         val () = sizeUpdate(opcode_delHandlerI , 2);
-        val () = sizeUpdate(opcode_caseSwitch  , 3);
+        val () = sizeUpdate(opcode_case16      , 3);
         val () = sizeUpdate(opcode_returnW     , 3);
         val () = sizeUpdate(opcode_getStoreW   , 3);
         val () = sizeUpdate(opcode_nonLocal    , 7);
@@ -534,18 +542,14 @@ struct
         val () = sizeUpdate(opcode_tail        , 5);
         val () = sizeUpdate(opcode_tail3b      , 2);
         val () = sizeUpdate(opcode_tail4b      , 2);
+        val () = sizeUpdate(opcode_case32      , 3);
         val () = sizeUpdate(opcode_jump32,       5)
         val () = sizeUpdate(opcode_jump32False,  5)
         val () = sizeUpdate(opcode_constAddr32,  5)
         val () = sizeUpdate(opcode_setHandler32, 5)
     in
         fun size n = Array.sub (sizeArray, Word8.toInt n);
-    end;
-
-    datatype jumpFrom =
-        Jump8From  of word  (* branch instruction has  8-bit offset field *)
-    |   Jump16From of word (* branch instruction has 16-bit offset field *)
-    |   Jump32From of word (* branch instruction has 32-bit offset field. *)
+    end
 
     (* A Label is a ref that is later set to the location. *)
     type labels = {destination: Word.word ref }
@@ -553,11 +557,14 @@ struct
     (* Used for jump, jumpFalse, setHandler and delHandler. *)
     datatype jumpTypes = Jump | JumpFalse | SetHandler
 
-    datatype codeItem =
+    datatype opcode =
         SimpleCode of Word8.word list           (* Bytes that don't need any special treatment *)
     |   LabelCode of labels                     (* A label - forwards or backwards. *)
-    |   JumpInstruction of labels * jumpTypes   (* Jumps or SetHandler. *)
-    |   PushConstant of machineWord
+    |   JumpInstruction of { label: labels, jumpType: jumpTypes, size : jumpSize ref }   (* Jumps or SetHandler. *)
+    |   PushConstant of { value: machineWord, size : jumpSize ref }
+    |   IndexedCase of { labels: labels list, size : jumpSize ref }
+    
+    and jumpSize = Size8 | Size16 | Size32
 
     and code = Code of 
     {
@@ -572,7 +579,7 @@ struct
         constLoads:     (word * int) list ref, (* where do we load constants? *)
         printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
         printStream:    string->unit,    (* The stream to use *)
-        stage1Code:     codeItem list ref
+        stage1Code:     opcode list ref
     };
 
     val codesize = 32 (* bytes. Initial size of segment. *)
@@ -613,9 +620,9 @@ struct
     fun getB (0, _, _) = 0w0
     |   getB (length, addr, seg: cseg) =
             (getB (length - 1, addr + 0w1, seg) << 0w8) + word8ToWord (csegGet (seg, addr))
-
-    fun getBytes (length, a, Code{codeVec, ...}) = getB (length, a, codeVec)
     local
+        fun getBytes (length, a, Code{codeVec, ...}) = getB (length, a, codeVec)
+
         fun fixupConstantLoad (constStartAddrs, cvec) (fixupAddr: word, constNum) =
         let
             val oldOffset = getBytes (2, fixupAddr, cvec)
@@ -764,7 +771,7 @@ struct
                 else if opc = opcode_nonLocal
                 then ( printOp (2, "\t"); printOp (2, ","); printOp(2, ","))
 
-                else if opc = opcode_caseSwitch
+                else if opc = opcode_case16
                 then
                 let
                     (* Have to find out how many items there are. *)
@@ -806,9 +813,16 @@ struct
     
     fun codeSize (SimpleCode l) = List.length l
     |   codeSize (LabelCode _) = 0
-    |   codeSize (JumpInstruction _) = 5 (* Currently always 32-bit offset. *)
-    |   codeSize (PushConstant _) = 5 (* Currently always 32-bit offset. *)
-    
+    |   codeSize (JumpInstruction{size=ref Size8, ...}) = 2
+    |   codeSize (JumpInstruction{size=ref Size16, ...}) = 3
+    |   codeSize (JumpInstruction{size=ref Size32, ...}) = 5
+    |   codeSize (PushConstant{size=ref Size8, ...}) = 2
+    |   codeSize (PushConstant{size=ref Size16, ...}) = 3
+    |   codeSize (PushConstant{size=ref Size32, ...}) = 5
+    |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 3 + List.length labels * 4 
+    |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
+    |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
+   
     (* General function to process the code.  ic is the byte counter within the original code. *)
     fun foldCode foldFn n ops =
     let
@@ -824,12 +838,60 @@ struct
     fun setLabels(LabelCode{destination, ...} :: ops, ic) = (destination := ic; setLabels(ops, ic))
     |   setLabels(oper :: ops, ic) = setLabels(ops, ic + Word.fromInt(codeSize oper))
     |   setLabels([], ic) = ic
+    
+    (* Set the sizes of branches depending on the distance to the destination. *)
+    local
+        fun adjust(JumpInstruction{size as ref Size32, label={destination=ref dest}, ...}, ic, _) =
+            let
+                val diff =
+                    if dest < ic
+                    then ic - dest (* Backwards - Counts from start of instruction. *)
+                    else dest - (ic + 0w5) (* Forwards - Relative to the current end. *)
+            in
+                if diff < 0wx100
+                then size := Size8
+                else if diff < 0wx10000
+                then size := Size16
+                else ()
+            end
 
+        |   adjust(JumpInstruction{size as ref Size16, label={destination=ref dest}, ...}, ic, _) =
+            if dest < ic
+            then if ic - dest < 0wx100 then size := Size8 else ()
+            else if dest - (ic + 0w3)  < 0wx100 then size := Size8 else ()
+        
+        |   adjust(IndexedCase{size as ref Size32, labels}, ic, _) =
+            let
+                val startAddr = ic+0w3
+                (* Use 16-bit case if all the offsets are 16-bits. *)
+                fun is16bit{destination=ref dest} =
+                    dest > startAddr andalso dest < startAddr+0wx10000
+            in
+                if List.all is16bit labels
+                then size := Size16
+                else ()
+            end
+
+        |   adjust _ = ()
+        
+        (* Set the labels and adjust the sizes, repeating until it never gets smaller*)
+        fun setLabAndSize(ops, lastSize) =
+        let
+            val () = foldCode adjust () ops
+            val nextSize = setLabels(ops, 0w0)
+        in
+            if nextSize < lastSize then setLabAndSize(ops, nextSize)
+            else if nextSize = lastSize then ()
+            else raise InternalError "setLabAndSize - size increased"
+        end
+    in
+        fun setLabelsAndSizes ops = setLabAndSize(ops, setLabels(ops, 0w0))
+    end
+    
     fun genCode(ops, cvec as Code {ic, codeVec, constLoads, ...}) =
     let
         (* First pass - set the labels. *)
-        val codeSize = setLabels(ops, 0w0)
-        val _ = !ic = 0w0 orelse raise InternalError "Not at start"
+        val _ = setLabelsAndSizes ops
         
         fun genByte b = csegSet(codeVec, !ic, b) before ic := !ic + 0w1
 
@@ -839,39 +901,78 @@ struct
 
         |   genByteCode(LabelCode _, _, _) = ()
 
-        |   genByteCode(JumpInstruction({destination=ref dest}, jType), ic, _) =
-            if dest < ic
-            then (* Backwards jump *)
+        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size32, ...}, ic, _) =
             let
-                val _ = jType = Jump orelse raise InternalError "jump back"
+                val opc =
+                    case jumpType of
+                        SetHandler => opcode_setHandler32
+                    |   JumpFalse => opcode_jump32False
+                    |   Jump => opcode_jump32
                 val diff = dest - (ic + 0w5)
             in
-                genByte opcode_jump32;
+                genByte opc;
                 genByte(wordToWord8 diff);
-                (* This is negative so we must use an arithmetic shift. *)
+                (* This may be negative so we must use an arithmetic shift. *)
                 genByte(wordToWord8(diff ~>> 0w8));
                 genByte(wordToWord8(diff ~>> 0w16));
                 genByte(wordToWord8(diff ~>> 0w24))
             end
-            else (* Forward jump. *)
+
+        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size16, ...}, ic, _) =
+            if dest < ic
+            then (* Jump back. *)
             let
-                val diff = dest - (ic + 0w5)
+                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
+                val diff = ic - dest
+                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+            in
+                genByte opcode_jumpBack16;
+                genByte(wordToWord8 diff);
+                genByte(wordToWord8(diff >> 0w8))
+            end
+            else
+            let
                 val opc =
-                    case jType of
-                        SetHandler => opcode_setHandler32
-                    |   JumpFalse => opcode_jump32False
-                    |   Jump => opcode_jump32
+                    case jumpType of
+                        SetHandler => opcode_setHandler16
+                    |   JumpFalse => opcode_jump16False
+                    |   Jump => opcode_jump16
+                val diff = dest - (ic + 0w3)
+                val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
             in
                 genByte opc;
                 genByte(wordToWord8 diff);
-                genByte(wordToWord8(diff >> 0w8));
-                genByte(wordToWord8(diff >> 0w16));
-                genByte(wordToWord8(diff >> 0w24))
+                genByte(wordToWord8(diff >> 0w8))
             end
 
-        |   genByteCode(PushConstant cnst, ic, _) =
+        |   genByteCode(JumpInstruction{label={destination=ref dest}, jumpType, size=ref Size8, ...}, ic, _) =
+            if dest < ic
+            then (* Jump back. *)
             let
-                val constNum = addConstToVec(cnst, cvec)
+                val _ = jumpType = Jump orelse raise InternalError "genByteCode - back jump"
+                val diff = ic - dest
+                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+            in
+                genByte opcode_jumpBack8;
+                genByte(wordToWord8 diff)
+            end
+            else
+            let
+                val opc =
+                    case jumpType of
+                        SetHandler => opcode_setHandler
+                    |   JumpFalse => opcode_jumpFalse
+                    |   Jump => opcode_jump
+                val diff = dest - (ic + 0w2)
+                val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+            in
+                genByte opc;
+                genByte(wordToWord8 diff)
+            end
+
+        |   genByteCode(PushConstant{ value, size=ref Size32, ... }, ic, _) =
+            let
+                val constNum = addConstToVec(value, cvec)
                 val () = constLoads := (ic + 0w1, constNum) :: ! constLoads
             in
                 genByte(opcode_constAddr32);
@@ -880,9 +981,55 @@ struct
                 genByte 0w0;
                 genByte 0w0
             end
+
+        |   genByteCode(PushConstant _, _, _) = raise InternalError "genByteCode - PushConstant not 32-bit"
+        
+        |   genByteCode(IndexedCase{labels, size=ref Size32, ...}, ic, _) =
+            let
+                val nCases = List.length labels
+                val () = genByte(opcode_case32)
+                val () = genByte(Word8.fromInt nCases)
+                val () = genByte(Word8.fromInt (nCases div 256))
+                val startOffset = ic+0w3 (* Offsets are relative to here. *)
+
+                fun putLabel{destination=ref dest} =
+                let
+                    val diff = dest - startOffset
+                    val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
+                in
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8));
+                    genByte(wordToWord8(diff >> 0w16));
+                    genByte(wordToWord8(diff >> 0w24))
+                end
+            in
+                List.app putLabel labels
+            end
+        
+        |   genByteCode(IndexedCase{labels, size=ref Size16, ...}, ic, _) =
+            let
+                val nCases = List.length labels
+                val () = genByte(opcode_case16)
+                val () = genByte(Word8.fromInt nCases)
+                val () = genByte(Word8.fromInt (nCases div 256))
+                val startOffset = ic+0w3 (* Offsets are relative to here. *)
+
+                fun putLabel{destination=ref dest} =
+                let
+                    val diff = dest - startOffset
+                    val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
+                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - indexed case"
+                in
+                    genByte(wordToWord8 diff);
+                    genByte(wordToWord8(diff >> 0w8))
+                end
+            in
+                List.app putLabel labels
+            end
+        
+        |   genByteCode(IndexedCase{size=ref Size8, ...}, _, _) = raise InternalError "genByteCode - IndexedCase byte"
     in
         foldCode genByteCode () ops;
-        codeSize = !ic orelse raise InternalError "mismatch";
         ()
     end
 
@@ -986,7 +1133,8 @@ struct
 
     val genOpcode = addItemToList
     
-    fun putBranchInstruction(brOp, label, cvec) = addItemToList(JumpInstruction(label, brOp), cvec)
+    fun putBranchInstruction(brOp, label, cvec) =
+        addItemToList(JumpInstruction{label=label, jumpType=brOp, size = ref Size32}, cvec)
 
     fun setLabel(label, cvec) = addItemToList(LabelCode label, cvec)
     
@@ -1026,12 +1174,11 @@ struct
         let
             val labels = List.tabulate(nCases, fn _ => createLabel())
         in
-            genOpcWord(opcode_indexedJump, nCases, cvec);
-            List.app (fn lab => putBranchInstruction(Jump, lab, cvec)) labels;
+            addItemToList(IndexedCase{labels=labels, size=ref Size32}, cvec);
             labels
         end
         
-        (* For the moment don't try to accumulate stack resets. *)
+        (* For the moment don't try to merge stack resets. *)
         fun resetStack(0, _, _) = ()
 
         |   resetStack(offset, true, cvec) =
@@ -1083,7 +1230,7 @@ struct
             end
 
             else (* address or large short *)
-                stage1Code := PushConstant value :: !stage1Code
+                stage1Code := PushConstant{value=value, size=ref Size32} :: !stage1Code
 
         fun genRTSCallFastFloatFloat cvec = genOpc (opcode_callFastRTSFtoF, cvec)
         and genRTSCallFastGeneralFloat cvec = genOpc (opcode_callFastRTSGtoF, cvec)
@@ -1224,6 +1371,5 @@ struct
     val opcode_blockCompareByte = SimpleCode [opcode_blockCompareByte]
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
 
-    type opcode = codeItem
 end;
 
