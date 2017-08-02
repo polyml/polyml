@@ -249,6 +249,7 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 //    this->taskSp = (PolyWord*)stack + stack_size-3; /* sp */
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
     this->taskSp = (PolyWord*)stack + stack_size;
+    this->raiseException = false;
 
     /* Set up exception handler */
     /* No previous handler so point it at itself. */
