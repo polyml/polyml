@@ -155,18 +155,6 @@ struct
     (* This can probably be much smaller now. *)
     and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
 
-  (* Several operations are not generated immediately but recorded and
-     generated later.  Labels (i.e. the destination of a branch) are recorded
-     in just_come_from.  Adjustments to the real stack pointer are recorded
-     in stack_reset.
-     The order in which these "instructions" are assumed to happen is of
-     course significant.  If just_come_from is not empty it is assumed to
-     have happened before anything else. After that the stack pointer is 
-     adjusted and finally the next instruction is executed.
-  *)
-
-    val initialCodeSize = 0w15 (* words. Initial size of segment. *)
-
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
@@ -179,7 +167,7 @@ struct
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
             profileObject  = profObj
-          }
+        }
     end
 
     (* Put 1 unsigned byte at a given offset in the segment. *)
@@ -205,7 +193,7 @@ struct
     end;
 
     (* Put 1 unsigned word at a given offset in the segment. *)
-    fun set32u (ival: LargeWord.word, addr: addrs, seg) : unit =
+    fun set32u (ival: LargeWord.word, addr, seg) : unit =
     let
         val b3       = Word8.fromLargeWord (ival >>+ 0w24)
         val b2       = Word8.fromLargeWord (ival >>+ 0w16)
@@ -216,18 +204,7 @@ struct
     end
 
     (* Put 1 signed word at a given offset in the segment. *)
-    fun set32s (ival: LargeInt.int, addr: addrs, seg) : unit =
-        set32u(LargeWord.fromLargeInt ival, addr, seg)
-
-    fun setBytes(_, _, _, 0) = ()
-    |   setBytes(seg, ival, offset, count) =
-        (
-            csegSet(seg, offset, Word8.fromLargeInt(ival mod 256));
-            setBytes(seg, ival div 256, offset+0w1, count-1)
-        )
-
-    fun setWordU (ival: LargeInt.int, addr: addrs, seg) : unit =
-        setBytes(seg, ival, addr, wordSize)
+    fun set32s (ival: LargeInt.int, addr, seg) = set32u(LargeWord.fromLargeInt ival, addr, seg)
      
     (* Get 1 signed 32 bit word from the given offset in the segment. *)
     fun get32s (a: word, seg: cseg) : LargeInt.int =
@@ -2219,7 +2196,7 @@ struct
             val newCodeSize = setLabelAddresses(ops, fixedList, 0w0)
         in
             if newCodeSize = lastCodeSize
-            then fixedList
+            then (fixedList, lastCodeSize)
             else if newCodeSize > lastCodeSize
             then raise InternalError "reprocess - size increased"
             else reprocess(fixedList, newCodeSize)
@@ -3146,37 +3123,57 @@ struct
 
     end (* printCode *);
 
-    (* Adds the constants onto the code, and copies the code into a new segment *)
+    (* This actually does the final code-generation. *)
     fun createCodeSegment (operations, cvec as Code{procName, printAssemblyCode, printStream, profileObject, ...}) : address =
     let
-        val ic = ref addrZero
-        val codeVec = csegMake initialCodeSize 
-        fun genByte (ival: Word8.word) : unit = set8u (ival, !ic, codeVec) before ic := !ic + 0w1
-        fun genBytes l = List.app (fn i => genByte i) l
         val expanded = expandComplexOperations operations
         val () = printLowLevelCode(expanded, cvec)
         local
             val initialBytesList = codeGenerate expanded
         in
             (* Fixup labels and shrink long branches to short. *)
-            val bytesList = fixupLabels(expanded, initialBytesList)
-        end 
-        local
-            fun genBytes l = Word8Vector.app (fn i => genByte i) l
-        in
-            val () = List.app (fn b => genBytes b) bytesList
+            val (bytesList, codeSize) = fixupLabels(expanded, initialBytesList)
         end
-        
-        val () = genBytes(opCodeBytes(HLT, NONE)) (* Marker - this is used by ScanConstants in the RTS. *)
-        
+
         val constantList = getConstants(expanded, bytesList)
-    
-        (* This aligns ic onto a fullword boundary. *)
-        val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genBytes(opCodeBytes(HLT, NONE))
+        (* Get the number of constants that need to be added to the address area. *)
+        val constsInConstArea = List.foldl (fn ((_, ConstantArea _), n) => n+1 | (_, n) => n) 0 constantList
+
+        local
+            (* Add one byte for the HLT and round up to a number of words. *)
+            val endOfCode = (codeSize+Word.fromInt wordSize) div Word.fromInt wordSize
+            val realSize = 0w8 div Word.fromInt wordSize
+            fun addSizes((_, RealConstant _), n) = n+realSize
+            |   addSizes((_, IntConstant _), n) = n+0w1
+            |   addSizes(_, n) = n
+            val numOfNonAddrWords = List.foldl addSizes 0w0 constantList
+        in
+            val endOfByteArea = endOfCode + numOfNonAddrWords
+            (* +4 for function name, register mask (no longer used), profile object and count of constants. *)
+            val segSize = endOfByteArea + Word.fromInt constsInConstArea + 0w4
+        end
+
+        (* Create a byte vector and copy the data in.  This is a byte area and not scanned
+           by the GC so cannot contain any addresses. *)
+        val byteVec = csegMake segSize
+        val ic = ref 0w0
         
-        (* Copy the non-address constants.  These are currently only used for real
-           constants in 64-bit mode.  Other constants are left until we have a
-           valid code object. *)
+        local
+            fun genByte (ival: Word8.word) = set8u (ival, !ic, byteVec) before ic := !ic + 0w1
+        in
+            fun genBytes l = Word8Vector.app (fn i => genByte i) l
+            val () = List.app (fn b => genBytes b) bytesList
+            val () = genBytes(Word8Vector.fromList(opCodeBytes(HLT, NONE))) (* Marker - this is used by ScanConstants in the RTS. *)
+        end
+    
+        (* Align ic onto a fullword boundary. *)
+        val ()   = ic := ((!ic + Word.fromInt wordSize - 0w1) andb ~ (Word.fromInt wordSize))
+        
+        (* Copy the non-address constants.  These are only used in 64-bit mode and are
+           either real constants or integers that are too large to fit in a 32-bit
+           inline constants.  We don't use this for real constants in 32-bit mode because
+           we don't have relative addressing.  Instead a real constant is the inline
+           address of a boxed real number. *)
         local
             fun putNonAddrConst(addrs, RealConstant m) =
                 let
@@ -3191,10 +3188,10 @@ struct
                                 raise InternalError "putNonAddrConst: Not a real number"
                     fun doCopy n =
                         if n = cLength then ()
-                        else (genBytes([loadByte(cAsAddr, n)]); doCopy(n+0w1))
+                        else (genBytes(Word8Vector.fromList[loadByte(cAsAddr, n)]); doCopy(n+0w1))
                     val () = doCopy 0w0
                 in
-                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeVec)
+                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, byteVec)
                 end
 
             |   putNonAddrConst(addrs, IntConstant imm) =
@@ -3204,13 +3201,13 @@ struct
                     if n = Word.fromInt wordSize then ()
                     else 
                     (
-                        genBytes([Word8.fromLargeInt(m mod 0x100)]);
+                        genBytes(Word8Vector.fromList[Word8.fromLargeInt(m mod 0x100)]);
                         setMem(m div 0x100, n+0w1)
                     )
 
                     val () = setMem(imm, 0w0)
                 in
-                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeVec)
+                    set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, byteVec)
                 end
 
             |   putNonAddrConst _ = ()
@@ -3218,48 +3215,43 @@ struct
             val () = List.app putNonAddrConst constantList
         end
 
-        (* Get the number of constants that need to be added to the address area. *)
-        val constsInConstArea = List.foldl (fn ((_, ConstantArea _), n) => n+1 | (_, n) => n) 0 constantList
-        (* +4 for code size, function name, register mask (no longer used) and profile object. *)
-        val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4
-
-        (* Now make the byte segment that we'll turn into the code segment *)
-        val seg : cseg = csegMake segSize
-    
-        (* Copy the code into the new segment. *)
-        val _ = csegCopySeg (codeVec, seg, (! ic), 0w0);
-
+        val _ = bytesToWords(! ic) = endOfByteArea orelse raise InternalError "mismatch"
+        
+        (* Put in the number of constants. This must go in before we actually put
+           in any constants.  In 32-bit mode there are only three constants: the 
+           function name and the register mask, now unused and the profile object.
+           All other constants are in the code. *)
         local
-            val endOfCode = bytesToWords(! ic)
-        in
-            (* Put in the number of constants. This must go in before we actually put
-               in any constants.  In 32-bit mode there are only two constants: the 
-               function name and the register mask. All other constants are in the code. *)
-            local
-                val addr = wordsToBytes(endOfCode + 0w3 + Word.fromInt constsInConstArea)
-            in
-                val () = setWordU(LargeInt.fromInt(3 + constsInConstArea), addr, seg)
-            end;
+            val addr = wordsToBytes(endOfByteArea + 0w3 + Word.fromInt constsInConstArea)
 
-             (* Now we've filled in all the C integers; now we need to convert the segment
-               into a proper code segment before it's safe to put in any ML values. *)
-            val () = csegConvertToCode seg
-            val () = csegPutWord (seg, endOfCode, toMachineWord procName)
-            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord 1 (* No longer used. *))
-            (* Next the profile object. *)
-            val () = csegPutWord (seg, endOfCode + 0w2, profileObject)
-        end
+            fun setBytes(_, _, 0) = ()
+            |   setBytes(ival, offset, count) =
+                (
+                    csegSet(byteVec, offset, Word8.fromLargeInt(ival mod 256));
+                    setBytes(ival div 256, offset+0w1, count-1)
+                )
+        in
+            val () = setBytes(LargeInt.fromInt(3 + constsInConstArea), addr, wordSize)
+        end;
+
+        (* We've put in all the byte data so it is safe to convert this to a mutable code
+           cell that can contain addresses and will be scanned by the GC. *)
+        val codeSeg = csegConvertToCode byteVec
+        val () = csegPutWord (codeSeg, endOfByteArea, toMachineWord procName)
+        val () = csegPutWord (codeSeg, endOfByteArea + 0w1, toMachineWord 1 (* No longer used. *))
+        (* Next the profile object. *)
+        val () = csegPutWord (codeSeg, endOfByteArea + 0w2, profileObject)
     in
         let
             fun putConst ((addrs, SelfAddress), constOffset) =
                     (* Self address goes inline. *)
-                    (csegPutConstant (seg, addrs, toMachineWord(csegAddr seg), 0w0); constOffset)
+                    (csegPutConstant (codeSeg, addrs, toMachineWord(csegAddr codeSeg), 0w0); constOffset)
 
             |   putConst ((addrs, InlineAbsoluteAddress m), constOffset) =
-                    (csegPutConstant (seg, addrs, m, 0w0); constOffset)
+                    (csegPutConstant (codeSeg, addrs, m, 0w0); constOffset)
 
             |   putConst ((addrs, InlineRelativeAddress m), constOffset) =
-                    (csegPutConstant (seg, addrs, m, 0w1); constOffset)
+                    (csegPutConstant (codeSeg, addrs, m, 0w1); constOffset)
 
             |   putConst ((addrs, ConstantArea m), constOffset) =
                     (* Not inline.  Put the constant in the constant area and set the original address
@@ -3268,8 +3260,8 @@ struct
                         val ref endByte = ic
                         val addrOfConst = endByte addrPlus (constOffset-1 + 2+1) * wordSize
                     in
-                        csegPutConstant (seg, addrOfConst, m, 0w0);
-                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, seg);
+                        csegPutConstant (codeSeg, addrOfConst, m, 0w0);
+                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeSeg);
                         constOffset+1
                     end
 
@@ -3281,12 +3273,13 @@ struct
                 if printAssemblyCode
                 then (* print out the code *)
                 (
-                    printCode(cvec, seg);
+                    printCode(cvec, codeSeg);
                     printStream "\n\n"
                 )
             else ()
         in
-            csegLockAndGetExecutable seg 
+            (* Finally lock the code and return the code address. *)
+            csegLockAndGetExecutable codeSeg 
         end (* the result *)
     end (* copyCode *)
  

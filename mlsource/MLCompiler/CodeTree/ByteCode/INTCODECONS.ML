@@ -1041,40 +1041,34 @@ struct
                            procName, constVec, stage1Code, ...}) : address =
     let
         val codeList = List.rev(!stage1Code)
-        val (codeVec, endIC) = genCode(codeList, cvec)
+        val (byteVec, endIC) = genCode(codeList, cvec)
   
         (* +3 for profile count, function name and constants count *)
         val numOfConst = List.length(! constVec)
         val endOfCode = endIC div wordLength
         val segSize   = endOfCode + Word.fromInt numOfConst + 0w4
         val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
-
-        (* Now make the byte segment that we'll turn into the code segment *)
-        val seg = csegMake segSize
-
-        (* Copy the code into the new segment. *)
-        val () = csegCopySeg (codeVec, seg, endIC, 0w0);
     
         (* Put in the number of constants. This must go in before
            we actually put in any constants. *)
         local
             val addr = ((segSize - 0w1) * wordLength)
         in
-            val () = setLong (numOfConst + 3, addr, seg) 
+            val () = setLong (numOfConst + 3, addr, byteVec) 
         end
 
         (* Now we've filled in all the size info we need to convert the segment
            into a proper code segment before it's safe to put in any ML values. *)
-        val () = csegConvertToCode seg;
+        val codeVec = csegConvertToCode byteVec
 
         local
             val name     : string = procName
             val nameWord : machineWord = toMachineWord name
         in
-            val () = csegPutWord (seg, endOfCode, nameWord)
+            val () = csegPutWord (codeVec, endOfCode, nameWord)
         end
         (* This used to be used on X86 for the register mask. *)
-        val () = csegPutWord (seg, endOfCode+0w1, toMachineWord 1)
+        val () = csegPutWord (codeVec, endOfCode+0w1, toMachineWord 1)
         (* Profile ref.  A byte ref used by the profiler in the RTS. *)
         local
             val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
@@ -1082,7 +1076,7 @@ struct
             |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
             val () = clear(Word.fromInt wordSize)
         in
-            val () = csegPutWord (seg, endOfCode+0w2, toMachineWord v)
+            val () = csegPutWord (codeVec, endOfCode+0w2, toMachineWord v)
         end
 
         (* and then copy the constants from the constant list. *)
@@ -1091,7 +1085,7 @@ struct
             let
                 val constAddr = (firstConstant div wordLength) + num
             in
-                csegPutWord (seg, constAddr, value);
+                csegPutWord (codeVec, constAddr, value);
                 num+0w1
             end
         in
@@ -1100,9 +1094,9 @@ struct
     in
         if printAssemblyCode
         then (* print out the code *)
-            (printCode (seg, procName, endIC, printStream); printStream"\n")
+            (printCode (codeVec, procName, endIC, printStream); printStream"\n")
         else ();
-        csegLockAndGetExecutable seg
+        csegLockAndGetExecutable codeVec
     end (* copyCode *)
     
     fun addItemToList(item, Code{stage1Code, ...}) = stage1Code := item :: !stage1Code
