@@ -122,7 +122,7 @@ val () = Bootstrap.use "basis/SingleAssignment.sml";
 
 (* Build Windows or Unix structure as appropriate. *)
 local
-    val getOS: int = Compat560.osSpecificGeneral (0, 0)
+    val getOS: int = LibrarySupport.getOSType()
 in
     val () =
     if getOS = 0

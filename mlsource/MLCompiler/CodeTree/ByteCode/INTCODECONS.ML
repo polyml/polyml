@@ -43,7 +43,11 @@ struct
        be run on a machine with either endian-ness.  We have to find out the
        endian-ness when we run.  There are separate versions of the compiler
        for 32-bit and 64-bit so that can be a constant.  *)
-    fun littleEndian () : bool = not (Compat560.isBigEndian())
+    local
+        val isBigEndian: unit -> bool = RunCall.rtsCallFast1 "PolyIsBigEndian"
+    in
+        val littleEndian = not o isBigEndian
+    end
 
     val wordLength = RunCall.bytesPerWord
     
@@ -601,7 +605,7 @@ struct
         findConst valu (! constVec) 0
     end
 
-    fun printCode (seg: cseg, procName: string, endcode, printStream) =
+    fun printCode (seg: codeVec, procName: string, endcode, printStream) =
     let
         val () = printStream "\n";
         val () = if procName = "" (* No name *) then printStream "?" else printStream procName;
@@ -632,8 +636,8 @@ struct
         (* Gets "length" bytes from locations "addr", "addr"+1...
            Returns an unsigned number. *)
         fun getB (0, _, _) = 0w0
-        |   getB (length, addr, seg: cseg) =
-                (getB (length - 1, addr + 0w1, seg) << 0w8) + word8ToWord (csegGet (seg, addr))
+        |   getB (length, addr, seg) =
+                (getB (length - 1, addr + 0w1, seg) << 0w8) + word8ToWord (codeVecGet (seg, addr))
 
         (* Prints a relative address. *)
         fun printDisp (len, spacer: string, addToList: bool) =
@@ -675,7 +679,7 @@ struct
             else
             let (* It's an instruction. *)
                 val ()  = printStream "\t";
-                val opc = csegGet (seg, !ptr) (* opcode *)
+                val opc = codeVecGet (seg, !ptr) (* opcode *)
                 val ()  = ptr := !ptr + 0w1;
                 val ()  = printStream (repr opc);
 
@@ -856,11 +860,11 @@ struct
         val endOfCode = endIC div wordLength
         val firstConstant = endIC + wordLength * 0w3 (* Add 3 for fn name, unused and profile count. *)
         val segSize   = endOfCode + Word.fromInt(List.length(! constVec)) + 0w4
-        val codeVec = csegMake segSize
+        val codeVec = byteVecMake segSize
 
         val ic = ref 0w0
         
-        fun genByte b = csegSet(codeVec, !ic, b) before ic := !ic + 0w1
+        fun genByte b = byteVecSet(codeVec, !ic, b) before ic := !ic + 0w1
 
         fun genByteCode(SimpleCode bytes, _, _) =
             (* Simple code - just generate the bytes. *)
@@ -1026,7 +1030,7 @@ struct
         if i = wordLength then ()
         else
         (
-            csegSet(seg,
+            byteVecSet(seg,
                 if littleEndian() then a+i else a+wordLength-i-0w1,
                 Word8.fromInt(value mod 256));
             putBytes(value div 256, a, seg, i+0w1)
@@ -1059,16 +1063,16 @@ struct
 
         (* Now we've filled in all the size info we need to convert the segment
            into a proper code segment before it's safe to put in any ML values. *)
-        val codeVec = csegConvertToCode byteVec
+        val codeVec = byteVecToCodeVec byteVec
 
         local
             val name     : string = procName
             val nameWord : machineWord = toMachineWord name
         in
-            val () = csegPutWord (codeVec, endOfCode, nameWord)
+            val () = codeVecPutWord (codeVec, endOfCode, nameWord)
         end
         (* This used to be used on X86 for the register mask. *)
-        val () = csegPutWord (codeVec, endOfCode+0w1, toMachineWord 1)
+        val () = codeVecPutWord (codeVec, endOfCode+0w1, toMachineWord 1)
         (* Profile ref.  A byte ref used by the profiler in the RTS. *)
         local
             val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
@@ -1076,7 +1080,7 @@ struct
             |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
             val () = clear(Word.fromInt wordSize)
         in
-            val () = csegPutWord (codeVec, endOfCode+0w2, toMachineWord v)
+            val () = codeVecPutWord (codeVec, endOfCode+0w2, toMachineWord v)
         end
 
         (* and then copy the constants from the constant list. *)
@@ -1085,7 +1089,7 @@ struct
             let
                 val constAddr = (firstConstant div wordLength) + num
             in
-                csegPutWord (codeVec, constAddr, value);
+                codeVecPutWord (codeVec, constAddr, value);
                 num+0w1
             end
         in
@@ -1096,7 +1100,7 @@ struct
         then (* print out the code *)
             (printCode (codeVec, procName, endIC, printStream); printStream"\n")
         else ();
-        csegLockAndGetExecutable codeVec
+        codeVecLockAndGetExecutable codeVec
     end (* copyCode *)
     
     fun addItemToList(item, Code{stage1Code, ...}) = stage1Code := item :: !stage1Code

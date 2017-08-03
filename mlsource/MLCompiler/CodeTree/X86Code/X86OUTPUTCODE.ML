@@ -171,13 +171,7 @@ struct
     end
 
     (* Put 1 unsigned byte at a given offset in the segment. *)
-    fun set8u (b, addr, seg) = csegSet (seg, addr,  b)
-
-    (* Get 1 unsigned byte from the given offset in the segment. *)
-    fun get8u (a: word, seg: cseg) : Word8.word = csegGet (seg, a);
-
-    (* Get 1 signed byte from the given offset in the segment. *)
-    fun get8s (a: word, seg: cseg) : int = Word8.toIntX (csegGet (seg, a));
+    fun set8u (b, addr, seg) = byteVecSet (seg, addr,  b)
  
     (* Put 4 bytes at a given offset in the segment. *)
     (* b0 is the least significant byte. *)
@@ -186,10 +180,10 @@ struct
         val a = addr;
     in
         (* Little-endian *)
-        csegSet (seg, a,     b0);
-        csegSet (seg, a + 0w1, b1);
-        csegSet (seg, a + 0w2, b2);
-        csegSet (seg, a + 0w3, b3)
+        byteVecSet (seg, a,     b0);
+        byteVecSet (seg, a + 0w1, b1);
+        byteVecSet (seg, a + 0w2, b2);
+        byteVecSet (seg, a + 0w3, b3)
     end;
 
     (* Put 1 unsigned word at a given offset in the segment. *)
@@ -205,36 +199,6 @@ struct
 
     (* Put 1 signed word at a given offset in the segment. *)
     fun set32s (ival: LargeInt.int, addr, seg) = set32u(LargeWord.fromLargeInt ival, addr, seg)
-     
-    (* Get 1 signed 32 bit word from the given offset in the segment. *)
-    fun get32s (a: word, seg: cseg) : LargeInt.int =
-    let
-        val b0  = Word8.toLargeInt (csegGet (seg, a));
-        val b1  = Word8.toLargeInt (csegGet (seg, a + 0w1));
-        val b2  = Word8.toLargeInt (csegGet (seg, a + 0w2));
-        val b3  = Word8.toLargeInt (csegGet (seg, a + 0w3));
-        val b3' = if b3 >= 0x80 then b3 - 0x100 else b3;
-        val topHw    = (b3' * 0x100) + b2;
-        val bottomHw = (b1 * 0x100) + b0;
-    in
-        (topHw * exp2_16) + bottomHw
-    end
- 
-    fun get64s (a: word, seg: cseg) : LargeInt.int =
-    let
-        val b0  = Word8.toLargeInt (csegGet (seg, a));
-        val b1  = Word8.toLargeInt (csegGet (seg, a + 0w1));
-        val b2  = Word8.toLargeInt (csegGet (seg, a + 0w2));
-        val b3  = Word8.toLargeInt (csegGet (seg, a + 0w3));
-        val b4  = Word8.toLargeInt (csegGet (seg, a + 0w4));
-        val b5  = Word8.toLargeInt (csegGet (seg, a + 0w5));
-        val b6  = Word8.toLargeInt (csegGet (seg, a + 0w6));
-        val b7  = Word8.toLargeInt (csegGet (seg, a + 0w7));
-        val b7' = if b7 >= 0x80 then b7 - 0x100 else b7;
-    in
-        ((((((((b7' * 0x100 + b6) * 0x100 + b5) * 0x100 + b4) * 0x100 + b3)
-             * 0x100 + b2) * 0x100) + b1) * 0x100) + b0
-    end
     
     fun byteSigned ival =
         if ~0x80 <= ival andalso ival < 0x80
@@ -2394,13 +2358,49 @@ struct
         infix 3 +:= ;
         fun (x +:= y) = (x := !x + (y:word));
 
-        fun get16s (a, seg: cseg) : int =
+        fun get16s (a, seg) : int =
         let
-            val b0  = Word8.toInt (csegGet (seg, a));
-            val b1  = Word8.toInt (csegGet (seg, a + 0w1));
+            val b0  = Word8.toInt (codeVecGet (seg, a));
+            val b1  = Word8.toInt (codeVecGet (seg, a + 0w1));
             val b1' = if b1 >= 0x80 then b1 - 0x100 else b1;
         in
             (b1' * 0x100) + b0
+        end
+        
+        (* Get 1 unsigned byte from the given offset in the segment. *)
+        fun get8u (a, seg) : Word8.word = codeVecGet (seg, a);
+
+        (* Get 1 signed byte from the given offset in the segment. *)
+        fun get8s (a, seg) : int = Word8.toIntX (codeVecGet (seg, a));
+     
+        (* Get 1 signed 32 bit word from the given offset in the segment. *)
+        fun get32s (a, seg) : LargeInt.int =
+        let
+            val b0  = Word8.toLargeInt (codeVecGet (seg, a));
+            val b1  = Word8.toLargeInt (codeVecGet (seg, a + 0w1));
+            val b2  = Word8.toLargeInt (codeVecGet (seg, a + 0w2));
+            val b3  = Word8.toLargeInt (codeVecGet (seg, a + 0w3));
+            val b3' = if b3 >= 0x80 then b3 - 0x100 else b3;
+            val topHw    = (b3' * 0x100) + b2;
+            val bottomHw = (b1 * 0x100) + b0;
+        in
+            (topHw * exp2_16) + bottomHw
+        end
+ 
+        fun get64s (a, seg) : LargeInt.int =
+        let
+            val b0  = Word8.toLargeInt (codeVecGet (seg, a));
+            val b1  = Word8.toLargeInt (codeVecGet (seg, a + 0w1));
+            val b2  = Word8.toLargeInt (codeVecGet (seg, a + 0w2));
+            val b3  = Word8.toLargeInt (codeVecGet (seg, a + 0w3));
+            val b4  = Word8.toLargeInt (codeVecGet (seg, a + 0w4));
+            val b5  = Word8.toLargeInt (codeVecGet (seg, a + 0w5));
+            val b6  = Word8.toLargeInt (codeVecGet (seg, a + 0w6));
+            val b7  = Word8.toLargeInt (codeVecGet (seg, a + 0w7));
+            val b7' = if b7 >= 0x80 then b7 - 0x100 else b7;
+        in
+            ((((((((b7' * 0x100 + b6) * 0x100 + b5) * 0x100 + b4) * 0x100 + b3)
+                 * 0x100 + b2) * 0x100) + b1) * 0x100) + b0
         end
  
         fun print32 () = printValue (get32s (!ptr, seg)) before (ptr +:= 0w4)
@@ -2419,7 +2419,7 @@ struct
            or an xmm register depending on the instruction. *)
         fun printEAGeneral printRegister (rex, sz) =
         let
-            val modrm = csegGet (seg, !ptr)
+            val modrm = codeVecGet (seg, !ptr)
             val () = ptr +:= 0w1
             (* Decode the Rex prefix if present. *)
             val rexX = (rex andb8 0wx2) <> 0w0
@@ -2436,7 +2436,7 @@ struct
       
             |   (md, 0w4, _) =>
                 let (* s-i-b present. *)
-                    val sib = csegGet (seg, !ptr)
+                    val sib = codeVecGet (seg, !ptr)
                     val () = ptr +:= 0w1
                     val ss    = sib >>- 0w6
                     val index = (sib  >>- 0w3) andb8 0w7
@@ -2509,7 +2509,7 @@ struct
         fun printGvEv (opByte, rex, rexR, sz) =
         let
             (* Register is in next byte. *)
-            val nb = csegGet (seg, !ptr)
+            val nb = codeVecGet (seg, !ptr)
             val reg = (nb >>- 0w3) andb8 0w7
         in
             printArith(Word8.toInt((opByte div 0w8) mod 0w8));
@@ -2530,7 +2530,7 @@ struct
         fun printShift (opByte, rex, sz) =
         let
             (* Opcode is determined by next byte. *)
-            val nb = Word8.toInt (csegGet (seg, !ptr))
+            val nb = Word8.toInt (codeVecGet (seg, !ptr))
             val opc = (nb div 8) mod 8
         in
             print
@@ -2551,7 +2551,7 @@ struct
         fun printFloat (opByte, rex) =
         let
             (* Opcode is in next byte. *)
-            val opByte2  = csegGet (seg, !ptr)
+            val opByte2  = codeVecGet (seg, !ptr)
             val nnn = (opByte2 >>- 0w3) andb8 0w7
             val escNo = opByte andb8 0wx7
         in
@@ -2684,7 +2684,7 @@ struct
             |   0wx0f => (* ESCAPE *)
                 let
                     (* Opcode is in next byte. *)
-                    val opByte2  = csegGet (seg, !ptr)
+                    val opByte2  = codeVecGet (seg, !ptr)
                     val () = (ptr +:= 0w1)
                 in
                     case legacyPrefix of
@@ -2693,7 +2693,7 @@ struct
                             case opByte2 of
                                 0wxC1 =>
                                 let
-                                    val nb = csegGet (seg, !ptr);
+                                    val nb = codeVecGet (seg, !ptr);
                                     val reg = (nb >>- 0w3) andb8 0w7
                                 in
                                     (* The address argument comes first in the assembly code. *)
@@ -2705,7 +2705,7 @@ struct
 
                             |   0wxB6 =>
                                 let
-                                    val nb = csegGet (seg, !ptr);
+                                    val nb = codeVecGet (seg, !ptr);
                                     val reg = (nb >>- 0w3) andb8 0w7
                                 in
                                     print "movzx\t";
@@ -2716,7 +2716,7 @@ struct
 
                             |   0wxB7 =>
                                 let
-                                    val nb = csegGet (seg, !ptr);
+                                    val nb = codeVecGet (seg, !ptr);
                                     val reg = (nb >>- 0w3) andb8 0w7
                                 in
                                     print "movzx\t";
@@ -2727,7 +2727,7 @@ struct
 
                             |   0wxAF =>
                                 let
-                                    val nb = csegGet (seg, !ptr);
+                                    val nb = codeVecGet (seg, !ptr);
                                     val reg = (nb >>- 0w3) andb8 0w7
                                 in
                                     print "imul\t";
@@ -2758,7 +2758,7 @@ struct
                     
                     |   0wxf2 => (* SSE2 instruction *)
                         let
-                            val nb = csegGet (seg, !ptr)
+                            val nb = codeVecGet (seg, !ptr)
                             val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
                         in
                             case opByte2 of
@@ -2775,7 +2775,7 @@ struct
 
                     |   0wxf3 => (* SSE2 instruction. *)
                         let
-                            val nb = csegGet (seg, !ptr)
+                            val nb = codeVecGet (seg, !ptr)
                             val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
                         in
                             case opByte2 of
@@ -2786,7 +2786,7 @@ struct
 
                     |   0wx66 => (* SSE2 instruction *)
                         let
-                            val nb = csegGet (seg, !ptr)
+                            val nb = codeVecGet (seg, !ptr)
                             val reg = SSE2Reg((nb >>- 0w3) andb8 0w7)
                         in
                             case opByte2 of
@@ -2854,7 +2854,7 @@ struct
             |   0wx80 => (* Group1_8_a *)
                 let (* Memory, byte constant *)
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
@@ -2866,7 +2866,7 @@ struct
             |   0wx81 =>
                 let (* Memory, 32-bit constant *)
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
@@ -2878,7 +2878,7 @@ struct
             |   0wx83 =>
                 let (* Word memory, 8-bit constant *)
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                 in
                     printArith ((nb div 8) mod 8);
                     print "\t";
@@ -2890,7 +2890,7 @@ struct
             |   0wx87 =>
                 let (* xchng *)
                     (* Register is in next byte. *)
-                    val nb = csegGet (seg, !ptr)
+                    val nb = codeVecGet (seg, !ptr)
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "xchng \t";
@@ -2902,7 +2902,7 @@ struct
             |   0wx88 =>
                 let (* mov eb,gb i.e a store *)
                     (* Register is in next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr));
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr));
                     val reg = (nb div 8) mod 8;
                 in
                     print "mov \t";
@@ -2926,7 +2926,7 @@ struct
             |   0wx89 =>
                 let (* mov ev,gv i.e. a store *)
                     (* Register is in next byte. *)
-                    val nb = csegGet (seg, !ptr)
+                    val nb = codeVecGet (seg, !ptr)
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
@@ -2938,7 +2938,7 @@ struct
             |   0wx8b =>
                 let (* mov gv,ev i.e. a load *)
                     (* Register is in next byte. *)
-                    val nb = csegGet (seg, !ptr)
+                    val nb = codeVecGet (seg, !ptr)
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "mov \t";
@@ -2950,7 +2950,7 @@ struct
             |   0wx8d =>
                 let (* lea gv.M *)
                     (* Register is in next byte. *)
-                    val nb = csegGet (seg, !ptr)
+                    val nb = codeVecGet (seg, !ptr)
                     val reg = (nb >>- 0w3) andb8 0w7
                 in
                     print "lea \t";
@@ -3061,7 +3061,7 @@ struct
             |   0wxf6 => (* Group3_a *)
                 let
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                     val opc = (nb div 8) mod 8
                 in
                     print
@@ -3078,7 +3078,7 @@ struct
             |   0wxf7 => (* Group3_A *)
                 let
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                     val opc = (nb div 8) mod 8
                 in
                     print
@@ -3100,7 +3100,7 @@ struct
             |   0wxff => (* Group5 *)
                 let
                     (* Opcode is determined by next byte. *)
-                    val nb = Word8.toInt (csegGet (seg, !ptr))
+                    val nb = Word8.toInt (codeVecGet (seg, !ptr))
                     val opc = (nb div 8) mod 8
                 in
                     print
@@ -3155,7 +3155,7 @@ struct
 
         (* Create a byte vector and copy the data in.  This is a byte area and not scanned
            by the GC so cannot contain any addresses. *)
-        val byteVec = csegMake segSize
+        val byteVec = byteVecMake segSize
         val ic = ref 0w0
         
         local
@@ -3227,7 +3227,7 @@ struct
             fun setBytes(_, _, 0) = ()
             |   setBytes(ival, offset, count) =
                 (
-                    csegSet(byteVec, offset, Word8.fromLargeInt(ival mod 256));
+                    byteVecSet(byteVec, offset, Word8.fromLargeInt(ival mod 256));
                     setBytes(ival div 256, offset+0w1, count-1)
                 )
         in
@@ -3236,38 +3236,50 @@ struct
 
         (* We've put in all the byte data so it is safe to convert this to a mutable code
            cell that can contain addresses and will be scanned by the GC. *)
-        val codeSeg = csegConvertToCode byteVec
-        val () = csegPutWord (codeSeg, endOfByteArea, toMachineWord procName)
-        val () = csegPutWord (codeSeg, endOfByteArea + 0w1, toMachineWord 1 (* No longer used. *))
+        val codeSeg = byteVecToCodeVec byteVec
+
+        (* Various RTS functions assume that the first constant is the function name.
+           The profiler assumes that the third word is the address of the mutable that
+           contains the profile count.  The second word used to be used for the register
+           mask but is no longer used. *)
+        val () = codeVecPutWord (codeSeg, endOfByteArea, toMachineWord procName)
+        val () = codeVecPutWord (codeSeg, endOfByteArea + 0w1, toMachineWord 1 (* No longer used. *))
         (* Next the profile object. *)
-        val () = csegPutWord (codeSeg, endOfByteArea + 0w2, profileObject)
+        val () = codeVecPutWord (codeSeg, endOfByteArea + 0w2, profileObject)
     in
         let
-            fun putConst ((addrs, SelfAddress), constOffset) =
+            fun setBytes(_, _, 0w0) = ()
+            |   setBytes(b, addr, count) =
+                (
+                    codeVecSet (codeSeg, addr, wordToWord8 b);
+                    setBytes(b >> 0w8, addr+0w1, count-0w1)
+                )
+
+            fun putConst ((addrs, SelfAddress), constAddr) =
                     (* Self address goes inline. *)
-                    (csegPutConstant (codeSeg, addrs, toMachineWord(csegAddr codeSeg), 0w0); constOffset)
+                    (codeVecPutConstant (codeSeg, addrs, toMachineWord(codeVecAddr codeSeg), ConstAbsolute); constAddr)
 
-            |   putConst ((addrs, InlineAbsoluteAddress m), constOffset) =
-                    (csegPutConstant (codeSeg, addrs, m, 0w0); constOffset)
+            |   putConst ((addrs, InlineAbsoluteAddress m), constAddr) =
+                    (codeVecPutConstant (codeSeg, addrs, m, ConstAbsolute); constAddr)
 
-            |   putConst ((addrs, InlineRelativeAddress m), constOffset) =
-                    (csegPutConstant (codeSeg, addrs, m, 0w1); constOffset)
+            |   putConst ((addrs, InlineRelativeAddress m), constAddr) =
+                    (codeVecPutConstant (codeSeg, addrs, m, ConstX86Relative); constAddr)
 
-            |   putConst ((addrs, ConstantArea m), constOffset) =
+            |   putConst ((addrs, ConstantArea m), constAddr) =
                     (* Not inline.  Put the constant in the constant area and set the original address
                         to be the relative offset to the constant itself. *)
-                    let
-                        val ref endByte = ic
-                        val addrOfConst = endByte addrPlus (constOffset-1 + 2+1) * wordSize
-                    in
-                        csegPutConstant (codeSeg, addrOfConst, m, 0w0);
-                        set32s(Word.toLargeInt(addrOfConst - addrs - 0w4), addrs, codeSeg);
-                        constOffset+1
-                    end
+                    (
+                        codeVecPutWord (codeSeg, constAddr, m);
+                        (* Put in the 32-bit offset - always unsigned since the destination
+                           is after the reference. *)
+                        setBytes(constAddr * Word.fromInt wordSize - addrs - 0w4, addrs, 0w4);
+                        constAddr+0w1
+                    )
 
             |   putConst (_, constOffset) = constOffset
 
-            val _ = List.foldl putConst 0 constantList
+            (* Put the constants.  Any values in the constant area start at +3 i.e. after the profile. *)
+            val _ = List.foldl putConst (endOfByteArea+0w3) constantList
 
             val () = 
                 if printAssemblyCode
@@ -3279,7 +3291,7 @@ struct
             else ()
         in
             (* Finally lock the code and return the code address. *)
-            csegLockAndGetExecutable codeSeg 
+            codeVecLockAndGetExecutable codeSeg 
         end (* the result *)
     end (* copyCode *)
  

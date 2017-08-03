@@ -19,21 +19,26 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure CODE_ARRAY :
+structure CODE_ARRAY :>
 sig
-    type machineWord
-    type address
-    type cseg
+    type machineWord = Address.machineWord
+    and  address = Address.address
+    type byteVec and codeVec
 
-    val csegMake:          word  -> cseg
-    val csegConvertToCode: cseg -> cseg
-    val csegGet:           cseg * word -> Word8.word
-    val csegSet:           cseg * word * Word8.word -> unit
-    val csegGetWord:       cseg * word -> machineWord
-    val csegPutWord:       cseg * word * machineWord -> unit
-    val csegAddr:          cseg -> address
-    val csegLockAndGetExecutable: cseg -> address
-    val csegPutConstant:   cseg * word * machineWord * word -> unit
+    val byteVecMake:            word -> byteVec
+    val byteVecSet:             byteVec * word * Word8.word -> unit
+    val byteVecToCodeVec:       byteVec -> codeVec
+    
+    val codeVecGet:             codeVec * word -> Word8.word
+    val codeVecSet:             codeVec * word * Word8.word -> unit
+    val codeVecAddr:            codeVec -> address
+    val codeVecPutWord:         codeVec * word * machineWord -> unit
+    
+    datatype constantType = ConstAbsolute | ConstX86Relative
+    
+    val codeVecPutConstant:     codeVec * word * machineWord * constantType -> unit
+    
+    val codeVecLockAndGetExecutable: codeVec -> address
 end = 
 struct
     open Address
@@ -43,14 +48,15 @@ struct
         Bytes
     |   UnlockedCode
 
-    datatype cseg = CodeArray of { status: csegStatus, vector: address }
+    type byteVec = address
+    and codeVec = address
 
     val objLength: address -> word = length
 
     val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
     val wordSize = Word.fromInt Address.wordSize
     
-    fun allocateAndClear size =
+    fun byteVecMake size =
     let
         val vec : address = RunCall.allocateByteMemory(size, F_mutable_bytes)
         (* allocateByteMemory does not clear the area.  We have to do that at least
@@ -65,34 +71,15 @@ struct
         vec
     end
 
-    fun csegMake (size : word) : cseg = CodeArray{status=Bytes, vector=allocateAndClear size}
+    (* These use specific C functions to do the work. *)
+    val byteVecToCodeVec = RunCall.rtsCallFull1 "PolyCopyByteVecToCode"
+    and codeVecLockAndGetExecutable = RunCall.rtsCallFull1 "PolyLockMutableCode"
 
-    local
-        (* These use specific C functions to do the work. *)
-        val polySpecificGeneralCall = RunCall.rtsCallFull2 "PolySpecificGeneral"
-    in
-        fun csegConvertToCode(CodeArray{status=Bytes, vector=addr}) =
-            let
-                (* Convert the byte data into code. *)
-                val newAddr = polySpecificGeneralCall (107, addr)
-            in
-                CodeArray{status=UnlockedCode, vector=newAddr}
-            end
-        |   csegConvertToCode _ = raise InternalError "csegConvertToCode: not a byte segment"
-
-        and csegLockAndGetExecutable (CodeArray{status=UnlockedCode, vector=addr}): address =
-            (* Lock the code and return the executable address.  This currently just returns
-               the original address. *)
-            polySpecificGeneralCall (106, addr)
-
-        |   csegLockAndGetExecutable _ = raise InternalError "csegLockAndGetExecutable: not an unlocked code segment"
-    end
- 
-    fun csegAddr(CodeArray{status=UnlockedCode, vector}) = vector
-    |   csegAddr(CodeArray{status=Bytes, ...}) = raise InternalError "csegAddr: not a code segment"
+    (* Return the address of the segment. Used when putting in "self" addresses. *)
+    fun codeVecAddr vector = vector
   
-    (* Returns a value from the vector. *)
-    fun csegGet (CodeArray{vector=addr, ...}, byteIndex : word) : Word8.word =
+    (* Returns a value from the vector.  Used when printing code. *)
+    fun codeVecGet (addr, byteIndex : word) : Word8.word =
     let
         val lengthWords = objLength addr
         val lengthBytes = wordSize * lengthWords
@@ -101,18 +88,23 @@ struct
         then loadByte (addr, byteIndex)
         else raise Subscript
     end
-       
-    fun csegSet (CodeArray{vector=addr, ...}, byteIndex, value: Word8.word) : unit =
-        let
-            val lengthWords = objLength addr
-            val lengthBytes = wordSize * lengthWords
-        in
-            if byteIndex < lengthBytes then assignByte (addr, byteIndex, value)
-            else raise Subscript
-     end
 
-    (* Puts in a word at a given word offset. Does not expand the segment. *)
-    fun csegPutWord (CodeArray{status=UnlockedCode, vector=addr}, wordIndex, value:machineWord) : unit =
+    (* Set a byte. Used when setting the byte data. *)
+    fun byteVecSet (addr, byteIndex, value: Word8.word) =
+    let
+        val lengthWords = objLength addr
+        val lengthBytes = wordSize * lengthWords
+    in
+        if byteIndex < lengthBytes then assignByte (addr, byteIndex, value)
+        else raise Subscript
+    end
+
+    (* Set a byte.  Used when fixing up code references. *)
+    val codeVecSet = byteVecSet
+
+    (* Puts in a word at a given word offset.  This can only be used when the
+       word is on a word boundary. *)
+    fun codeVecPutWord (addr, wordIndex, value:machineWord) : unit =
     let
         val lengthWords = objLength addr
     in
@@ -120,34 +112,25 @@ struct
         then raise Subscript
         else assignWord (addr, wordIndex, value)
     end
-    | csegPutWord _ = raise InternalError "csegPutWord: not an unlocked code segment"
-  
-    (* Gets a word at a given word offset. Does not expand the segment. *)
-    fun csegGetWord (CodeArray{status=UnlockedCode, vector=addr}, wordIndex) : machineWord =
-    let
-        val lengthWords = objLength addr
-    in
-        if lengthWords <= wordIndex
-        then raise Subscript
-        else loadWord (addr, wordIndex)
-    end
-    | csegGetWord (CodeArray{status=Bytes, ...}, _)  =
-            raise InternalError "csegGetWord: can't load a word from a byte segment"
+    
+    datatype constantType = ConstAbsolute | ConstX86Relative
 
     local
         val setCodeConstantCall = RunCall.rtsCallFast4 "PolySetCodeConstant"
     in
-        (* csegPutConstant: store a constant into the code. *)
-        fun csegPutConstant (CodeArray{status=UnlockedCode, vector=addr}, byteIndex, value:machineWord, option: word) : unit =
+        (* Store a constant into the code.  This must be used if the constant is
+           not on a word boundary or if it needs special treatment. *)
+        fun codeVecPutConstant (addr, byteIndex, value:machineWord, option: constantType) =
         let
             val lengthWords = objLength addr
             val lengthBytes = wordSize * lengthWords
+            val optValue =
+                case option of ConstAbsolute => 0w0 | ConstX86Relative => 0w1
         in
             if lengthBytes <= byteIndex
             then raise Subscript
-            else setCodeConstantCall(addr, byteIndex, value, option)
+            else setCodeConstantCall(addr, byteIndex, value, optValue)
         end
-        | csegPutConstant _ = raise InternalError "csegPutConstant: not an unlocked code segment"
     end
 
-end; (* CODE_SEG *)
+end;

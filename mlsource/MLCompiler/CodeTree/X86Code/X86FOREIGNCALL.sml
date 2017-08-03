@@ -74,9 +74,21 @@ struct
         toMachineWord profileObject
     end
 
-    val makeEntryPoint: string -> machineWord = Compat560.createEntryPointObject
+    val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
     datatype abi = X86_32 | X64Win | X64Unix
+    
+    local
+        (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
+        val getABICall: unit -> int = RunCall.rtsCallFast0 "PolyGetABI"
+    in
+        fun getABI() =
+            case getABICall() of
+                0 => X86_32
+            |   1 => X64Unix
+            |   2 => X64Win
+            |   n => raise InternalError ("Unknown ABI type " ^ Int.toString n)
+    end
 
     val noException = 1
 
@@ -89,11 +101,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         (* Branch to check for exception. *)
         val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
@@ -216,11 +224,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
@@ -310,11 +314,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
@@ -412,11 +412,7 @@ struct
         val entryPointAddr = makeEntryPoint functionName
 
         (* Get the ABI.  On 64-bit Windows and Unix use different calling conventions. *)
-        val abi =
-            case Compat560.polySpecificGeneral (108, 0) of
-                1 => X64Unix
-            |   2 => X64Win
-            |   _ => X86_32
+        val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
             if isX64 then (r11, r13) else (ecx, edi)
