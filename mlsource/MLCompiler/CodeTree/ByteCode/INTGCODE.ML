@@ -66,28 +66,34 @@ struct
     |   NotEnd
 
     (* Code generate a function or global declaration *)
-    fun codegen (pt : backendIC, cvec : code, recReference: machineWord option, numOfArgs: int, parameters) : address =
+    fun codegen (pt, cvec, recReference: machineWord option, numOfArgs, localCount, parameters) : address =
     let
-        val initTrans = 5 (* Initial size of tables. *)
-    
         datatype decEntry =
             StackAddr of int
         |   Empty
     
-        val decVec = StretchArray.stretchArray (initTrans, Empty)
+        val decVec = Array.array (localCount, Empty)
     
         (* Count of number of items on the stack. *)
-        val realstackptr = ref 1; (* The static-link/closure ptr is already there *)
+        val realstackptr = ref 1 (* The closure ptr is already there *)
+        
+        (* Maximum size of the stack. *)
+        val maxStack = ref 1
 
         (* Exited - set to true if we have jumped out. *)
         val exited = ref false;
 
-        (* Push a value onto the stack. For the moment this merely involves
-           adding corresponding values to the real and pseudo-stacks. *)
-        fun incsp () : unit = realstackptr := !realstackptr + 1;
+        (* Push a value onto the stack. *)
+        fun incsp () =
+        (
+            realstackptr := !realstackptr + 1;
+            if !realstackptr > !maxStack
+            then maxStack := !realstackptr
+            else ()
+        )
 
         (* An entry has been removed from the stack. *)
-        fun decsp ()  : unit= realstackptr := !realstackptr - 1;
+        fun decsp () = realstackptr := !realstackptr - 1;
  
         fun pushLocalStackValue addr = ( genLocal(!realstackptr + addr, cvec); incsp() )
 
@@ -98,7 +104,7 @@ struct
         |   locaddr(BICLoadLocal locn) =
             (
                 (* positive address - on the stack. *)
-                    case StretchArray.sub (decVec, locn) of
+                    case Array.sub (decVec, locn) of
                         StackAddr n => pushLocalStackValue (~ n)
                     |   _ => (* Should be on the stack, not a function. *)
                         raise InternalError "locaddr: bad stack address"
@@ -193,7 +199,7 @@ struct
                         genProc (lambda, true,
                             fn() =>
                             (
-                                StretchArray.update (decVec, addr, StackAddr (! realstackptr));
+                                Array.update (decVec, addr, StackAddr (! realstackptr));
                                 genMutualDecs (otherDecs)
                             ))
 
@@ -205,13 +211,13 @@ struct
                            will be removed in the stack adjustment code. *)
                         genContainer(size, cvec); (* Push the address of this container. *)
                         realstackptr := !realstackptr + size + 1; (* Pushes N words plus the address. *)
-                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
+                        Array.update (decVec, addr, StackAddr(!realstackptr))
                     )
 
                 |   codeDecls(BICDeclar{value, addr, ...}) =
                     (
                         gencde (value, ToStack, NotEnd, loopAddr);
-                        StretchArray.update (decVec, addr, StackAddr(!realstackptr))
+                        Array.update (decVec, addr, StackAddr(!realstackptr))
                     )
                 |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
             in
@@ -229,7 +235,7 @@ struct
                 fun genLoopArg ({addr, value, ...}) =
                     (
                      gencde (value, ToStack, NotEnd, loopAddr);
-                     StretchArray.update (decVec, addr, StackAddr (!realstackptr));
+                     Array.update (decVec, addr, StackAddr (!realstackptr));
                      !realstackptr (* Return the posn on the stack. *)
                     )
                 val argIndexList = map genLoopArg args;
@@ -316,7 +322,7 @@ struct
                 (* Push the exception packet and set the address. *)
                 val () = genLdexc cvec
                 val () = incsp ()
-                val () = StretchArray.update (decVec, exPacketAddr, StackAddr(!realstackptr))
+                val () = Array.update (decVec, exPacketAddr, StackAddr(!realstackptr))
                 val () = gencde (handler, ToStack, NotEnd, loopAddr)
                 (* Have to remove the exception packet. *)
                 val () = resetStack(1, true, cvec)
@@ -858,16 +864,16 @@ struct
      function may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
     (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
-   and genProc (lam: bicLambdaForm as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
+   and genProc ({ closure=[], localCount, body, argTypes, name, ...}: bicLambdaForm, mutualDecs, doNext: unit -> unit) : unit =
         let
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
             val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
-            val newCode : code = codeCreate(#name lam, parameters);
+            val newCode : code = codeCreate(name, parameters);
 
             (* Code-gen function. No non-local references. *)
              val res : address =
-               codegen (#body lam, newCode, SOME(toMachineWord closure), List.length (#argTypes lam), parameters);
+               codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters);
             val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
             val () = Address.lock closure
 
@@ -877,12 +883,12 @@ struct
             if mutualDecs then doNext () else ()
         end
 
-    |   genProc (lam, mutualDecs, doNext) =
+    |   genProc ({ localCount, body, name, argTypes, closure, ...}, mutualDecs, doNext) =
         let (* Full closure required. *)
-            val newCode = codeCreate (#name lam, parameters)
+            val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
-            val res = codegen (#body lam, newCode, NONE, List.length (#argTypes lam), parameters);
-            val sizeOfClosure = List.length (#closure lam) + 1;
+            val res = codegen (body, newCode, NONE, List.length argTypes, localCount, parameters);
+            val sizeOfClosure = List.length closure + 1;
         in
             if mutualDecs
             then
@@ -918,7 +924,7 @@ struct
                     loadItems (vs, addr + 1)
                 end
              
-                val () = loadItems (#closure lam, 1)
+                val () = loadItems (closure, 1)
                 val () = genLock cvec (* Lock it. *)
            
                 (* Remove the extra reference. *)
@@ -932,7 +938,7 @@ struct
                 (* Put it on the stack. *)
                 val () = pushConst (toMachineWord res, cvec)
                 val () = incsp ()
-                val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) (#closure lam)
+                val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 val () = genTuple (sizeOfClosure, cvec)
             in
                 realstackptr := !realstackptr - (sizeOfClosure - 1)
@@ -1059,19 +1065,19 @@ struct
     val () = gencde (pt, ToStack, EndOfProc, NONE)
 
     val () = if !exited then () else genReturn (numOfArgs, cvec);
-  in (* body of codegen *)
-   (* Having code-generated the body of the function, it is copied
-      into a new data segment. *)
-   copyCode cvec
- end (* codegen *);
+    in (* body of codegen *)
+       (* Having code-generated the body of the function, it is copied
+          into a new data segment. *)
+        copyCode(cvec, !maxStack)
+    end (* codegen *);
 
-    fun gencodeLambda({ name, body, argTypes, ...}:bicLambdaForm, parameters, closure) =
+    fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
     let
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
         val codeAddr =
-            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, parameters)
+            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters)
     in
         assignWord(closure, 0w0, toMachineWord codeAddr);
         lock closure
@@ -1097,7 +1103,7 @@ struct
             val () = makeCall(numOfArgs, cvec)
             val () = genReturn (numOfArgs, cvec)
         
-            val codeAddr = copyCode cvec
+            val codeAddr = copyCode(cvec, numOfArgs+1)
         in
             assignWord(closure, 0w0, toMachineWord codeAddr);
             lock closure;

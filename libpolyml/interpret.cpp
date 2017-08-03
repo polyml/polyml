@@ -311,6 +311,9 @@ int IntTaskData::SwitchToPoly()
     PolyWord        *tailPtr;
     POLYUNSIGNED    returnCount;
     POLYUNSIGNED    storeWords;
+    POLYUNSIGNED    stackCheck;
+    // Local values.  These are copies of member variables but are used so frequently that
+    // it is important that access should be fast.
     POLYCODEPTR     pc;
     PolyWord        *sp;
 
@@ -526,8 +529,9 @@ int IntTaskData::SwitchToPoly()
             *sp = sp[1];      /* Move closure up. */
             sp[1] = PolyWord::FromCodePtr(pc); /* Save return address. */
             pc = u.AsCodePtr();    /* Get entry point. */
-            SaveInterpreterState(pc, sp); // Update the state so that profiling is more accurate
-            // Check for stack overflow.
+            this->taskPc = pc; // Update in case we're profiling
+            // Legacy: Check for stack overflow.  This is needed because
+            // old code does not have stack check instructions.
             if (sp < sl)
             {
                 POLYUNSIGNED min_size = this->stack->top - sp + OVERFLOW_STACK_SIZE;
@@ -558,6 +562,7 @@ int IntTaskData::SwitchToPoly()
                 if (pc == (SPECIAL_PC_END_THREAD).AsCodePtr())
                     exitThread(this); // This thread is exiting.
                 *(--sp) = result; /* Result */
+                this->taskPc = pc; // Update in case we're profiling
             }
             break;
 
@@ -566,6 +571,34 @@ int IntTaskData::SwitchToPoly()
         case INSTR_return_1: returnCount = 1; goto RETURN;
         case INSTR_return_2: returnCount = 2; goto RETURN;
         case INSTR_return_3: returnCount = 3; goto RETURN;
+
+        case INSTR_stackSize8:
+            stackCheck = *pc++;
+            goto STACKCHECK;
+
+        case INSTR_stackSize16:
+        {
+            stackCheck = arg1; pc += 2;
+        STACKCHECK:
+            // Check there is space on the stack
+            if (sp - stackCheck < sl)
+            {
+                POLYUNSIGNED min_size = this->stack->top - sp + OVERFLOW_STACK_SIZE + stackCheck;
+                SaveInterpreterState(pc, sp);
+                CheckAndGrowStack(this, min_size);
+                LoadInterpreterState(pc, sp);
+                sl = (PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE;
+            }
+            // Also check for interrupts
+            if (this->interrupt_requested)
+            {
+                // Check for interrupts
+                this->interrupt_requested = false;
+                SaveInterpreterState(pc, sp);
+                return -1;
+            }
+            break;
+        }
 
         case INSTR_pad: /* No-op */ break;
 
@@ -788,7 +821,6 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_reset_1: sp += 1; break;
         case INSTR_reset_2: sp += 2; break;
-
 
         case INSTR_non_local_l_1:
             {

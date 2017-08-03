@@ -270,6 +270,8 @@ struct
     and opcode_jump16False       = 0wxf8
     and opcode_setHandler16      = 0wxf9
     and opcode_constAddr8        = 0wxfa
+    and opcode_stackSize8        = 0wxfb
+    and opcode_stackSize16       = 0wxfc
 
  
     local
@@ -490,6 +492,8 @@ struct
         val () = repUpdate(opcode_jump16False,  "jump16false")
         val () = repUpdate(opcode_setHandler16, "setHandler16")
         val () = repUpdate(opcode_constAddr8,   "constAddr8")
+        val () = repUpdate(opcode_stackSize8,   "stackSize8")
+        val () = repUpdate(opcode_stackSize16,  "stackSize16")
     in
         fun repr n : string = Array.sub (repArray, Word8.toInt n);
     end;
@@ -543,6 +547,8 @@ struct
         val () = sizeUpdate(opcode_constAddr32,  5)
         val () = sizeUpdate(opcode_setHandler32, 5)
         val () = sizeUpdate(opcode_constAddr8  , 2);
+        val () = sizeUpdate(opcode_stackSize8  , 2);
+        val () = sizeUpdate(opcode_stackSize16 , 3);
     in
         fun size n = Array.sub (sizeArray, Word8.toInt n);
     end
@@ -1042,9 +1048,18 @@ struct
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
                     Code{ printAssemblyCode, printStream,
-                           procName, constVec, stage1Code, ...}) : address =
+                           procName, constVec, stage1Code, ...}, maxStack) : address =
     let
-        val codeList = List.rev(!stage1Code)
+        local
+            val revCode = List.rev(!stage1Code)
+            (* Add a stack check. *)
+            val stackCheck =
+                if maxStack < 256
+                then SimpleCode[opcode_stackSize8, Word8.fromInt maxStack]
+                else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)]
+        in
+            val codeList = stackCheck :: revCode
+        end
         val (byteVec, endIC) = genCode(codeList, cvec)
   
         (* +3 for profile count, function name and constants count *)

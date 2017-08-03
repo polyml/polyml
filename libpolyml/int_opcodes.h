@@ -243,4 +243,6 @@
 #define INSTR_jump16false       0xf8
 #define INSTR_setHandler16      0xf9
 #define INSTR_constAddr8        0xfa
+#define INSTR_stackSize8        0xfb
+#define INSTR_stackSize16       0xfc
 

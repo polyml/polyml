@@ -169,7 +169,7 @@ sig
    val genTupleFromContainer : int * code -> unit
       
    (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code -> address
+   val copyCode : code * int -> address
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
