@@ -92,11 +92,8 @@ struct
 
     infix 6 addrPlus addrMinus;
   
-    (* All indexes into the code vector have type "addrs" *)
+    (* All indexes into the code vector have type "addrs". This is really a legacy. *)
     type addrs = Word.word
-  
-    (* + is defined to add an integer to an address *)
-    fun a addrPlus b = a + Word.fromInt b;
   
     val addrZero = 0w0;
     val addrLast = wordsToBytes maxAllocation (* A large address. *)
@@ -108,13 +105,15 @@ struct
     datatype label =
         Labels of
         {
+            labelNo: int,
             destination: addrs ref,
             labId: int ref,
             uses: int ref,
             chain: label option ref
         }
 
-    fun mkLabel() = Labels{destination=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
+    fun mkLabel labelNo =
+        Labels{labelNo=labelNo, destination=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
     
     (* Used in the optimiser to see if we have the same label in two places. *)
     fun sameLabel(Labels{destination=d1, ...}, Labels{destination=d2, ...}) = d1 = d2
@@ -2186,7 +2185,7 @@ struct
     |   RealConstant of machineWord             (* A PC-relative address to the non-address area - 64-bit only.*)
     |   IntConstant of LargeInt.int             (* A PC-relative address to the non-address area - 64-bit only.*)
 
-    local
+    local       
         fun getConstant(MoveToRegister{ source=NonAddressConstArg source, ...}, bytes, ic, l) =
             if isX64
             then
@@ -2258,8 +2257,12 @@ struct
 
     (* It is convenient to have AllocStore and AllocStoreVariable as primitives at the higher
        level but at this point it's better to expand them into their basic instructions. *)
-    local
-        (* On X86/64 the local pointer is in r15.  On X86/32 it's in memRegs. *)
+    fun expandComplexOperations(instrs, oldLabelCount) =
+    let
+        val labelCount = ref oldLabelCount
+        val mkLabel = fn () => mkLabel(!labelCount) before labelCount := !labelCount + 1
+
+         (* On X86/64 the local pointer is in r15.  On X86/32 it's in memRegs. *)
         val localPointer =
             if isX64 then RegisterArg r15 else MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex}
 
@@ -2342,8 +2345,10 @@ struct
         |   doExpansion(StoreInitialised :: instrs, code, _) = doExpansion(instrs, code, false)
 
         |   doExpansion(instr :: instrs, code, inAlloc) = doExpansion(instrs, instr::code, inAlloc)
+        
+        val expanded = List.rev(doExpansion(instrs, [], false))
     in
-        fun expandComplexOperations instrs = List.rev(doExpansion(instrs, [], false))
+        (expanded, !labelCount)
     end
 
 
@@ -3124,9 +3129,13 @@ struct
     end (* printCode *);
 
     (* This actually does the final code-generation. *)
-    fun createCodeSegment (operations, cvec as Code{procName, printAssemblyCode, printStream, profileObject, ...}) : address =
+    fun generateCode
+        {ops=operations,
+         code=cvec as Code{procName, printAssemblyCode, printStream, profileObject, ...},
+         labelCount} : address =
     let
-        val expanded = expandComplexOperations operations
+        val (expanded, newLabelCount) = expandComplexOperations (operations, labelCount)
+
         val () = printLowLevelCode(expanded, cvec)
         local
             val initialBytesList = codeGenerate expanded
@@ -3293,7 +3302,7 @@ struct
             (* Finally lock the code and return the code address. *)
             codeVecLockAndGetExecutable codeSeg 
         end (* the result *)
-    end (* copyCode *)
+    end (* generateCode *)
  
     structure Sharing =
     struct

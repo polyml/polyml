@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,10 @@ functor X86FOREIGNCALL(
         type operation
         type code
         type operations = operation list
+        type address = Address.address
 
-        val optimise: code * operations -> operations
+        (* Optimise and code-generate. *)
+        val generateCode: {code: code, ops: operations, labelCount: int} -> address
 
         structure Sharing:
         sig
@@ -48,14 +50,6 @@ struct
     val pushR = PushToStack o RegisterArg
 
     fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output}
-
-    fun condBranch(test, predict) =
-    let
-        val label as Labels{uses, ...} = mkLabel()
-    in
-        uses := 1;
-        (ConditionalBranch{test=test, predict=predict, label=label}, label)
-    end
 
     fun loadMemory(reg, base, offset) =
         MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg}
@@ -104,7 +98,13 @@ struct
         val abi = getABI()
 
         (* Branch to check for exception. *)
-        val (checkExc, exLabel) = condBranch(JNE, PredictNotTaken)
+        local
+            val label as Labels{uses, ...} = mkLabel 0 (* Just one. *)
+            val () = uses := 1
+        in
+            val exLabel = label
+            and checkExc = ConditionalBranch{test=JNE, predict=PredictNotTaken, label=label}
+        end
         
         (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
                       The rest are on the stack.
@@ -207,7 +207,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=1, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -295,7 +295,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -394,7 +394,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
@@ -484,7 +484,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = createCodeSegment(X86OPTIMISE.optimise(newCode, code), newCode)
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)

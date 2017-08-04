@@ -22,8 +22,10 @@ sig
     type operation
     type code
     type operations = operation list
+    type address = Address.address
 
-    val optimise: code * operations -> operations
+    (* Optimise and code-generate. *)
+    val generateCode: {code: code, ops: operations, labelCount: int} -> address
 
     structure Sharing:
     sig
@@ -35,7 +37,7 @@ struct
     open X86CODE
     exception InternalError = Misc.InternalError
 
-    fun optimise(code, ops) =
+    fun generateCode{code, ops, labelCount} =
     let
         open RegSet
         (* Print the pre-optimised code if required. *)
@@ -421,13 +423,16 @@ struct
         (* Repeat scans through the code until there are no further changes. *)
         fun repeat ops =
             case forward(ops, [], false) of
-                (list, false) => list
+                (list, false) => {ops=list, labelCount=labelCount}
             |   (list, true) => repeat list
 
+        val {ops=finalOps, labelCount=finalLabelCount} =
+            if lowLevelOptimise code
+            then repeat ops
+            else {ops=ops, labelCount=labelCount}
     in
-        if lowLevelOptimise code
-        then repeat ops
-        else ops
+        (* Pass on to the next stage. *)
+        X86CODE.generateCode{ops=finalOps, labelCount=finalLabelCount, code=code}
     end
 
     structure Sharing =

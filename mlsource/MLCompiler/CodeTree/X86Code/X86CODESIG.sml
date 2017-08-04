@@ -94,13 +94,14 @@ sig
     datatype label =
         Labels of
         {
+            labelNo: int,
             destination: addrs ref,
             labId: int ref,
             uses: int ref,
             chain: label option ref
         }
 
-    val mkLabel: unit -> label
+    val mkLabel: int -> label
     val sameLabel: label * label -> bool
 
     datatype indexType =
@@ -190,8 +191,9 @@ sig
     val printOperation: operation * (string -> unit) -> unit
 
     val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+    
     (* Code generate operations and construct the final code. *)
-    val createCodeSegment: operations * code -> address
+    val generateCode: { ops: operations, code: code, labelCount: int } -> address
 
     val memRegLocalMPointer: int
     and memRegHandlerRegister: int

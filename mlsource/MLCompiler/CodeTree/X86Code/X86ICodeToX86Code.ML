@@ -24,8 +24,9 @@ functor X86ICodeToX86Code(
         type operation
         type code
         type operations = operation list
+        type address = Address.address
 
-        val optimise: code * operations -> operations
+        val generateCode: {code: code, ops: operations, labelCount: int} -> address
 
         structure Sharing:
         sig
@@ -677,6 +678,10 @@ struct
         (* Labels.  Create an array and fill in the entries. *)
         datatype labelKind = NormalLabel of label | NoLabel
         val labelArray = Array.array(maxLabels, NoLabel)
+        
+        (* We can generate additional labels here so it's easiest to renumber. *)
+        val outputLabelCount = ref 0
+        fun mkLabel() = X86CODE.mkLabel(! outputLabelCount) before outputLabelCount := !outputLabelCount + 1
 
         fun addLabels(ForwardJumpLabel{label=ILabel labno, ...}) =
             (
@@ -1320,7 +1325,7 @@ struct
 
         val ops = codeGenICode(icode, preludeCode)
     in
-        createCodeSegment(X86OPTIMISE.optimise(newCode, List.rev ops), newCode)
+        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
     end
     
     datatype destinations = RegDest of reg | StackDest of int
