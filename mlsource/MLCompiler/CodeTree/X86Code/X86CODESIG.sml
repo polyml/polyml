@@ -146,7 +146,6 @@ sig
     |   ResetStack of int
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
-    |   FreeRegisters of RegSet.regSet
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }

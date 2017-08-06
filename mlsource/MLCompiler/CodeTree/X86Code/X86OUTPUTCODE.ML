@@ -1015,7 +1015,6 @@ struct
     |   ResetStack of int
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
-    |   FreeRegisters of regSet
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool }
@@ -1208,7 +1207,6 @@ struct
                 (stream "L"; stream(Int.toString labelNo); stream ":")
         |   LoadLabelAddress{ label=Label{labelNo, ...}, output } =>
                 (stream "LoadLabelAddress L"; stream(Int.toString labelNo); stream "=>"; printGReg output)
-        |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
         |   DivideAccM{base, offset, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printBaseOffset(base, NoIndex, offset))
@@ -1767,8 +1765,6 @@ struct
                 else opCodeBytes(MOVL_32_64_R rc, NONE) @ int32Signed(tag 0) @
                         opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
             end
-
-        |   cgOp (FreeRegisters _ ) = []
 
         |   cgOp (FPLoadFromMemory {address={ base, offset, index }, precision}) =
             let
