@@ -98,13 +98,7 @@ struct
         val abi = getABI()
 
         (* Branch to check for exception. *)
-        local
-            val label as Labels{uses, ...} = mkLabel 0 (* Just one. *)
-            val () = uses := 1
-        in
-            val exLabel = label
-            and checkExc = ConditionalBranch{test=JNE, predict=PredictNotTaken, label=label}
-        end
+        val exLabel = Label{labelNo=0} (* There's just one label in this function. *)
         
         (* Unix X64.  The first six arguments are in rdi, rsi, rdx, rcx, r8, r9.
                       The rest are on the stack.
@@ -197,7 +191,7 @@ struct
             ) @
             [
                 ArithMemConst{opc=CMP, offset=memRegExceptionPacket, base=ebp, source=noException},
-                checkExc,
+                ConditionalBranch{test=JNE, predict=PredictNotTaken, label=exLabel},
                 (* Remove any arguments that have been passed on the stack. *)
                 ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
@@ -207,7 +201,7 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=1, ops=code}
+        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code}
         (* Have to create a closure for this *)
         open Address
         val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)

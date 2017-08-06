@@ -681,7 +681,7 @@ struct
         
         (* We can generate additional labels here so it's easiest to renumber. *)
         val outputLabelCount = ref 0
-        fun mkLabel() = X86CODE.mkLabel(! outputLabelCount) before outputLabelCount := !outputLabelCount + 1
+        fun mkLabel() = Label{labelNo = ! outputLabelCount} before outputLabelCount := !outputLabelCount + 1
 
         fun addLabels(ForwardJumpLabel{label=ILabel labno, ...}) =
             (
@@ -707,9 +707,8 @@ struct
             case Array.sub(labelArray, labno) of
                 NormalLabel l => l
             |   _ => raise InternalError "findLabel: label not defined"
-        (* Look up a label and increment the reference count. *)
-        fun findLabelRef lab =
-            case findLabelDef lab of l as Labels{uses, ...} => (uses := !uses + 1; l)
+
+        val findLabelRef = findLabelDef (* This used to be different. *)
 
         fun memoryAddressAsBaseOffset({offset, base=(GenReg baseReg), index}) =
             {base=baseReg, offset=offset, index=memoryIndexAsIndex index}
@@ -746,8 +745,7 @@ struct
         fun testRegAndTrap(reg, entryPt, saveRegs) =
         let
             (* Normally we won't have a stack overflow so we will skip the check. *)
-            val skipCheckLab as Labels{uses, ...} = mkLabel()
-            val () = uses := 1
+            val skipCheckLab = mkLabel()
         in
             (* Need it in reverse order. *)
             [
@@ -987,7 +985,7 @@ struct
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
                 val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
                 val caseLabels = map findLabelRef cases
-                val startJumpTable = let val l as Labels{uses, ...} = mkLabel() in uses := 1; l end
+                val startJumpTable = mkLabel()
                 (* Compute the jump address.  The index is a tagged
                    integer so it is already multiplied by 2.  We need to
                    multiply by four to get the correct size. Subtract off the

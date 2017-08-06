@@ -42,67 +42,13 @@ struct
         open RegSet
         (* Print the pre-optimised code if required. *)
         val () = printLowLevelCode(ops, code)
-
-        (* Labels can't be eliminated after a jump. *)
-        fun labelInstruction(JumpLabel(Labels{uses=ref uses, ...})) = uses > 0
-        |   labelInstruction _ = false
-
-        (* If we remove a branch the use counts are reduced. *)
-        fun eliminate(UncondBranch(Labels{uses, ...})) =
-            (!uses > 0 orelse raise InternalError "eliminate"; uses := !uses-1)
-        |   eliminate(ConditionalBranch{label=Labels{uses, ...}, ...}) =
-            (!uses > 0 orelse raise InternalError "eliminate"; uses := !uses-1)
-        |   eliminate _ = ()
     
         (* Optimise the code list by repeated scans up and down the list.
            Scan forward through the list reversing it as we go.  Then scan the
            reversed list and turn it back into the original order. *)
         fun forward([], list, rep) = reverse(list, [], rep)
 
-            (* Eliminate dead instructions after RaiseException up to the next label. *)
-        |   forward((u as RaiseException) :: next :: tl, list, rep) =
-            if labelInstruction next
-            then forward(next :: tl, u :: list, rep)
-            else (eliminate next; forward(u :: tl, list, true))
-
-            (* Eliminate Unconditional branches to the next instruction. *)
-        |   forward((u as UncondBranch ucLabel) ::
-                    (next as JumpLabel jLabel) :: tl, list, rep) =
-            if sameLabel(ucLabel, jLabel)
-            then (eliminate u; forward(next :: tl, list, true))
-            else forward(next :: tl, u :: list, rep)
-           
-            (* Eliminate dead instructions after UnconditionalBranch up to the next label. *)
-        |   forward((u as UncondBranch _) :: next :: tl, list, rep) =
-            if labelInstruction next
-            then forward(next :: tl, u :: list, rep)
-            else (eliminate next; forward(u :: tl, list, true))
-
-            (* Eliminate unreferenced labels.  *)
-        |   forward(JumpLabel(Labels{uses=ref 0, ...}) :: tl, list, _) =
-                forward(tl, list, true)
-
-            (* Branch chaining. If we have a label followed by an unconditional branch set the
-               chain entry of the label to destination of the branch. *)
-        |   forward((l as JumpLabel(Labels{chain as ref NONE, ...})) ::
-                    (u as UncondBranch(uncondLab as Labels{chain=uChain as ref chainL, ...})) :: tl, list, rep) =
-            if chain = uChain
-            then (* We have an infinite loop - we mustn't chain.
-                    This shouldn't really happen - we should have inserted a stack check so the
-                    loop can be interrupted. *)
-                forward(tl, u :: l :: list, rep)
-            else
-            (
-                if isSome chainL then chain := chainL else chain := SOME uncondLab;
-                (* It's essential to include the branch in the output at this point.
-                   Otherwise we could eliminate the branch if it happened to be followed
-                   by its destination, set the use count of the destination label to
-                   zero, eliminate that; all before we had updated the incoming
-                   branches. *)
-                forward(tl, u :: l :: list, true)
-            )
-
-            (* Reorder conditional and unconditional branches.  If we have a conditional branch
+(*            (* Reorder conditional and unconditional branches.  If we have a conditional branch
                followed by an unconditional branch followed by the destination of the conditional
                branch we can turn the test round. *)
         |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
@@ -111,7 +57,7 @@ struct
             let
                 (* See where the ultimate destination of the conditional branch is.
                    If it's already been forwarded we don't want to change that. *)
-                fun follow(Labels{chain=ref(SOME c), ...}) = follow c
+                fun follow(Label{chain=ref(SOME c), ...}) = follow c
                 |   follow c = c
 
                 val condRef = follow condDest
@@ -144,7 +90,7 @@ struct
                             list, true)
                 )
                 else forward(u :: d :: tl, c :: list, rep)
-            end
+            end*)
 
         |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
                 (* Combine adjacent resets. *)
@@ -202,81 +148,6 @@ struct
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
         and reverse([], list, rep) = (list, rep)
-
-            (* Eliminate unreferenced labels.  *)
-        |   reverse(JumpLabel(Labels{uses=ref 0, ...}) :: tl, list, _) =
-                reverse(tl, list, true)
-
-            (* Combine multiple labels by setting the earlier to point to the later.  This may
-               subsequently eliminate the first label.  This simplifies branch chaining.
-               This can only be done after we've checked that the later label is
-               actually referenced. *)
-        |   reverse((a as JumpLabel(aL as Labels{chain=ref chainA, ...})) ::
-                    (b as JumpLabel(Labels{chain as ref NONE, ...})) :: tl,
-                    list, _) =
-            (
-                if isSome chainA then chain := chainA else chain := SOME aL;
-                reverse(b :: tl, a :: list, true)
-            )
-
-            (* Branch chaining.  If we have a branch to a destination that is chained
-               we replace this by a branch to the ultimate destination.  This is done on
-               the reverse pass because generally branches are forward and the extensions will
-               have been added after the branches were seen on the forward pass. *)
-        |   reverse(UncondBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) :: tl, list, _) =
-            let
-                fun follow(Labels{chain=ref(SOME c), ...}) = follow c
-                |   follow c = c
-                val dest as Labels{uses=newUses, ...} = follow dest
-            in
-                oldUses := !oldUses - 1;
-                ! newUses >= 1 orelse raise InternalError "UncondBranch1";
-                newUses := !newUses + 1;
-                ! oldUses >= 0 orelse raise InternalError "UncondBranch2";
-                reverse(UncondBranch dest :: tl, list, true)
-            end
-
-        |   reverse(
-                ConditionalBranch{
-                    label=Labels{chain=ref(SOME dest), uses=oldUses, ...}, test, predict}
-                    :: tl, list, _) =
-            let
-                fun follow(Labels{chain=ref(SOME c), ...}) = follow c
-                |   follow c = c
-                val dest as Labels{uses=newUses, ...} = follow dest
-            in
-                oldUses := !oldUses - 1;
-                ! newUses >= 1 orelse raise InternalError "ConditionalBranch1";
-                newUses := !newUses + 1;
-                ! oldUses >= 0 orelse raise InternalError "ConditionalBranch2";
-                reverse(ConditionalBranch{label=dest, test=test, predict=predict} :: tl, list, true)
-            end
-
-            (* Branch chaining with indexed branches.  We may be able to forward
-               branch table entries to their new location. *)
-        |   reverse((i as JumpTable{cases, jumpSize}) :: tl, list, rep) =
-            let
-                val changed = ref false
-                fun forwardBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) =
-                let
-                    fun follow(Labels{chain=ref(SOME c), ...}) = follow c
-                    |   follow c = c
-                    val dest as Labels{uses=newUses, ...} = follow dest
-                in
-                    oldUses := !oldUses - 1;
-                    ! newUses >= 1 orelse raise InternalError "IndexedBranch1";
-                    newUses := !newUses + 1;
-                    ! oldUses >= 0 orelse raise InternalError "IndexedBranch2";
-                    changed := true;
-                    dest
-                end
-                |   forwardBranch lab = lab
-                val newList = List.map forwardBranch cases
-            in
-                if ! changed
-                then reverse(tl, JumpTable{cases=newList, jumpSize=jumpSize} :: list, true)
-                else reverse(tl, i :: list, rep)
-            end
 
             (* If we free a floating point register after loading it onto the stack we want to
                propagate that information.  Otherwise push the RegisterStatusChange back up

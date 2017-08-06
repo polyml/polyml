@@ -91,18 +91,7 @@ sig
     |   FullCall
     |   DirectReg of genReg
 
-    datatype label =
-        Labels of
-        {
-            labelNo: int,
-            destination: addrs ref,
-            labId: int ref,
-            uses: int ref,
-            chain: label option ref
-        }
-
-    val mkLabel: int -> label
-    val sameLabel: label * label -> bool
+    datatype label = Label of { labelNo: int }
 
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg

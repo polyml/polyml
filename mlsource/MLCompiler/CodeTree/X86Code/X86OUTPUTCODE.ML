@@ -95,28 +95,10 @@ struct
     (* All indexes into the code vector have type "addrs". This is really a legacy. *)
     type addrs = Word.word
   
-    val addrZero = 0w0;
-    val addrLast = wordsToBytes maxAllocation (* A large address. *)
-    val addrUnsetLabel = addrLast (* An invalid address *)
+    val addrZero = 0w0
  
-    (* This is the external label type used when constructing operations.
-       The ref int is just an identifier for convenience when printing.
-       "chain" is only used in the peep-hole optimiser. *)
-    datatype label =
-        Labels of
-        {
-            labelNo: int,
-            destination: addrs ref,
-            labId: int ref,
-            uses: int ref,
-            chain: label option ref
-        }
-
-    fun mkLabel labelNo =
-        Labels{labelNo=labelNo, destination=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
-    
-    (* Used in the optimiser to see if we have the same label in two places. *)
-    fun sameLabel(Labels{destination=d1, ...}, Labels{destination=d2, ...}) = d1 = d2
+    (* This is the external label type used when constructing operations. *)
+    datatype label = Label of { labelNo: int }
    
   (* Constants which are too large to go inline in the code are put in
      a list and put at the end of the code. They are arranged so that
@@ -1130,9 +1112,9 @@ struct
                 stream(shiftTypeRepr shiftType); stream " "; printGReg output; stream " by ECX"
             )
 
-        |   ConditionalBranch { test, label=Labels{labId=ref lab, ...}, predict } =>
+        |   ConditionalBranch { test, label=Label{labelNo, ...}, predict } =>
             (
-                stream(branchOpRepr test); stream " L"; stream(Int.toString lab);
+                stream(branchOpRepr test); stream " L"; stream(Int.toString labelNo);
                 case predict of
                     PredictNeutral => ()
                 |   PredictTaken => stream " PredictTaken"
@@ -1218,14 +1200,14 @@ struct
 
         |   RaiseException =>
                 stream "RaiseException"
-        |   UncondBranch(Labels{labId=ref lab, ...})=>
-                (stream "UncondBranch L"; stream(Int.toString lab))
+        |   UncondBranch(Label{labelNo, ...})=>
+                (stream "UncondBranch L"; stream(Int.toString labelNo))
         |   ResetStack i =>
                 (stream "ResetStack "; stream(Int.toString i))
-        |   JumpLabel(Labels{labId=ref lab, ...}) =>
-                (stream "L"; stream(Int.toString lab); stream ":")
-        |   LoadLabelAddress{ label=Labels{labId=ref lab, ...}, output } =>
-                (stream "LoadLabelAddress L"; stream(Int.toString lab); stream "=>"; printGReg output)
+        |   JumpLabel(Label{labelNo, ...}) =>
+                (stream "L"; stream(Int.toString labelNo); stream ":")
+        |   LoadLabelAddress{ label=Label{labelNo, ...}, output } =>
+                (stream "LoadLabelAddress L"; stream(Int.toString labelNo); stream "=>"; printGReg output)
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
         |   DivideAccR{arg, isSigned} => ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream " "; printGReg arg)
@@ -1277,7 +1259,7 @@ struct
         |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
         |   Negative { output } => (stream "Negative "; printGReg output)
         |   JumpTable{cases, ...} =>
-                List.app(fn(Labels{labId=ref lab, ...}) => (stream "UncondBranch L"; stream(Int.toString lab); stream "\n")) cases
+                List.app(fn(Label{labelNo, ...}) => (stream "UncondBranch L"; stream(Int.toString labelNo); stream "\n")) cases
         |   IndexedJumpCalc { addrReg, indexReg, jumpSize=ref jumpSize } =>
             (
                 stream "IndexedJumpCalc "; printGReg addrReg; stream " += "; printGReg indexReg;
@@ -1293,17 +1275,12 @@ struct
     fun printLowLevelCode(ops, Code{printAssemblyCode, printStream, procName, ...}) =
         if printAssemblyCode
         then
-        let
-            (* Set the label fields so it will be clearer. *)
-            fun setLabels(JumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
-            |   setLabels(_, labNo) = labNo
-            val _ = List.foldl setLabels 1 ops
-        in
+        (
             if procName = "" (* No name *) then printStream "?" else printStream procName;
             printStream ":\n";
             List.app(fn i => printOperation(i, printStream)) ops;
             printStream "\n"
-        end
+        )
         else ()
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
@@ -2002,23 +1979,26 @@ struct
         doFold(ops, byteList, 0w0, n)
     end
 
-    (* First pass - Set the addresses of labels. *)
-    fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
-        (
-            case oper of
-                JumpLabel(Labels{destination, ...}) => destination := ic
-            |   _ => ();
-            setLabelAddresses(operList, byteList, ic + Word.fromInt(Word8Vector.length bytes))
-        )
-    |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
-
-
     (* Go through the code and update branch and similar instructions with the destinations
        of the branches.  Long branches are converted to short where possible and the code
        is reprocessed.  That might repeat if the effect of shorting one branch allows
        another to be shortened. *)
-    fun fixupLabels(ops, bytesList) =
+    fun fixupLabels(ops, bytesList, labelCount) =
     let
+        (* Label array - initialise to 0wxff... .  Every label should be defined
+           but just in case, this is more likely to be detected in int32Signed. *)
+        val labelArray = Array.array(labelCount, ~ 0w1)
+
+        (* First pass - Set the addresses of labels. *)
+        fun setLabelAddresses(oper :: operList, bytes :: byteList, ic) =
+            (
+                case oper of
+                    JumpLabel(Label{labelNo, ...}) => Array.update(labelArray, labelNo, ic)
+                |   _ => ();
+                setLabelAddresses(operList, byteList, ic + Word.fromInt(Word8Vector.length bytes))
+            )
+        |   setLabelAddresses(_, _, ic) = ic (* Return the length of the code. *)
+
         fun fixup32(destination, bytes, ic) =
         let
             val brLength = Word8Vector.length bytes
@@ -2031,8 +2011,9 @@ struct
             ]
         end
         
-        fun fixupAddress(UncondBranch(Labels{destination=ref destination, ...}), bytes, ic, list) =
+        fun fixupAddress(UncondBranch(Label{labelNo, ...}), bytes, ic, list) =
             let
+                val destination = Array.sub(labelArray, labelNo)
                 val brLength = Word8Vector.length bytes
                 (* The offset is relative to the end of the branch instruction. *)
                 val diff = Word.toInt destination - Word.toInt ic - brLength
@@ -2050,8 +2031,9 @@ struct
                 else Word8Vector.fromList(opToInt JMP_32 :: int32Signed(LargeInt.fromInt diff)) :: list
             end
 
-        |   fixupAddress(ConditionalBranch{label=Labels{destination=ref destination, ...}, test, ...}, bytes, ic, list) =
+        |   fixupAddress(ConditionalBranch{label=Label{labelNo, ...}, test, ...}, bytes, ic, list) =
             let
+                val destination = Array.sub(labelArray, labelNo)
                 val brLength = Word8Vector.length bytes
                 (* The offset is relative to the end of the branch instruction. *)
                 val diff = Word.toInt destination - Word.toInt ic - brLength
@@ -2066,21 +2048,25 @@ struct
                 else Word8Vector.fromList(opCodeBytes(CondJump32 test, NONE) @ int32Signed(LargeInt.fromInt diff))  :: list
             end
 
-        |   fixupAddress(LoadLabelAddress{ label=Labels{destination=ref destination, ...}, ... }, brCode, ic, list) =
-            if isX64
-            then (* This is a relative offset on the X86/64. *)
-                fixup32(destination, brCode, ic) :: list
-            else (* On X86/32 the address is relative to the start of the code so we simply put in
-                    the destination address. *)
-                Word8VectorSlice.concat[
-                    Word8VectorSlice.slice(brCode, 0, SOME(Word8Vector.length brCode-4)),
-                    Word8VectorSlice.full(Word8Vector.fromList(int32Signed(Word.toLargeInt destination)))] :: list
+        |   fixupAddress(LoadLabelAddress{ label=Label{labelNo, ...}, ... }, brCode, ic, list) =
+            let
+                val destination = Array.sub(labelArray, labelNo)
+            in
+                if isX64
+                then (* This is a relative offset on the X86/64. *)
+                    fixup32(destination, brCode, ic) :: list
+                else (* On X86/32 the address is relative to the start of the code so we simply put in
+                        the destination address. *)
+                    Word8VectorSlice.concat[
+                        Word8VectorSlice.slice(brCode, 0, SOME(Word8Vector.length brCode-4)),
+                        Word8VectorSlice.full(Word8Vector.fromList(int32Signed(Word.toLargeInt destination)))] :: list
+            end
 
         |   fixupAddress(JumpTable{cases, jumpSize as ref JumpSize8}, brCode: Word8Vector.vector, ic, list) =
             let
                 (* Each branch is a 32-bit jump padded up to 8 bytes. *)
-                fun processCase(Labels{destination=ref destination, ...} :: cases, offset, ic) =
-                    fixup32(destination,
+                fun processCase(Label{labelNo, ...} :: cases, offset, ic) =
+                    fixup32(Array.sub(labelArray, labelNo),
                         Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset, SOME 5)), ic) ::
                     Word8VectorSlice.vector(Word8VectorSlice.slice(brCode, offset+5, SOME 3)) ::
                     processCase(cases, offset+8, ic+0w8)
@@ -2090,10 +2076,14 @@ struct
                    Ignore backwards branches - could only occur if we have linked labels
                    in a loop. *)
                 val newStartOfCode = ic + Word.fromInt(List.length cases * 6)
-                fun tryShort(Labels{destination=ref destination, ...} :: cases, ic) =
-                    if destination > ic + 0w2 andalso destination - ic - 0w2 < 0w127
-                    then tryShort(cases, ic+0w2)
-                    else false
+                fun tryShort(Label{labelNo, ...} :: cases, ic) =
+                    let
+                        val destination = Array.sub(labelArray, labelNo)
+                    in
+                        if destination > ic + 0w2 andalso destination - ic - 0w2 < 0w127
+                        then tryShort(cases, ic+0w2)
+                        else false
+                    end
                 |   tryShort _ = true
 
                 val newCases =
@@ -2112,8 +2102,9 @@ struct
         |   fixupAddress(JumpTable{cases, jumpSize=ref JumpSize2}, _, ic, list) =
             let
                 (* Each branch is a short jump. *)
-                fun processCase(Labels{destination=ref destination, ...} :: cases, offset, ic) =
+                fun processCase(Label{labelNo, ...} :: cases, offset, ic) =
                     let
+                        val destination = Array.sub(labelArray, labelNo)
                         val brLength = 2
                         val diff = Word.toInt destination - Word.toInt ic - brLength
                     in
@@ -2260,7 +2251,7 @@ struct
     fun expandComplexOperations(instrs, oldLabelCount) =
     let
         val labelCount = ref oldLabelCount
-        val mkLabel = fn () => mkLabel(!labelCount) before labelCount := !labelCount + 1
+        fun mkLabel() = Label{labelNo= !labelCount} before labelCount := !labelCount + 1
 
          (* On X86/64 the local pointer is in r15.  On X86/32 it's in memRegs. *)
         val localPointer =
@@ -3141,7 +3132,7 @@ struct
             val initialBytesList = codeGenerate expanded
         in
             (* Fixup labels and shrink long branches to short. *)
-            val (bytesList, codeSize) = fixupLabels(expanded, initialBytesList)
+            val (bytesList, codeSize) = fixupLabels(expanded, initialBytesList, newLabelCount)
         end
 
         val constantList = getConstants(expanded, bytesList)
