@@ -287,6 +287,24 @@ sig
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
+    and blockSource =
+        (* Sources for a basic block.  May be the root (start of function), the destination of
+           a branch or the start of a handler.  BranchSource includes the list of block nos
+           which jump to this. HandleSource includes the block that sets up this handler.
+           If the block is unreachable the list may be empty and the handle source ~1. *)
+        RootSource | BranchSource of int list | HandleSource of int
+
+        (* Destinations at the end of a basic block. *)
+    and controlFlow =
+        (* Unconditional branch to a label - should be a merge point. *)
+        Unconditional of int
+        (* Conditional branch. Jumps to trueJump if the condional is false, falseJump if false. *)
+    |   Conditional of { ccRef: ccRef, condition: branchOps, trueJump: int, falseJump: int }
+        (* Exit - the last instruction of the block is a return, raise or tailcall. *)
+    |   ExitCode
+        (* Indexed case - this branches to one of a number of labels *)
+    |   IndexedBr of int list
+
     val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
 

@@ -264,7 +264,25 @@ struct
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
- 
+
+    and blockSource =
+        (* Sources for a basic block.  May be the root (start of function), the destination of
+           a branch or the start of a handler.  BranchSource includes the list of block nos
+           which jump to this. HandleSource includes the block that sets up this handler.
+           If the block is unreachable the list may be empty and the handle source ~1. *)
+        RootSource | BranchSource of int list | HandleSource of int
+
+        (* Destinations at the end of a basic block. *)
+    and controlFlow =
+        (* Unconditional branch to a label - should be a merge point. *)
+        Unconditional of int
+        (* Conditional branch. Jumps to trueJump if the condional is false, falseJump if false. *)
+    |   Conditional of { ccRef: ccRef, condition: branchOps, trueJump: int, falseJump: int }
+        (* Exit - the last instruction of the block is a return, raise or tailcall. *)
+    |   ExitCode
+        (* Indexed case - this branches to one of a number of labels *)
+    |   IndexedBr of int list
+
     local
 
         fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
@@ -1321,9 +1339,181 @@ struct
             else testRegAndTrap (esp, StackOverflowCall, saveRegs)
         val newCode = codeCreate (functionName, profileObject, debugSwitches) 
 
+        val code = oldToNew(icode, maxLabels)
+
         val ops = codeGenICode(icode, preludeCode)
     in
         X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
+    end
+    
+    (* Convert the old single list into a list of basic blocks. *)
+    and oldToNew(ops, maxLabels) =
+    let
+        val labelCount = ref maxLabels
+        fun makeLabel () = !labelCount before labelCount := !labelCount + 1
+        
+        fun splitCode([], _, _, _, _, _) =
+            (* End of code.  We should have had a return or other unconditional transfer. *)
+                raise InternalError "splitCode"
+
+        |   splitCode(ForwardJumpLabel{ label=ILabel labelNo ,... } :: rest, index, source, sinceLabel, handlers, resultList) =
+            (* We've found a label that wasn't preceded by an unconditional branch or other exit.
+               The action at the end is to jump to this label. *)
+            splitCode(rest, labelNo, BranchSource [], [], [],
+                (index, { source=source, block=sinceLabel, flow=Unconditional labelNo, handlers=handlers }) :: resultList)
+
+        |   splitCode(StartLoop{ loopLabel=ILabel labelNo,... } :: rest, index, source, sinceLabel, handlers, resultList) =
+            (* A loop label.  Treat this as a normal label. *)
+            splitCode(rest, labelNo, BranchSource [], [], [],
+                (index, { source=source, block=sinceLabel, flow=Unconditional labelNo, handlers=handlers }) :: resultList)
+
+        |   splitCode(EndLoop _ :: rest, index, source, sinceLabel, handlers, resultList) =
+            (* EndLoop - remove. *)
+                splitCode(rest, index, source, sinceLabel, handlers, resultList)
+
+        |   splitCode(ConditionalForwardJump { ccRef, condition, label=ILabel trueLabel} :: rest, index, source, sinceLabel, handlers, resultList) =
+            (* Conditional jump. This finishes a block but we need a new label for the drop-through case. *)
+            let
+                val dropLabel = makeLabel()
+                val flow =
+                    Conditional {ccRef=ccRef, condition=condition, trueJump=trueLabel, falseJump=dropLabel}
+            in
+                splitCode(rest, dropLabel, BranchSource [], [], [],
+                    (index, { source=source, block=sinceLabel, flow=flow, handlers=handlers }) :: resultList)
+            end
+
+        |   splitCode(UnconditionalForwardJump { label=ILabel labelNo } :: rest, index, source, sinceLabel, handlers, resultList) =
+                skipCode(rest, (index, { source=source, block=sinceLabel, flow=Unconditional labelNo, handlers=handlers }) :: resultList)
+
+        |   splitCode((instr as PushExceptionHandler { handleStart=ILabel labelNo, ... }) :: rest, index, source, sinceLabel, handlers, resultList) =
+                (* Need to add this as a reference to the block that contains the handler. *)
+                splitCode(rest, index, source, instr :: sinceLabel, labelNo :: handlers, resultList)
+
+        |   splitCode((instr as JumpLoop { loopLabel=ILabel labelNo, ... }) :: rest, index, source, sinceLabel, handlers, resultList) =
+            (* Jump to start of loop.  Treat as an unconditional jump but retain the instruction since
+               it indicates the registers that need to copied. *)
+                skipCode(rest, (index, { source=source, block=instr :: sinceLabel, flow=Unconditional labelNo, handlers=handlers }) :: resultList)
+
+        |   splitCode((instr as RaiseExceptionPacket _) :: rest, index, source, sinceLabel, handlers, resultList) =
+                skipCode(rest, (index, { source=source, block=instr :: sinceLabel, flow=ExitCode, handlers=handlers }) :: resultList)
+
+        |   splitCode((instr as TailRecursiveCall _) :: rest, index, source, sinceLabel, handlers, resultList) =
+                skipCode(rest, (index, { source=source, block=instr :: sinceLabel, flow=ExitCode, handlers=handlers }) :: resultList)
+
+        |   splitCode((instr as ReturnResultFromFunction _) :: rest, index, source, sinceLabel, handlers, resultList) =
+                skipCode(rest, (index, { source=source, block=instr :: sinceLabel, flow=ExitCode, handlers=handlers }) :: resultList)
+
+        |   splitCode((instr as IndexedCaseOperation{cases, ...}) :: rest, index, source, sinceLabel, handlers, resultList) =
+                skipCode(rest, (index, { source=source, block=instr :: sinceLabel, flow=IndexedBr(map (fn ILabel i => i) cases), handlers=handlers }) :: resultList)
+
+        |   splitCode(instr :: rest, index, source, sinceLabel, handlers, resultList) =
+                splitCode(rest, index, source, instr :: sinceLabel, handlers, resultList)
+                
+                
+        and skipCode([], resultList) = resultList (* Finished - reached the end. *)
+
+        |   skipCode(ForwardJumpLabel{ label=ILabel labelNo,... } :: rest, resultList) =
+            (* Found a label after an unconditional transfer. *)
+                splitCode(rest, labelNo, BranchSource [], [], [], resultList)
+
+        |   skipCode((instr as BeginHandler { handleStart=ILabel lab, ... }) :: rest, resultList) =
+            (* Found the start of a handler.  We need to include the old handle instruction
+               because that contains register information. *)
+                splitCode(rest, lab, HandleSource ~1, [instr], [], resultList)
+
+        |   skipCode(_ :: rest, resultList) = skipCode(rest, resultList)
+                (* Unreachable code - Can occur with some branches. *)
+
+        val code = splitCode(ops, 0, RootSource, [], [], [])
+        
+        val initial = { source=BranchSource [], block=[], flow=ExitCode, handlers=[] }
+
+        val resArray = Array.array(!labelCount, initial)
+        
+        (* Set up the array. *)
+        val () = List.app (fn (i, c) => Array.update(resArray, i, c)) code
+        
+        (* *)
+        val labelRefs = Array.array(!labelCount, [])
+       
+        local
+            (* The target of a label is usually the label itself except that
+               if the target is an unconditional branch with no other code
+               we use the target of that branch.  This can also arise if
+               we have successive labels.  An infinite loop could
+               have a target which is the label itself.  That should not
+               happen since we should always have a JumpLoop. *)
+            fun findTarget labs labNo =
+                case Array.sub(resArray, labNo) of
+                    { source=BranchSource _, block=[], flow=Unconditional nextLab, ...} =>
+                        if List.exists(fn l => l=nextLab) labs
+                        then raise InternalError "findTarget - loop"
+                        else findTarget (nextLab :: labs) nextLab
+               |    _ => labNo
+        in
+            val getTarget = findTarget []
+        end
+        
+        local
+            (* Starting from the root find all the reachable blocks and set the
+               block numbers that jump to them. *)
+            fun setReferences forLabel =
+            let
+                (* Find the references this makes. *)
+                val { flow, handlers, ...} = Array.sub(resArray, forLabel)
+                val refs =
+                    case flow of
+                        ExitCode => []
+                    |   Unconditional n => [n]
+                    |   Conditional{trueJump, falseJump, ...} => [trueJump, falseJump]
+                    |   IndexedBr labs => labs
+                
+                (* For each of its references, add this block to the list of
+                   blocks it references and, if this is the first time we've visited,
+                   do the same for this block. *)
+                fun setRefs toLabel =
+                let
+                    val realTarget = getTarget toLabel
+                    val originalRefs = Array.sub(labelRefs, realTarget)
+                    val () = Array.update(labelRefs, realTarget, forLabel :: originalRefs)
+                in
+                    case originalRefs of
+                        [] => (* We hadn't seen this before. *)
+                            setReferences realTarget
+                    |   _ => ()
+                end
+            in
+                List.app setRefs (refs @ handlers)
+            end
+
+        in
+            val () = setReferences 0
+        end
+        
+        (* Copy the reference information into the result. *)
+        local
+            fun addRefs(n, { source=BranchSource _, block, flow, handlers }) =
+                    {source=BranchSource(Array.sub(labelRefs, n)), block=block, flow=flow, handlers=handlers}
+            |   addRefs(n, { source=HandleSource _, block, flow, handlers }) =
+                let
+                    (* There should be at most one block that has set up this handler.
+                       It's possible there is none if the code to set up the handler was
+                       unreachable. *)
+                    val handleSource =
+                        case Array.sub(labelRefs, n) of
+                            [reference] => reference
+                        |   [] => ~1
+                        |   _ => raise InternalError "More than one handler source"
+                in
+                    {source=HandleSource handleSource, block=block, flow=flow, handlers=handlers}
+                end
+            |   addRefs(_, { source, block, flow, handlers }) =
+                    {source=source, block=block, flow=flow, handlers=handlers}
+        in
+            val () = Array.modifyi addRefs resArray
+        end
+    in
+        Array.vector resArray
     end
     
     datatype destinations = RegDest of reg | StackDest of int

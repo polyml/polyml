@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016
+    Copyright David C. J. Matthews 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -70,7 +70,7 @@ struct
         fun newPReg() = PReg(!pregCounter, PRegGeneral) before pregCounter := !pregCounter + 1
         fun newUReg() = PReg(!pregCounter, PRegUntagged) before pregCounter := !pregCounter + 1
         val locToPregArray = Array.array(localCount, NONE: abstract option)
-        val labelCounter = ref 0
+        val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
         fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
