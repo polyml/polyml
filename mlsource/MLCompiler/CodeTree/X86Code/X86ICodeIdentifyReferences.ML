@@ -226,7 +226,7 @@ struct
         end
 
         (* Move, tag and untag instructions can be eliminated if the result is never used. *)
-        and eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, sources, dReg) =
+        and eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, sourceRegisters, dReg) =
         let
             val (tail, refLabels, resLoopLabels, ccUsed, currentRegs) =
                 identify(rest, labels, loopLabels, loopNest, ccIn)
@@ -237,6 +237,7 @@ struct
             if Array.sub(regRefs, dReg) <> 0
             then
             let
+                val sources = sourceRegs sourceRegisters
                 val dests = [dReg]
                 val afterRemoveDests = removeDests(dests, currentRegs)
                 val newActive = addSourcesToActive(sources, afterRemoveDests)
@@ -263,7 +264,7 @@ struct
         
         |   identify((instr as LoadArgument { source, dest, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
                 (* Moving to a preg, the destination. *)
-                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, sourceRegs source, destReg dest)
+                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, source, destReg dest)
 
         |   identify((instr as StoreArgument { source as RegisterArgument sReg, base, index, kind=MoveByte, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
                 (* Storing a byte value.  This is messy on X86/32 because we can't use edi or esi as the register
@@ -668,10 +669,10 @@ struct
                 addSourcesAndDests(instr, rest, labels, loopLabels, loopNest, ccIn, [], [])
 
         |   identify((instr as TagValue{source, dest}) :: rest, labels, loopLabels, loopNest, ccIn) =
-                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, [sourceReg source], destReg dest)
+                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, RegisterArgument source, destReg dest)
 
         |   identify((instr as UntagValue{source, dest, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
-                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, sourceRegs source, destReg dest)
+                eliminateableInstruction(instr, rest, labels, loopLabels, loopNest, ccIn, source, destReg dest)
 
         |   identify((instr as LoadEffectiveAddress{base, index, dest, ...}) :: rest, labels, loopLabels, loopNest, ccIn) =
             let
