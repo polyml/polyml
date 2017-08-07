@@ -676,15 +676,20 @@ struct
     let
         val blockCode = oldToNew(icode, maxLabels)
 
-        (* Use labels 0 to length-2 for blocks 1 to length-1.  Block 0 doesn't need a label. *)
         val blockCount = Vector.length blockCode
-        val outputLabelCount = ref (blockCount - 1)
-        fun getBlockLabel blockNo =
-            if blockNo <= 0 orelse blockNo >= blockCount
-            then raise InternalError "getBlockLabel"
-            else Label{labelNo=blockNo-1}
+        val outputLabelCount = ref 0
+        val blockToLabelMap = Array.array(blockCount, ~1)
 
-        fun makeAdditionalLabel() = Label{labelNo = ! outputLabelCount} before outputLabelCount := !outputLabelCount + 1
+        fun makeLabel() = Label{labelNo = ! outputLabelCount} before outputLabelCount := !outputLabelCount + 1
+       
+        fun getBlockLabel blockNo =
+            case Array.sub(blockToLabelMap, blockNo) of
+                ~1 =>
+                let
+                    val label as Label{labelNo} = makeLabel()
+                    val () = Array.update(blockToLabelMap, blockNo, labelNo)
+                in label end
+            |   n => Label{labelNo=n}
 
         (* The profile object is a single mutable with the F_bytes bit set. *)
         local
@@ -740,7 +745,7 @@ struct
         fun testRegAndTrap(reg, entryPt, saveRegs) =
         let
             (* Normally we won't have a stack overflow so we will skip the check. *)
-            val skipCheckLab = makeAdditionalLabel()
+            val skipCheckLab = makeLabel()
         in
             (* Need it in reverse order. *)
             [
@@ -980,7 +985,7 @@ struct
                 val rReg = asGenReg testReg and wReg = asGenReg workReg
                 val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
                 val caseLabels = map (fn ILabel l => getBlockLabel l) cases
-                val startJumpTable = makeAdditionalLabel()
+                val startJumpTable = makeLabel()
                 (* Compute the jump address.  The index is a tagged
                    integer so it is already multiplied by 2.  We need to
                    multiply by four to get the correct size. Subtract off the
@@ -1318,92 +1323,140 @@ struct
         local
             (* processed - set to true when a block has been processed. *)
             val processed = Array.array(Vector.length blockCode, false)
+            fun haveProcessed n = Array.sub(processed, n)
 
-            fun genCode(toDo, previous, code) =
-            let
-                (* Remove items that have been done. *)
-                fun filter [] = []
-                |   filter (list as first::tail) =
-                        if Array.sub(processed, first)
-                        then filter tail
-                        else list
-            in
-                case filter toDo of
-                    [] =>
-                        let
-                            (* We may need to add a final branch to the end. *)
-                            val finalBranch =
-                                case previous of
-                                    ExitCode => []
-                                |   IndexedBr _ => []
-                                |   Unconditional dest => [UncondBranch(getBlockLabel dest)]
-                                |   Conditional { condition, trueJump, falseJump, ...} =>
-                                        [
-                                            UncondBranch(getBlockLabel falseJump),
-                                            ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
-                                        ]
-                        in
-                            finalBranch @ code (* Done. *)
-                        end
-
-                |   picked :: stillToDo =>
-                    (* For the moment just select the first.  This may not be ideal because it means
-                       we follow unconditional branches immediately.  If we have if-then-else we will
-                       have an unconditional branch at the end of the "then".  We may be better putting
-                       in an unconditional branch and processing the "else-part" before joining
-                       the two arms. *)
-                    let
-                        val () = Array.update(processed, picked, true)
-
-                        val { block, flow, handlers, ...} = Vector.sub(blockCode, picked)
-
-                        (* Code to terminate the previous block.  We might be able
-                           to avoid one branch in the case where we have an indexed branch
-                           and we put the code for the last case in place of the last branch. *)
-                        val startCode =
-                            case previous of
-                                ExitCode => []
-                            |   IndexedBr _ => []
-                            |   Unconditional dest =>
-                                    if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
-                            |   Conditional { condition, trueJump, falseJump, ...} =>
-                                if picked = falseJump (* Usual case. *)
-                                then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
-                                else
-                                (* We could avoid a branch in the case where picked = trueJump by inverting
-                                   the condition and jumping to falseJump. *)
+            fun genCode(toDo, lastFlow, lastBlockNo, code) =
+            case List.filter (not o haveProcessed) toDo of
+                [] =>
+                let
+                    (* There's nothing left to do. We may need to add a final branch to the end. *)
+                    val finalBranch =
+                        case lastFlow of
+                            ExitCode => []
+                        |   IndexedBr _ => []
+                        |   Unconditional dest => [UncondBranch(getBlockLabel dest)]
+                        |   Conditional { condition, trueJump, falseJump, ...} =>
                                 [
                                     UncondBranch(getBlockLabel falseJump),
                                     ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
                                 ]
-                        
-                        (* Code-generate the body with the code we've done so far
-                           at the end.  Add a label at the start even if we don't need it. *)
-                        val startLabel =
-                            if picked = 0 then [] else [JumpLabel(getBlockLabel picked)]
-                        val bodyCode =
-                            codeGenICode(block, startLabel @ startCode @ code)
+                in
+                    finalBranch @ code (* Done. *)
+                end
 
-                        val addSet =
-                            case flow of
-                                ExitCode => []
-                            |   IndexedBr cases => cases
-                            |   Unconditional dest => [dest]
-                            |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
-                        (* If there are any handlers add them on at the end.
-                           There will not usually be any but if there are there's no
-                           point in putting them in line. *)
-                        val newSet =
-                            case handlers of
-                                [] => addSet @ stillToDo
-                            |   _ => addSet @ stillToDo @ handlers
+            |   stillToDo as head :: _ =>
+                (* For the moment just select the first.  This may not be ideal because it means
+                   we follow unconditional branches immediately.  If we have if-then-else we will
+                   have an unconditional branch at the end of the "then".  We may be better putting
+                   in an unconditional branch and processing the "else-part" before joining
+                   the two arms. *)
+                let
+                    local
+                        fun available dest =
+                            case Vector.sub(blockCode, dest) of
+                                { source=BranchSource sources, ...} =>
+                                    (* All the sources that lead up to this have already been
+                                       processed so if we do this we won't have any backward jumps. *)
+                                    List.all haveProcessed sources 
+                            |   _ => true (* ??? *)
+                        val continuation =
+                            case lastFlow of
+                                ExitCode => NONE
+                            |   IndexedBr _ => NONE (* We could put the last branch in here. *)
+                            |   Unconditional dest =>
+                                    if not (haveProcessed dest) andalso available dest
+                                    then SOME dest
+                                    else NONE
+                            |   Conditional {trueJump, falseJump, ...} =>
+                                    (* Try the falseJump first - this is the usual case.  If that fails
+                                       try the trueJump. *)
+                                    if not (haveProcessed falseJump) andalso available falseJump
+                                    then SOME falseJump
+                                    else if not (haveProcessed trueJump) andalso available trueJump
+                                    then SOME trueJump
+                                    else NONE   
                     in
-                        genCode(newSet, flow, bodyCode)
+                        (* First choice - continue the existing block.
+                           Second choice - the first item whose sources have all been
+                           processed.
+                           Third choice - something from the list. *)
+                        val picked =
+                            case continuation of
+                                SOME c => c
+                            |   NONE =>
+                                    case List.find available stillToDo of
+                                        SOME c => c
+                                    |   NONE => head
                     end
-            end
-            
+                        
+                    val () = Array.update(processed, picked, true)
+
+                    val { block, flow, handlers, source, ...} = Vector.sub(blockCode, picked)
+
+                    (* Code to terminate the previous block. *)
+                    val startCode =
+                        case lastFlow of
+                            ExitCode => []
+                        |   IndexedBr _ => []
+                        |   Unconditional dest =>
+                                if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
+                        |   Conditional { condition, trueJump, falseJump, ...} =>
+                            if picked = falseJump (* Usual case. *)
+                            then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
+                            else if picked = trueJump
+                            then (* We have a jump to the true condition. Invert the jump.
+                                    This is more than an optimisation.  Because this immediately precedes the
+                                    true block we're not going to generate a label. *)
+                            let
+                                val revTest =
+                                    case condition of
+                                        JE  => JNE  |   JNE => JE   |   JA  => JNA  |   JB  => JNB  |   JNA => JA
+                                    |   JNB => JB   |   JL  => JGE  |   JG  => JLE  |   JLE => JG   |   JGE => JL
+                                    |   JO  => JNO  |   JNO => JO   |   JP  => JNP  |   JNP => JP
+                            in
+                                [ConditionalBranch{test=revTest, predict=PredictNeutral, label=getBlockLabel falseJump}]
+                            end
+                            else
+                            [
+                                UncondBranch(getBlockLabel falseJump),
+                                ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
+                            ]
+                    
+                    (* Code-generate the body with the code we've done so far
+                       at the end.  Add a label at the start if necessary. *)
+                    val startLabel =
+                        case source of
+                            HandleSource _ => [JumpLabel(getBlockLabel picked)]
+                        |   RootSource => []
+                        |   BranchSource [singleton] =>
+                                (* The only place this is referred to is the previous block and it wasn't
+                                   an indexed branch. *)
+                                if singleton = lastBlockNo andalso
+                                    (case lastFlow of IndexedBr _ => false | _ => true)
+                                then [] else [JumpLabel(getBlockLabel picked)]
+                        |   BranchSource _ => [JumpLabel(getBlockLabel picked)]
+
+                    val bodyCode =
+                        codeGenICode(block, startLabel @ startCode @ code)
+
+                    val addSet =
+                        case flow of
+                            ExitCode => []
+                        |   IndexedBr cases => cases
+                        |   Unconditional dest => [dest]
+                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                    (* If there are any handlers add them on at the end.
+                       There will not usually be any but if there are there's no
+                       point in putting them in line. *)
+                    val newSet =
+                        case handlers of
+                            [] => addSet @ stillToDo
+                        |   _ => addSet @ stillToDo @ handlers
+                in
+                    genCode(newSet, flow, picked, bodyCode)
+                end
         in
-            val ops = genCode([0], ExitCode, preludeCode)
+            val ops = genCode([0], ExitCode, ~1, preludeCode)
         end
     in
         X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
@@ -1552,12 +1605,29 @@ struct
             fun setReferences forLabel =
             let
                 (* Find the references this makes. *)
-                val { flow, handlers, ...} = Array.sub(resArray, forLabel)
+                val { flow, handlers, source, block } = Array.sub(resArray, forLabel)
+                fun updateFlow newFlow =
+                    Array.update(resArray, forLabel, {flow=newFlow, handlers=handlers, source=source, block=block })
                 val refs =
                     case flow of
                         ExitCode => []
-                    |   Unconditional n => [n]
-                    |   Conditional{trueJump, falseJump, ...} => [trueJump, falseJump]
+                    |   Unconditional lab =>
+                        let
+                            val newLab = getTarget lab
+                            val () = if lab <> newLab then updateFlow(Unconditional newLab) else ()
+                        in
+                            [newLab]
+                        end
+                    |   Conditional{trueJump, falseJump, ccRef, condition } =>
+                        let
+                            val newTrue = getTarget trueJump and newFalse = getTarget falseJump
+                            val () =
+                                if newTrue <> trueJump orelse newFalse <> falseJump
+                                then updateFlow(Conditional{trueJump=newTrue, falseJump=newFalse, ccRef=ccRef, condition=condition })
+                                else ()
+                        in
+                            [newTrue, newFalse]
+                        end
                     |   IndexedBr labs => labs
                 
                 (* For each of its references, add this block to the list of
@@ -1565,13 +1635,12 @@ struct
                    do the same for this block. *)
                 fun setRefs toLabel =
                 let
-                    val realTarget = getTarget toLabel
-                    val originalRefs = Array.sub(labelRefs, realTarget)
-                    val () = Array.update(labelRefs, realTarget, forLabel :: originalRefs)
+                    val originalRefs = Array.sub(labelRefs, toLabel)
+                    val () = Array.update(labelRefs, toLabel, forLabel :: originalRefs)
                 in
                     case originalRefs of
                         [] => (* We hadn't seen this before. *)
-                            setReferences realTarget
+                            setReferences toLabel
                     |   _ => ()
                 end
             in

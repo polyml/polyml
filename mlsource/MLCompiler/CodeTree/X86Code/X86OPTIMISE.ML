@@ -48,50 +48,6 @@ struct
            reversed list and turn it back into the original order. *)
         fun forward([], list, rep) = reverse(list, [], rep)
 
-(*            (* Reorder conditional and unconditional branches.  If we have a conditional branch
-               followed by an unconditional branch followed by the destination of the conditional
-               branch we can turn the test round. *)
-        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
-                    (u as UncondBranch uncondLab) ::
-                    (d as JumpLabel nextLabel) :: tl, list, rep) =
-            let
-                (* See where the ultimate destination of the conditional branch is.
-                   If it's already been forwarded we don't want to change that. *)
-                fun follow(Label{chain=ref(SOME c), ...}) = follow c
-                |   follow c = c
-
-                val condRef = follow condDest
-
-                fun reverseTest JE  = JNE
-                |   reverseTest JNE = JE
-                |   reverseTest JA  = JNA
-                |   reverseTest JB  = JNB
-                |   reverseTest JNA = JA
-                |   reverseTest JNB = JB
-                |   reverseTest JL  = JGE
-                |   reverseTest JG  = JLE
-                |   reverseTest JLE = JG
-                |   reverseTest JGE = JL
-                |   reverseTest JO  = JNO
-                |   reverseTest JNO = JO
-                |   reverseTest JP  = JNP
-                |   reverseTest JNP = JP
-
-                fun reversePrediction PredictNeutral = PredictNeutral
-                |   reversePrediction PredictTaken = PredictNotTaken
-                |   reversePrediction PredictNotTaken = PredictTaken
-            in
-                if sameLabel(condRef, nextLabel)
-                then
-                (
-                    eliminate c;
-                    forward(d :: tl,
-                        ConditionalBranch{label=uncondLab, test=reverseTest test, predict=reversePrediction predict} ::
-                            list, true)
-                )
-                else forward(u :: d :: tl, c :: list, rep)
-            end*)
-
         |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
                 (* Combine adjacent resets. *)
                 forward(ResetStack(count1+count2) :: tl, list, true)
