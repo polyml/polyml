@@ -1346,7 +1346,12 @@ struct
                             finalBranch @ code (* Done. *)
                         end
 
-                |   picked :: stillToDo => (* For the moment just select the first. *)
+                |   picked :: stillToDo =>
+                    (* For the moment just select the first.  This may not be ideal because it means
+                       we follow unconditional branches immediately.  If we have if-then-else we will
+                       have an unconditional branch at the end of the "then".  We may be better putting
+                       in an unconditional branch and processing the "else-part" before joining
+                       the two arms. *)
                     let
                         val () = Array.update(processed, picked, true)
 
@@ -1362,19 +1367,11 @@ struct
                             |   Unconditional dest =>
                                     if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
                             |   Conditional { condition, trueJump, falseJump, ...} =>
-                                if picked = trueJump
-                                then
-                                let (* The destination is where we would jump if the condition was true. *)
-                                    val () = print "Could avoid jump\n"
-                                in
-                                [
-                                    UncondBranch(getBlockLabel falseJump),
-                                    ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
-                                ]
-                                end
-                                else if picked = falseJump
+                                if picked = falseJump (* Usual case. *)
                                 then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
                                 else
+                                (* We could avoid a branch in the case where picked = trueJump by inverting
+                                   the condition and jumping to falseJump. *)
                                 [
                                     UncondBranch(getBlockLabel falseJump),
                                     ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
@@ -1528,7 +1525,7 @@ struct
 
         val () = splitCode(ops, 0, RootSource, [], [])
         
-        (*local
+        local
             (* The target of a label is usually the label itself except that
                if the target is an unconditional branch with no other code
                we use the target of that branch.  This can also arise if
@@ -1544,8 +1541,7 @@ struct
                |    _ => labNo
         in
             val getTarget = findTarget []
-        end*)
-        fun getTarget n = n (* Don't forward labels at the moment. *)
+        end
         
         local
             (* Find the blocks that reference this one. *)
