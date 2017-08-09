@@ -17,7 +17,6 @@
 
 functor X86ICodeGetConflictSets(
     structure ICODE: ICodeSig
-    structure DEBUG: DEBUGSIG
     structure INTSET: INTSETSIG
 ): X86GETCONFLICTSETSIG =
 struct

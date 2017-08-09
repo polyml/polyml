@@ -133,6 +133,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86IDENTIFYREFSSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86PushRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86PUSHREGISTERSIG.ML" />
 	<source name="mlsource\MLCompiler\CODETREESIG.ML" />
 	<source name="mlsource\MLCompiler\COMPILER_BODY.ML" />
 	<source name="mlsource\MLCompiler\CompilerBody.ML" />

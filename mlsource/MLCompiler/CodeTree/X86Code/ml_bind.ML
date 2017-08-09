@@ -51,7 +51,6 @@ local
 
     structure X86ICodeConflicts =
         X86ICodeGetConflictSets (
-            structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure INTSET        = IntSet
         )
@@ -74,6 +73,12 @@ local
                 |   arcs _ = []
             end
         )
+
+    structure X86PushRegs =
+        X86PushRegisters (
+            structure ICODE         = X86ICode
+            structure INTSET        = IntSet
+        )
         
     structure X86ICodeTransform =
         X86ICodeTransform (
@@ -81,6 +86,7 @@ local
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
             structure CONFLICTSETS  = X86ICodeConflicts
+            structure PUSHREGISTERS = X86PushRegs
             structure PRETTY        = Pretty
             structure STRONGLY      = Strongly
             structure INTSET        = IntSet
