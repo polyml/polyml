@@ -425,7 +425,7 @@ struct
                         refLabels, resLoopLabels, CCIndeterminate, newActive)
             end
 
-        |   identify(JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust} :: rest, labels, loopLabels, loopNest, ccIn) =
+        |   identify(JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust, ...} :: rest, labels, loopLabels, loopNest, ccIn) =
             let
                 val _ = hd loopNest = loopLabel orelse raise InternalError "identify - loop nesting"
                 val regSourceAsRegs =
@@ -450,8 +450,17 @@ struct
                     case checkInterrupt of
                         NONE => NONE
                     |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
+                (* We have to pass these to the next stage.  They are treated as part of the active
+                   set in each JumpLoop.  We assume that when we come to allocate real registers
+                   anything in the active set has already been allocated (working back from the end).
+                   We have to ensure that is the case by allocating them at the end of the loop.
+                   Then any new registers we allocate will be correctly found as conflicts.
+                   There's no harm in allocating them in each of the JumpLoops since they will
+                   just get the same register. *)
+                val staticRegs = List.map (fn r => PReg(r, PRegGeneral)) (setToList loopRegs)
                 val jumpInstr =
-                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust, checkInterrupt=check}
+                    JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust,
+                             checkInterrupt=check, staticRegs=staticRegs}
             in
                 ({instr=jumpInstr, active=emptySet, current=currentRegs} :: tail, refLabels, resLoopLabels, CCIndeterminate, currentRegs)
             end

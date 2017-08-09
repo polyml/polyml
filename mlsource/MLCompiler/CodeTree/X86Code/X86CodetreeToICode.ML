@@ -810,7 +810,7 @@ struct
                     if loopSp = stackPtr then codeArgs
                     else ResetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
             in
-                (JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[]} :: stackReset, RegisterArgument target, true)
+                (JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[], staticRegs=[]} :: stackReset, RegisterArgument target, true)
             end
 
         |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"

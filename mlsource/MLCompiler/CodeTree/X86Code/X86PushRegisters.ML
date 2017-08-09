@@ -415,7 +415,7 @@ struct
                 (* We don't really need to map the static regs since we'll call "Identify" again after this. *)
                 pushRegisters(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code, context)
 
-        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, checkInterrupt, ...}, ...} :: rest,
+        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, checkInterrupt, staticRegs, ...}, ...} :: rest,
                            code, context as {newCount, ...}) =
             let
                 val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
@@ -455,7 +455,7 @@ struct
             in
                 skipToLabel(rest,
                     JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
-                              stackAdjust=newStackAdjust, checkInterrupt=check} :: sourceCode @ stackArgLoads @ code)
+                              stackAdjust=newStackAdjust, checkInterrupt=check, staticRegs=mapSaveRegs staticRegs} :: sourceCode @ stackArgLoads @ code)
             end
 
         |   pushRegisters({instr=RaiseExceptionPacket{packet}, ...} :: rest, code, context) =

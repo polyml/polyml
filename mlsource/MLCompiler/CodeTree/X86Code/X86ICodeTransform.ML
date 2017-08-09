@@ -64,8 +64,7 @@ struct
         MemoryLocation{offset=offset*wordSize, base=(GenReg baseReg), index=NoMemIndex}
     exception RegisterOverflow of intSet
 
-    fun codeAbstractToConcrete(identifiedCode:
-            {instr: abstract x86ICode} list, regStates: conflictState vector, maxPRegs) =
+    fun codeAbstractToConcrete(identifiedBlocks: abstract basicBlock vector, regStates: conflictState vector, maxPRegs): reg basicBlock vector =
     let
         (* Allocated registers.  This is set to the real register that is used
            for a specific pseudo-register.  Once a register is allocated that
@@ -503,7 +502,7 @@ struct
 
         fun codeExtended([], _) = []
 
-        |   codeExtended({instr=LoadArgument{source=RegisterArgument(PReg(sreg, _)), dest=PReg(dreg, _), kind}} :: rest, context) =
+        |   codeExtended({instr=LoadArgument{source=RegisterArgument(PReg(sreg, _)), dest=PReg(dreg, _), kind}, ...} :: rest, context) =
             (* Register to register move.  Try to use the same register for the source as the destination
                to eliminate the instruction. *)
             let
@@ -756,8 +755,11 @@ struct
                 codeExtended(rest, context)
             end
 
-        |   codeExtended({instr=JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt}, ...} :: rest, context) =
+        |   codeExtended({instr=JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt, staticRegs}, ...} :: rest, context) =
             let
+                (* Copy this from EndLoop *)
+                val () = List.app(fn PReg(r, _) => (findRegister(r, NONE, generalRegisters); ())) staticRegs
+                
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
                 (* We must leave stack entries as stack entries for the moment as with TailCall. *)
@@ -770,7 +772,7 @@ struct
                 val check = Option.map(List.map(fn (PReg(r, _)) => findGeneralReg r)) checkInterrupt
             in
                 moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @ resetCode @
-                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0, checkInterrupt=check} :: code)
+                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0, checkInterrupt=check, staticRegs=[]} :: code)
             end
 
         |   codeExtended({instr=RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) }, ...} :: rest, context) =
@@ -1016,9 +1018,9 @@ struct
         |   codeExtended({instr=UntagValue _, ...} :: _, _) =
                 raise InternalError "UntagValue"
 
-        |   codeExtended({instr=LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest}} :: rest, context) =
+        |   codeExtended({instr=LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest}, active, current} :: rest, context) =
                 (* This should be handled at the higher level. *)
-                codeExtended({instr=LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord}} :: rest, context)
+                codeExtended({instr=LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord}, active=active, current=current} :: rest, context)
 
         |   codeExtended({instr=LoadEffectiveAddress{base, offset, index, dest=PReg(dReg, _)}, ...} :: rest, context) =
             let
@@ -1257,8 +1259,77 @@ struct
     
         |   codeExtended({instr=SSE2FPArith _, ...} :: _, _) = raise InternalError "codeExtended - SSE2FPArith"
 
+        (* Depth-first scan. *)
+
+        datatype processState = Unvisited | ToDo | Done of reg x86ICode list
+
+        val processing = Array.array(Vector.length identifiedBlocks, Unvisited)
+        
+        fun processBlocks blocksToDo =
+            (* Remove any processed blocks from the list. *)
+            case List.filter (fn b => case Array.sub(processing, b) of Done _ => false | _ => true) blocksToDo of
+                [] => () (* Finished *)
+            |   stack as firstItem :: _ =>
+                let
+                    (* The direct dependencies of block n. *)
+                    fun dependencies n =
+                        case Vector.sub(identifiedBlocks, n) of
+                            { flow=ExitCode, handlers, ...} => handlers
+                        |   { flow=Unconditional m, handlers, ...} => m :: handlers
+                        |   { flow=Conditional {trueJump, falseJump, ...}, handlers, ...} =>
+                                trueJump :: falseJump :: handlers
+                        |   { flow=IndexedBr cases, handlers, ...} => cases @ handlers
+
+                    fun getPick (hd::tl) =
+                        let
+                            val deps = dependencies hd
+                        in
+                            (* Find something whose dependencies have been done or has not yet been visited. *)
+                            if List.all(fn d => case Array.sub(processing, d) of ToDo => false | _ => true) deps
+                            then (hd, deps)
+                            else getPick tl
+                        end
+                        
+                    |   getPick [] =
+                            (* The dependencies must all be ToDo.  We have a loop so have to
+                               pick something to break the loop. *)
+                            (firstItem, dependencies firstItem)
+
+                    val (pick, pickDeps) = getPick stack
+                    (* We now have a block that is either ready to go or has unvisited dependencies.
+                       If any of the dependencies are unvisited do them now. *)
+                    fun processDependency d =
+                        case Array.sub(processing, d) of
+                            Unvisited => (Array.update(processing, d, ToDo); processBlocks(d :: stack))
+                        |   _ => ()
+                    val () = List.app processDependency pickDeps
+                    (* At this point we have processed any dependencies or may have a loop. *)
+               in
+                    case Array.sub(processing, pick) of
+                        Done _ => ()
+                    |   _ =>
+                        let
+                            val { block, ...} = Vector.sub(identifiedBlocks, pick)
+                            val codeBlock = codeExtended(List.map (fn i => {instr=i, active=emptySet, current=emptySet}) block, [])
+                        in
+                            Array.update(processing, pick, Done codeBlock)
+                        end;
+                    processBlocks stack
+                end
+        val () = Array.update(processing, 0, ToDo)
+        val () = processBlocks[0]
+        fun getResult i =
+        let
+            val {source, flow, handlers, ...} = Vector.sub(identifiedBlocks, i)
+            and processState = Array.sub(processing, i)
+        in
+            case processState of
+                Done c => { source=source, flow=flow, handlers=handlers, block=c}
+            |   _ => (* Unreachable code.  Should we prune this? *)
+                 { source=BranchSource [], block = [], flow = ExitCode, handlers = [] }
+        end
     in
-        codeExtended(identifiedCode, [])
+        Vector.tabulate(Vector.length identifiedBlocks, getResult)
     end
     
     (* Find out the registers that need to be pushed to the stack, if any.
@@ -1431,8 +1502,10 @@ struct
                 (* Now get the conflict sets. *)
                 val conflictSets = getConflictStates(identified, maxPRegs)
                 val () = if wantPrintCode then (printCode(List.map #instr identified); printConflicts conflictSets) else ()
+
+                val blockIdentified = oldToNew(map (fn {instr, ...} => instr) identified, maxLabels)
             in
-                (codeAbstractToConcrete(map (fn {instr, ...} => {instr=instr}) identified, conflictSets, maxPRegs), maxLabels, maxStack)
+                (codeAbstractToConcrete(blockIdentified, conflictSets, maxPRegs), maxStack)
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet
@@ -1444,7 +1517,7 @@ struct
             end
         end
 
-        val (postTransformCode, maxLabels, stackRequired) =
+        val (postTransformCode: reg basicBlock vector, stackRequired) =
             processCode(icode, maxPRegs, maxLabels, 0 (* Should include handlers and containers. *), 0)
 
         val () =
@@ -1453,18 +1526,14 @@ struct
             then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
-
-                fun printCode c =
-                ( printICodeConcrete(c, printStream); printStream "\n")
             in
                 printStream(functionName ^ "\n");
-                List.app printCode postTransformCode;
-                printStream "\n"
+                printICodeConcrete(postTransformCode, printStream)
             end
             else ()
     in
-        (* Ccode-generate it. *)
-        codeAsX86Code{icode=postTransformCode, maxLabels = maxLabels, stackRequired = stackRequired,
+        (* Code-generate it. *)
+        codeAsX86Code{blockCode=postTransformCode, stackRequired = stackRequired,
                       inputRegisters= argRegsUsed @ (if hasFullClosure then [GenReg edx] else []), debugSwitches=debugSwitches,
                       functionName=functionName}
     end

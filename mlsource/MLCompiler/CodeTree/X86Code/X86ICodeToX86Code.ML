@@ -148,7 +148,8 @@ struct
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of
             { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
-              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
+              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option,
+              staticRegs: 'reg list }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
@@ -283,6 +284,10 @@ struct
         (* Indexed case - this branches to one of a number of labels *)
     |   IndexedBr of int list
 
+    type 'reg basicBlock =
+        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow, handlers: int list }
+
+
     local
 
         fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
@@ -411,7 +416,7 @@ struct
 
         |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
 
-        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt }, stream, printReg) =
+        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt, ... }, stream, printReg) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
@@ -656,8 +661,41 @@ struct
 
         and printAbstractReg(PReg(i, PRegGeneral), stream) = stream("G" ^ Int.toString i)
         |   printAbstractReg(PReg(i, PRegUntagged), stream) = stream("U" ^ Int.toString i)
+        
+        (* Print a basic block. *)
+        fun printBlock (printItem, stream) (blockNo, {block, flow, ...}: 'reg basicBlock) =
+        (
+            (* Put a label on all but the first. *)
+            if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
+            List.app printItem block;
+            case flow of
+                Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
+            |   Conditional {condition, trueJump, falseJump, ...} =>
+                (
+                    case condition of
+                        JO => stream "\tJumpOverflow\t"
+                    |   JNO => stream "\tJumpNoOverflow\t"
+                    |   JE => stream "\tJumpEqual\t"
+                    |   JNE => stream "\tJumpNotEqual\t"
+                    |   JL => stream "\tJumpLessSigned\t"
+                    |   JGE => stream "\tJumpGeqSigned\t"
+                    |   JLE => stream "\tJumpLeqSigned\t"
+                    |   JG => stream "\tJumpGrtSigned\t"
+                    |   JB => stream "\tJumpLessUnsigned\t"
+                    |   JNB => stream "\tJumpGeqUnsigned\t"
+                    |   JNA => stream "\tJumpLeqUnsigned\t"
+                    |   JA => stream "\tJumpGrtUnsigned\t"
+                    |   JP => stream "\tJumpParitySet"
+                    |   JNP => stream "\tJumpParityClear\t";
+                    stream(concat["L", Int.toString trueJump, " else L",  Int.toString falseJump, "\n"])
+                )
+            |   _ => ()
+        )
     in
-        fun printICodeConcrete(icode, stream) = printICode(icode, stream, printConcreteReg)
+        fun printICodeConcrete(blockVec, stream) =
+            Vector.appi(
+                printBlock(fn icode => printICode(icode, stream, printConcreteReg), stream)) blockVec
+
         and printICodeAbstract(icode, stream) = printICode(icode, stream, printAbstractReg)
     end
 
@@ -672,10 +710,8 @@ struct
 
     (* Generate code from the ICode.  This assumes that all pseudo-registers have been replaced by
        real registers or locations.  Only certain patterns of arguments are accepted. *)
-    fun codeAsX86Code{icode, maxLabels, stackRequired, inputRegisters: reg list, functionName, debugSwitches} =
+    fun codeAsX86Code{blockCode, stackRequired, inputRegisters: reg list, functionName, debugSwitches} =
     let
-        val blockCode = oldToNew(icode, maxLabels)
-
         val blockCount = Vector.length blockCode
         val outputLabelCount = ref 0
         val blockToLabelMap = Array.array(blockCount, ~1)
@@ -1463,7 +1499,7 @@ struct
     end
     
     (* Convert the old single list into a list of basic blocks. *)
-    and oldToNew(ops, maxLabels) =
+    fun oldToNew(ops: 'reg x86ICode list, maxLabels): 'reg basicBlock vector =
     let
         (* Count the number of conditional branches.  We are going to add a block for
            the drop-through case of a conditional branch so we have to add those. *)

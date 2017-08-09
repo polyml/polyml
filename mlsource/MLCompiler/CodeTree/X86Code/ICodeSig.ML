@@ -170,7 +170,8 @@ sig
            a jump is made back to the containing StartLoop *)
     |   JumpLoop of
             { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
-              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option }
+              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option,
+              staticRegs: 'reg list }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
@@ -305,11 +306,17 @@ sig
         (* Indexed case - this branches to one of a number of labels *)
     |   IndexedBr of int list
 
-    val codeAsX86Code: {icode: reg x86ICode list, maxLabels: int, stackRequired: int, inputRegisters: reg list,
-            functionName: string, debugSwitches: Universal.universal list } -> address
+    type 'reg basicBlock =
+        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow, handlers: int list }
 
-    val printICodeConcrete: reg x86ICode * (string -> unit) -> unit
-    and printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
+    val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
+            functionName: string, debugSwitches: Universal.universal list } -> address
+    
+    val oldToNew: 'reg x86ICode list * int -> 'reg basicBlock vector
+
+    val printICodeConcrete: reg basicBlock vector * (string -> unit) -> unit
+
+    val printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
     
     val indexRegister: 'reg memoryIndex -> 'reg option
     
