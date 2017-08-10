@@ -1274,11 +1274,11 @@ struct
                     (* The direct dependencies of block n. *)
                     fun dependencies n =
                         case Vector.sub(identifiedBlocks, n) of
-                            { flow=ExitCode, handlers, ...} => handlers
-                        |   { flow=Unconditional m, handlers, ...} => m :: handlers
-                        |   { flow=Conditional {trueJump, falseJump, ...}, handlers, ...} =>
-                                trueJump :: falseJump :: handlers
-                        |   { flow=IndexedBr cases, handlers, ...} => cases @ handlers
+                            { flow=ExitCode, ...} => []
+                        |   { flow=Unconditional m, ...} => [m]
+                        |   { flow=Conditional {trueJump, falseJump, ...}, ...} => [trueJump, falseJump]
+                        |   { flow=IndexedBr cases, ...} => cases
+                        |   { flow=SetHandler{ handler, continue }, ...} => [handler, continue]
 
                     fun getPick (hd::tl) =
                         let
@@ -1320,13 +1320,13 @@ struct
         val () = processBlocks[0]
         fun getResult i =
         let
-            val {source, flow, handlers, ...} = Vector.sub(identifiedBlocks, i)
+            val {source, flow, ...} = Vector.sub(identifiedBlocks, i)
             and processState = Array.sub(processing, i)
         in
             case processState of
-                Done c => { source=source, flow=flow, handlers=handlers, block=c}
+                Done c => { source=source, flow=flow, block=c}
             |   _ => (* Unreachable code.  Should we prune this? *)
-                 { source=BranchSource [], block = [], flow = ExitCode, handlers = [] }
+                 { source=BranchSource [], block = [], flow = ExitCode }
         end
     in
         Vector.tabulate(Vector.length identifiedBlocks, getResult)

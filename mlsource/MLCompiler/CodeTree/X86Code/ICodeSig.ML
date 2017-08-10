@@ -305,9 +305,12 @@ sig
     |   ExitCode
         (* Indexed case - this branches to one of a number of labels *)
     |   IndexedBr of int list
+        (* Set up a handler.  This doesn't cause an immediate branch but the state at the
+           start of the handler is the state at this point. *)
+    |   SetHandler of { handler: int, continue: int }
 
     type 'reg basicBlock =
-        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow, handlers: int list }
+        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
 
     val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
