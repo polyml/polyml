@@ -28,7 +28,7 @@ struct
 
     type regState =
     { 
-        active: int, defs: int, refs: int, pushState: pushState
+        active: int, refs: int, pushState: pushState
     }
 
     and conflictState =
@@ -49,12 +49,40 @@ struct
         }
     
     exception InternalError = Misc.InternalError
+    
+    (* Return the list of blocks that are the immediate successor of this. *)
+    fun blockSuccessors(BasicBlock{flow=Unconditional l, ...}) = [l]
+    |   blockSuccessors(BasicBlock{flow=Conditional{trueJump, falseJump, ...}, ...}) = [trueJump, falseJump]
+    |   blockSuccessors(BasicBlock{flow=ExitCode, ...}) = []
+    |   blockSuccessors(BasicBlock{flow=IndexedBr cases, ...}) = cases
+    |   blockSuccessors(BasicBlock{flow=SetHandler{handler, continue, ...}, ...}) = [handler, continue]
+
+    (* Find the sources when the argument is used as a source. *)
+    fun sourceRegs(RegisterArgument rarg) = [sourceReg rarg]
+    |   sourceRegs(MemoryLocation { base, index, ...}) =
+        let
+            val bRegs = sourceReg base
+            val iRegs = sourceIndex index
+        in
+            bRegs :: iRegs
+        end
+    |   sourceRegs _ = []
+    
+    and sourceReg(PReg(i, _)) = i
+    
+    and sourceIndex index =
+                case index of
+                    NoMemIndex => []
+                |   MemIndex1 arg => [sourceReg arg]
+                |   MemIndex2 arg => [sourceReg arg]
+                |   MemIndex4 arg => [sourceReg arg]
+                |   MemIndex8 arg => [sourceReg arg]
      
     (* This function scans the Icode to identify the usage patterns of the pseudo-registers.
        It scans forward building up a list of the registers that have been defined then
        scans backwards building up a list of references.  A register is then "live" if
        it has been both defined and referenced otherwise it is dead.  *)
-    fun identifyRegisterState (icode, loopLabels, maxPRegs) =
+(*    fun identifyRegisterState (icode, loopLabels, maxPRegs) =
     let
         (* Number of instrs for which this is active. *)
         val regActive = Array.array(maxPRegs, 0)
@@ -67,27 +95,6 @@ struct
         and regPushState = Array.array(maxPRegs, MayPush)
         
         fun incrArray(v, i) = Array.update(v, i, Array.sub(v, i)+1)
-
-        (* Find the sources when the argument is used as a source. *)
-        fun sourceRegs(RegisterArgument rarg) = [sourceReg rarg]
-        |   sourceRegs(MemoryLocation { base, index, ...}) =
-            let
-                val bRegs = sourceReg base
-                val iRegs = sourceIndex index
-            in
-                bRegs :: iRegs
-            end
-        |   sourceRegs _ = []
-        
-        and sourceReg(PReg(i, _)) = (incrArray(regRefs, i); i)
-        
-        and sourceIndex index =
-                    case index of
-                        NoMemIndex => []
-                    |   MemIndex1 arg => [sourceReg arg]
-                    |   MemIndex2 arg => [sourceReg arg]
-                    |   MemIndex4 arg => [sourceReg arg]
-                    |   MemIndex8 arg => [sourceReg arg]
 
         (* Any particular argument is only ever a single destination. *)
         fun destReg(PReg(i, regKind)) =
@@ -834,10 +841,294 @@ struct
                 val (codePass2, _, regState2) = identifyRegisterState(icode, loopLabels, maxPRegs)
             in
                 (codePass2, regState2)
-            end
-    
+            end*)
+
     fun identifyRegisters(blockVector, maxPRegs): extendedBasicBlock vector * regState vector =
-        raise Fail "TODO - identifyRegisters"
+    let
+        val vectorLength = Vector.length blockVector
+        (* Initial arrays - declarationArray is the set of registers given
+           values by the block, usageArray is the set of registers referenced by
+           the block. *)
+        val declarationArray = Array.array(vectorLength, emptySet)
+        and usageArray = Array.array(vectorLength, emptySet)
+        
+        (* References - this is used locally to see if a register is ever
+           actually used and also included in the result which uses it as
+           part of the choice of which register to spill. *)
+        val regRefs = Array.array(maxPRegs, 0)
+        (* Whether the register must be saved on the stack, must not or could be. *)
+        and regPushState = Array.array(maxPRegs, MayPush)
+
+        fun destReg(PReg(i, regKind)) =
+            (
+                case regKind of PRegUntagged => Array.update(regPushState, i, MustNotPush) | _ => ();
+                i
+            )
+        
+        fun incrRef r = Array.update(regRefs, r, Array.sub(regRefs, r)+1)
+        
+        (* Contains the, possibly filtered, code for each block. *)
+        val resultCode = Array.array(vectorLength, NONE)
+        
+        (* First pass - for each block build up the sets of registers defined and
+           used in the block.  We do this depth-first so that we can use "refs" to
+           see if a register is used.  If this is an instruction that can be eliminated
+           we don't need to generate it and can ignore any references it makes. *)
+        local
+            fun blockScan blockNo =
+            if isSome(Array.sub(resultCode, blockNo)) then ()
+            else
+            let
+                val () = Array.update(resultCode, blockNo, SOME []) (* Prevent looping. *)
+                val thisBlock as BasicBlock { block, ...} = Vector.sub(blockVector, blockNo)
+                val successors = blockSuccessors thisBlock
+                (* Visit everything reachable first. *)
+                val () = List.app blockScan successors
+                val { code, decs, refs } = codeScan block
+            in
+                Array.update(declarationArray, blockNo, decs);
+                Array.update(usageArray, blockNo, refs);
+                Array.update(resultCode, blockNo, SOME code)
+            end
+            
+            and codeScan [] = { code=[], decs=emptySet, refs=emptySet }
+
+            |   codeScan ((instr as LoadArgument { source, dest, ...}) :: rest) =
+                    eliminateableInstruction(instr, rest, sourceRegs source, destReg dest)
+
+            |   codeScan((instr as StoreArgument{ source, base, index, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs source @ [sourceReg base] @ sourceIndex index, [])
+
+            |   codeScan((instr as LoadMemReg { dest, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg dest])
+
+            |   codeScan(ExchangeRegisters _ :: _) =
+                    (* Should not occur at this stage. *)
+                    raise InternalError "codeScan - ExchangeRegisters"
+
+            |   codeScan((instr as BeginFunction {regArgs}) :: rest) =
+                    simpleInstruction(instr, rest, [], map (destReg o #1) regArgs)
+
+            |   codeScan((instr as FunctionCall{regArgs, stackArgs, dest, ...}) :: rest) =
+                let
+                    (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
+                    val stackSources = List.foldl(fn (arg, srcs) => sourceRegs arg @ srcs) [] stackArgs
+                
+                    fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
+                    val regSources = List.foldl regSource [] regArgs
+                in
+                    simpleInstruction(instr, rest, stackSources @ regSources, [destReg dest])
+                end
+
+            |   codeScan((instr as TailRecursiveCall{regArgs, stackArgs, ...}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: TailRecursiveCall"
+                    (* Tail recursive call.  References the argument sources but exits. *)
+                    val stackSources = List.foldl(fn ({src, ...}, srcs) => sourceRegs src @ srcs) [] stackArgs
+                
+                    fun regSource((arg, _), srcs) = sourceRegs arg @ srcs
+                    val regSources = List.foldl regSource [] regArgs
+                in
+                    simpleInstruction(instr, rest, stackSources @ regSources, [])
+                end
+
+            |   codeScan((instr as AllocateMemoryOperation{dest, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg dest])
+
+            |   codeScan((instr as AllocateMemoryVariable{size, dest, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [sourceReg size], [destReg dest])
+
+            |   codeScan((instr as InitialiseMem{size, addr, init}) :: rest) =
+                    simpleInstruction(instr, rest, [sourceReg size, sourceReg addr, sourceReg init], [])
+
+            |   codeScan((instr as InitialisationComplete) :: rest) =
+                    (* This is just a marker.  It doesn't actually generate any code. *)
+                    simpleInstruction(instr, rest, [], [])
+
+            |   codeScan(StartLoop _ :: _) =
+                    (* Should have been removed. *)
+                    raise InternalError "codeScan - StartLoop"
+
+            |   codeScan(EndLoop _ :: _) =
+                    (* Should have been removed. *)
+                    raise InternalError "codeScan - EndLoop"
+
+            |   codeScan((instr as JumpLoop{regArgs, stackArgs, ...}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: JumpLoop"
+                    val regSourceAsRegs =
+                        List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) [] regArgs
+                    val sourceAsRegs =
+                        List.foldl(fn ((source, _), srcs) => sourceRegs source @ srcs) regSourceAsRegs stackArgs
+                in
+                    simpleInstruction(instr, rest, sourceAsRegs, [])
+                end
+
+            |   codeScan((instr as RaiseExceptionPacket{packet}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: RaiseExceptionPacket"
+                in
+                    simpleInstruction(instr, rest, sourceRegs packet, [])
+                end
+
+            |   codeScan((instr as ReserveContainer{address, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg address])
+
+            |   codeScan((instr as IndexedCaseOperation{testReg, workReg, ...}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: IndexedCaseOperation"
+                in
+                    simpleInstruction(instr, rest, [sourceReg testReg], [destReg workReg])
+                end
+
+            |   codeScan((instr as LockMutable{addr}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg addr])
+
+            |   codeScan(ForwardJumpLabel _ :: _) =
+                    (* Should have been removed. *)
+                    raise InternalError "codeScan - ForwardJumpLabel"
+
+            |   codeScan(UnconditionalForwardJump _ :: _) =
+                    (* Should have been removed. *)
+                    raise InternalError "codeScan - UnconditionalForwardJump"
+
+            |   codeScan(ConditionalForwardJump _ :: _) =
+                    (* Should have been removed. *)
+                    raise InternalError "codeScan - ConditionalForwardJump"
+
+            |   codeScan((instr as WordComparison{arg1, arg2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg1 @ sourceRegs arg2, [])
+
+            |   codeScan((instr as PushExceptionHandler{workReg, ...}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: PushExceptionHandler"
+                in
+                    simpleInstruction(instr, rest, [], [destReg workReg])
+                end
+
+            |   codeScan((instr as PopExceptionHandler{ workReg, ...}) :: rest) =
+                    (* TODO - It looks as though resultReg is never used. *)
+                    simpleInstruction(instr, rest, [], [destReg workReg])
+
+            |   codeScan((instr as BeginHandler{ workReg, packetReg, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg workReg, destReg packetReg])
+
+            |   codeScan((instr as ReturnResultFromFunction{resultReg, ...}) :: rest) =
+                let
+                    (* This should be the last instuction in a block. *)
+                    val _ = null rest orelse raise InternalError "codeScan: ReturnResultFromFunction"
+                in
+                    simpleInstruction(instr, rest, [sourceReg resultReg], [])
+                end
+
+            |   codeScan((instr as ArithmeticFunction{resultReg, operand1, operand2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg])
+
+            |   codeScan((instr as TestTagBit{arg, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg, [])
+
+            |   codeScan((instr as PushValue {arg}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg, [])
+
+            |   codeScan((instr as ResetStackPtr _) :: rest) =
+                    simpleInstruction(instr, rest, [], [])
+
+            |   codeScan((instr as TagValue{source, dest}) :: rest) =
+                    eliminateableInstruction(instr, rest, [sourceReg source], destReg dest)
+
+            |   codeScan((instr as UntagValue{source, dest, ...}) :: rest) =
+                    eliminateableInstruction(instr, rest, sourceRegs source, destReg dest)
+
+            |   codeScan((instr as LoadEffectiveAddress{base, index, dest, ...}) :: rest) =
+                let
+                    val bRegs =
+                        case base of NONE => [] | SOME bReg => [sourceReg bReg]
+                    val iRegs = sourceIndex index
+                in
+                    simpleInstruction(instr, rest, bRegs @ iRegs, [destReg dest])
+                end
+
+            |   codeScan((instr as ShiftOperation{resultReg, operand, shiftAmount, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs operand @ sourceRegs shiftAmount, [destReg resultReg])
+
+            |   codeScan((instr as Multiplication{resultReg, operand1, operand2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs operand1 @ sourceRegs operand2, [destReg resultReg])
+
+            |   codeScan((instr as Division{dividend, divisor, quotient, remainder, ...}) :: rest) =
+                    simpleInstruction(instr, rest,
+                        sourceReg dividend :: sourceRegs divisor, [destReg quotient, destReg remainder])
+
+            |   codeScan((instr as AtomicExchangeAndAdd{base, source}) :: rest) =
+                    simpleInstruction(instr, rest, [sourceReg base, sourceReg source], [])
+
+            |   codeScan((instr as BoxValue{source, dest, ...}) :: rest) =
+                    eliminateableInstruction(instr, rest, [sourceReg source], destReg dest)
+
+            |   codeScan((instr as CompareByteVectors{vec1Addr, vec2Addr, length, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [sourceReg vec1Addr, sourceReg vec2Addr, sourceReg length], [])
+
+            |   codeScan((instr as BlockMove{srcAddr, destAddr, length, ...}) :: rest) =
+                let
+                    val sAddr = sourceReg srcAddr and dAddr = sourceReg destAddr and len = sourceReg length
+                in
+                    simpleInstruction(instr, rest, [sAddr, dAddr, len], [])
+                end
+
+            |   codeScan((instr as CompareFloatingPt{arg1, arg2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg1 @ sourceRegs arg2, [])
+
+            |   codeScan((instr as X87FPGetCondition{dest, ...}) :: rest) =
+                    simpleInstruction(instr, rest, [], [destReg dest])
+
+            |   codeScan((instr as X87FPArith{resultReg, arg1, arg2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg])
+
+            |   codeScan((instr as X87FPUnaryOps{dest, source, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs source, [destReg dest])
+
+            |   codeScan((instr as FloatFixedInt{dest, source}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs source, [destReg dest])
+
+            |   codeScan((instr as SSE2FPArith{resultReg, arg1, arg2, ...}) :: rest) =
+                    simpleInstruction(instr, rest, sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg])
+            
+            (* If the result of this is not used we don't need this instruction. *)
+            and eliminateableInstruction(instr, rest, sources, dReg) =
+            let
+                (* Scan for any potential references later in the block. *)
+                val lastResult as { code, decs, refs } = codeScan rest
+            in
+                if Array.sub(regRefs, dReg) = 0
+                then lastResult (* We don't need to include this. *)
+                else
+                (
+                    (* Only mark the sources as referred to after we know we're going to need this.
+                       In that way we may eliminate the instruction that created this source. *)
+                    List.app incrRef sources;
+                    { code = instr :: code, decs = union(listToSet[dReg], decs), refs = union(listToSet sources, refs) }
+                )
+            end
+            
+            (* If the instruction cannot be eliminated. *)
+            and simpleInstruction(instr, rest, sources, dests) =
+            let
+                val { code, decs, refs } = codeScan rest
+                val () = List.app incrRef sources
+            in
+                { code = instr :: code, decs = union(listToSet dests, decs), refs = union(listToSet sources, refs) }
+            end
+        in
+            val () = blockScan 0 (* Start with the root block. *)
+        end
+        
+    in
+        raise InternalError "TODO - identifyRegisters"
+    end
 
     structure Sharing =
     struct
