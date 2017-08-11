@@ -1425,15 +1425,9 @@ struct
             then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
-
-                fun printCode c =
-                (
-                    printICodeAbstract(c, printStream);
-                    printStream "\n"
-                )
             in
                 printStream(functionName ^ "\n");
-                List.app printCode identifiedCode;
+                printICodeAbstract(identifiedCode, printStream);
                 printStream "\n"
             end
             else ()
@@ -1462,10 +1456,10 @@ struct
 
         fun processCode(basicBlocks, maxPRegs, maxLabels, maxStack, passes) =
         let
-            (*val () =
+            val () =
                 if wantPrintCode
                 then printCode basicBlocks
-                else ()*)
+                else ()
             (* First pass - identify register use patterns *)
             val (identified, regStates) = identifyRegisters(basicBlocks, maxPRegs)
             val regsToSpill = spillRegisters(identified, regStates, maxPRegs)
@@ -1506,7 +1500,13 @@ struct
                 end
                 (* Now get the conflict sets. *)
                 val conflictSets = getConflictStates(identified, maxPRegs)
-                (*val () = if wantPrintCode then (printCode(List.map #instr identified); printConflicts conflictSets) else () *)
+                local
+                    fun mapFromExtended(ExtendedBasicBlock{block, source, flow, ...}) =
+                        BasicBlock{block=List.map #instr block, source=source, flow=flow}
+                in
+                    val () =
+                        if wantPrintCode then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets) else ()
+                end
 
             in
                 (codeAbstractToConcrete(identified, conflictSets, maxPRegs), maxStack)

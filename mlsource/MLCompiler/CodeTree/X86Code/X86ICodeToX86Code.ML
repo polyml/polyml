@@ -670,7 +670,7 @@ struct
         (
             (* Put a label on all but the first. *)
             if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
-            List.app printItem block;
+            List.app (fn icode => printICode(icode, stream, printItem)) block;
             case flow of
                 Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
             |   Conditional {condition, trueJump, falseJump, ...} =>
@@ -696,10 +696,10 @@ struct
         )
     in
         fun printICodeConcrete(blockVec, stream) =
-            Vector.appi(
-                printBlock(fn icode => printICode(icode, stream, printConcreteReg), stream)) blockVec
+            Vector.appi(printBlock(printConcreteReg, stream)) blockVec
 
-        and printICodeAbstract(icode, stream) = printICode(icode, stream, printAbstractReg)
+        and printICodeAbstract(blockVec, stream) =
+            Vector.appi(printBlock(printAbstractReg, stream)) blockVec
     end
 
     (* We frequently just want to know the register. *)

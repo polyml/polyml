@@ -319,7 +319,7 @@ sig
 
     val printICodeConcrete: reg basicBlock vector * (string -> unit) -> unit
 
-    val printICodeAbstract: abstract x86ICode * (string -> unit) -> unit
+    val printICodeAbstract: abstract basicBlock vector * (string -> unit) -> unit
     
     val indexRegister: 'reg memoryIndex -> 'reg option
     
