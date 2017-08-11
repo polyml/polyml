@@ -336,5 +336,7 @@ sig
         and  reg            = reg
         and abstract        = abstract
         and destinations    = destinations
+        and blockSource     = blockSource
+        and controlFlow     = controlFlow
     end
 end;

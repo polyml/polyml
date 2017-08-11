@@ -64,7 +64,7 @@ struct
         MemoryLocation{offset=offset*wordSize, base=(GenReg baseReg), index=NoMemIndex}
     exception RegisterOverflow of intSet
 
-    fun codeAbstractToConcrete(identifiedBlocks: abstract basicBlock vector, regStates: conflictState vector, maxPRegs): reg basicBlock vector =
+    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector, maxPRegs): reg basicBlock vector =
     let
         (* Allocated registers.  This is set to the real register that is used
            for a specific pseudo-register.  Once a register is allocated that
@@ -1310,7 +1310,7 @@ struct
                     |   _ =>
                         let
                             val { block, ...} = Vector.sub(identifiedBlocks, pick)
-                            val codeBlock = codeExtended(List.map (fn i => {instr=i, active=emptySet, current=emptySet}) block, [])
+                            val codeBlock = codeExtended(block, [])
                         in
                             Array.update(processing, pick, Done codeBlock)
                         end;
@@ -1500,12 +1500,12 @@ struct
                     Vector.tabulate(maxPRegs, fn i => i = choice)
                 end
                 (* Now get the conflict sets. *)
-                val conflictSets = getConflictStates(identified, maxPRegs)
+                val identifiedBlocks = oldToNewTriple(identified, maxLabels)
+                val conflictSets = getConflictStates(identifiedBlocks, maxPRegs)
                 val () = if wantPrintCode then (printCode(List.map #instr identified); printConflicts conflictSets) else ()
 
-                val blockIdentified = oldToNew(map (fn {instr, ...} => instr) identified, maxLabels)
             in
-                (codeAbstractToConcrete(blockIdentified, conflictSets, maxPRegs), maxStack)
+                (codeAbstractToConcrete(identifiedBlocks, conflictSets, maxPRegs), maxStack)
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet
@@ -1536,6 +1536,133 @@ struct
         codeAsX86Code{blockCode=postTransformCode, stackRequired = stackRequired,
                       inputRegisters= argRegsUsed @ (if hasFullClosure then [GenReg edx] else []), debugSwitches=debugSwitches,
                       functionName=functionName}
+    end
+    
+    (* Temporary mapping function for the result of identify. *)
+    and oldToNewTriple(ops: triple list, maxLabels): extendedBasicBlock vector =
+    let
+        (* Count the number of conditional branches and excption handlers.  We are going to add a block for
+           the drop-through case of a conditional branch so we have to add those. *)
+        val numExtras =
+            List.foldl(fn ({instr=ConditionalForwardJump _, ...}, n) => n+1 | ({instr=PushExceptionHandler _, ...}, n) => n+1 | (_, n) => n) 0 ops
+
+        local
+            val initial = { source=BranchSource [], block=[], flow=ExitCode, exportPassThrough=emptySet }
+        in
+            val resArray = Array.array(maxLabels+numExtras, initial)
+        end
+        val additionalLabs = ref maxLabels
+        
+        (* Create an entry for the block vector.  The code needs to be reversed. *)
+        fun createEntry (blockNo, source, block: triple list, flow, current) =
+            Array.update(resArray, blockNo,
+                { source=source, block=List.rev block, flow=flow, exportPassThrough=current})
+        
+        fun splitCode([], _, _, _) =
+            (* End of code.  We should have had a return or other unconditional transfer. *)
+                raise InternalError "splitCode"
+
+        |   splitCode({instr=ForwardJumpLabel{ label=ILabel labelNo ,... }, ...} :: rest, index, source, sinceLabel) =
+            (* We've found a label that wasn't preceded by an unconditional branch or other exit.
+               The action at the end is to jump to this label. *)
+            (
+                createEntry(index, source, sinceLabel, Unconditional labelNo, emptySet);
+                splitCode(rest, labelNo, BranchSource [], [])
+            )
+
+        |   splitCode({instr=StartLoop{ loopLabel=ILabel labelNo,... }, ...} :: rest, index, source, sinceLabel) =
+            (* A loop label.  Treat this as a normal label. *)
+            (
+                createEntry(index, source, sinceLabel, Unconditional labelNo, emptySet);
+                splitCode(rest, labelNo, BranchSource [], [])
+            )
+
+        |   splitCode({instr=EndLoop _, ...} :: rest, index, source, sinceLabel) =
+            (* EndLoop - remove. *)
+                splitCode(rest, index, source, sinceLabel)
+
+        |   splitCode({instr=ConditionalForwardJump { ccRef, condition, label=ILabel trueLabel}, current, ...} :: rest, index, source, sinceLabel) =
+            (* Conditional jump. This finishes a block but we need a new label for the drop-through case. *)
+            let
+                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1;
+                val flow =
+                    Conditional {ccRef=ccRef, condition=condition, trueJump=trueLabel, falseJump=dropLabel}
+                val () = createEntry(index, source, sinceLabel, flow, current)
+            in
+                splitCode(rest, dropLabel, BranchSource [], [])
+            end
+
+        |   splitCode({instr=UnconditionalForwardJump { label=ILabel labelNo }, ...} :: rest, index, source, sinceLabel) =
+            (
+                createEntry(index, source, sinceLabel, Unconditional labelNo, emptySet);
+                skipCode rest
+            )
+
+        |   splitCode((triple as {instr=PushExceptionHandler { handleStart=ILabel labelNo, ... }, ...}) :: rest, index, source, sinceLabel) =
+            (* Set up an exception handler.  We need to include this instruction because it includes the
+               work register.  Create a new label for the continuation i.e. the start of the code that the
+               handler catches exceptions for. *)
+            let
+                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1
+                val () = createEntry(index, source, triple :: sinceLabel, SetHandler{ handler=labelNo, continue=dropLabel }, emptySet)
+            in
+                splitCode(rest, dropLabel, BranchSource [], [])
+            end
+
+        |   splitCode((triple as {instr=JumpLoop { loopLabel=ILabel labelNo, ... }, ...}) :: rest, index, source, sinceLabel) =
+            (* Jump to start of loop.  Treat as an unconditional jump but retain the instruction since
+               it indicates the registers that need to copied. *)
+            (
+                createEntry(index, source, triple :: sinceLabel, Unconditional labelNo, emptySet);
+                skipCode rest
+            )
+
+        |   splitCode((triple as {instr=RaiseExceptionPacket _, ...}) :: rest, index, source, sinceLabel) =
+            (
+                createEntry(index, source, triple :: sinceLabel, ExitCode, emptySet);
+                skipCode rest
+            )
+
+        |   splitCode((triple as {instr=TailRecursiveCall _, ...}) :: rest, index, source, sinceLabel) =
+            (
+                createEntry(index, source, triple :: sinceLabel, ExitCode, emptySet);
+                skipCode rest
+            )
+
+        |   splitCode((triple as {instr=ReturnResultFromFunction _, ...}) :: rest, index, source, sinceLabel) =
+            (
+                createEntry(index, source, triple :: sinceLabel, ExitCode, emptySet);
+                skipCode rest
+            )
+
+        |   splitCode((triple as {instr=IndexedCaseOperation{cases, ...}, ...}) :: rest, index, source, sinceLabel) =
+            (
+                createEntry(index, source, triple :: sinceLabel, IndexedBr(map (fn ILabel i => i) cases), emptySet);
+                skipCode rest
+            )
+
+        |   splitCode(instr :: rest, index, source, sinceLabel) =
+                splitCode(rest, index, source, instr :: sinceLabel)
+                
+                
+        and skipCode [] = () (* Finished - reached the end. *)
+
+        |   skipCode({instr=ForwardJumpLabel{ label=ILabel labelNo,... }, ...} :: rest) =
+            (* Found a label after an unconditional transfer. *)
+                splitCode(rest, labelNo, BranchSource [], [])
+
+        |   skipCode((triple as {instr=BeginHandler { handleStart=ILabel lab, ... }, ...}) :: rest) =
+            (* Found the start of a handler.  We need to include the old handle instruction
+               because that contains register information. *)
+                splitCode(rest, lab, HandleSource ~1, [triple])
+
+        |   skipCode(_ :: rest) = skipCode rest
+                (* Unreachable code - Can occur with some branches. *)
+
+        val () = splitCode(ops: triple list, 0, RootSource, [])
+
+    in
+        Array.vector resArray
     end
 
     structure Sharing =

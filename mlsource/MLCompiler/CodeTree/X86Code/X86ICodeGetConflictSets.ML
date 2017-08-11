@@ -28,16 +28,32 @@ struct
         conflicts: intSet, realConflicts: reg list
     }
     
+    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
+
+    type extendedBasicBlock =
+    {
+        block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+        source: blockSource,
+        flow: controlFlow,
+        (*
+        locals: intSet, (* Defined and used entirely within the block. *)
+        imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
+        exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
+        passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+        *)
+        exportPassThrough: intSet (* Used after the block but we don't know yet where defined. *)
+    }
+
     exception InternalError = Misc.InternalError
     
     (* Get the conflict sets.  This code was originally part of identifyRegisterState and
        was split off. *)
-    fun getConflictStates (icode, maxPRegs) =
+    fun getConflictStates (blocks: extendedBasicBlock vector, maxPRegs) =
     let
         (* Other registers that conflict with this i.e. cannot share the same
            real register. *)
         val regConflicts = Array.array(maxPRegs, emptySet)
-        (* Real registers that cannot be used for this because are needed for
+        (* Real registers that cannot be used for this because they are needed for
            an instruction e.g. shift or block move, that requires these. *)
         and regRealConflicts = Array.array(maxPRegs, []: reg list)
  
@@ -138,10 +154,10 @@ struct
         end
 
         (* Simpler version of addSourcesAndDestsExt which can be used if we don't need sourcesPost. *)
-        and addSourcesAndDests(sources, dests, oldCurrent) =
+        fun addSourcesAndDests(sources, dests, oldCurrent) =
             addSourcesAndDestsExt(sources, [], dests, oldCurrent)
 
-        and identify({instr=LoadArgument { source, dest, ...}, current=oldActive, ...}) =
+        fun identify({instr=LoadArgument { source, dest, ...}, current=oldActive, ...}) =
                 (* Moving to a preg, the destination. *)
                 addSourcesAndDests(sourceRegs source, [destReg dest], oldActive)
 
@@ -245,12 +261,12 @@ struct
 
         |   identify({instr=StartLoop _, ...}) = ()
 
-        |   identify({instr=EndLoop _, current=oldLoopRegs, ...}) =
+        |   identify({instr=EndLoop _, current=_, ...}) =
                 (* Establish the conflict between the registers in the current set if necessary.
                    This avoids the need to do it on each JumpLoop.
                    The loop labels have to include ALL the registers in the nested
                    loops. *)
-                addNewConflicts(emptySet, setToList oldLoopRegs)
+                () (*addNewConflicts(emptySet, setToList oldLoopRegs)*)
 
         |   identify({instr=JumpLoop{regArgs, stackArgs, ...}, current=oldCurrent, ...}) =
             let
@@ -263,6 +279,7 @@ struct
                 (* Add the loop registers as conflicts just in case they are never used.
                    We should remove unused arguments at a higher level. *)
                 val destRegs = List.foldl(fn ((_, loopReg), dests) => destReg loopReg :: dests) [] regArgs
+                
             in
                 addNewConflicts(oldCurrent, destRegs)
             end
@@ -445,8 +462,23 @@ struct
 
         |   identify({instr=SSE2FPArith{resultReg, arg1, arg2, ...}, current=oldActive, ...}) =
                 addSourcesAndDests(sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg], oldActive)
-
-        val () = List.app identify icode
+        
+        (* Process the block. *)
+        fun identifyBlock{block, flow, exportPassThrough, ...} =
+        let
+            val () = List.app identify block
+        in
+            (* At the moment there is only the one special case to consider.
+               We need to establish conflicts between all the registers
+               that are active at the end of the block.  Other cases have already
+               been dealt with but this needs to be done here. *)
+            case flow of
+                Conditional _ => addNewConflicts(emptySet, setToList exportPassThrough)
+            |   _ => ()
+        end
+        
+        
+        val () = Vector.app identifyBlock blocks
         
         val conflictState: conflictState vector =
             Vector.tabulate(maxPRegs,
@@ -465,5 +497,7 @@ struct
         and reg = reg
         and abstract = abstract
         and intSet = intSet
+        and blockSource = blockSource
+        and controlFlow = controlFlow
     end
 end;

@@ -17,7 +17,7 @@
 
 signature X86GETCONFLICTSETSIG =
 sig
-    type 'reg x86ICode and reg and abstract
+    type 'reg x86ICode and reg and abstract and blockSource and controlFlow
     
     type intSet
     
@@ -25,9 +25,24 @@ sig
     {
         conflicts: intSet, realConflicts: reg list
     }
-    
-    val getConflictStates:
-        {instr: abstract x86ICode, active: intSet, current: intSet} list * int -> conflictState vector
+     
+    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
+
+    type extendedBasicBlock =
+    {
+        block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+        source: blockSource,
+        flow: controlFlow,
+        (*
+        locals: intSet, (* Defined and used entirely within the block. *)
+        imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
+        exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
+        passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+        *)
+        exportPassThrough: intSet (* Used after the block but we don't know yet where defined. *)
+    }
+   
+    val getConflictStates: extendedBasicBlock vector * int -> conflictState vector
 
     structure Sharing:
     sig
@@ -35,5 +50,7 @@ sig
         and reg = reg
         and abstract = abstract
         and intSet = intSet
+        and blockSource = blockSource
+        and controlFlow = controlFlow
     end;
 end;
