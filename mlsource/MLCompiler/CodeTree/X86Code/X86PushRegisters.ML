@@ -18,12 +18,14 @@
 functor X86PushRegisters(
     structure ICODE: ICodeSig
     structure INTSET: INTSETSIG
-    sharing ICODE.Sharing = INTSET
+    structure IDENTIFY: X86IDENTIFYREFSSIG
+    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
 ) : X86PUSHREGISTERSIG
 =
 struct
     open ICODE
     open INTSET
+    open IDENTIFY
     
     exception InternalError = Misc.InternalError
 
@@ -902,10 +904,15 @@ struct
         (resultCode, !pregCounter, !labelCounter, !maxStack)
     end
 
+    fun addRegisterPushes(code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs, maxLabels): abstract basicBlock vector * int * int * int =
+        raise Fail "TODO - addRegisterPushes"
+
     structure Sharing =
     struct
         type 'reg x86ICode = 'reg x86ICode
         and abstract = abstract
         and intSet = intSet
+        and extendedBasicBlock = extendedBasicBlock
+        and 'reg basicBlock = 'reg basicBlock
     end
 end;

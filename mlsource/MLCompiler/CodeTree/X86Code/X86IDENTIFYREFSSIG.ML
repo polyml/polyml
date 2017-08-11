@@ -17,7 +17,8 @@
 
 signature X86IDENTIFYREFSSIG =
 sig
-    type 'reg x86ICode and reg and abstract
+    type 'reg x86ICode and reg and abstract and 'reg basicBlock
+    and blockSource and controlFlow
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -28,9 +29,20 @@ sig
         active: int, defs: int, refs: int, pushState: pushState
     }
     
-    val identifyRegisters:
-        {icode: abstract x86ICode list, maxPRegs: int} ->
-            {instr: abstract x86ICode, active: intSet, current: intSet} list * regState vector
+    (* Simple basic block with register usage information. *)
+    datatype extendedBasicBlock =
+        ExtendedBasicBlock of
+        {
+            block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+            source: blockSource,
+            flow: controlFlow,
+            locals: intSet, (* Defined and used entirely within the block. *)
+            imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
+            exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
+            passThrough: intSet (* Active throughout the block. May be referred to by it but needed afterwards. *)
+        }
+
+    val identifyRegisters: abstract basicBlock vector * int -> extendedBasicBlock vector * regState vector
 
     structure Sharing:
     sig
@@ -39,5 +51,9 @@ sig
         and pushState = pushState
         and abstract = abstract
         and intSet = intSet
+        and 'reg basicBlock = 'reg basicBlock
+        and extendedBasicBlock = extendedBasicBlock
+        and blockSource = blockSource
+        and controlFlow = controlFlow
     end;
 end;

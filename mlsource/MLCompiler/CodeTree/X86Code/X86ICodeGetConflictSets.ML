@@ -18,10 +18,13 @@
 functor X86ICodeGetConflictSets(
     structure ICODE: ICodeSig
     structure INTSET: INTSETSIG
+    structure IDENTIFY: X86IDENTIFYREFSSIG
+    sharing ICODE.Sharing = IDENTIFY.Sharing = INTSET
 ): X86GETCONFLICTSETSIG =
 struct
     open ICODE
     open INTSET
+    open IDENTIFY
 
     type conflictState =
     {
@@ -29,20 +32,6 @@ struct
     }
     
     type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
-
-    type extendedBasicBlock =
-    {
-        block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
-        source: blockSource,
-        flow: controlFlow,
-        (*
-        locals: intSet, (* Defined and used entirely within the block. *)
-        imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
-        exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
-        passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
-        *)
-        exportPassThrough: intSet (* Used after the block but we don't know yet where defined. *)
-    }
 
     exception InternalError = Misc.InternalError
     
@@ -464,7 +453,7 @@ struct
                 addSourcesAndDests(sourceRegs arg1 @ sourceRegs arg2, [destReg resultReg], oldActive)
         
         (* Process the block. *)
-        fun identifyBlock{block, flow, exportPassThrough, ...} =
+        fun identifyBlock(ExtendedBasicBlock{block, flow, passThrough, exports, ...}) =
         let
             val () = List.app identify block
         in
@@ -473,7 +462,7 @@ struct
                that are active at the end of the block.  Other cases have already
                been dealt with but this needs to be done here. *)
             case flow of
-                Conditional _ => addNewConflicts(emptySet, setToList exportPassThrough)
+                Conditional _ => addNewConflicts(emptySet, setToList(union(exports, passThrough)))
             |   _ => ()
         end
         
@@ -497,7 +486,6 @@ struct
         and reg = reg
         and abstract = abstract
         and intSet = intSet
-        and blockSource = blockSource
-        and controlFlow = controlFlow
+        and extendedBasicBlock = extendedBasicBlock
     end
 end;

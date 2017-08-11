@@ -287,8 +287,8 @@ struct
            start of the handler is the state at this point. *)
     |   SetHandler of { handler: int, continue: int }
 
-    type 'reg basicBlock =
-        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
+    and 'reg basicBlock =
+        BasicBlock of { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
 
 
     local
@@ -666,7 +666,7 @@ struct
         |   printAbstractReg(PReg(i, PRegUntagged), stream) = stream("U" ^ Int.toString i)
         
         (* Print a basic block. *)
-        fun printBlock (printItem, stream) (blockNo, {block, flow, ...}: 'reg basicBlock) =
+        fun printBlock (printItem, stream) (blockNo, BasicBlock{block, flow, ...}: 'reg basicBlock) =
         (
             (* Put a label on all but the first. *)
             if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
@@ -796,7 +796,7 @@ struct
         end
         
         (* Code-generate a block.  A couple of instructions require the "flow". *)
-        fun codeGenBlock({block, flow, ...}, code) =
+        fun codeGenBlock(BasicBlock{block, flow, ...}, code) =
         let
 
             (* Turn the icode into machine code.  This produces the code in reverse. *)
@@ -1409,7 +1409,7 @@ struct
                     local
                         fun available dest =
                             case Vector.sub(blockCode, dest) of
-                                { source=BranchSource sources, ...} =>
+                                BasicBlock { source=BranchSource sources, ...} =>
                                     (* All the sources that lead up to this have already been
                                        processed so if we do this we won't have any backward jumps. *)
                                     List.all haveProcessed sources 
@@ -1485,7 +1485,7 @@ struct
                                 ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
                             ]
 
-                    val blockToCode as { flow, source, ...} = Vector.sub(blockCode, picked)
+                    val blockToCode as BasicBlock{ flow, source, ...} = Vector.sub(blockCode, picked)
                     
                     (* Code-generate the body with the code we've done so far
                        at the end.  Add a label at the start if necessary. *)
@@ -1530,7 +1530,7 @@ struct
             List.foldl(fn (ConditionalForwardJump _, n) => n+1 | (PushExceptionHandler _, n) => n+1 | (_, n) => n) 0 ops
 
         local
-            val initial = { source=BranchSource [], block=[], flow=ExitCode }
+            val initial = BasicBlock{ source=BranchSource [], block=[], flow=ExitCode }
         in
             val resArray = Array.array(maxLabels+numExtras, initial)
         end
@@ -1539,7 +1539,7 @@ struct
         (* Create an entry for the block vector.  The code needs to be reversed. *)
         fun createEntry (blockNo, source, block, flow) =
             Array.update(resArray, blockNo,
-                { source=source, block=List.rev block, flow=flow})
+                BasicBlock{ source=source, block=List.rev block, flow=flow})
         
         fun splitCode([], _, _, _) =
             (* End of code.  We should have had a return or other unconditional transfer. *)
@@ -1653,7 +1653,7 @@ struct
                happen since we should always have a JumpLoop. *)
             fun findTarget labs labNo =
                 case Array.sub(resArray, labNo) of
-                    { source=BranchSource _, block=[], flow=Unconditional nextLab, ...} =>
+                    BasicBlock { source=BranchSource _, block=[], flow=Unconditional nextLab, ...} =>
                         if List.exists(fn l => l=nextLab) labs
                         then raise InternalError "findTarget - loop"
                         else findTarget (nextLab :: labs) nextLab
@@ -1671,9 +1671,9 @@ struct
             fun setReferences forLabel =
             let
                 (* Find the references this makes. *)
-                val { flow, source, block } = Array.sub(resArray, forLabel)
+                val BasicBlock{ flow, source, block } = Array.sub(resArray, forLabel)
                 fun updateFlow newFlow =
-                    Array.update(resArray, forLabel, {flow=newFlow, source=source, block=block })
+                    Array.update(resArray, forLabel, BasicBlock{flow=newFlow, source=source, block=block })
                 val refs =
                     case flow of
                         ExitCode => []
@@ -1728,9 +1728,9 @@ struct
         
             (* Copy the reference information into the result. *)
 
-            fun addRefs(n, { source=BranchSource _, block, flow }) =
-                    {source=BranchSource(Array.sub(labelRefs, n)), block=block, flow=flow}
-            |   addRefs(n, { source=HandleSource _, block, flow }) =
+            fun addRefs(n, BasicBlock{ source=BranchSource _, block, flow }) =
+                    BasicBlock{source=BranchSource(Array.sub(labelRefs, n)), block=block, flow=flow}
+            |   addRefs(n, BasicBlock{ source=HandleSource _, block, flow }) =
                 let
                     (* There should be at most one block that has set up this handler.
                        It's possible there is none if the code to set up the handler was
@@ -1741,10 +1741,10 @@ struct
                         |   [] => ~1
                         |   _ => raise InternalError "More than one handler source"
                 in
-                    {source=HandleSource handleSource, block=block, flow=flow}
+                    BasicBlock{source=HandleSource handleSource, block=block, flow=flow}
                 end
-            |   addRefs(_, { source, block, flow }) =
-                    {source=source, block=block, flow=flow}
+            |   addRefs(_, BasicBlock{ source, block, flow }) =
+                    BasicBlock{source=source, block=block, flow=flow}
         in
             val () = Array.modifyi addRefs resArray
         end
@@ -1766,6 +1766,7 @@ struct
         and destinations    = destinations
         and blockSource     = blockSource
         and controlFlow     = controlFlow
+        and 'reg basicBlock = 'reg basicBlock
     end
 
 end;

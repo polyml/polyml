@@ -2561,8 +2561,8 @@ struct
       
         open ICODETRANSFORM
     in
-        codeICodeFunctionToX86{icode = List.rev icode, functionName = name, maxLabels = !labelCounter, maxPRegs = ! pregCounter,
-            argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
+        codeICodeFunctionToX86{blocks = oldToNew(List.rev icode, !labelCounter), functionName = name, maxLabels = !labelCounter,
+            maxPRegs = ! pregCounter, argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
             debugSwitches = debugSwitches}
     end
 

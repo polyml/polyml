@@ -17,18 +17,16 @@
 
 signature X86PUSHREGISTERSIG =
 sig
-    type abstract
-    type 'reg x86ICode
-    type intSet
+    type abstract and 'reg x86ICode and intSet and extendedBasicBlock and 'reg basicBlock
 
     val addRegisterPushes :
-        {instr: abstract x86ICode, active: intSet, current: intSet} list * bool vector * int * int ->
-            abstract x86ICode list * int * int * int
+        extendedBasicBlock vector * bool vector * int * int -> abstract basicBlock vector * int * int * int
 
     structure Sharing:
     sig
         type 'reg x86ICode = 'reg x86ICode
         and abstract = abstract
-        and intSet = intSet
+        and extendedBasicBlock = extendedBasicBlock
+        and 'reg basicBlock = 'reg basicBlock
     end
 end;

@@ -309,8 +309,8 @@ sig
            start of the handler is the state at this point. *)
     |   SetHandler of { handler: int, continue: int }
 
-    type 'reg basicBlock =
-        { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
+    and 'reg basicBlock =
+        BasicBlock of { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
 
     val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
@@ -338,5 +338,6 @@ sig
         and destinations    = destinations
         and blockSource     = blockSource
         and controlFlow     = controlFlow
+        and 'reg basicBlock = 'reg basicBlock
     end
 end;

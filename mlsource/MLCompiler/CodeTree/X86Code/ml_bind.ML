@@ -53,6 +53,7 @@ local
         X86ICodeGetConflictSets (
             structure ICODE         = X86ICode
             structure INTSET        = IntSet
+            structure IDENTIFY      = X86ICodeIdentify
         )
         
     structure Strongly =
@@ -78,6 +79,7 @@ local
         X86PushRegisters (
             structure ICODE         = X86ICode
             structure INTSET        = IntSet
+            structure IDENTIFY      = X86ICodeIdentify
         )
         
     structure X86ICodeTransform =

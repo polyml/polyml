@@ -31,10 +31,22 @@ struct
         active: int, defs: int, refs: int, pushState: pushState
     }
 
-    type conflictState =
+    and conflictState =
     {
         conflicts: int list, realConflicts: reg list
     }
+    
+    datatype extendedBasicBlock =
+        ExtendedBasicBlock of
+        {
+            block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+            source: blockSource,
+            flow: controlFlow,
+            locals: intSet, (* Defined and used entirely within the block. *)
+            imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
+            exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
+            passThrough: intSet (* Active throughout the block. May be referred to by it but needed afterwards. *)
+        }
     
     exception InternalError = Misc.InternalError
      
@@ -823,6 +835,9 @@ struct
             in
                 (codePass2, regState2)
             end
+    
+    fun identifyRegisters(blockVector, maxPRegs): extendedBasicBlock vector * regState vector =
+        raise Fail "TODO - identifyRegisters"
 
     structure Sharing =
     struct
@@ -831,5 +846,9 @@ struct
         and pushState = pushState
         and abstract = abstract
         and intSet = intSet
+        and 'reg basicBlock = 'reg basicBlock
+        and extendedBasicBlock = extendedBasicBlock
+        and blockSource = blockSource
+        and controlFlow = controlFlow
     end
 end;
