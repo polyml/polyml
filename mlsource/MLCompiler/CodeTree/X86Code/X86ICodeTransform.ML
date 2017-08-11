@@ -1408,6 +1408,8 @@ struct
         (* Return the vector showing those that must be pushed. *)
         Array.vector pushArray
     end
+     
+    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
     fun codeICodeFunctionToX86{icode, functionName, maxLabels, maxPRegs, argRegsUsed, hasFullClosure, debugSwitches, ...} =
     let
@@ -1541,7 +1543,7 @@ struct
     (* Temporary mapping function for the result of identify. *)
     and oldToNewTriple(ops: triple list, maxLabels): extendedBasicBlock vector =
     let
-        (* Count the number of conditional branches and excption handlers.  We are going to add a block for
+        (* Count the number of conditional branches and exception handlers.  We are going to add a block for
            the drop-through case of a conditional branch so we have to add those. *)
         val numExtras =
             List.foldl(fn ({instr=ConditionalForwardJump _, ...}, n) => n+1 | ({instr=PushExceptionHandler _, ...}, n) => n+1 | (_, n) => n) 0 ops

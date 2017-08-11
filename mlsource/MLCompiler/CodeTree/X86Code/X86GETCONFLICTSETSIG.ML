@@ -25,8 +25,6 @@ sig
     {
         conflicts: intSet, realConflicts: reg list
     }
-     
-    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
     type extendedBasicBlock =
     {

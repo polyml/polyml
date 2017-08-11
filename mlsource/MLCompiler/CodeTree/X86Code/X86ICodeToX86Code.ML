@@ -1524,7 +1524,7 @@ struct
     (* Convert the old single list into a list of basic blocks. *)
     fun oldToNew(ops: 'reg x86ICode list, maxLabels): 'reg basicBlock vector =
     let
-        (* Count the number of conditional branches and excption handlers.  We are going to add a block for
+        (* Count the number of conditional branches and exception handlers.  We are going to add a block for
            the drop-through case of a conditional branch so we have to add those. *)
         val numExtras =
             List.foldl(fn (ConditionalForwardJump _, n) => n+1 | (PushExceptionHandler _, n) => n+1 | (_, n) => n) 0 ops
