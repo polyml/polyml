@@ -857,7 +857,7 @@ struct
                 val code = codeExtended(rest, context)
                 val realWork = findGeneralReg wReg
             in
-                PopExceptionHandler{resultReg=NONE, workReg=realWork} :: code
+                PopExceptionHandler{workReg=realWork} :: code
             end
 
             (* Start of a handler.  Sets the address associated with PushExceptionHandler and

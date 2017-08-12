@@ -625,7 +625,7 @@ struct
                     then [ResetStackPtr{numWords=newCount-newNewCount-2}]
                     else []
             in
-                pushRegisters(rest, PopExceptionHandler{resultReg=NONE, workReg=newWorkReg} :: resetCode @ code, newContext)
+                pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code, newContext)
             end
 
         |   pushRegisters({instr=BeginHandler _, ...} :: _, _, _) =

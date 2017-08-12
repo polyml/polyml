@@ -852,14 +852,14 @@ struct
                         (true, true) => (* Tail and exited. *) (expCode, NONE)
                     |   (true, false) => (* Tail and not exited. *)
                             (returnInstruction(context, bodyTarget,
-                                PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} :: expCode), NONE)
+                                PopExceptionHandler{workReg=newPReg()} :: expCode), NONE)
                     |   (false, true) => (* Not tail but exited. *) (expCode, NONE)
                     |   (false, false) =>
                         let
                             val skipHandler = newLabel()
                         in
                             (UnconditionalForwardJump{label=skipHandler} ::
-                             PopExceptionHandler{resultReg=SOME bodyTarget, workReg=newPReg()} :: expCode, SOME skipHandler)
+                             PopExceptionHandler{workReg=newPReg()} :: expCode, SOME skipHandler)
                         end
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()

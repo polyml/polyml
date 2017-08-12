@@ -200,7 +200,7 @@ sig
     |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
 
         (* End of a handled section.  Restore the previous handler. *)
-    |   PopExceptionHandler of { resultReg: 'reg option, workReg: 'reg }
+    |   PopExceptionHandler of { workReg: 'reg }
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
