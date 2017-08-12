@@ -23,6 +23,7 @@ sig
     val listToSet: int list -> intSet
     val removeFromSet: int * intSet -> intSet
     val union: intSet * intSet -> intSet
+    val minus: intSet * intSet -> intSet
     val cardinality: intSet -> int
     val filterSet: (int->bool) -> intSet -> intSet
     val member: int * intSet -> bool

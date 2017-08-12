@@ -847,10 +847,10 @@ struct
     let
         val vectorLength = Vector.length blockVector
         (* Initial arrays - declarationArray is the set of registers given
-           values by the block, usageArray is the set of registers referenced by
-           the block. *)
+           values by the block, importArray is the set of registers referenced by
+           the block and not declared locally. *)
         val declarationArray = Array.array(vectorLength, emptySet)
-        and usageArray = Array.array(vectorLength, emptySet)
+        and importArray = Array.array(vectorLength, emptySet)
         
         (* References - this is used locally to see if a register is ever
            actually used and also included in the result which uses it as
@@ -887,7 +887,8 @@ struct
                 val { code, decs, refs } = codeScan block
             in
                 Array.update(declarationArray, blockNo, decs);
-                Array.update(usageArray, blockNo, refs);
+                (* refs includes local declarations. Remove before adding to the result. *)
+                Array.update(importArray, blockNo, minus(refs, decs));
                 Array.update(resultCode, blockNo, SOME code)
             end
             
@@ -1107,7 +1108,7 @@ struct
                 then lastResult (* We don't need to include this. *)
                 else
                 (
-                    (* Only mark the sources as referred to after we know we're going to need this.
+                    (* Only mark the sources as referred after we know we're going to need this.
                        In that way we may eliminate the instruction that created this source. *)
                     List.app incrRef sources;
                     { code = instr :: code, decs = union(listToSet[dReg], decs), refs = union(listToSet sources, refs) }
@@ -1124,6 +1125,79 @@ struct
             end
         in
             val () = blockScan 0 (* Start with the root block. *)
+        end
+        
+        (* Second phase - Propagate reference information between the blocks.
+           We need to consider loops here.  Do a depth-first scan marking each
+           block.  If we find a loop we save the import information we've used.
+           If when we come to process that block we find the import information
+           is different we need to reprocess. *)
+        (* Input array - the set of registers that must be active at the start of
+           this block because they are used in this block or anything reachable
+           from it.  Initialise to the import. *)
+        val inputArray = Array.tabulate(vectorLength, fn i => Array.sub(importArray, i))
+        (* Exports - those of our declarations that are used in other blocks. *)
+        val exportArray = Array.array(vectorLength, emptySet)
+        local
+            datatype loopData = Unprocessed | Processing | Processed | Looped of intSet
+            val reprocess = ref false
+            val loopArray = Array.array(vectorLength, Unprocessed)
+            
+            fun processBlocks blockNo =
+                case Array.sub(loopArray, blockNo) of
+                    Processed => (* Already seen this by a different route. *)
+                        Array.sub(inputArray, blockNo)
+                |   Looped s => s (* We've already seen this in a loop. *)
+                |   Processing => (* We have a loop. *)
+                    let
+                        (* Use the existing input array. *)
+                        val inputs = Array.sub(inputArray, blockNo)
+                        val () = Array.update(loopArray, blockNo, Looped inputs)
+                    in
+                        inputs
+                    end
+                |   Unprocessed => (* Normal case - not visited yet. *)
+                    let
+                        val () = Array.update(loopArray, blockNo, Processing)
+                        val thisBlock = Vector.sub(blockVector, blockNo)
+                        val ourDeclarations = Array.sub(declarationArray, blockNo)
+                        val successors = blockSuccessors thisBlock
+                        fun addSuccessor b =
+                        let
+                            val theirImports = setToList(processBlocks b)
+                            (* Split the imports.  If a register is a local declaration then
+                               it becomes an export.  If it is not it becomes part of our
+                               imports. *)
+                            val (addToExp, addToImp) =
+                                List.partition (fn i => member(i, ourDeclarations)) theirImports
+                        in
+                            Array.update(exportArray, blockNo,
+                                union(Array.sub(exportArray, blockNo), listToSet addToExp));
+                            Array.update(inputArray, blockNo,
+                                union(Array.sub(inputArray, blockNo), listToSet addToImp))
+                        end
+                        val () = List.app addSuccessor successors
+                        val ourInputs = Array.sub(inputArray, blockNo)
+                    in
+                        (* Was this block used in a loop? *)
+                        case Array.sub(loopArray, blockNo) of
+                            Looped s =>
+                                if setToList s = setToList ourInputs then ()
+                                else reprocess := true
+                        |   _ => ();
+                        Array.update(loopArray, blockNo, Processed);
+                        ourInputs
+                    end
+                    
+            
+            fun doReprocess () =
+            (
+                reprocess := false;
+                processBlocks 0;
+                if !reprocess then doReprocess () else ()
+            )
+        in
+            val () = doReprocess ()
         end
         
     in

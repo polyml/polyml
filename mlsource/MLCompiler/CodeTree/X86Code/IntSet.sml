@@ -17,7 +17,7 @@
 
 (* Set of integers implemented as an ordered list.  This is used
    for active register sets. *)
-structure IntSet:> INTSETSIG =
+structure IntSet: INTSETSIG =
 struct
     datatype intSet = IntSet of int list
 
@@ -43,6 +43,19 @@ struct
         |   removeItem(item, hd :: tl) = if item = hd then tl else hd :: removeItem(item, tl)
     in
         fun removeFromSet(item, IntSet fromSet) = IntSet(removeItem(item, fromSet))
+    end
+    
+    local
+        fun minusLists(l, []) = l
+        |   minusLists([], _) = []
+        |   minusLists(listA as a::tlA, listB as b::tlB) =
+            if a = b
+            then minusLists(tlA, tlB)
+            else if a < b
+            then a :: minusLists(tlA, listB)
+            else minusLists(listA, tlB)
+    in
+        fun minus(IntSet a, IntSet b) = IntSet(minusLists(a, b))
     end
     
     local
