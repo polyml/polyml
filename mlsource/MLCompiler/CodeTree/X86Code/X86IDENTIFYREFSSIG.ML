@@ -17,8 +17,7 @@
 
 signature X86IDENTIFYREFSSIG =
 sig
-    type 'reg x86ICode and reg and abstract and 'reg basicBlock
-    and blockSource and controlFlow
+    type 'reg x86ICode and reg and abstract and 'reg basicBlock and controlFlow
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -34,7 +33,6 @@ sig
         ExtendedBasicBlock of
         {
             block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
-            source: blockSource,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -53,7 +51,6 @@ sig
         and intSet = intSet
         and 'reg basicBlock = 'reg basicBlock
         and extendedBasicBlock = extendedBasicBlock
-        and blockSource = blockSource
         and controlFlow = controlFlow
     end;
 end;

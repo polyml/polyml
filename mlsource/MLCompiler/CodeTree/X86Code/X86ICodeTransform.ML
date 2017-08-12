@@ -1320,13 +1320,13 @@ struct
         val () = processBlocks[0]
         fun getResult i =
         let
-            val ExtendedBasicBlock {source, flow, ...} = Vector.sub(identifiedBlocks, i)
+            val ExtendedBasicBlock {flow, ...} = Vector.sub(identifiedBlocks, i)
             and processState = Array.sub(processing, i)
         in
             case processState of
-                Done c => BasicBlock { source=source, flow=flow, block=c}
+                Done c => BasicBlock { flow=flow, block=c}
             |   _ => (* Unreachable code.  Should we prune this? *)
-                 BasicBlock { source=BranchSource [], block = [], flow = ExitCode }
+                 BasicBlock { block = [], flow = ExitCode }
         end
     in
         Vector.tabulate(Vector.length identifiedBlocks, getResult)
@@ -1501,8 +1501,8 @@ struct
                 (* Now get the conflict sets. *)
                 val conflictSets = getConflictStates(identified, maxPRegs)
                 local
-                    fun mapFromExtended(ExtendedBasicBlock{block, source, flow, ...}) =
-                        BasicBlock{block=List.map #instr block, source=source, flow=flow}
+                    fun mapFromExtended(ExtendedBasicBlock{block, flow, ...}) =
+                        BasicBlock{block=List.map #instr block, flow=flow}
                 in
                     val () =
                         if wantPrintCode then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets) else ()
@@ -1541,7 +1541,6 @@ struct
                       inputRegisters= argRegsUsed @ (if hasFullClosure then [GenReg edx] else []), debugSwitches=debugSwitches,
                       functionName=functionName}
     end
-  
     structure Sharing =
     struct
         type 'reg x86ICode  = 'reg x86ICode

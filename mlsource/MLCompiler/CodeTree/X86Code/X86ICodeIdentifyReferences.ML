@@ -40,7 +40,6 @@ struct
         ExtendedBasicBlock of
         {
             block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
-            source: blockSource,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -1213,7 +1212,6 @@ struct
         and intSet = intSet
         and 'reg basicBlock = 'reg basicBlock
         and extendedBasicBlock = extendedBasicBlock
-        and blockSource = blockSource
         and controlFlow = controlFlow
     end
 end;

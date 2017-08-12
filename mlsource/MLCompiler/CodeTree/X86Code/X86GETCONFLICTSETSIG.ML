@@ -17,8 +17,7 @@
 
 signature X86GETCONFLICTSETSIG =
 sig
-    type 'reg x86ICode and reg and abstract and extendedBasicBlock
-    
+    type 'reg x86ICode and reg and abstract and controlFlow and extendedBasicBlock    
     type intSet
     
     type conflictState =

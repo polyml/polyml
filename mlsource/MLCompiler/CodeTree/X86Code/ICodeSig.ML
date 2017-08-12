@@ -288,13 +288,6 @@ sig
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: 'reg, arg1: 'reg argument, arg2: 'reg argument }
 
-    and blockSource =
-        (* Sources for a basic block.  May be the root (start of function), the destination of
-           a branch or the start of a handler.  BranchSource includes the list of block nos
-           which jump to this. HandleSource includes the block that sets up this handler.
-           If the block is unreachable the list may be empty and the handle source ~1. *)
-        RootSource | BranchSource of int list | HandleSource of int
-
         (* Destinations at the end of a basic block. *)
     and controlFlow =
         (* Unconditional branch to a label - should be a merge point. *)
@@ -309,8 +302,7 @@ sig
            start of the handler is the state at this point. *)
     |   SetHandler of { handler: int, continue: int }
 
-    and 'reg basicBlock =
-        BasicBlock of { block: 'reg x86ICode list, source: blockSource, flow: controlFlow }
+    and 'reg basicBlock = BasicBlock of { block: 'reg x86ICode list, flow: controlFlow }
 
     val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
@@ -336,7 +328,6 @@ sig
         and  reg            = reg
         and abstract        = abstract
         and destinations    = destinations
-        and blockSource     = blockSource
         and controlFlow     = controlFlow
         and 'reg basicBlock = 'reg basicBlock
     end
