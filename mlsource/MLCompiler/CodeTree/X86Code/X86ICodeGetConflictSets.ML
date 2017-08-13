@@ -279,14 +279,8 @@ struct
                 addSourcesAndDests([], [destReg address], oldActive)
 
         |   identify({instr=IndexedCaseOperation{testReg, workReg, ...}, current=oldCurrent, ...}) =
-               (* This is in effect a conditional branch so we need to establish conflicts between
-                  the current registers since they may come from different branches.  Then we need
-                  to add both the work register and the test register to the conflict set so
-                  that we will get different registers. *)
-            (
-                addNewConflicts(emptySet, setToList oldCurrent);
+                (* Add conflicts for the work and test registers. *)
                 addNewConflicts(oldCurrent, [destReg workReg, sourceReg testReg])
-            )
 
         |   identify({instr=LockMutable{addr}, current=oldActive, ...}) =
                 addSourcesAndDests([sourceReg addr], [], oldActive)
@@ -462,13 +456,15 @@ struct
         let
             val () = List.app identify block
         in
-            (* At the moment there is only the one special case to consider.
-               We need to establish conflicts between all the registers
-               that are active at the end of the block.  Other cases have already
-               been dealt with but this needs to be done here. *)
-            case flow of
-                Conditional _ => addNewConflicts(emptySet, setToList(union(exports, passThrough)))
-            |   _ => ()
+            (* We need to establish conflicts between all the registers active at
+               the end of the block since they may not be established elsewhere.
+               This isn't necessary for an unconditional branch since the
+               same registers will be included in the block that is the target
+               of the branch, possibly along with others.  However if this is
+               a conditional or indexed branch we may have different sets at
+               each of the targets and we have to ensure that all the registers
+               differ. *)
+            addNewConflicts(emptySet, setToList(union(exports, passThrough)))
         end
         
         
