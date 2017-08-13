@@ -274,9 +274,14 @@ struct
                 addSourcesAndDests([], [destReg address], oldActive)
 
         |   identify({instr=IndexedCaseOperation{testReg, workReg, ...}, current=oldCurrent, ...}) =
-               (* We have to add both the work register and the test register to the
-                   conflict set so that we will get different registers. *)
+               (* This is in effect a conditional branch so we need to establish conflicts between
+                  the current registers since they may come from different branches.  Then we need
+                  to add both the work register and the test register to the conflict set so
+                  that we will get different registers. *)
+            (
+                addNewConflicts(emptySet, setToList oldCurrent);
                 addNewConflicts(oldCurrent, [destReg workReg, sourceReg testReg])
+            )
 
         |   identify({instr=LockMutable{addr}, current=oldActive, ...}) =
                 addSourcesAndDests([sourceReg addr], [], oldActive)
