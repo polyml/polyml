@@ -1410,7 +1410,7 @@ struct
     end
     
     fun spillRegisters(identified: extendedBasicBlock vector, regStates: regState vector, maxPRegs) =
-        raise Fail "TODO: spillRegisters"
+        raise InternalError "TODO: spillRegisters"
      
     type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
