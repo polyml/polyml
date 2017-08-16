@@ -429,6 +429,8 @@ struct
                     |   TailRecursiveCall _ => sourceSet (* Is this still needed? *)
                     |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
                             union(activeAfterThis, union(sourceSet, destSet))
+                    |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)
+                            union(activeAfterThis, union(sourceSet, destSet))
                     |   _ => union(activeAfterThis, destSet)
                 
                 local

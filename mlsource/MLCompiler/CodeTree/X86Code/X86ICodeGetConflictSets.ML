@@ -90,11 +90,13 @@ struct
             local
                 (* In almost all circumstances the destination and sources don't
                    conflict and the same register can be used as a destination and
-                   a source.  The exception is AllocateMemoryVariable which can only
-                   store the size after the memory has been allocated. *)
+                   a source.  The exceptions are AllocateMemoryVariable and BoxValues
+                   which can only store the size or the contents after the memory has
+                   been allocated. *)
                 val postInstruction =
                     case instr of
                         AllocateMemoryVariable _ => destRegNos @ sourceRegNos
+                    |   BoxValue _ => destRegNos @ sourceRegNos
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)
