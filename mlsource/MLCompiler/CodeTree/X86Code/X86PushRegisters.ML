@@ -27,11 +27,15 @@ struct
     open INTSET
     open IDENTIFY
     
+    (* Curried subscript functions *)
+    fun asub a i = Array.sub(a, i)
+    and vsub v i = Vector.sub(v, i)
+    
     exception InternalError = Misc.InternalError
 
-    fun addRegisterPushes(code: {instr: abstract x86ICode, active: intSet, current: intSet} list, pushVec: bool vector, maxPRegs, maxLabels) =
+    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs} =
     let
-        val labelCounter = ref maxLabels
+        val numberOfBlocks = Vector.length code
         val pregCounter = ref 0
         val maxStack = ref 0
         
@@ -52,8 +56,6 @@ struct
             newCount: int,      (* The total number of items on the stack. *)
             stack: stackEntry list
         }
-
-        val labelState = Array.array(maxLabels, NONE: context option)
 
         val emptyContext: context = { oldCount=0, newCount=0, stack=[]}
 
@@ -232,11 +234,11 @@ struct
            will not previously have been set.  The one exception is that floating
            point comparisons sometimes have different jumps to check the parity bit
            and the zero bit. The context will be the same for both so it's safe. *)
-        fun addNewLabel(ILabel lab, context) = Array.update(labelState, lab, SOME context)
+        (*fun addNewLabel(ILabel lab, context) = Array.update(labelState, lab, SOME context)*)
         
         (* Rewrite the code, replacing any registers that need to be pushed with references to
            the stack.  The result is built up in reverse order and then reversed. *)
-        fun pushRegisters([]: {instr: abstract x86ICode, active: intSet, current: intSet} list, code: abstract x86ICode list, _: context) = code
+        fun pushRegisters([], code, context) = (code, context)
         
         |   pushRegisters({instr=LoadArgument{source, dest=PReg(dReg, dKind), kind}, ...} :: rest, code, context as {stack, oldCount, newCount}) =
             let
@@ -344,6 +346,7 @@ struct
         |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust}, ...} :: rest, code,
                           context as {oldCount, newCount, ...}) =
             let
+                val _ = null rest orelse raise InternalError "pushRegisters - TailRecursiveCall"
                 (* We have to adjust all the stack offsets to account for anything we've pushed.
                    Note: we mustn't use mapOldStackOffset for destination stack offsets.
                    These are not actual source stack items but overwrite the stack. *)
@@ -368,10 +371,9 @@ struct
                    actually pushed. *) 
                 val newStackAdjust = stackAdjust+newCount-oldCount
             in
-                skipToLabel(rest,
-                    TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
+                (TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
                         stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=newStackAdjust} ::
-                            regArgLoads @ stackArgLoads @ code)
+                            regArgLoads @ stackArgLoads @ code, context)
             end
 
         |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, saveRegs}, ...} :: rest, code, context) =
@@ -404,23 +406,16 @@ struct
         |   pushRegisters({instr=InitialisationComplete, ...} :: rest, code, context) =
                 pushRegisters(rest, InitialisationComplete :: code, context)
 
-        |   pushRegisters({instr=StartLoop{loopLabel}, ...} :: rest, code, context) =
-            let
-                (* Set up the state.  Every jump has to reset to this.  Only the
-                   stack pointer is needed. *)
-                val () = addNewLabel(loopLabel, context)
-            in
-                pushRegisters(rest, StartLoop{loopLabel=loopLabel} :: code, context)
-            end
+        |   pushRegisters({instr=StartLoop _, ...} :: _, _, _) =
+                raise InternalError "pushRegisters - StartLoop"
 
-        |   pushRegisters({instr=EndLoop{loopLabel, staticRegs}, ...} :: rest, code, context) =
-                (* We don't really need to map the static regs since we'll call "Identify" again after this. *)
-                pushRegisters(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code, context)
+        |   pushRegisters({instr=EndLoop _, ...} :: _, _, _) =
+                raise InternalError "pushRegisters - EndLoop"
 
-        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, loopLabel as ILabel lab, checkInterrupt, staticRegs, ...}, ...} :: rest,
-                           code, context as {newCount, ...}) =
+        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, staticRegs, ...}, ...} :: rest,
+                           code, context) =
             let
-                val {newCount=labNewCount, ...} = valOf(Array.sub(labelState, lab))
+                val _ = null rest orelse raise InternalError "pushRegisters - JumpLoop"
                 fun getValues [] = ([], [], [])
                 |   getValues ((source, PReg(n, _)) :: rest) =
                     let
@@ -452,19 +447,20 @@ struct
                 end
                 
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
-                val newStackAdjust = newCount-labNewCount
                 val check = Option.map mapSaveRegs checkInterrupt
             in
-                skipToLabel(rest,
-                    JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
-                              stackAdjust=newStackAdjust, checkInterrupt=check, staticRegs=mapSaveRegs staticRegs} :: sourceCode @ stackArgLoads @ code)
+                (JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
+                              stackAdjust=0 (* Done later*), checkInterrupt=check, staticRegs=mapSaveRegs staticRegs} :: sourceCode @ stackArgLoads @ code,
+                 context)
             end
 
         |   pushRegisters({instr=RaiseExceptionPacket{packet}, ...} :: rest, code, context) =
             let
                 val (packetVal, packetCode) = mapSource(packet, context)
+                (* Should be last. *)
+                val _ = null rest orelse raise InternalError "pushRegisters:RaiseExceptionPacket"
             in
-                skipToLabel(rest, RaiseExceptionPacket{packet=packetVal} :: packetCode @ code)
+                (RaiseExceptionPacket{packet=packetVal} :: packetCode @ code, context)
             end
 
         |   pushRegisters({instr=ReserveContainer{size, address}, ...} :: rest, code, {oldCount, newCount, stack}) =
@@ -479,13 +475,13 @@ struct
 
         |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg, cases}, ...} :: rest, code, context) =
             let
+                (* Should be last. *)
+                val _ = null rest orelse raise InternalError "pushRegisters:IndexedCaseOperation"
                 val (srcVal, srcCode) = mapSrcReg(testReg, context)
                 val newWorkReg = mapWorkReg workReg
-                (* Set the incoming state for each of the cases. *)
-                val () = List.app (fn caseLab => addNewLabel(caseLab, context)) cases
             in
                 (* This is an unconditional branch. *)
-                skipToLabel(rest, IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases} :: srcCode @ code)
+                (IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases} :: srcCode @ code, context)
             end
 
         |   pushRegisters({instr=LockMutable{addr}, ...} :: rest, code, context) =
@@ -494,8 +490,10 @@ struct
             in
                 pushRegisters(rest, LockMutable{addr=addrVal} :: addrCode @ code, context)
             end
+        
+        |   pushRegisters({instr=ForwardJumpLabel _, ...} :: _, _, _) = raise InternalError "pushRegisters - ForwardJumpLabel"
     
-        |   pushRegisters({instr=ForwardJumpLabel{label as ILabel lab, result}, ...} :: rest, code,
+(*        |   pushRegisters({instr=ForwardJumpLabel{label as ILabel lab, result}, ...} :: rest, code,
                     context as {newCount=currentNewCount, stack=currentStack, ...}) =
             (* This is a forward jump label after other code.  We have to merge the states.
                This was an allocation hot-spot. *)
@@ -571,20 +569,24 @@ struct
                     in
                         pushRegisters(rest, resultCode, newContext)
                     end
-            )
-        |   pushRegisters({instr=UnconditionalForwardJump{label}, ...} :: rest, code, context) =
+            ) *)
+
+        |   pushRegisters({instr=UnconditionalForwardJump _, ...} :: _, _, _) =
+                raise InternalError "pushRegisters - UnconditionalForwardJump"
+            (*
             (
                 (* Save the state.  Then enter the "unconditional transfer" state. *)
                 addNewLabel(label, context);
                 skipToLabel(rest, UnconditionalForwardJump{label=label} :: code)
-            )
+            )*)
 
-        |   pushRegisters({instr=ConditionalForwardJump{condition, label, ccRef}, ...} :: rest, code, context) =
-            (
+        |   pushRegisters({instr=ConditionalForwardJump _, ...} :: _, _, _) =
+                raise InternalError "pushRegisters - ConditionalForwardJump"
+            (*(
                 (* Save the state but continue. *)
                 addNewLabel(label, context);
                 pushRegisters(rest, ConditionalForwardJump{condition=condition, label=label, ccRef=ccRef} :: code, context)
-            )
+            )*)
 
         |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...} :: rest, code, context) =
             let
@@ -598,16 +600,15 @@ struct
                 pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
             end
 
-        |   pushRegisters({instr=PushExceptionHandler{workReg, handleStart}, ...} :: rest, code, context as {oldCount, newCount, stack}) =
+        |   pushRegisters({instr=PushExceptionHandler{workReg, handleStart}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
-                (* Save the state. This is a bit like a conditional jump *)
-                val () = addNewLabel(handleStart, context)
+                val _ = null rest orelse raise InternalError "pushRegisters - PushExceptionHandler"
                 val newWorkReg = mapWorkReg workReg
                 (* Add a handler entry to the stack. *)
                 val newContext = {oldCount=oldCount+2, newCount=newCount+2, stack=HandlerEntry :: stack}
                 val () = maxStack := Int.max(!maxStack, newCount+2)
             in
-                pushRegisters(rest, PushExceptionHandler{workReg=newWorkReg, handleStart=handleStart} :: code, newContext)
+                (PushExceptionHandler{workReg=newWorkReg, handleStart=handleStart} :: code, newContext)
             end
 
         |   pushRegisters({instr=PopExceptionHandler{workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
@@ -634,12 +635,13 @@ struct
 
         |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...} :: rest, code, context as {newCount, ...}) =
             let
+                val _ = null rest orelse raise InternalError "pushRegisters - ReturnResultFromFunction"
                 val (resultValue, loadResult) = mapSrcReg(resultReg, context)
                 val resetCode =
                     if newCount = 0 then [] else [ResetStackPtr{numWords=newCount}]
             in
-                skipToLabel(rest,
-                    ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code)
+                (ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code,
+                    context)
             end
 
         |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, ...} :: rest, code, context) =
@@ -853,7 +855,7 @@ struct
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
             end
-
+(*
         and skipToLabel([], code) = code
 
         |   skipToLabel({instr=ForwardJumpLabel{label as ILabel lab, ...}, ...} :: rest, code) =
@@ -896,16 +898,286 @@ struct
             (* Any other Exited conditions. Skip the instructions.  There are various situations where this
                can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
                until it eventually exits by calling a "stop" function. *)
-        |   skipToLabel(_ :: rest, code) = skipToLabel(rest, code)
+        |   skipToLabel(_ :: rest, code) = skipToLabel(rest, code) *)
 
-        val pushedCode = pushRegisters(code, [], emptyContext)
-        val resultCode = List.rev pushedCode
+        (* The difficult bit here is matching together the stack if we have more than one
+           branch to the same block.  We can work out the stack space by looking at the
+           various register sets.  Each export that needs to be pushed increases the
+           stack space by one.  Each import that has been pushed can be popped, decreasing
+           the stack space.  Locals only need stack space within the block so aren't a
+           problem.  PassThroughs remain on the stack.
+           
+           In addition we may already have items on the stack.  ReserveContainer and PushExceptionHandler
+           both use the stack and a previous pass may have added items with PushValue.
+           
+           The code above assumes that we will always process both arms of a conditional, or all
+           the arms of an indexed branch, before we reach the merge point.  When the first branch
+           is made to a label we record the state. Subsequently when we reach that label by dropping
+           through we merge the states.  Loops are done by recording the state at the start of
+           the loop and resetting to it when we jump back.
+           
+           Merging may involve adding extra branches if at the merge point we find we want to reset
+           the stack further than the previous branch did.
+        *)
+        
+        (* Work out the dependencies of each block i.e. the immediate predecessors. *)
+        val blockReferences = Array.array(numberOfBlocks, [])
+        
+        (* This needs to be recursive.  There may be blocks that aren't reachable
+           but refer to blocks that are. *)
+        local
+            fun setReferences fromLabel =
+            let
+                val ExtendedBasicBlock{ flow, block, ...} = vsub code fromLabel
+            in
+                (* If this has a JumpLoop don't add it on.  That way we will process
+                   the start of a loop and then the jump backwards later. *)
+                if List.exists(fn {instr=JumpLoop _, ...} => true | _ => false) block
+                then ()
+                else
+                let
+                
+                    val refs =
+                        case flow of
+                            ExitCode => []
+                        |   Unconditional lab => [lab]
+                        |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
+                        |   IndexedBr labs => labs
+                        |   SetHandler { handler, continue } => [handler, continue]
+                
+                    (* We're going to add this label as a reference to each of the
+                       blocks we refer to.  If there have not yet been any references
+                       we need to process them*)
+                    val processNext = List.filter(null o asub blockReferences) refs
+
+                    fun setRefs toLabel =
+                        Array.update(blockReferences, toLabel,
+                            fromLabel :: Array.sub(blockReferences, toLabel))
+                    val () = List.app setRefs refs
+                in
+                    List.app setReferences processNext
+                end
+           end
+        in
+            val () = setReferences 0
+        end
+        
+        (* The state for each of the blocks. *)
+        val outputStates = Array.array(numberOfBlocks, NONE: context option)
+        (* Input states.  These are only every used for loops. *)
+        val inputStates = Array.array(numberOfBlocks, emptyContext)
+        (* The result code. *)
+        val resultCode = Array.array(numberOfBlocks, NONE)
+        (* The flow for each block i.e. where it goes to next.  This may be
+           updated if we need to add a block to adjust the stack. *)
+        val flowArray =
+            Array.tabulate(numberOfBlocks, (fn ExtendedBasicBlock{flow, ...} => flow) o vsub code)
+        
+        (* Extra blocks to adjust the stack are added here. *)
+        val extraBlocks: abstract basicBlock list ref = ref []
+        val blockCounter = ref numberOfBlocks
+        
+        (* Possibly generate code to match the input state to the output
+           by removing items from the stack.  If they don't match we need
+           to add an adjustment block. *)
+        fun createMergedState(predecessors, destBlock) =
+        let
+            (* If we have multiple states they should all be set.  There shouldn't be
+               a loop. *)
+            val inputStates = List.map(valOf o (asub outputStates)) predecessors
+            (* Work out the largest common stack i.e. the amount of the stack that is
+               common to all the predecessors.  This should be the input and anything extra
+               will need to be trimmed.
+               This is a bit complicated because we want to do it in such a way that we
+               don't rebuild more than is necessary.  The simple method of reversing the
+               stacks and then matching them turned out to be an allocation hot-spot. *)
+            fun getMinLength({stack, ...}, min) =
+                if min < 0 then List.length stack
+                else Int.min(min, List.length stack)
+            val lengthMin = List.foldl getMinLength ~1 inputStates
+            (* Trim them to the same length as a first step. *)
+            val trimmedStacks =
+                List.map(fn{stack, ...} => List.drop(stack, List.length stack - lengthMin)) inputStates
+
+            fun findLastDiff(stack1 :: (tail as stack2 :: _), currentMin) =
+                let
+                    fun findLastDifference(entry1 :: tl1, entry2 :: tl2, tailLen) =
+                        let
+                            val matchRest = findLastDifference(tl1, tl2, tailLen-1)
+                        in
+                            if matchRest <> tailLen-1
+                            then matchRest
+                            else case (entry1, entry2) of
+                                (NewEntry {pregNo=reg1}, NewEntry {pregNo=reg2}) =>
+                                    if reg1 = reg2 then tailLen else tailLen-1
+                            |   (ContainerEntry {size=size1}, ContainerEntry {size=size2}) =>
+                                    if size1 = size2 then tailLen else tailLen-1
+                            |   (HandlerEntry, HandlerEntry) => tailLen
+                            |   _ => tailLen-1
+                        end
+                    |   findLastDifference([], [], 0) = 0
+                    |   findLastDifference _ = raise InternalError "findLastDifference"
+                    
+                    val commonLength = findLastDifference(stack1, stack2, lengthMin)
+                in
+                    findLastDiff(tail, Int.min(commonLength, currentMin))
+                end
+            |   findLastDiff(_, currentMin) = currentMin
+            
+            val commonLength = findLastDiff(trimmedStacks, lengthMin)
+            val commonStack = List.drop(hd trimmedStacks, lengthMin - commonLength)
+
+            fun countSizes([], old, new) = (old, new)
+            |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
+            |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
+            |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
+            
+            val (oldCount, newCount) = countSizes(commonStack, 0, 0)
+            (* This is the common context that will be used as the input. *)
+            val newContext as {newCount=newSp, ...} = {newCount=newCount, oldCount=oldCount, stack=commonStack}
+            
+            (* We now have to adjust any of the inputs that don't match this. *)
+            fun adjustStack(inputBlockNo, {newCount, ...}) =
+            if newCount = newSp
+            then () (* Nothing to do*)
+            else
+            let
+                val _ = newCount > newSp orelse raise InternalError "adjustStack"
+                val adjustCode = [ResetStackPtr{numWords=newCount-newSp}]
+                (* If the input is an unconditional branch we could just add it
+                   on to the end of that block.  For the moment we always create a
+                   new block. *)
+                val newBlock = BasicBlock{block=adjustCode, flow=Unconditional destBlock}
+                val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
+                val () = extraBlocks := newBlock :: !extraBlocks
+                (* We need to change the "flow" for the input block so that it points to
+                   the new block rather than the old. *)
+                fun changeDest d = if d = destBlock then newBlockNo else d
+                val newFlow =
+                    case asub flowArray inputBlockNo of
+                        IndexedBr cases => IndexedBr(List.map changeDest cases)
+                    |   Unconditional dest => Unconditional(changeDest dest)
+                    |   Conditional{condition, ccRef, trueJump, falseJump} =>
+                            Conditional{ccRef=ccRef, condition=condition,
+                                    trueJump=changeDest trueJump, falseJump=changeDest falseJump}
+                    |   _ => raise InternalError "adjustStack: flow"
+            in
+                Array.update(flowArray, inputBlockNo, newFlow)
+            end
+            
+            val () = ListPair.appEq adjustStack (predecessors, inputStates)
+        in
+            newContext
+        end
+        
+        val processTrace = ref []
+        
+        local
+            fun haveProcessed n = isSome(Array.sub(resultCode, n))
+
+            fun processBlocks toDo =
+            case List.filter (not o haveProcessed) toDo of
+                [] => () (* Finished *)
+
+            |   stillToDo as head :: _ =>
+                let
+                    (* Select a block all of whose predecessors have been processed.
+                       If we can't find one we have a loop and have to select a
+                       block that starts a loop. *)
+                    fun available dest = List.all haveProcessed (asub blockReferences dest)
+                    val picked =
+                        case List.find available stillToDo of
+                            SOME c => c
+                        |   NONE => raise InternalError "processBlocks - nothing available"
+                    
+                    val () = processTrace :=
+                        (picked, if isSome(List.find available stillToDo) then NONE else SOME stillToDo) :: ! processTrace
+                    
+                    val ExtendedBasicBlock{ block, flow, ...} = vsub code picked
+                    
+                    (* Construct the input state for this block depending on its
+                       predecessors. *)
+                    local
+                        val predecessors = asub blockReferences picked
+                        (* Look at the states we actually have.  If this is the start of a
+                           loop we will have unset states and we should have just one that is set.*)
+                        val predecessorStates =
+                            List.mapPartial(asub outputStates) predecessors
+                    in
+                        val inputState =
+                            case predecessorStates of
+                                [] => emptyContext (* Initial block. *)
+                            |   [singleton] => singleton (* Easy.  Includes start of a loop. *)
+                            |   _ => createMergedState(predecessors, picked)
+                    end
+
+                    (* Set this as the input state just in case we loop here. *)
+                    val () = Array.update(inputStates, picked, inputState)
+                    
+                    val (codeResult, stateResult) = pushRegisters(block, [], inputState)
+
+                    val successors =
+                        case asub flowArray picked of
+                            ExitCode => []
+                        |   IndexedBr cases => cases
+                        |   Unconditional dest => [dest]
+                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                        |   SetHandler { handler, continue } => [handler, continue]
+                   
+                    (* Do we need to adjust the stack because we're looping back?
+                       Look to see if this is a JumpLoop and set the adjustment in that.
+                       If there's no JumpLoop this should not be branching back. *)
+                    val postAdjust =
+                        case codeResult of
+                            JumpLoop {regArgs, stackArgs, loopLabel, staticRegs, checkInterrupt, ...} :: rest =>
+                            let
+                                val destination =
+                                    case flow of
+                                        Unconditional dest => dest
+                                    |   _ => raise InternalError "processBlocks - JumpLoop"
+                                val {newCount=destStackCount, ...} = asub inputStates destination
+                                val _ = isSome(asub resultCode destination) orelse raise InternalError "processBlocks - not loop"
+                                val adjustStack = #newCount stateResult - destStackCount
+                                val _ = adjustStack >= 0 orelse raise InternalError "processBlocks - jump loop stack"
+                            in
+                                JumpLoop {regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel,
+                                          staticRegs=staticRegs, stackAdjust=adjustStack, checkInterrupt=checkInterrupt} :: rest
+                            end
+                        |   _ =>
+                            (
+                                (* Otherwise none of our successors should have been processed yet. *)
+                                List.exists(isSome o asub resultCode) successors
+                                    andalso raise InternalError "processBlocks - loop?";
+                                codeResult
+                            )
+
+                    val () = Array.update(resultCode, picked, SOME (List.rev postAdjust))
+                    val () = Array.update(outputStates, picked, SOME stateResult)
+
+                    (* Now we've done this block add the blocks it jumps to.
+                       They will use the output state as their input state after
+                       possibly removing something from the stack. *)
+                in
+                    processBlocks(successors @ stillToDo)
+                end
+        in
+            val () = processBlocks [0]
+        end
+
+        (* Put together the result code and blocks.  N.B. We may have unreferenced and therefore
+           unprocessed blocks. *)
+        val resultBlocks =
+            Vector.tabulate(numberOfBlocks,
+                fn i => BasicBlock{block = getOpt(asub resultCode i, []), flow = asub flowArray i})
+        
+        (* Add any extra blocks to the result. *)
+        val finalResult =
+            case !extraBlocks of
+                [] => resultBlocks
+            |   blocks => Vector.concat[resultBlocks, Vector.fromList(List.rev blocks)]
     in
-        (resultCode, !pregCounter, !labelCounter, !maxStack)
+        {code=finalResult, maxPRegs= !pregCounter, maxStack= !maxStack}
     end
-
-    fun addRegisterPushes(code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs, maxLabels): abstract basicBlock vector * int * int * int =
-        raise Fail "TODO - addRegisterPushes"
 
     structure Sharing =
     struct

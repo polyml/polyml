@@ -322,6 +322,7 @@ sig
     sig
         type genReg         = genReg
         and  'reg argument  = 'reg argument
+        and 'reg memoryIndex = 'reg memoryIndex
         and  iLabel         = iLabel
         and  'reg x86ICode  = 'reg x86ICode
         and  branchOps      = branchOps

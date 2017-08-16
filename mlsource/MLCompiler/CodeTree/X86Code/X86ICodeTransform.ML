@@ -1339,7 +1339,7 @@ struct
        involves choosing suitable registers and is a first attempt to check we have enough
        registers.  We can also get a failure in codeExtended when we actually allocate
        the registers. *)
-    fun spillRegisters(instrsAndActive : {instr: abstract x86ICode, active: intSet, current: intSet} list, regStates: regState vector, maxPRegs) =
+    fun spillRegisters(identified: extendedBasicBlock vector, regStates: regState vector, maxPRegs) =
     let
         val pushArray = Array.array(maxPRegs, false)
         (* Mark anything already marked as "must push" *)
@@ -1349,15 +1349,20 @@ struct
            Do that first because we need to know how many sets each register is in. *)
         fun nowActive regs =
             List.foldl (fn (r, l) => if Array.sub(pushArray, r) then l else r :: l) [] regs
-        fun getSets({active, ...}, l) =
+        fun getBlockSets(ExtendedBasicBlock{block, passThrough, ...}, sets) =
         let
-            val set = nowActive(setToList active)
+            fun getSets({active, ...}, l) =
+            let
+                val set = nowActive(setToList(union(active, passThrough)))
+            in
+                if List.length set > nGenRegs
+                then set :: l
+                else l
+            end
         in
-            if List.length set > nGenRegs
-            then set :: l
-            else l
+            List.foldl getSets sets block
         end
-        val activeSets = List.foldl getSets [] instrsAndActive
+        val activeSets = Vector.foldl getBlockSets [] identified
     in
         if null activeSets then ()
         else
@@ -1408,9 +1413,6 @@ struct
         (* Return the vector showing those that must be pushed. *)
         Array.vector pushArray
     end
-    
-    fun spillRegisters(identified: extendedBasicBlock vector, regStates: regState vector, maxPRegs) =
-        raise InternalError "TODO: spillRegisters"
      
     type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
@@ -1454,7 +1456,7 @@ struct
             end
             else ()            
 
-        fun processCode(basicBlocks, maxPRegs, maxLabels, maxStack, passes) =
+        fun processCode(basicBlocks, maxPRegs, maxStack, passes) =
         let
             val () =
                 if wantPrintCode
@@ -1470,11 +1472,11 @@ struct
             let
                 (* Push those registers we need to.  This also adds and renumbers pregs
                    and may add labels. *)
-                val (postPushCode, maxPRegsPhase2, maxLabelsPhase2, maxStackPhase2) =
-                    addRegisterPushes(identified, regsToSpill, maxPRegs, maxLabels)
+                val {code=postPushCode, maxPRegs=maxPRegsPhase2, maxStack=maxStackPhase2} =
+                    addRegisterPushes{code=identified, pushVec=regsToSpill, maxPRegs=maxPRegs}
             in
                 (* And reprocess. *)
-                processCode(postPushCode, maxPRegsPhase2, maxLabelsPhase2, maxStackPhase2, passes+1)
+                processCode(postPushCode, maxPRegsPhase2, maxStackPhase2, passes+1)
             end
             else
             let
@@ -1513,16 +1515,16 @@ struct
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet
-                        val (postPushCode, maxPRegsPhase2, maxLabelsPhase2, maxStackPhase2) =
-                            addRegisterPushes(identified, regsToSpill, maxPRegs, maxLabels)
+                        val {code=postPushCode, maxPRegs=maxPRegsPhase2, maxStack=maxStackPhase2} =
+                            addRegisterPushes{code=identified, pushVec=regsToSpill, maxPRegs=maxPRegs}
                     in
-                        processCode(postPushCode, maxPRegsPhase2, maxLabelsPhase2, maxStackPhase2, passes+1)
+                        processCode(postPushCode, maxPRegsPhase2, maxStackPhase2, passes+1)
                     end
             end
         end
 
         val (postTransformCode: reg basicBlock vector, stackRequired) =
-            processCode(blocks, maxPRegs, maxLabels, 0 (* Should include handlers and containers. *), 0)
+            processCode(blocks, maxPRegs, 0 (* Should include handlers and containers. *), 0)
 
         val () =
             (* Print the code after the transformation. *)

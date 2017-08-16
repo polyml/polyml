@@ -20,7 +20,8 @@ sig
     type abstract and 'reg x86ICode and intSet and extendedBasicBlock and 'reg basicBlock
 
     val addRegisterPushes :
-        extendedBasicBlock vector * bool vector * int * int -> abstract basicBlock vector * int * int * int
+        { code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs: int } ->
+            { code: abstract basicBlock vector, maxPRegs: int, maxStack: int }
 
     structure Sharing:
     sig

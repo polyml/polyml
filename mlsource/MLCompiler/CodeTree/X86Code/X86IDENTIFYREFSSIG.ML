@@ -18,6 +18,7 @@
 signature X86IDENTIFYREFSSIG =
 sig
     type 'reg x86ICode and reg and abstract and 'reg basicBlock and controlFlow
+    and 'reg argument and 'reg memoryIndex
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -41,6 +42,11 @@ sig
         }
 
     val identifyRegisters: abstract basicBlock vector * int -> extendedBasicBlock vector * regState vector
+    
+    (* Get the registers for an instruction.  *)
+    val getInstructionRegisters: 'reg x86ICode -> { sources: 'reg list, dests: 'reg list }
+    val argRegs: 'reg argument -> 'reg list
+    and argIndex: 'reg memoryIndex -> 'reg list
 
     structure Sharing:
     sig
@@ -52,5 +58,7 @@ sig
         and 'reg basicBlock = 'reg basicBlock
         and extendedBasicBlock = extendedBasicBlock
         and controlFlow = controlFlow
+        and 'reg argument = 'reg argument
+        and 'reg memoryIndex = 'reg memoryIndex
     end;
 end;

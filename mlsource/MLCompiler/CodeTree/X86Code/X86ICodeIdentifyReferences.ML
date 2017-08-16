@@ -413,12 +413,23 @@ struct
                    they are going to be active throughout the block. *)
                 and sourceSet = minus(listToSet sourceRegNos, passThrough)
 
-                (* Default for most instructions. *)
                 val afterRemoveDests = minus(activeAfterThis, destSet)
                 val activeForPrevious = union(sourceSet, afterRemoveDests)
-                (* TODO: "active" takes account of "sourcePost" i.e. registers
-                   that are active DURING the instruction. *)
-                val activeForInstr = union(activeAfterThis, destSet(* + sourcesPost *))
+            
+                (* The "active" set is the set of registers that need to be active DURING the
+                   instruction.  It includes destinations, which will usually be in
+                   "activeAfterThis", because there may be destinations that are not actually used
+                   subsequently but still need a register.  That will also include work registers.
+                   Usually sources aren't included if this is the last use but the
+                   AllocateMemoryVariable "instruction" can't set the size after the memory is
+                   allocated so the active set includes the source(s). *)
+                val activeForInstr =
+                    case instr of
+                        FunctionCall _ => sourceSet (* Is this still needed? *)
+                    |   TailRecursiveCall _ => sourceSet (* Is this still needed? *)
+                    |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
+                            union(activeAfterThis, union(sourceSet, destSet))
+                    |   _ => union(activeAfterThis, destSet)
                 
                 local
                     (* If we are allocating memory we have to save the current registers if
@@ -492,7 +503,7 @@ struct
                 and importSet = Array.sub(importArray, blockNo)
                 and passSet   = Array.sub(passThroughArray, blockNo)
                 and exportSet = Array.sub(exportArray, blockNo)
-                val filteredCode = valOf(Array.sub(resultCode, blockNo))
+                val filteredCode = getOpt(Array.sub(resultCode, blockNo), [])
                 val (resultInstrs, _) = List.foldr (createResultInstrs passSet) ([], emptySet) filteredCode
             in
                 ExtendedBasicBlock {
@@ -531,5 +542,7 @@ struct
         and 'reg basicBlock = 'reg basicBlock
         and extendedBasicBlock = extendedBasicBlock
         and controlFlow = controlFlow
+        and 'reg argument = 'reg argument
+        and 'reg memoryIndex = 'reg memoryIndex
     end
 end;

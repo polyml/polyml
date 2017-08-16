@@ -1418,17 +1418,11 @@ struct
                 end
 
             |   stillToDo as head :: _ =>
-                (* For the moment just select the first.  This may not be ideal because it means
-                   we follow unconditional branches immediately.  If we have if-then-else we will
-                   have an unconditional branch at the end of the "then".  We may be better putting
-                   in an unconditional branch and processing the "else-part" before joining
-                   the two arms. *)
                 let
                     local
                         (* Check the references.  If all the sources that lead up to this have
                            already been we won't have any backward jumps. *)
                         fun available dest = List.all haveProcessed (Array.sub(labelRefs, dest))
-
 
                         val continuation =
                             case lastFlow of
@@ -1676,6 +1670,7 @@ struct
     struct
         type genReg         = genReg
         and  'reg argument  = 'reg argument
+        and 'reg memoryIndex = 'reg memoryIndex
         and  iLabel         = iLabel
         and  'reg x86ICode  = 'reg x86ICode
         and  branchOps      = branchOps
