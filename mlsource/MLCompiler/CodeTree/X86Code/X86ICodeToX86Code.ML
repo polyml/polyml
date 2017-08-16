@@ -662,7 +662,7 @@ struct
         (
             (* Put a label on all but the first. *)
             if blockNo <> 0 then stream("L" ^ Int.toString blockNo ^ ":") else ();
-            List.app (fn icode => printICode(icode, stream, printItem)) block;
+            List.app (fn icode => (printICode(icode, stream, printItem); stream "\n")) block;
             case flow of
                 Unconditional l => stream("\tJump\tL" ^ Int.toString l ^ "\n")
             |   Conditional {condition, trueJump, falseJump, ...} =>

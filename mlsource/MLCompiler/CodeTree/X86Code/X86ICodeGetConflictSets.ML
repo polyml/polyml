@@ -106,7 +106,10 @@ struct
                 val () = addConflictsTo(postInstruction, passThrough);
 
                 (* Mark conflicts for the sources i.e. before the instruction. *)
-                (* Sources don't actually need to conflict with each other. *)
+                (* Sources must be set up as conflicts with each other i.e. when we
+                   come to allocate registers we must choose different real registers
+                   for different abstract registers. *)
+                val () = addConflictsTo(sourceRegNos, listToSet sourceRegNos)
                 val () = addConflictsTo(sourceRegNos, afterRemoveDests);
                 val () = addConflictsTo(sourceRegNos, passThrough)
             end
