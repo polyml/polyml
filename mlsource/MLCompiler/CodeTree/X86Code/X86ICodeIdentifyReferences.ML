@@ -504,7 +504,8 @@ struct
                 and passSet   = Array.sub(passThroughArray, blockNo)
                 and exportSet = Array.sub(exportArray, blockNo)
                 val filteredCode = getOpt(Array.sub(resultCode, blockNo), [])
-                val (resultInstrs, _) = List.foldr (createResultInstrs passSet) ([], emptySet) filteredCode
+                (* At the end of the block we should have the exports active. *)
+                val (resultInstrs, _) = List.foldr (createResultInstrs passSet) ([], exportSet) filteredCode
             in
                 ExtendedBasicBlock {
                     block = resultInstrs,
