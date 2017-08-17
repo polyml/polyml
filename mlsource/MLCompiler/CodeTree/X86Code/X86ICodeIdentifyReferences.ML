@@ -333,66 +333,67 @@ struct
         val exportArray = Array.array(vectorLength, emptySet)
         local
             datatype loopData = Unprocessed | Processing | Processed | Looped of intSet
-            val reprocess = ref false
-            val loopArray = Array.array(vectorLength, Unprocessed)
             
-            fun processBlocks blockNo =
-                case Array.sub(loopArray, blockNo) of
-                    Processed => (* Already seen this by a different route. *)
-                        union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
-                |   Looped s => s (* We've already seen this in a loop. *)
-                |   Processing => (* We have a loop. *)
-                    let
-                        (* Use the existing input array. *)
-                        val inputs =
+            fun reprocessLoop () =
+            let
+                val reprocess = ref false
+                val loopArray = Array.array(vectorLength, Unprocessed)
+            
+                fun processBlocks blockNo =
+                    case Array.sub(loopArray, blockNo) of
+                        Processed => (* Already seen this by a different route. *)
                             union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
-                        val () = Array.update(loopArray, blockNo, Looped inputs)
-                    in
-                        inputs
-                    end
-                |   Unprocessed => (* Normal case - not visited yet. *)
-                    let
-                        val () = Array.update(loopArray, blockNo, Processing)
-                        val thisBlock = Vector.sub(blockVector, blockNo)
-                        val ourDeclarations = Array.sub(declarationArray, blockNo)
-                        val successors = blockSuccessors thisBlock
-                        fun addSuccessor b =
+                    |   Looped s => s (* We've already seen this in a loop. *)
+                    |   Processing => (* We have a loop. *)
                         let
-                            val theirImports = setToList(processBlocks b)
-                            (* Split the imports.  If a register is a local declaration then
-                               it becomes an export.  If it is not it becomes part of our
-                               passThrough. *)
-                            val (addToExp, addToImp) =
-                                List.partition (fn i => member(i, ourDeclarations)) theirImports
+                            (* Use the existing input array. *)
+                            val inputs =
+                                union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
+                            val () = Array.update(loopArray, blockNo, Looped inputs)
                         in
-                            Array.update(exportArray, blockNo,
-                                union(Array.sub(exportArray, blockNo), listToSet addToExp));
-                            Array.update(passThroughArray, blockNo,
-                                union(Array.sub(passThroughArray, blockNo), listToSet addToImp))
+                            inputs
                         end
-                        val () = List.app addSuccessor successors
-                        val ourInputs =
-                            union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
-                    in
-                        (* Was this block used in a loop? *)
-                        case Array.sub(loopArray, blockNo) of
-                            Looped s =>
-                                if setToList s = setToList ourInputs then ()
-                                else reprocess := true
-                        |   _ => ();
-                        Array.update(loopArray, blockNo, Processed);
-                        ourInputs
-                    end
-                    
-            
-            fun doReprocess () =
-            (
+                    |   Unprocessed => (* Normal case - not visited yet. *)
+                        let
+                            val () = Array.update(loopArray, blockNo, Processing)
+                            val thisBlock = Vector.sub(blockVector, blockNo)
+                            val ourDeclarations = Array.sub(declarationArray, blockNo)
+                            val successors = blockSuccessors thisBlock
+                            fun addSuccessor b =
+                            let
+                                val theirImports = setToList(processBlocks b)
+                                (* Split the imports.  If a register is a local declaration then
+                                   it becomes an export.  If it is not it becomes part of our
+                                   passThrough. *)
+                                val (addToExp, addToImp) =
+                                    List.partition (fn i => member(i, ourDeclarations)) theirImports
+                            in
+                                Array.update(exportArray, blockNo,
+                                    union(Array.sub(exportArray, blockNo), listToSet addToExp));
+                                Array.update(passThroughArray, blockNo,
+                                    union(Array.sub(passThroughArray, blockNo), listToSet addToImp))
+                            end
+                            val () = List.app addSuccessor successors
+                            val ourInputs =
+                                union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
+                        in
+                            (* Was this block used in a loop? *)
+                            case Array.sub(loopArray, blockNo) of
+                                Looped s =>
+                                    if setToList s = setToList ourInputs then ()
+                                    else reprocess := true
+                            |   _ => ();
+                            Array.update(loopArray, blockNo, Processed);
+                            ourInputs
+                        end
+
+            in
                 reprocess := false;
                 processBlocks 0;
-                if !reprocess then doReprocess () else ()
-            )
+                if !reprocess then reprocessLoop () else ()
+            end
         in
-            val () = doReprocess ()
+            val () = reprocessLoop ()
         end
         
         (* Third pass - Build the result list with the active registers for each
@@ -470,6 +471,36 @@ struct
                         |   BoxValue{source, dest, boxKind, saveRegs=_} =>
                                 BoxValue{source=source, dest=dest, boxKind=boxKind,
                                     saveRegs=getSaveSet(regNo dest)}
+                        
+                        |   JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust, ...} =>
+                            let
+                                (* If we have to check for interrupts we must preserve registers across
+                                   the RTS call. *)
+                                fun getSave i =
+                                    case Array.sub(regPushState, i) of
+                                        MustNotPush => NONE
+                                    |   MustPush => NONE (* Already on the stack. *)
+                                    |   _ => SOME(PReg(i, PRegGeneral))
+                                val currentRegs = union(activeAfterThis, passThrough)
+                                val check =
+                                    case checkInterrupt of
+                                        NONE => NONE
+                                    |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
+                                (* We have to pass these to the next stage.  They are treated as part of the active
+                                   set in each JumpLoop.  We assume that when we come to allocate real registers
+                                   anything in the active set has already been allocated (working back from the end).
+                                   We have to ensure that is the case by allocating them at the end of the loop.
+                                   Then any new registers we allocate will be correctly found as conflicts.
+                                   There's no harm in allocating them in each of the JumpLoops since they will
+                                   just get the same register. *)
+                                (* TODO: It may be better to attempt to allocate a real register for all
+                                   the imports and passThroughs for each block.  This will normally be
+                                   redundant. *)
+                                val staticRegs = List.map (fn r => PReg(r, PRegGeneral)) (setToList currentRegs)
+                            in
+                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust,
+                                         checkInterrupt=check, staticRegs=staticRegs}
+                            end
 
                         |   _ => instr
                 end

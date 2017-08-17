@@ -92,11 +92,13 @@ struct
                    conflict and the same register can be used as a destination and
                    a source.  The exceptions are AllocateMemoryVariable and BoxValues
                    which can only store the size or the contents after the memory has
-                   been allocated. *)
+                   been allocated.  We also have to make sure that the test and
+                   work registers are different in IndexedCase. *)
                 val postInstruction =
                     case instr of
                         AllocateMemoryVariable _ => destRegNos @ sourceRegNos
                     |   BoxValue _ => destRegNos @ sourceRegNos
+                    |   IndexedCaseOperation _ => destRegNos @ sourceRegNos
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)

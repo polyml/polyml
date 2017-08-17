@@ -629,9 +629,13 @@ struct
                 pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code, newContext)
             end
 
-        |   pushRegisters({instr=BeginHandler _, ...} :: _, _, _) =
-                (* This should only ever happen after an unconditional jump. *)
-                raise InternalError "pushRegisters - BeginHandler"
+        |   pushRegisters({instr=BeginHandler{handleStart, packetReg, workReg, ...}, ...} :: rest, code, context) =
+            let
+                val newWorkReg = mapWorkReg workReg
+                val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
+            in
+                pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
+            end
 
         |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...} :: rest, code, context as {newCount, ...}) =
             let

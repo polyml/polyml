@@ -1416,7 +1416,7 @@ struct
      
     type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, maxLabels, maxPRegs, argRegsUsed, hasFullClosure, debugSwitches, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, maxPRegs, argRegsUsed, hasFullClosure, debugSwitches, ...} =
     let
         val icodeTabs = [8, 20, 60]
         val wantPrintCode = DEBUG.getParameter DEBUG.icodeTag debugSwitches
@@ -1434,6 +1434,8 @@ struct
             end
             else ()
         
+        fun stopHere() = ()
+        val _ = if functionName = "IntInf.pow(1)" then stopHere() else ()
         fun printConflicts(regStates: conflictState vector) =
             if wantPrintCode
             then
