@@ -400,8 +400,12 @@ struct
            instruction.  We don't include registers in the passThrough set since
            they are active throughout the block. *)
         local
-            (* Number of instrs for which this is active. *)
+            (* Number of instrs for which this is active.  We use this to try to select a
+               register to push to the stack if we have too many.  Registers that have
+               only a short lifetime are less likely to be pushed than those that are
+               active longer. *)
             val regActive = Array.array(maxPRegs, 0)
+            fun addActivity n r = Array.update(regActive, r, Array.sub(regActive, r)+n)
             
             fun createResultInstrs passThrough (instr, (tail, activeAfterThis)) =
             let
@@ -434,6 +438,8 @@ struct
                             union(activeAfterThis, union(sourceSet, destSet))
                     |   _ => union(activeAfterThis, destSet)
                 
+                val () = List.app(addActivity 1) (setToList activeForInstr)
+
                 local
                     (* If we are allocating memory we have to save the current registers if
                        they could contain an address.  We mustn't push untagged registers
@@ -539,6 +545,9 @@ struct
                 val filteredCode = getOpt(Array.sub(resultCode, blockNo), [])
                 (* At the end of the block we should have the exports active. *)
                 val (resultInstrs, _) = List.foldr (createResultInstrs passSet) ([], exportSet) filteredCode
+                (* Set the active count for the pass through. *)
+                val instrCount = List.length filteredCode
+                val () = List.app(addActivity instrCount) (setToList passSet)
             in
                 ExtendedBasicBlock {
                     block = resultInstrs,
