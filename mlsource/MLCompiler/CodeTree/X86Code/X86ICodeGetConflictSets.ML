@@ -154,8 +154,13 @@ struct
                     )
 
                 |   ShiftOperation{shiftAmount=RegisterArgument shiftAmount, ...} =>
+                    (
                         (* Shift with by amount specified in a register.  This must be ecx. *)
-                         reserveRegister([regNo shiftAmount], GenReg ecx)
+                        reserveRegister([regNo shiftAmount], GenReg ecx);
+                        (* reserveRegister only sets a conflict between the args.  We need
+                           to include the result because that will be allocated first. *)
+                         List.app(fn r => addRealConflict (r, GenReg ecx)) destRegNos
+                    )
 
                 |   Division{dividend, quotient, remainder, ...} =>
                     (
