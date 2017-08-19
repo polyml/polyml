@@ -1434,8 +1434,6 @@ struct
             end
             else ()
         
-        fun stopHere() = ()
-        val _ = if functionName = "IntInf.pow(1)" then stopHere() else ()
         fun printConflicts(regStates: conflictState vector) =
             if wantPrintCode
             then

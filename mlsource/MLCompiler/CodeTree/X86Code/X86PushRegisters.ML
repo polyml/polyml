@@ -493,84 +493,6 @@ struct
         
         |   pushRegisters({instr=ForwardJumpLabel _, ...} :: _, _, _) = raise InternalError "pushRegisters - ForwardJumpLabel"
     
-(*        |   pushRegisters({instr=ForwardJumpLabel{label as ILabel lab, result}, ...} :: rest, code,
-                    context as {newCount=currentNewCount, stack=currentStack, ...}) =
-            (* This is a forward jump label after other code.  We have to merge the states.
-               This was an allocation hot-spot. *)
-            (
-                (* Get the state.  The label may never have been jumped to. *)
-                case Array.sub(labelState, lab) of
-                    NONE => pushRegisters(rest, code, context)
-                |   SOME {newCount=jumpNewCount, stack=jumpStack, ...} =>
-                    let
-                        (* Merge the stacks.  Because the stacks can be very deep we need to do this in a
-                           way that minimises the rebuilding necessary. *)
-                        val lenCurrent = List.length currentStack and lenJump = List.length jumpStack
-                        val (currStackTrim, jumpStackTrim) =
-                            if lenCurrent > lenJump
-                            then (List.drop(currentStack, lenCurrent-lenJump), jumpStack)
-                            else (currentStack, List.drop(jumpStack, lenJump-lenCurrent))
-                        val trimLength = Int.min(lenCurrent, lenJump)
-                        (* We now have the stacks the same length. *)
-                        fun findLastDifference(entry1 :: tl1, entry2 :: tl2, tailLen) =
-                            let
-                                val matchRest = findLastDifference(tl1, tl2, tailLen-1)
-                            in
-                                if matchRest <> tailLen-1
-                                then matchRest
-                                else case (entry1, entry2) of
-                                    (NewEntry {pregNo=reg1}, NewEntry {pregNo=reg2}) =>
-                                        if reg1 = reg2 then tailLen else tailLen-1
-                                |   (ContainerEntry {size=size1}, ContainerEntry {size=size2}) =>
-                                        if size1 = size2 then tailLen else tailLen-1
-                                |   (HandlerEntry, HandlerEntry) => tailLen
-                                |   _ => tailLen-1
-                            end
-                        |   findLastDifference([], [], 0) = 0
-                        |   findLastDifference _ = raise InternalError "findLastDifference"
-                        
-                        val commonLength = findLastDifference(currStackTrim, jumpStackTrim, trimLength)
-                        val commonStack = List.drop(currStackTrim, trimLength - commonLength)
-                        
-                        fun countSizes([], old, new) = (old, new)
-                        |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
-                        |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
-                        |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
-                        
-                        val (oldCount, newCount) = countSizes(commonStack, 0, 0)
-                        val newContext as {newCount=newSp, ...} = {newCount=newCount, oldCount=oldCount, stack=commonStack}
-
-                        val adjustStack =
-                            if newSp = currentNewCount
-                            then []
-                            else [ResetStackPtr{numWords=currentNewCount-newSp}]
-                        (* If there is a result register it should not have been pushed to the stack. *)
-                        val resultReg =
-                            case result of
-                                NONE => NONE
-                            |   SOME(PReg(dReg, _)) =>
-                                    case Array.sub(pregMap, dReg) of
-                                        ToPReg preg => SOME preg
-                                    |   _ => raise InternalError "pushRegisters merge register"
-                        val resultCode =
-                            if newSp = jumpNewCount
-                            then (* We don't need to do anything to the incoming branch. *)
-                                ForwardJumpLabel{label=label, result=resultReg} :: adjustStack  @ code
-                            else (* We're going to have to adjust the stack pointer on the incoming branch.
-                                    This requires an extra label and branch. *)
-                            let
-                                val extraLabel = ILabel(! labelCounter) before labelCounter := !labelCounter+1
-                           in
-                                ForwardJumpLabel{label=extraLabel, result=resultReg} ::
-                                ResetStackPtr{numWords=jumpNewCount-newSp} ::
-                                ForwardJumpLabel{label=label, result=resultReg} :: (* Come in here. *)
-                                UnconditionalForwardJump{label=extraLabel} :: adjustStack  @ code
-                            end
-                    in
-                        pushRegisters(rest, resultCode, newContext)
-                    end
-            ) *)
-
         |   pushRegisters({instr=UnconditionalForwardJump _, ...} :: _, _, _) =
                 raise InternalError "pushRegisters - UnconditionalForwardJump"
             (*
@@ -629,12 +551,19 @@ struct
                 pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code, newContext)
             end
 
-        |   pushRegisters({instr=BeginHandler{handleStart, packetReg, workReg, ...}, ...} :: rest, code, context) =
+        |   pushRegisters({instr=BeginHandler{handleStart, packetReg, workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
+                (* Pop the context as with PopExceptionHandler.  However this will adjust the stack. *)
+                fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
+                |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
+                |   popContext (ContainerEntry _ :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
+                |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
+                val postPopContext = popContext(stack, oldCount, newCount)
                 val newWorkReg = mapWorkReg workReg
-                val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
+                val (pktReg, pktCode, postPktRegContext) = mapDestReg(packetReg, postPopContext)
             in
-                pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
+                pushRegisters(rest, 
+                    pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, postPktRegContext)
             end
 
         |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...} :: rest, code, context as {newCount, ...}) =
@@ -859,50 +788,6 @@ struct
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
             end
-(*
-        and skipToLabel([], code) = code
-
-        |   skipToLabel({instr=ForwardJumpLabel{label as ILabel lab, ...}, ...} :: rest, code) =
-            (* Label after unconditional transfer.  No need to merge the states. *)
-            (
-                (* Look at the state.  We may never have branched to this label.  This sometimes
-                   happens with andalso/orelse.  In that case just continue. *)
-                case Array.sub(labelState, lab) of
-                    NONE => skipToLabel(rest, code)
-                |   SOME state => pushRegisters(rest, ForwardJumpLabel{label=label, result=NONE} :: code, state)
-            )
-        
-        |   skipToLabel({instr=BeginHandler{handleStart as ILabel lab, packetReg, workReg, ...}, ...} :: rest, code) =
-            (* A handler should only ever occur after an unconditional transfer. *)
-            (
-                (* It is possible that we have an exception handler inside dead code. *)
-                case Array.sub(labelState, lab) of
-                    NONE => skipToLabel(rest, code)
-                |   SOME context =>
-                    let
-                        val newWorkReg = mapWorkReg workReg
-                        val (pktReg, pktCode, newContext) = mapDestReg(packetReg, context)
-                    in
-                        pushRegisters(rest, pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, newContext)
-                    end
-            )
-        
-        |   skipToLabel({instr=EndLoop{loopLabel as ILabel lab, staticRegs}, ...} :: rest, code) =
-            (* Normally we will have at least one branch that exits the loop
-               but it could be that the loop is exited by raising an exception.
-               It is also possible that the loop has never been started because
-               the whole loop is dead code.  We have to check the label otherwise
-               mapSaveRegs could raise an exception. *)
-            (
-                case Array.sub(labelState, lab) of
-                    NONE => skipToLabel(rest, code)
-                |   _ => skipToLabel(rest, EndLoop{loopLabel=loopLabel, staticRegs=mapSaveRegs staticRegs} :: code)
-            )
-
-            (* Any other Exited conditions. Skip the instructions.  There are various situations where this
-               can arise.  e.g. OS.Process.exit contains an infinite loop processing atExit functions
-               until it eventually exits by calling a "stop" function. *)
-        |   skipToLabel(_ :: rest, code) = skipToLabel(rest, code) *)
 
         (* The difficult bit here is matching together the stack if we have more than one
            branch to the same block.  We can work out the stack space by looking at the
@@ -1083,7 +968,7 @@ struct
             case List.filter (not o haveProcessed) toDo of
                 [] => () (* Finished *)
 
-            |   stillToDo as head :: _ =>
+            |   stillToDo =>
                 let
                     (* Select a block all of whose predecessors have been processed.
                        If we can't find one we have a loop and have to select a
@@ -1093,7 +978,7 @@ struct
                         case List.find available stillToDo of
                             SOME c => c
                         |   NONE => raise InternalError "processBlocks - nothing available"
-                    
+                
                     val () = processTrace :=
                         (picked, if isSome(List.find available stillToDo) then NONE else SOME stillToDo) :: ! processTrace
                     
