@@ -118,6 +118,21 @@ struct
                 val () = addConflictsTo(sourceRegNos, passThrough)
             end
             
+            (* I'm not sure if this is needed.  There was a check in the old code to ensure that
+               different registers were used for loop variables even if they were actually unused.
+               This may happen anyway. *)
+            val () =
+                case instr of
+                    JumpLoop{regArgs, ...} =>
+                    let
+                        val destRegs = List.foldl(fn ((_, PReg(loopReg, _)), dests) => loopReg :: dests) [] regArgs
+                    in
+                        addConflictsTo(destRegs, listToSet destRegs);
+                        addConflictsTo(destRegs, current);
+                        addConflictsTo(destRegs, passThrough)
+                    end
+                |   _ => ()
+
             (* Certain instructions are specific as to the real registers. *)
             val () =
                 case instr of
