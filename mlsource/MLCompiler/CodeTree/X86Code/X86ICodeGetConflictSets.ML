@@ -99,6 +99,9 @@ struct
                         AllocateMemoryVariable _ => destRegNos @ sourceRegNos
                     |   BoxValue _ => destRegNos @ sourceRegNos
                     |   IndexedCaseOperation _ => destRegNos @ sourceRegNos
+                    |   ArithmeticFunction{oper=SUB, operand2, ...} =>
+                            (* Special case for subtraction - we can't use the same register for the result and
+                               the second operand. *) destRegNos @ map regNo (argRegs operand2)   
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)
