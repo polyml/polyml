@@ -173,7 +173,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 34: // Return the system directory for modules.  This is configured differently
         // in Unix and in Windows.
 #if (defined(MODULEDIR))
-    return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
+    return SAVE(C_string_to_Poly(taskData, MODULEDIR));
 #elif (defined(_WIN32) && ! defined(__CYGWIN__))
         {
             // This registry key is configured when Poly/ML is installed using the installer.
