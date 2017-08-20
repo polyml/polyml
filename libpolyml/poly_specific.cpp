@@ -73,13 +73,8 @@ extern "C" {
 static const char *poly_runtime_system_copyright =
 "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
-#define Str(x) #x
-#define Xstr(x) Str(x)
-
-#ifdef GIT_VERSION
-#define GitVersion             Xstr(GIT_VERSION)
-#else
-#define GitVersion             ""
+#ifndef GIT_VERSION
+#define GIT_VERSION             ""
 #endif
 
 
@@ -90,7 +85,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     {
     case 9: // Return the GIT version if appropriate
         {
-             return SAVE(C_string_to_Poly(taskData, GitVersion));
+             return SAVE(C_string_to_Poly(taskData, GIT_VERSION));
         }
 
     case 10: // Return the RTS version string.
