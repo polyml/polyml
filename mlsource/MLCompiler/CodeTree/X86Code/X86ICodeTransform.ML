@@ -1309,7 +1309,11 @@ struct
                         Done _ => ()
                     |   _ =>
                         let
-                            val ExtendedBasicBlock { block, ...} = Vector.sub(identifiedBlocks, pick)
+                            val ExtendedBasicBlock { block, passThrough, exports, ...} = Vector.sub(identifiedBlocks, pick)
+                            (* We assume that anything used later will have been allocated a register.
+                               This is generally true except for a loop where the use may occur earlier. *)
+                            val exported = setToList passThrough @ setToList exports
+                            val () = List.app(fn r => (findRegister(r, NONE, generalRegisters); ())) exported
                             val codeBlock = codeExtended(block, [])
                         in
                             Array.update(processing, pick, Done codeBlock)
