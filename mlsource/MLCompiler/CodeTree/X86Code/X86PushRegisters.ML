@@ -406,14 +406,7 @@ struct
         |   pushRegisters({instr=InitialisationComplete, ...} :: rest, code, context) =
                 pushRegisters(rest, InitialisationComplete :: code, context)
 
-        |   pushRegisters({instr=StartLoop _, ...} :: _, _, _) =
-                raise InternalError "pushRegisters - StartLoop"
-
-        |   pushRegisters({instr=EndLoop _, ...} :: _, _, _) =
-                raise InternalError "pushRegisters - EndLoop"
-
-        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, staticRegs, ...}, ...} :: rest,
-                           code, context) =
+        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, code, context) =
             let
                 val _ = null rest orelse raise InternalError "pushRegisters - JumpLoop"
                 fun getValues [] = ([], [], [])
@@ -449,9 +442,8 @@ struct
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                 val check = Option.map mapSaveRegs checkInterrupt
             in
-                (JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, loopLabel=loopLabel,
-                              stackAdjust=0 (* Done later*), checkInterrupt=check, staticRegs=mapSaveRegs staticRegs} :: sourceCode @ stackArgLoads @ code,
-                 context)
+                (JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
+                         sourceCode @ stackArgLoads @ code, context)
             end
 
         |   pushRegisters({instr=RaiseExceptionPacket{packet}, ...} :: rest, code, context) =
@@ -551,7 +543,7 @@ struct
                 pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code, newContext)
             end
 
-        |   pushRegisters({instr=BeginHandler{handleStart, packetReg, workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
+        |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
                 (* Pop the context as with PopExceptionHandler.  However this will adjust the stack. *)
                 fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
@@ -562,8 +554,7 @@ struct
                 val newWorkReg = mapWorkReg workReg
                 val (pktReg, pktCode, postPktRegContext) = mapDestReg(packetReg, postPopContext)
             in
-                pushRegisters(rest, 
-                    pktCode @ BeginHandler{handleStart=handleStart, packetReg=pktReg, workReg=newWorkReg} :: code, postPktRegContext)
+                pushRegisters(rest, pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code, postPktRegContext)
             end
 
         |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...} :: rest, code, context as {newCount, ...}) =
@@ -1017,22 +1008,23 @@ struct
                        Look to see if this is a JumpLoop and set the adjustment in that.
                        If there's no JumpLoop this should not be branching back. *)
                     val postAdjust =
-                        case codeResult of
-                            JumpLoop {regArgs, stackArgs, loopLabel, staticRegs, checkInterrupt, ...} :: rest =>
-                            let
-                                val destination =
-                                    case flow of
-                                        Unconditional dest => dest
-                                    |   _ => raise InternalError "processBlocks - JumpLoop"
-                                val {newCount=destStackCount, ...} = asub inputStates destination
-                                val _ = isSome(asub resultCode destination) orelse raise InternalError "processBlocks - not loop"
-                                val adjustStack = #newCount stateResult - destStackCount
-                                val _ = adjustStack >= 0 orelse raise InternalError "processBlocks - jump loop stack"
-                            in
-                                JumpLoop {regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel,
-                                          staticRegs=staticRegs, stackAdjust=adjustStack, checkInterrupt=checkInterrupt} :: rest
-                            end
-                        |   _ =>
+                        if List.exists(fn JumpLoop _ => true | _ => false) codeResult
+                        then
+                        let
+                            val destination =
+                                case flow of
+                                    Unconditional dest => dest
+                                |   _ => raise InternalError "processBlocks - JumpLoop"
+                            val {newCount=destStackCount, ...} = asub inputStates destination
+                            val _ = isSome(asub resultCode destination) orelse raise InternalError "processBlocks - not loop"
+                            val adjustStack = #newCount stateResult - destStackCount
+                            val _ = adjustStack >= 0 orelse raise InternalError "processBlocks - jump loop stack"
+                        in
+                            if adjustStack = 0
+                            then codeResult
+                            else ResetStackPtr{numWords=adjustStack} :: codeResult
+                        end
+                        else
                             (
                                 (* Otherwise none of our successors should have been processed yet. *)
                                 List.exists(isSome o asub resultCode) successors

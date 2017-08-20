@@ -158,20 +158,10 @@ sig
            low-level code-generator. *)
     |   InitialisationComplete
 
-        (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { loopLabel: iLabel }
-
-        (* End a loop.  This is a marker that is used at the higher levels.
-           It doesn't generate any code. *)
-    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
-
-        (* Within a loop the loop registers are updated from the source registers and
-           a jump is made back to the containing StartLoop *)
+        (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
             { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
-              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option,
-              staticRegs: 'reg list }
+              checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
@@ -204,7 +194,7 @@ sig
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
-    |   BeginHandler of { handleStart: iLabel, packetReg: 'reg, workReg: 'reg }
+    |   BeginHandler of { packetReg: 'reg, workReg: 'reg }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: 'reg, numStackArgs: int }
@@ -306,9 +296,7 @@ sig
 
     val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
             functionName: string, debugSwitches: Universal.universal list } -> address
-    
-    val oldToNew: 'reg x86ICode list * int -> 'reg basicBlock vector
-
+ 
     val printICodeConcrete: reg basicBlock vector * (string -> unit) -> unit
 
     val printICodeAbstract: abstract basicBlock vector * (string -> unit) -> unit

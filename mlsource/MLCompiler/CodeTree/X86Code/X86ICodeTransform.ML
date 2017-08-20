@@ -741,25 +741,8 @@ struct
         |   codeExtended({instr=InitialisationComplete, ...} :: rest, context) =
                 InitialisationComplete :: codeExtended(rest, context)
 
-        |   codeExtended({instr=StartLoop{loopLabel}, ...} :: rest, context) =
-                StartLoop{loopLabel=loopLabel} :: codeExtended(rest, context)
-
-        |   codeExtended({instr=EndLoop {staticRegs, ...}, ...} :: rest, context) =
+        |   codeExtended({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, context) =
             let
-                (* staticRegs in EndLoop is a list of the registers that are used within the loop
-                   but aren't loop variables.  They have to retain their values throughout the loop
-                   and are treated as having been last used after the loop.  We have to ensure
-                   that registers are allocated for them before we enter the loop. *)
-                val () = List.app(fn PReg(r, _) => (findRegister(r, NONE, generalRegisters); ())) staticRegs
-            in
-                codeExtended(rest, context)
-            end
-
-        |   codeExtended({instr=JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt, staticRegs}, ...} :: rest, context) =
-            let
-                (* Copy this from EndLoop *)
-                val () = List.app(fn PReg(r, _) => (findRegister(r, NONE, generalRegisters); ())) staticRegs
-                
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
                 (* We must leave stack entries as stack entries for the moment as with TailCall. *)
@@ -767,12 +750,10 @@ struct
                 |   codeArg arg = codeExtArgGeneral arg
                 val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, PReg(r, _)) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
-                val resetCode =
-                    if stackAdjust = 0 then [] else [ResetStackPtr{numWords=stackAdjust}]
                 val check = Option.map(List.map(fn (PReg(r, _)) => findGeneralReg r)) checkInterrupt
             in
-                moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @ resetCode @
-                    (JumpLoop{regArgs=[], stackArgs=[], loopLabel=loopLabel, stackAdjust = 0, checkInterrupt=check, staticRegs=[]} :: code)
+                moveMultipleValues(extStackArgs @ extRegArgs, generalRegisters) @
+                    (JumpLoop{regArgs=[], stackArgs=[], checkInterrupt=check} :: code)
             end
 
         |   codeExtended({instr=RaiseExceptionPacket{ packet=RegisterArgument(PReg(preg, _)) }, ...} :: rest, context) =
@@ -863,14 +844,14 @@ struct
             (* Start of a handler.  Sets the address associated with PushExceptionHandler and
                provides a register for the packet.  There is a work register but we could
                use any register other than rax since we will have pushed anything we need. *) 
-        |   codeExtended({instr=BeginHandler{handleStart, packetReg=PReg(pReg, _), workReg=_}, ...} :: rest, context) =
+        |   codeExtended({instr=BeginHandler{packetReg=PReg(pReg, _), workReg=_}, ...} :: rest, context) =
             let
                 (* The exception packet is in rax. *)
                 val () = addRealHint(pReg, GenReg eax)
                 val code = codeExtended(rest, context)
                 val realPktReg = findRegister(pReg, SOME(GenReg eax), generalRegisters)
             in
-                BeginHandler{handleStart=handleStart, workReg=GenReg ebx, packetReg=GenReg eax} ::
+                BeginHandler{workReg=GenReg ebx, packetReg=GenReg eax} ::
                     (moveIfNecessary{src=GenReg eax, dst=realPktReg } @ code)
             end
 

@@ -136,20 +136,10 @@ struct
            low-level code-generator. *)
     |   InitialisationComplete
 
-        (* Begin a loop.  A set of loop registers are initialised and the loop is entered.
-           The loopLabel is the start of the loop and all jumps come back to it. *)
-    |   StartLoop of { loopLabel: iLabel }
-
-        (* End a loop.  This is a marker that is used at the higher levels.
-           It doesn't generate any code. *)
-    |   EndLoop of { loopLabel: iLabel, staticRegs: 'reg list }
-
-        (* Within a loop the loop registers are updated from the source registers and
-           a jump is made back to the containing StartLoop *)
+        (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
             { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
-              stackAdjust: int, loopLabel: iLabel, checkInterrupt: 'reg list option,
-              staticRegs: 'reg list }
+              checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packet: 'reg argument }
@@ -182,7 +172,7 @@ struct
 
         (* Marks the start of a handler.  This sets the stack pointer and
            restores the old handler.  Sets the exception packet register. *) 
-    |   BeginHandler of { handleStart: iLabel, packetReg: 'reg, workReg: 'reg }
+    |   BeginHandler of { packetReg: 'reg, workReg: 'reg }
 
         (* Return from the function. *)
     |   ReturnResultFromFunction of { resultReg: 'reg, numStackArgs: int }
@@ -407,11 +397,7 @@ struct
 
         |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
 
-        |   printICode(StartLoop{loopLabel}, stream, _) = ( printLabel(loopLabel, stream); stream ":\tStartLoop\t" )
-
-        |   printICode(EndLoop{loopLabel, ...}, stream, _) = (stream "\tEndLoop\t"; printLabel(loopLabel, stream))
-
-        |   printICode(JumpLoop{regArgs, stackArgs, loopLabel, stackAdjust, checkInterrupt, ... }, stream, printReg) =
+        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, ... }, stream, printReg) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
@@ -420,11 +406,9 @@ struct
                 List.app(
                     fn (source, stack) => (stream("sp" ^ Int.toString stack); stream "="; printArg(source, stream, printReg); stream " ")
                     ) stackArgs;
-                printLabel(loopLabel, stream);
                 case checkInterrupt of
                     NONE => ()
-                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream));
-                stream " adj="; stream(Int.toString stackAdjust)
+                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream))
             )
 
         |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
@@ -484,10 +468,9 @@ struct
                 printReg(workReg, stream)
             )
 
-        |   printICode(BeginHandler{handleStart, packetReg, workReg}, stream, printReg) =
+        |   printICode(BeginHandler{packetReg, workReg}, stream, printReg) =
             (
-                printLabel(handleStart, stream);
-                stream ":\tBeginHandler\t";
+                stream "\tBeginHandler\t";
                 printReg(packetReg, stream);
                 stream " with ";
                 printReg(workReg, stream)
@@ -996,12 +979,6 @@ struct
             |   codeGenICode(InitialisationComplete :: rest, code) =
                     codeGenICode(rest, StoreInitialised :: code)
 
-            |   codeGenICode(StartLoop _ :: _, _) = (* Same as ForwardLabel. *)
-                    raise InternalError "codeGenICode - StartLoop"
-
-            |   codeGenICode(EndLoop _ :: rest, code) = (* Nothing to do here. *)
-                    codeGenICode(rest, code)
-
             |   codeGenICode(JumpLoop {checkInterrupt, ...} :: rest, code) =
                 let
                     val checkCode =
@@ -1009,7 +986,7 @@ struct
                             NONE => []
                         |   SOME saveRegs => testRegAndTrap (esp, StackOverflowCall, map asGenReg saveRegs)
                 in
-                    codeGenICode(rest, (*UncondBranch (findLabelRef loopLabel) ::*) checkCode @ code)
+                    codeGenICode(rest, checkCode @ code)
                 end
  
             |   codeGenICode(RaiseExceptionPacket _ :: rest, code) =
@@ -1537,131 +1514,6 @@ struct
         end
     in
         X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
-    end
-    
-    (* Convert the old single list into a list of basic blocks. *)
-    fun oldToNew(ops: 'reg x86ICode list, maxLabels): 'reg basicBlock vector =
-    let
-        (* Count the number of conditional branches and exception handlers.  We are going to add a block for
-           the drop-through case of a conditional branch so we have to add those. *)
-        val numExtras =
-            List.foldl(fn (ConditionalForwardJump _, n) => n+1 | (PushExceptionHandler _, n) => n+1 | (_, n) => n) 0 ops
-
-        local
-            val initial = BasicBlock{ block=[], flow=ExitCode }
-        in
-            val resArray = Array.array(maxLabels+numExtras, initial)
-        end
-        val additionalLabs = ref maxLabels
-        
-        (* Create an entry for the block vector.  The code needs to be reversed. *)
-        fun createEntry (blockNo, block, flow) =
-            Array.update(resArray, blockNo, BasicBlock{ block=List.rev block, flow=flow})
-        
-        fun splitCode([], _, _) =
-            (* End of code.  We should have had a return or other unconditional transfer. *)
-                raise InternalError "splitCode"
-
-        |   splitCode(ForwardJumpLabel{ label=ILabel labelNo ,... } :: rest, index, sinceLabel) =
-            (* We've found a label that wasn't preceded by an unconditional branch or other exit.
-               The action at the end is to jump to this label. *)
-            (
-                createEntry(index, sinceLabel, Unconditional labelNo);
-                splitCode(rest, labelNo, [])
-            )
-
-        |   splitCode(StartLoop{ loopLabel=ILabel labelNo,... } :: rest, index, sinceLabel) =
-            (* A loop label.  Treat this as a normal label. *)
-            (
-                createEntry(index, sinceLabel, Unconditional labelNo);
-                splitCode(rest, labelNo, [])
-            )
-
-        |   splitCode(EndLoop _ :: rest, index, sinceLabel) =
-            (* EndLoop - remove. *)
-                splitCode(rest, index, sinceLabel)
-
-        |   splitCode(ConditionalForwardJump { ccRef, condition, label=ILabel trueLabel} :: rest, index, sinceLabel) =
-            (* Conditional jump. This finishes a block but we need a new label for the drop-through case. *)
-            let
-                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1;
-                val flow =
-                    Conditional {ccRef=ccRef, condition=condition, trueJump=trueLabel, falseJump=dropLabel}
-                val () = createEntry(index, sinceLabel, flow)
-            in
-                splitCode(rest, dropLabel, [])
-            end
-
-        |   splitCode(UnconditionalForwardJump { label=ILabel labelNo } :: rest, index, sinceLabel) =
-            (
-                createEntry(index, sinceLabel, Unconditional labelNo);
-                skipCode rest
-            )
-
-        |   splitCode((instr as PushExceptionHandler { handleStart=ILabel labelNo, ... }) :: rest, index, sinceLabel) =
-            (* Set up an exception handler.  We need to include this instruction because it includes the
-               work register.  Create a new label for the continuation i.e. the start of the code that the
-               handler catches exceptions for. *)
-            let
-                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1
-                val () = createEntry(index, instr :: sinceLabel, SetHandler{ handler=labelNo, continue=dropLabel })
-            in
-                splitCode(rest, dropLabel, [])
-            end
-
-        |   splitCode((instr as JumpLoop { loopLabel=ILabel labelNo, ... }) :: rest, index, sinceLabel) =
-            (* Jump to start of loop.  Treat as an unconditional jump but retain the instruction since
-               it indicates the registers that need to copied. *)
-            (
-                createEntry(index, instr :: sinceLabel, Unconditional labelNo);
-                skipCode rest
-            )
-
-        |   splitCode((instr as RaiseExceptionPacket _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as TailRecursiveCall _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as ReturnResultFromFunction _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as IndexedCaseOperation{cases, ...}) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, IndexedBr(map (fn ILabel i => i) cases));
-                skipCode rest
-            )
-
-        |   splitCode(instr :: rest, index, sinceLabel) =
-                splitCode(rest, index, instr :: sinceLabel)
-                
-                
-        and skipCode [] = () (* Finished - reached the end. *)
-
-        |   skipCode(ForwardJumpLabel{ label=ILabel labelNo,... } :: rest) =
-            (* Found a label after an unconditional transfer. *)
-                splitCode(rest, labelNo, [])
-
-        |   skipCode((instr as BeginHandler { handleStart=ILabel lab, ... }) :: rest) =
-            (* Found the start of a handler.  We need to include the old handle instruction
-               because that contains register information. *)
-                splitCode(rest, lab, [instr])
-
-        |   skipCode(_ :: rest) = skipCode rest
-                (* Unreachable code - Can occur with some branches. *)
-
-        val () = splitCode(ops, 0, [])
-    in
-        Array.vector resArray
     end
     
     datatype destinations = RegDest of reg | StackDest of int

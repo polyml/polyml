@@ -63,7 +63,108 @@ struct
         val realSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx80]
         and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
     end
- 
+    
+    (* Convert the old single list into a list of basic blocks. *)
+    fun oldToNew(ops: 'reg x86ICode list, maxLabels): 'reg basicBlock vector =
+    let
+        (* Count the number of conditional branches and exception handlers.  We are going to add a block for
+           the drop-through case of a conditional branch so we have to add those. *)
+        val numExtras =
+            List.foldl(fn (ConditionalForwardJump _, n) => n+1 | (PushExceptionHandler _, n) => n+1 | (_, n) => n) 0 ops
+
+        local
+            val initial = BasicBlock{ block=[], flow=ExitCode }
+        in
+            val resArray = Array.array(maxLabels+numExtras, initial)
+        end
+        val additionalLabs = ref maxLabels
+        
+        (* Create an entry for the block vector.  The code needs to be reversed. *)
+        fun createEntry (blockNo, block, flow) =
+            Array.update(resArray, blockNo, BasicBlock{ block=List.rev block, flow=flow})
+        
+        fun splitCode([], _, _) =
+            (* End of code.  We should have had a return or other unconditional transfer. *)
+                raise InternalError "splitCode"
+
+        |   splitCode(ForwardJumpLabel{ label=ILabel labelNo ,... } :: rest, index, sinceLabel) =
+            (* We've found a label that wasn't preceded by an unconditional branch or other exit.
+               The action at the end is to jump to this label. *)
+            (
+                createEntry(index, sinceLabel, Unconditional labelNo);
+                splitCode(rest, labelNo, [])
+            )
+
+        |   splitCode(ConditionalForwardJump { ccRef, condition, label=ILabel trueLabel} :: rest, index, sinceLabel) =
+            (* Conditional jump. This finishes a block but we need a new label for the drop-through case. *)
+            let
+                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1;
+                val flow =
+                    Conditional {ccRef=ccRef, condition=condition, trueJump=trueLabel, falseJump=dropLabel}
+                val () = createEntry(index, sinceLabel, flow)
+            in
+                splitCode(rest, dropLabel, [])
+            end
+
+        |   splitCode(UnconditionalForwardJump { label=ILabel labelNo } :: rest, index, sinceLabel) =
+            (
+                createEntry(index, sinceLabel, Unconditional labelNo);
+                skipCode rest
+            )
+
+        |   splitCode((instr as PushExceptionHandler { handleStart=ILabel labelNo, ... }) :: rest, index, sinceLabel) =
+            (* Set up an exception handler.  We need to include this instruction because it includes the
+               work register.  Create a new label for the continuation i.e. the start of the code that the
+               handler catches exceptions for. *)
+            let
+                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1
+                val () = createEntry(index, instr :: sinceLabel, SetHandler{ handler=labelNo, continue=dropLabel })
+            in
+                splitCode(rest, dropLabel, [])
+            end
+
+        |   splitCode((instr as RaiseExceptionPacket _) :: rest, index, sinceLabel) =
+            (
+                createEntry(index, instr :: sinceLabel, ExitCode);
+                skipCode rest
+            )
+
+        |   splitCode((instr as TailRecursiveCall _) :: rest, index, sinceLabel) =
+            (
+                createEntry(index, instr :: sinceLabel, ExitCode);
+                skipCode rest
+            )
+
+        |   splitCode((instr as ReturnResultFromFunction _) :: rest, index, sinceLabel) =
+            (
+                createEntry(index, instr :: sinceLabel, ExitCode);
+                skipCode rest
+            )
+
+        |   splitCode((instr as IndexedCaseOperation{cases, ...}) :: rest, index, sinceLabel) =
+            (
+                createEntry(index, instr :: sinceLabel, IndexedBr(map (fn ILabel i => i) cases));
+                skipCode rest
+            )
+
+        |   splitCode(instr :: rest, index, sinceLabel) =
+                splitCode(rest, index, instr :: sinceLabel)
+                
+                
+        and skipCode [] = () (* Finished - reached the end. *)
+
+        |   skipCode(ForwardJumpLabel{ label=ILabel labelNo,... } :: rest) =
+            (* Found a label after an unconditional transfer. *)
+                splitCode(rest, labelNo, [])
+
+        |   skipCode(_ :: rest) = skipCode rest
+                (* Unreachable code - Can occur with some branches. *)
+
+        val () = splitCode(ops, 0, [])
+    in
+        Array.vector resArray
+    end
+
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
         val pregCounter = ref 0
@@ -788,9 +889,9 @@ struct
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target,
-                        StartLoop{loopLabel=loopLabel} :: argCode)
+                        ForwardJumpLabel{label=loopLabel, result=NONE} :: argCode)
             in
-                (EndLoop {loopLabel=loopLabel, staticRegs=[]} :: loopBody, RegisterArgument target, loopExited)
+                (loopBody, RegisterArgument target, loopExited)
             end
 
         |   codeToICodeRev(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination, tailCode) =
@@ -810,7 +911,7 @@ struct
                     if loopSp = stackPtr then codeArgs
                     else ResetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
             in
-                (JumpLoop{regArgs=jumpArgs, stackArgs=[], loopLabel=loopLabel, stackAdjust=0, checkInterrupt=SOME[], staticRegs=[]} :: stackReset, RegisterArgument target, true)
+                (UnconditionalForwardJump{label=loopLabel} :: JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]} :: stackReset, RegisterArgument target, true)
             end
 
         |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
@@ -866,7 +967,7 @@ struct
                 val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
                 val (handleCode, _, handleExit) =
                     codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
-                        BeginHandler{handleStart=handlerLab, workReg=newPReg(), packetReg=packetAddr} :: atExpEnd)
+                        BeginHandler{workReg=newPReg(), packetReg=packetAddr} :: ForwardJumpLabel{label=handlerLab, result=NONE} :: atExpEnd)
                 val target = asTarget destination
                 val afterHandler =
                     case (isTail, handleExit) of

@@ -120,14 +120,6 @@ struct
             (* This is just a marker.  It doesn't actually generate any code. *)
             { sources=[], dests=[] }
 
-    |   getInstructionRegisters(StartLoop _) =
-            (* Should have been removed. *)
-            raise InternalError "getInstructionRegisters - StartLoop"
-
-    |   getInstructionRegisters(EndLoop _) =
-            (* Should have been removed. *)
-            raise InternalError "getInstructionRegisters - EndLoop"
-
     |   getInstructionRegisters(JumpLoop{regArgs, stackArgs, ...}) =
         let
             val regSourceAsRegs =
@@ -478,7 +470,7 @@ struct
                                 BoxValue{source=source, dest=dest, boxKind=boxKind,
                                     saveRegs=getSaveSet(regNo dest)}
                         
-                        |   JumpLoop{regArgs, stackArgs, loopLabel, checkInterrupt, stackAdjust, ...} =>
+                        |   JumpLoop{regArgs, stackArgs, checkInterrupt, ...} =>
                             let
                                 (* If we have to check for interrupts we must preserve registers across
                                    the RTS call. *)
@@ -492,20 +484,8 @@ struct
                                     case checkInterrupt of
                                         NONE => NONE
                                     |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
-                                (* We have to pass these to the next stage.  They are treated as part of the active
-                                   set in each JumpLoop.  We assume that when we come to allocate real registers
-                                   anything in the active set has already been allocated (working back from the end).
-                                   We have to ensure that is the case by allocating them at the end of the loop.
-                                   Then any new registers we allocate will be correctly found as conflicts.
-                                   There's no harm in allocating them in each of the JumpLoops since they will
-                                   just get the same register. *)
-                                (* TODO: It may be better to attempt to allocate a real register for all
-                                   the imports and passThroughs for each block.  This will normally be
-                                   redundant. *)
-                                val staticRegs = List.map (fn r => PReg(r, PRegGeneral)) (setToList currentRegs)
                             in
-                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, loopLabel=loopLabel, stackAdjust=stackAdjust,
-                                         checkInterrupt=check, staticRegs=staticRegs}
+                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check}
                             end
 
                         |   _ => instr
