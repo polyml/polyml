@@ -408,7 +408,8 @@ struct
 
         |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, code, context) =
             let
-                val _ = null rest orelse raise InternalError "pushRegisters - JumpLoop"
+                (* Normally JumpLoop will be the last item in a block but it is possible that we've
+                   added a reset-stack after it. *)
                 fun getValues [] = ([], [], [])
                 |   getValues ((source, PReg(n, _)) :: rest) =
                     let
