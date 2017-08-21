@@ -142,18 +142,6 @@ struct
     |   getInstructionRegisters(LockMutable{addr}) =
             { sources=[addr], dests=[] }
 
-    |   getInstructionRegisters(ForwardJumpLabel _) =
-            (* Should have been removed. *)
-            raise InternalError "getInstructionRegisters - ForwardJumpLabel"
-
-    |   getInstructionRegisters(UnconditionalForwardJump _) =
-            (* Should have been removed. *)
-            raise InternalError "getInstructionRegisters - UnconditionalForwardJump"
-
-    |   getInstructionRegisters(ConditionalForwardJump _) =
-            (* Should have been removed. *)
-            raise InternalError "getInstructionRegisters - ConditionalForwardJump"
-
     |   getInstructionRegisters(WordComparison{arg1, arg2, ...}) =
             { sources=argRegs arg1 @ argRegs arg2, dests=[] }
 

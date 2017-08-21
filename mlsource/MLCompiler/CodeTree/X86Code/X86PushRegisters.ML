@@ -465,7 +465,7 @@ struct
                 pushRegisters(rest, destCode @ ReserveContainer{size=size, address=destVal} :: code, newContext)
             end
 
-        |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg, cases}, ...} :: rest, code, context) =
+        |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...} :: rest, code, context) =
             let
                 (* Should be last. *)
                 val _ = null rest orelse raise InternalError "pushRegisters:IndexedCaseOperation"
@@ -473,7 +473,7 @@ struct
                 val newWorkReg = mapWorkReg workReg
             in
                 (* This is an unconditional branch. *)
-                (IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg, cases=cases} :: srcCode @ code, context)
+                (IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg} :: srcCode @ code, context)
             end
 
         |   pushRegisters({instr=LockMutable{addr}, ...} :: rest, code, context) =
@@ -482,26 +482,7 @@ struct
             in
                 pushRegisters(rest, LockMutable{addr=addrVal} :: addrCode @ code, context)
             end
-        
-        |   pushRegisters({instr=ForwardJumpLabel _, ...} :: _, _, _) = raise InternalError "pushRegisters - ForwardJumpLabel"
-    
-        |   pushRegisters({instr=UnconditionalForwardJump _, ...} :: _, _, _) =
-                raise InternalError "pushRegisters - UnconditionalForwardJump"
-            (*
-            (
-                (* Save the state.  Then enter the "unconditional transfer" state. *)
-                addNewLabel(label, context);
-                skipToLabel(rest, UnconditionalForwardJump{label=label} :: code)
-            )*)
-
-        |   pushRegisters({instr=ConditionalForwardJump _, ...} :: _, _, _) =
-                raise InternalError "pushRegisters - ConditionalForwardJump"
-            (*(
-                (* Save the state but continue. *)
-                addNewLabel(label, context);
-                pushRegisters(rest, ConditionalForwardJump{condition=condition, label=label, ccRef=ccRef} :: code, context)
-            )*)
-
+ 
         |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...} :: rest, code, context) =
             let
                 (* codeExtended expects the first argument to be in a register.
@@ -514,7 +495,7 @@ struct
                 pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
             end
 
-        |   pushRegisters({instr=PushExceptionHandler{workReg, handleStart}, ...} :: rest, code, {oldCount, newCount, stack}) =
+        |   pushRegisters({instr=PushExceptionHandler{workReg}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
                 val _ = null rest orelse raise InternalError "pushRegisters - PushExceptionHandler"
                 val newWorkReg = mapWorkReg workReg
@@ -522,7 +503,7 @@ struct
                 val newContext = {oldCount=oldCount+2, newCount=newCount+2, stack=HandlerEntry :: stack}
                 val () = maxStack := Int.max(!maxStack, newCount+2)
             in
-                (PushExceptionHandler{workReg=newWorkReg, handleStart=handleStart} :: code, newContext)
+                (PushExceptionHandler{workReg=newWorkReg} :: code, newContext)
             end
 
         |   pushRegisters({instr=PopExceptionHandler{workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =

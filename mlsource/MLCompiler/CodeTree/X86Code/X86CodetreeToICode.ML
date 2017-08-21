@@ -768,7 +768,7 @@ struct
                 val codedCases =
                     codeCases(cases, codeLabels,
                         BlockFlow(IndexedBr codeLabels) ::
-                        BlockSimple(IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=map ILabel codeLabels}) ::
+                        BlockSimple(IndexedCaseOperation{testReg=testReg, workReg=workReg}) ::
                         rangeCheck)
                 (* We can now copy to the target.  If we need to push the result this load
                    will be converted into a push. *)
@@ -857,7 +857,7 @@ struct
                 val initialCode =
                     BlockLabel startHandling ::
                     BlockFlow(SetHandler{handler=handlerLab, continue=startHandling}) ::
-                    BlockSimple(PushExceptionHandler{workReg=newPReg(), handleStart=ILabel handlerLab}) :: tailCode
+                    BlockSimple(PushExceptionHandler{workReg=newPReg()}) :: tailCode
                 val (expCode, _, expExit) =
                     codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget, initialCode)
                 (* If this is the tail we can replace the jump at the end of the

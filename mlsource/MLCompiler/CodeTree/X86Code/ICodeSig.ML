@@ -97,8 +97,6 @@ sig
        MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
         MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
-
-    datatype iLabel = ILabel of int
     
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
@@ -170,24 +168,16 @@ sig
     |   ReserveContainer of { size: int, address: 'reg }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list }
+    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: 'reg }
-
-        (* Forward branches. *)
-    |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
-    
-    |   UnconditionalForwardJump of { label: iLabel }
-
-        (* Conditional branch. *)
-    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
 
         (* Compare two word values. *)
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: 'reg }
 
         (* End of a handled section.  Restore the previous handler. *)
     |   PopExceptionHandler of { workReg: 'reg }
@@ -311,7 +301,6 @@ sig
         type genReg         = genReg
         and  'reg argument  = 'reg argument
         and 'reg memoryIndex = 'reg memoryIndex
-        and  iLabel         = iLabel
         and  'reg x86ICode  = 'reg x86ICode
         and  branchOps      = branchOps
         and  reg            = reg

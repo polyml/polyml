@@ -786,14 +786,14 @@ struct
                 pushAll @ LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord} :: code
             end
 
-        |   codeExtended({instr=IndexedCaseOperation{testReg=PReg(tReg, _), workReg=PReg(wReg, _), cases}, ...} :: rest, context) =
+        |   codeExtended({instr=IndexedCaseOperation{testReg=PReg(tReg, _), workReg=PReg(wReg, _)}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 val testReg = findRegister(tReg, NONE, generalRegisters)
                 val workReg = findRegister(wReg, NONE, generalRegisters)
                 val _ = testReg <> workReg orelse raise InternalError "IndexedCaseOperation - same registers"
             in
-                IndexedCaseOperation{ testReg=testReg, workReg=workReg, cases=cases} :: code
+                IndexedCaseOperation{ testReg=testReg, workReg=workReg} :: code
             end
 
         |   codeExtended({instr=LockMutable{addr=PReg(pr, _)}, ...} :: rest, context) =
@@ -803,15 +803,6 @@ struct
             in
                 LockMutable{addr=argReg} :: code
             end
-
-        |   codeExtended({instr=ForwardJumpLabel{ label, result=_ }, ...} :: rest, context) =
-                ForwardJumpLabel{ label=label, result=NONE } :: codeExtended(rest, context)
-
-        |   codeExtended({instr=UnconditionalForwardJump { label }, ...} :: rest, context) =
-                UnconditionalForwardJump { label=label } :: codeExtended(rest, context)
-
-        |   codeExtended({instr=ConditionalForwardJump{ ccRef, condition, label }, ...} :: rest, context) =
-                ConditionalForwardJump{ ccRef=ccRef, condition=condition, label=label } :: codeExtended(rest, context)
 
         |   codeExtended({instr=WordComparison{ arg1 as RegisterArgument _, arg2, ccRef }, ...} :: rest, context) =
             let
@@ -823,12 +814,12 @@ struct
         |   codeExtended({instr=WordComparison _, ...} :: _, _) = raise InternalError "codeExtended - WordComparison"
 
             (* Set up an exception handler. *)
-        |   codeExtended({instr=PushExceptionHandler{workReg=PReg(hReg, _), handleStart}, ...} :: rest, context) =
+        |   codeExtended({instr=PushExceptionHandler{workReg=PReg(hReg, _)}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 val handleReg = findGeneralReg hReg
             in
-                PushExceptionHandler{workReg=handleReg, handleStart=handleStart} :: code
+                PushExceptionHandler{workReg=handleReg} :: code
             end
 
             (* Pop an exception handler at the end of a handled section.  Executed if no exception has been raised.

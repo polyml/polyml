@@ -75,7 +75,6 @@ struct
     datatype moveKind =
         MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
 
-    datatype iLabel = ILabel of int
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
@@ -148,24 +147,16 @@ struct
     |   ReserveContainer of { size: int, address: 'reg }
 
         (* Indexed case. *)
-    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg, cases: iLabel list }
+    |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg }
 
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: 'reg }
-
-        (* Forward branches. *)
-    |   ForwardJumpLabel of { label: iLabel, result: 'reg option }
-    
-    |   UnconditionalForwardJump of { label: iLabel }
-
-        (* Conditional branch. *)
-    |   ConditionalForwardJump of { ccRef: ccRef, condition: branchOps, label: iLabel }
 
         (* Compare two word values. *)
     |   WordComparison of { arg1: 'reg argument, arg2: 'reg argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
-    |   PushExceptionHandler of { workReg: 'reg, handleStart: iLabel }
+    |   PushExceptionHandler of { workReg: 'reg }
 
         (* End of a handled section.  Restore the previous handler. *)
     |   PopExceptionHandler of { workReg: 'reg }
@@ -273,10 +264,7 @@ struct
     and 'reg basicBlock =
         BasicBlock of { block: 'reg x86ICode list, flow: controlFlow }
 
-    local
-
-        fun printLabel(ILabel i, stream) = stream("L"^Int.toString i)
-        
+    local        
         fun printIndex(NoMemIndex, _, _) = ()
         |   printIndex(MemIndex1 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*1]")
         |   printIndex(MemIndex2 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*2]")
@@ -416,48 +404,21 @@ struct
         |   printICode(ReserveContainer{size, address}, stream, printReg) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printReg(address, stream))
 
-        |   printICode(IndexedCaseOperation{testReg, workReg, cases}, stream, printReg) =
+        |   printICode(IndexedCaseOperation{testReg, workReg}, stream, printReg) =
             (
                 stream "\tIndexedCase\t";
                 stream "test="; printReg(testReg, stream);
-                stream "work="; printReg(workReg, stream);
-                List.app(fn l => (stream " "; printLabel(l, stream))) cases
+                stream "work="; printReg(workReg, stream)
             )
 
         |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
-        
-        |   printICode(ForwardJumpLabel{label, ...}, stream, _) = (printLabel(label, stream); stream ":\t\t")
-
-        |   printICode(UnconditionalForwardJump{label}, stream, _) = (stream "\tJump\t"; printLabel(label, stream))
-
-        |   printICode(ConditionalForwardJump{condition, label, ...}, stream, _) =
-            (
-                case condition of
-                    JO => stream "\tJumpOverflow\t"
-                |   JNO => stream "\tJumpNoOverflow\t"
-                |   JE => stream "\tJumpEqual\t"
-                |   JNE => stream "\tJumpNotEqual\t"
-                |   JL => stream "\tJumpLessSigned\t"
-                |   JGE => stream "\tJumpGeqSigned\t"
-                |   JLE => stream "\tJumpLeqSigned\t"
-                |   JG => stream "\tJumpGrtSigned\t"
-                |   JB => stream "\tJumpLessUnsigned\t"
-                |   JNB => stream "\tJumpGeqUnsigned\t"
-                |   JNA => stream "\tJumpLeqUnsigned\t"
-                |   JA => stream "\tJumpGrtUnsigned\t"
-                |   JP => stream "\tJumpParitySet"
-                |   JNP => stream "\tJumpParityClear\t";
-                printLabel(label, stream)
-            )
 
         |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
                 (stream "\tWordComparison\t"; printArg(arg1, stream, printReg); stream ","; printArg(arg2, stream, printReg))
 
-        |   printICode(PushExceptionHandler{workReg, handleStart}, stream, printReg) =
+        |   printICode(PushExceptionHandler{workReg }, stream, printReg) =
             (
-                stream "\tPushExcHandler\t";
-                printLabel(handleStart, stream);
-                stream " with ";
+                stream "\tPushExcHandler\t with ";
                 printReg(workReg, stream)
             )
 
@@ -1018,15 +979,6 @@ struct
             |   codeGenICode(LockMutable { addr } :: rest, code) =
                     codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
 
-            |   codeGenICode(ForwardJumpLabel _ :: _, _) =
-                    raise InternalError "codeGenICode: ForwardJumpLabel"
-
-            |   codeGenICode(UnconditionalForwardJump _ :: _, _) =
-                    raise InternalError "codeGenICode: UnconditionalForwardJump"
-
-            |   codeGenICode(ConditionalForwardJump _ :: _, _) =
-                    raise InternalError "codeGenICode: ConditionalForwardJump"
-
             |   codeGenICode(WordComparison {arg1=RegisterArgument(GenReg r), arg2, ...} :: rest, code) =
                     codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
 
@@ -1523,7 +1475,6 @@ struct
         type genReg         = genReg
         and  'reg argument  = 'reg argument
         and 'reg memoryIndex = 'reg memoryIndex
-        and  iLabel         = iLabel
         and  'reg x86ICode  = 'reg x86ICode
         and  branchOps      = branchOps
         and  reg            = reg
