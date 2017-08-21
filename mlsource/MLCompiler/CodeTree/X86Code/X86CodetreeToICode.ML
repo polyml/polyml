@@ -44,6 +44,14 @@ struct
        between the reverse and forward list versions. e.g. codeToICode and codeToICodeRev *)
     fun revApp([], l) = l
     |   revApp(hd :: tl, l) = revApp(tl, hd :: l)
+    
+    
+    datatype blockStruct =
+        BlockSimple of abstract x86ICode
+    |   BlockExit of abstract x86ICode
+    |   BlockLabel of int
+    |   BlockFlow of controlFlow
+    |   BlockBegin of (abstract * reg) list
 
     local
         open RunCall
@@ -63,107 +71,7 @@ struct
         val realSignBit: machineWord = makeRealConst [0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx00, 0wx80]
         and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
     end
-    
-    (* Convert the old single list into a list of basic blocks. *)
-    fun oldToNew(ops: 'reg x86ICode list, maxLabels): 'reg basicBlock vector =
-    let
-        (* Count the number of conditional branches and exception handlers.  We are going to add a block for
-           the drop-through case of a conditional branch so we have to add those. *)
-        val numExtras =
-            List.foldl(fn (ConditionalForwardJump _, n) => n+1 | (PushExceptionHandler _, n) => n+1 | (_, n) => n) 0 ops
 
-        local
-            val initial = BasicBlock{ block=[], flow=ExitCode }
-        in
-            val resArray = Array.array(maxLabels+numExtras, initial)
-        end
-        val additionalLabs = ref maxLabels
-        
-        (* Create an entry for the block vector.  The code needs to be reversed. *)
-        fun createEntry (blockNo, block, flow) =
-            Array.update(resArray, blockNo, BasicBlock{ block=List.rev block, flow=flow})
-        
-        fun splitCode([], _, _) =
-            (* End of code.  We should have had a return or other unconditional transfer. *)
-                raise InternalError "splitCode"
-
-        |   splitCode(ForwardJumpLabel{ label=ILabel labelNo ,... } :: rest, index, sinceLabel) =
-            (* We've found a label that wasn't preceded by an unconditional branch or other exit.
-               The action at the end is to jump to this label. *)
-            (
-                createEntry(index, sinceLabel, Unconditional labelNo);
-                splitCode(rest, labelNo, [])
-            )
-
-        |   splitCode(ConditionalForwardJump { ccRef, condition, label=ILabel trueLabel} :: rest, index, sinceLabel) =
-            (* Conditional jump. This finishes a block but we need a new label for the drop-through case. *)
-            let
-                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1;
-                val flow =
-                    Conditional {ccRef=ccRef, condition=condition, trueJump=trueLabel, falseJump=dropLabel}
-                val () = createEntry(index, sinceLabel, flow)
-            in
-                splitCode(rest, dropLabel, [])
-            end
-
-        |   splitCode(UnconditionalForwardJump { label=ILabel labelNo } :: rest, index, sinceLabel) =
-            (
-                createEntry(index, sinceLabel, Unconditional labelNo);
-                skipCode rest
-            )
-
-        |   splitCode((instr as PushExceptionHandler { handleStart=ILabel labelNo, ... }) :: rest, index, sinceLabel) =
-            (* Set up an exception handler.  We need to include this instruction because it includes the
-               work register.  Create a new label for the continuation i.e. the start of the code that the
-               handler catches exceptions for. *)
-            let
-                val dropLabel = ! additionalLabs before additionalLabs := !additionalLabs + 1
-                val () = createEntry(index, instr :: sinceLabel, SetHandler{ handler=labelNo, continue=dropLabel })
-            in
-                splitCode(rest, dropLabel, [])
-            end
-
-        |   splitCode((instr as RaiseExceptionPacket _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as TailRecursiveCall _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as ReturnResultFromFunction _) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, ExitCode);
-                skipCode rest
-            )
-
-        |   splitCode((instr as IndexedCaseOperation{cases, ...}) :: rest, index, sinceLabel) =
-            (
-                createEntry(index, instr :: sinceLabel, IndexedBr(map (fn ILabel i => i) cases));
-                skipCode rest
-            )
-
-        |   splitCode(instr :: rest, index, sinceLabel) =
-                splitCode(rest, index, instr :: sinceLabel)
-                
-                
-        and skipCode [] = () (* Finished - reached the end. *)
-
-        |   skipCode(ForwardJumpLabel{ label=ILabel labelNo,... } :: rest) =
-            (* Found a label after an unconditional transfer. *)
-                splitCode(rest, labelNo, [])
-
-        |   skipCode(_ :: rest) = skipCode rest
-                (* Unreachable code - Can occur with some branches. *)
-
-        val () = splitCode(ops, 0, [])
-    in
-        Array.vector resArray
-    end
 
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
@@ -172,7 +80,7 @@ struct
         fun newUReg() = PReg(!pregCounter, PRegUntagged) before pregCounter := !pregCounter + 1
         val locToPregArray = Array.array(localCount, NONE: abstract option)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
-        fun newLabel() = ILabel(!labelCounter) before labelCounter := !labelCounter + 1
+        fun newLabel() = !labelCounter before labelCounter := !labelCounter + 1
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
@@ -191,7 +99,7 @@ struct
             val clReg = case closure of [] => [] | _ => [(closureRegAddr, GenReg edx)]
             val argRegs = ListPair.zip (argPRegs, argRegsUsed)
         in
-            val beginInstruction = BeginFunction { regArgs = clReg @ argRegs }
+            val beginInstruction = BlockBegin(clReg @ argRegs)
         end
 
         (* Number of arguments on the stack and not in registers. *)
@@ -200,9 +108,9 @@ struct
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
         fun returnInstruction({stackPtr, ...}, target, tailCode) =
-            ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs} ::
+            BlockExit(ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}) ::
             (if stackPtr <> 0
-            then ResetStackPtr{numWords=stackPtr} :: tailCode
+            then BlockSimple(ResetStackPtr{numWords=stackPtr}) :: tailCode
             else tailCode)
 
         fun constantAsArgument value =
@@ -301,7 +209,7 @@ struct
             let
                 val target = asTarget dest
             in
-                (code @ [LoadArgument{source=arg, dest=target, kind=MoveWord}], RegisterArgument target, false)
+                (code @ [BlockSimple(LoadArgument{source=arg, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
 
         fun moveIfNotAllowedRev(NoResult, code, arg) = (code, arg, false)
@@ -331,7 +239,7 @@ struct
             let
                 val target = asTarget dest
             in
-                (LoadArgument{source=arg, dest=target, kind=MoveWord} :: code, RegisterArgument target, false)
+                (BlockSimple(LoadArgument{source=arg, dest=target, kind=MoveWord}) :: code, RegisterArgument target, false)
             end
 
         fun codeToICodeTarget(instr, context, isTail, target) =
@@ -403,12 +311,12 @@ struct
                             val sizeClosure = List.length closure + 1
                             fun clear n =
                                 if n = sizeClosure
-                                then [AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]}]
+                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
-                                        [StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord}])
+                                        [BlockSimple(StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord})])
                         in
-                            c @ clear 0 @ [InitialisationComplete]
+                            c @ clear 0 @ [BlockSimple InitialisationComplete]
                         end
                     
                         val allocClosures = ListPair.foldlEq makeClosure [] (recDecs, destRegs)
@@ -422,19 +330,19 @@ struct
                                the address of the allocated memory and the items below
                                are the values to store. *)
                             val dstCopy = newPReg()
-                            fun loadFields([], _) = [LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord}]
+                            fun loadFields([], _) = [BlockSimple(LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=MoveWord})]
                             |   loadFields(f :: rest, n) =
                                 let
                                     val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
                                     val restAndAlloc = loadFields(rest, n+1)
                                     val storeValue =
-                                        [StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord }]
+                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord })]
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
                             val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
                         in
-                            l @ setFields @ [LockMutable{addr=dest}]
+                            l @ setFields @ [BlockSimple(LockMutable{addr=dest})]
                         end
                         val setClosures = ListPair.foldlEq setClosure [] (recDecs, destRegs)
                         
@@ -456,7 +364,7 @@ struct
                         val () = Array.update(locToPregArray, addr, SOME dest)
                     in
                         doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size},
-                            ReserveContainer{size=size, address=dest} :: tailCode)
+                            BlockSimple(ReserveContainer{size=size, address=dest}) :: tailCode)
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
@@ -473,8 +381,8 @@ struct
                         if haveExited
                         then codeExp
                         else
-                            LoadArgument{source=result, dest=resultReg, kind=MoveWord} ::
-                            ResetStackPtr{numWords=finalSp-initialSp} :: codeExp
+                            BlockSimple(LoadArgument{source=result, dest=resultReg, kind=MoveWord}) ::
+                            BlockSimple(ResetStackPtr{numWords=finalSp-initialSp}) :: codeExp
                 in
                     (afterAdjustSp, RegisterArgument resultReg, haveExited)
                 end
@@ -495,8 +403,8 @@ struct
             let
                 val target = asTarget destination
             in
-                (LoadArgument{
-                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord} ::
+                (BlockSimple(LoadArgument{
+                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord}) ::
                         tailCode,
                  RegisterArgument target, false)
             end
@@ -548,7 +456,7 @@ struct
                             if isRecursive
                             then (tailCode, [], Recursive)
                             else if flags addrAsAddr <> Address.F_words
-                            then (LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord} :: tailCode,
+                            then (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}) :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], FullCall)
                             else
                             let
@@ -560,7 +468,7 @@ struct
                             in
                                 if addrLength = 0w1
                                 then (tailCode, [], ConstantCode codeAddr)
-                                else (LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord} :: tailCode,
+                                else (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}) :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], ConstantCode codeAddr)
                             end
                         end
@@ -571,7 +479,7 @@ struct
                             case closure of
                                 [] => (tailCode, [], Recursive)
                             |   _ =>
-                                    (LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord} :: tailCode,
+                                    (BlockSimple(LoadArgument {source=RegisterArgument closureRegAddr, dest=clPReg, kind=MoveWord}) :: tailCode,
                                      [(RegisterArgument clPReg, GenReg edx)], Recursive)
                         )
 
@@ -633,10 +541,10 @@ struct
                            the new function the return address will be the first item on the stack. *)
                         val stackAdjust = firstArgumentAddr - newStackArgCount
                     in
-                        TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
-                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, callKind=callKind}
+                        BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
+                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, callKind=callKind})
                     end
-                    else FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
+                    else BlockSimple(FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind})
             in
                 (callInstr :: codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
             end
@@ -646,7 +554,7 @@ struct
             let
                 val target = asTarget destination
             in
-                (LoadMemReg{offset=memRegThreadSelf, dest=target} :: tailCode, RegisterArgument target, false)
+                (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target}) :: tailCode, RegisterArgument target, false)
             end
 
         |   codeToICodeRev(instr as BICUnary _, context, isTail, destination, tailCode) =
@@ -709,10 +617,10 @@ struct
                     codeToICodeRev(thenPt, context, isTail, NoResult, codeTest)
                 val (codeElse, _, _) =
                      codeToICodeRev(elsePt, context, isTail, NoResult,
-                        ForwardJumpLabel{label=startElse, result=NONE} ::
-                        UnconditionalForwardJump{label=skipElse} :: codeThen)
+                        BlockLabel startElse ::
+                        BlockFlow(Unconditional skipElse) :: codeThen)
             in
-                (ForwardJumpLabel{label=skipElse, result=NONE} :: codeElse, (* Unit result *) IntegerConstant(tag 0), false)
+                (BlockLabel skipElse :: codeElse, (* Unit result *) IntegerConstant(tag 0), false)
             end
 
         |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, destination, tailCode) =
@@ -737,14 +645,14 @@ struct
                     let
                         val skipElse = newLabel()
                     in
-                        (UnconditionalForwardJump{label=skipElse} :: thenCode,
-                         [LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord},
-                          ForwardJumpLabel{label=skipElse, result=SOME condResult}],
+                        (BlockFlow(Unconditional skipElse) :: thenCode,
+                         [BlockSimple(LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord}),
+                          BlockLabel skipElse],
                          condResult)
                     end
                 val (elseCode, _, elseExited) =
                     codeToICodeRev(elsePt, context, isTail, SpecificPReg elseTarget,
-                        ForwardJumpLabel{label=startElse, result=NONE} :: exitThen)
+                        BlockLabel startElse :: exitThen)
                 (* Add a return to the else-part if necessary so we will always exit on a tail. *)
                 val exitElse =
                     if isTail andalso not elseExited
@@ -774,8 +682,8 @@ struct
                         let
                             val newTestReg = newPReg()
                             val subtract =
-                                ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=RegisterArgument initialTestReg,
-                                                   operand2=IntegerConstant(semitag(Word.toLargeInt firstIndex)), ccRef=newCCRef()}
+                                BlockSimple(ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=RegisterArgument initialTestReg,
+                                                   operand2=IntegerConstant(semitag(Word.toLargeInt firstIndex)), ccRef=newCCRef()})
                         in
                             (subtract :: testCode, newTestReg)
                         end
@@ -796,9 +704,9 @@ struct
                            than the maximum. *)
                         val numberOfCases = LargeInt.fromInt(List.length cases)
                         val testCode2 =
-                                ConditionalForwardJump{ccRef=ccRef1, condition=JNB, label=defLab1} ::
-                                WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1} ::
-                                LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord} :: testCode
+                                BlockFlow(Conditional{ccRef=ccRef1, condition=JNB, trueJump=defLab1, falseJump=0}) ::
+                                BlockSimple(WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1}) ::
+                                BlockSimple(LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord}) :: testCode
                     in
                         (testCode2, [defLab1])
                     end
@@ -815,7 +723,7 @@ struct
                         (* Put in the case with a jump to the end of the sequence. *)
                         val (codeThisCase, _, caseExited) =
                             codeToICodeRev(c, context, isTail, SpecificPReg caseTarget,
-                                ForwardJumpLabel{label=startLabel, result=NONE} :: tailCode) 
+                                BlockLabel startLabel :: tailCode) 
                         val (exitThisCase, exitLabel) =
                             if caseExited then (codeThisCase, [])
                             else if isTail then (returnInstruction(context, caseTarget, codeThisCase), [])
@@ -823,8 +731,8 @@ struct
                             let
                                 val exitLabel = newLabel()
                             in
-                                (UnconditionalForwardJump{label=exitLabel} :: codeThisCase,
-                                 [ForwardJumpLabel{label=exitLabel, result=SOME targetReg}])
+                                (BlockFlow(Unconditional exitLabel) :: codeThisCase,
+                                 [BlockLabel exitLabel])
                             end
                         val codeRest = codeCases(otherCases, otherLabels, exitThisCase)
                     in
@@ -837,9 +745,9 @@ struct
                     let
                         (* We need to add labels for all the gaps we filled and also for a "default" label for
                            the indexed-case instruction itself as well as any range checks. *)
-                        fun addDefault (startLabel, NONE, l) = ForwardJumpLabel{label=startLabel, result=NONE} :: l
+                        fun addDefault (startLabel, NONE, l) = BlockLabel startLabel :: l
                         |   addDefault (_, SOME _, l) = l
-                        fun asForward l = ForwardJumpLabel{label=l, result=NONE}
+                        fun asForward l = BlockLabel l
                         val dLabs = map asForward extraDefaults @ tailCode
                         val defLabels = ListPair.foldlEq addDefault dLabs (codeLabels, cases)
                         val defaultTarget = if isTail then newPReg() else targetReg
@@ -859,13 +767,15 @@ struct
                     
                 val codedCases =
                     codeCases(cases, codeLabels,
-                        IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=codeLabels} :: rangeCheck)
+                        BlockFlow(IndexedBr codeLabels) ::
+                        BlockSimple(IndexedCaseOperation{testReg=testReg, workReg=workReg, cases=map ILabel codeLabels}) ::
+                        rangeCheck)
                 (* We can now copy to the target.  If we need to push the result this load
                    will be converted into a push. *)
                 val target = asTarget destination
                 val copyToTarget =
                     if isTail then codedCases
-                    else LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord} :: codedCases
+                    else BlockSimple(LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord}) :: codedCases
             in
                 (copyToTarget, RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
@@ -889,7 +799,7 @@ struct
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
                     codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target,
-                        ForwardJumpLabel{label=loopLabel, result=NONE} :: argCode)
+                        BlockLabel loopLabel :: argCode)
             in
                 (loopBody, RegisterArgument target, loopExited)
             end
@@ -909,9 +819,9 @@ struct
                 (* If we've allocated a container in the loop we have to remove it before jumping back. *)
                 val stackReset =
                     if loopSp = stackPtr then codeArgs
-                    else ResetStackPtr{numWords=stackPtr-loopSp} :: codeArgs
+                    else BlockSimple(ResetStackPtr{numWords=stackPtr-loopSp}) :: codeArgs
             in
-                (UnconditionalForwardJump{label=loopLabel} :: JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]} :: stackReset, RegisterArgument target, true)
+                (BlockFlow(Unconditional loopLabel) :: BlockSimple(JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}) :: stackReset, RegisterArgument target, true)
             end
 
         |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
@@ -922,7 +832,7 @@ struct
                 val (code, dest, _) =
                     codeToICodeRev(exc, context, false, Allowed allowDefer, tailCode)
             in
-                (RaiseExceptionPacket{packet=dest} :: code, RegisterArgument(asTarget destination), true (* Always exits *))
+                (BlockExit(RaiseExceptionPacket{packet=dest}) :: code, RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
         |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination, tailCode) =
@@ -930,7 +840,7 @@ struct
                 (* As with BICCond and BICCase we need to create a new register for the
                    result in case we need to push it to the stack. *)
                 val handleResult = newPReg()
-                val handlerLab = newLabel()
+                val handlerLab = newLabel() and startHandling = newLabel()
                 val (bodyTarget, handlerTarget) =
                     if isTail then (newPReg(), newPReg()) else (handleResult, handleResult)
                 (* TODO: Even if we don't actually want a result we force one in here by
@@ -940,8 +850,14 @@ struct
                    exception.  If it has we mustn't generate a PopExceptionHandler because
                    there won't be any result for resultReg.
                    We need to add two words to the stack to account for the items pushed by
-                   PushExceptionHandler. *)
-                val initialCode = PushExceptionHandler{workReg=newPReg(), handleStart=handlerLab} :: tailCode
+                   PushExceptionHandler.
+                   We create an instruction to push the handler followed by a block fork to
+                   the start of the code and, potentially the handler, then a label to start
+                   the code that the handler is in effect for. *)
+                val initialCode =
+                    BlockLabel startHandling ::
+                    BlockFlow(SetHandler{handler=handlerLab, continue=startHandling}) ::
+                    BlockSimple(PushExceptionHandler{workReg=newPReg(), handleStart=ILabel handlerLab}) :: tailCode
                 val (expCode, _, expExit) =
                     codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget, initialCode)
                 (* If this is the tail we can replace the jump at the end of the
@@ -953,21 +869,21 @@ struct
                         (true, true) => (* Tail and exited. *) (expCode, NONE)
                     |   (true, false) => (* Tail and not exited. *)
                             (returnInstruction(context, bodyTarget,
-                                PopExceptionHandler{workReg=newPReg()} :: expCode), NONE)
+                                BlockSimple(PopExceptionHandler{workReg=newPReg()}) :: expCode), NONE)
                     |   (false, true) => (* Not tail but exited. *) (expCode, NONE)
                     |   (false, false) =>
                         let
                             val skipHandler = newLabel()
                         in
-                            (UnconditionalForwardJump{label=skipHandler} ::
-                             PopExceptionHandler{workReg=newPReg()} :: expCode, SOME skipHandler)
+                            (BlockFlow(Unconditional skipHandler) ::
+                             BlockSimple(PopExceptionHandler{workReg=newPReg()}) :: expCode, SOME skipHandler)
                         end
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
                 val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
                 val (handleCode, _, handleExit) =
                     codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
-                        BeginHandler{workReg=newPReg(), packetReg=packetAddr} :: ForwardJumpLabel{label=handlerLab, result=NONE} :: atExpEnd)
+                        BlockSimple(BeginHandler{workReg=newPReg(), packetReg=packetAddr}) :: BlockLabel handlerLab :: atExpEnd)
                 val target = asTarget destination
                 val afterHandler =
                     case (isTail, handleExit) of
@@ -978,11 +894,10 @@ struct
                 
                 val addLabel =
                     case skipExpLabel of
-                        SOME lab =>
-                            ForwardJumpLabel{label=lab, result=SOME handleResult} :: afterHandler
+                        SOME lab => BlockLabel lab:: afterHandler
                     |   NONE => afterHandler
             in
-                (LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord} :: addLabel,
+                (BlockSimple(LoadArgument{source=RegisterArgument handleResult, dest=target, kind=MoveWord}) :: addLabel,
                     RegisterArgument target, isTail)
             end
 
@@ -993,7 +908,7 @@ struct
                 val target = asTarget destination (* Actually we want this. *)
                 val memAddr = newPReg()
                 fun loadFields([], n, tlCode) =
-                        AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]} :: tlCode
+                        BlockSimple(AllocateMemoryOperation{size=n, flags=0w0, dest=memAddr, saveRegs=[]}) :: tlCode
                 |   loadFields(f :: rest, n, tlCode) =
                     let
                         (* Defer the evaluation if possible.  We may have a constant that we can't move
@@ -1002,11 +917,14 @@ struct
                         val (code1, source1, _) = codeToICodeRev(f, context, false, Allowed allowDefer, tlCode)
                         val restAndAlloc = loadFields(rest, n+1, code1)
                         val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
-                        val storeValue = StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}
+                        val storeValue = BlockSimple(StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord})
                     in
                         storeValue :: code2
                     end
-                val code = InitialisationComplete :: LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord} :: loadFields(fields, 0, tailCode)
+                val code =
+                    BlockSimple InitialisationComplete ::
+                        BlockSimple(LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord}) ::
+                        loadFields(fields, 0, tailCode)
             in
                 (code, RegisterArgument target, false)
             end
@@ -1058,7 +976,8 @@ struct
                 val (argCode, tReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                    [ArithmeticFunction{oper=XOR, resultReg=target, operand1=RegisterArgument tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=target, operand1=RegisterArgument tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICUnary{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination) =
@@ -1076,10 +995,10 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord},
-                 ShiftOperation{shift=SHL, resultReg=argReg2, operand=RegisterArgument argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 },
-                 ShiftOperation{shift=SHR, resultReg=argReg3, operand=RegisterArgument argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 },
-                 ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument argReg3, operand2=IntegerConstant 1, ccRef=ccRef3}], RegisterArgument target, false)
+                [BlockSimple(LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord}),
+                 BlockSimple(ShiftOperation{shift=SHL, resultReg=argReg2, operand=RegisterArgument argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 }),
+                 BlockSimple(ShiftOperation{shift=SHR, resultReg=argReg3, operand=RegisterArgument argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 }),
+                 BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument argReg3, operand2=IntegerConstant 1, ccRef=ccRef3})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
@@ -1089,14 +1008,14 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveByte},
-                 TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
+                [BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveByte}),
+                 BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
             let
                 val (argCode, addrReg) = codeToPReg(arg1, context)
-                val code = argCode @ [LockMutable{addr=addrReg}]
+                val code = argCode @ [BlockSimple(LockMutable{addr=addrReg})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1108,10 +1027,11 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                 [LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord},
-                  AtomicExchangeAndAdd{ base=addrReg, source=incrReg },
+                 [BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord}),
+                  BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
                   (* We want the result to be the new value but we've returned the old value. *)
-                  ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
+                  BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
+                    RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
@@ -1121,9 +1041,10 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                 [LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord},
-                  AtomicExchangeAndAdd{ base=addrReg, source=incrReg },
-                  ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()}], RegisterArgument target, false)
+                 [BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord}),
+                  BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
+                  BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
+                    RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.AtomicReset, arg1}, context, _, destination) =
@@ -1134,7 +1055,7 @@ struct
                    the hardware guarantees that an assignment of a word will be atomic. *)
                 val (argCode, addrReg) = codeToPReg(arg1, context)
                 (* Store tagged 1 in the mutex.  This is the unlocked value. *)
-                val code = argCode @ [StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord}]
+                val code = argCode @ [BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1148,8 +1069,8 @@ struct
                 val (argCode, addrReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                [LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord},
-                 TagValue{ source=argReg1, dest=target }], RegisterArgument target, false)
+                [BlockSimple(LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex}, dest=argReg1, kind=MoveWord}),
+                 BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
@@ -1157,8 +1078,8 @@ struct
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
-                    [UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=true},
-                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}]
+                    [BlockSimple(UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=true}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
@@ -1168,8 +1089,8 @@ struct
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
                     codeToICodeTarget(arg1, context, false, argReg1) @
-                    [UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=false},
-                     BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]}]
+                    [BlockSimple(UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=false}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
@@ -1181,33 +1102,33 @@ struct
                 (* The SSE2 code uses an SSE2 logical operation to flip the sign bit.  This
                    requires the values to be loaded into registers first because the logical
                    operations require 128-bit operands. *)
-                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
+                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
                 val code =
                     case fpMode of
                         FPModeX87 =>
-                            [X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc}]
+                            [BlockSimple(X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc})]
                     |   FPModeSSE2 =>
-                            [LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble},
-                             SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg}]
+                            [BlockSimple(LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble}),
+                             BlockSimple(SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [load] @ code @ [BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load] @ code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
-                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
+                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
                 val code =
                     case fpMode of
-                        FPModeX87 => [X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc}]
+                        FPModeX87 => [BlockSimple(X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc})]
                     |   FPModeSSE2 =>
-                            [LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble},
-                            SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg}]
+                            [BlockSimple(LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble}),
+                             BlockSimple(SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [load] @ code @ [BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [load] @ code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICUnary{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
@@ -1216,9 +1137,9 @@ struct
                 val aReg1 = newPReg() and untagReg = newUReg() and fpReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @
-                 [UntagValue{source=RegisterArgument aReg1, dest=untagReg, isSigned=true},
-                  FloatFixedInt{ dest=fpReg, source=RegisterArgument untagReg},
-                  BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=untagReg, isSigned=true}),
+                  BlockSimple(FloatFixedInt{ dest=fpReg, source=RegisterArgument untagReg}),
+                  BlockSimple(BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
@@ -1232,9 +1153,9 @@ struct
                     val label = newLabel()
                 in
                     [
-                        ConditionalForwardJump{ ccRef=ccRef, condition=JNO, label=label },
-                        RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))},
-                        ForwardJumpLabel{ label=label, result=NONE }
+                        BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=label, falseJump=0 }),
+                        BlockExit(RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))}),
+                        BlockLabel label
                     ]
                 end
             in
@@ -1255,7 +1176,8 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 (arg1Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
@@ -1269,7 +1191,8 @@ struct
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
                 (arg2Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
@@ -1281,8 +1204,9 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=newCCRef()})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
@@ -1296,7 +1220,8 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 (arg1Code @
-                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
@@ -1309,8 +1234,8 @@ struct
                 (arg1Code @ arg2Code @
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
@@ -1322,10 +1247,11 @@ struct
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false},
-                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})],
+                        RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
@@ -1337,11 +1263,11 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false},
-                     Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=quotient, dest=target }], RegisterArgument target, false)
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false}),
+                     BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(TagValue { source=quotient, dest=target })], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
@@ -1354,11 +1280,11 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false},
-                     Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=remainder, dest=target }], RegisterArgument target, false)
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false}),
+                     BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(TagValue { source=remainder, dest=target })], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith _, ...}, _, _, _) =
@@ -1371,7 +1297,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Or-ing preserves the tag bit. *)
-                    [ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
@@ -1381,7 +1307,7 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Since they're both tagged the result will be tagged. *)
-                    [ArithmeticFunction{oper=AND, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
@@ -1391,8 +1317,8 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* We need to restore the tag bit after the operation. *)
-                    [ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
@@ -1408,10 +1334,10 @@ struct
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                  (* There are better ways of doing this but it will do for the moment.  We don't need to
                     remove the tag for right shifts provided we OR in a tag afterwards. *)
-                 [UntagValue{source=RegisterArgument aReg1, dest=aReg1Untagged, isSigned=shift=ShiftRightArithmetic},
-                  UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false},
-                  ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=RegisterArgument aReg1Untagged, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() },
-                  TagValue{source=resRegUntagged, dest=target}], RegisterArgument target, false)
+                 [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=aReg1Untagged, isSigned=shift=ShiftRightArithmetic}),
+                  BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false}),
+                  BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=RegisterArgument aReg1Untagged, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() }),
+                  BlockSimple(TagValue{source=resRegUntagged, dest=target})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
@@ -1422,11 +1348,11 @@ struct
                 val (flagsCode, flagUntag, flagArg) = codeAsUntaggedValue(arg2, false, context)
             in
                 (sizeCode @ flagsCode @
-                 [AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]}] @
+                 [BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]})] @
                   flagUntag @
-                  [StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
-                  InitialisationComplete,
-                  LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord}], RegisterArgument target, false)
+                  [BlockSimple(StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
+                  BlockSimple InitialisationComplete,
+                  BlockSimple(LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
@@ -1439,9 +1365,9 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                     ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
@@ -1451,9 +1377,9 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                     ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
@@ -1464,10 +1390,10 @@ struct
                 (* Temporarily load both arguments into untagged regs.  It's simpler. *)
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord},
-                     LoadArgument{source=wordAt aReg2, dest=argReg2, kind=MoveWord},
-                     Multiplication{resultReg=resValue, operand1=RegisterArgument argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord}),
+                     BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg2, kind=MoveWord}),
+                     BlockSimple(Multiplication{resultReg=resValue, operand1=RegisterArgument argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
@@ -1479,11 +1405,11 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* We don't test for zero here - that's done explicitly. *)
-                    [LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord},
-                     LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord},
-                     Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
-                                quotient=quotient, remainder=remainder },
-                     BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord}),
+                     BlockSimple(LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord}),
+                     BlockSimple(Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
@@ -1495,11 +1421,11 @@ struct
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* We don't test for zero here - that's done explicitly. *)
-                    [LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord},
-                     LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord},
-                     Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
-                                quotient=quotient, remainder=remainder },
-                     BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=dividendReg, kind=MoveWord}),
+                     BlockSimple(LoadArgument{source=wordAt aReg2, dest=divisorReg, kind=MoveWord}),
+                     BlockSimple(Division { isSigned = false, dividend=dividendReg, divisor=RegisterArgument divisorReg,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
@@ -1512,9 +1438,9 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                     ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
@@ -1524,9 +1450,9 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                     ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
@@ -1536,9 +1462,9 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                     ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()},
-                     BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
@@ -1553,10 +1479,10 @@ struct
                 val argReg = newUReg()
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                 [LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord},
-                  UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false},
-                  ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=RegisterArgument argReg, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() },
-                  BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                 [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                  BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=aReg2Untagged, isSigned=false}),
+                  BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=RegisterArgument argReg, shiftAmount=RegisterArgument aReg2Untagged, ccRef=newCCRef() }),
+                  BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICBinary {oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
@@ -1564,7 +1490,7 @@ struct
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
                 val fpRegSrc = newUReg() and fpRegDest = newUReg()
-                val load = LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble}
+                val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
                 open BuiltIns
                 val arith =
                     case fpMode of
@@ -1578,7 +1504,7 @@ struct
                                 |   ArithDiv => FDIV
                                 |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
                         in
-                            X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2}
+                            BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
                         end
                     |   FPModeSSE2 =>
                         let
@@ -1590,11 +1516,11 @@ struct
                                 |   ArithDiv => SSE2Div
                                 |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
                         in
-                            SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2}
+                            BlockSimple(SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
                         end
             in
                 (codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
-                    [load, arith, BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [load, arith, BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
@@ -1607,7 +1533,7 @@ struct
                 val condResult = newPReg()
                 (* Overflow check - if there's an overflow jump to the long precision case. *)
                 fun jumpOnOverflow ccRef =
-                    [ConditionalForwardJump{ ccRef=ccRef, condition=JO, label=startLong }]
+                    [BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=startLong, falseJump=0 })]
                 val (longCode, _, _) = codeToICode(longCall, context, false, SpecificPReg condResult)
                      (* We could use a tail jump here if this is a tail. *)
            in
@@ -1617,11 +1543,11 @@ struct
                     (* Try evaluating as fixed precision and jump if we get an overflow. *)
                     codeFixedPrecisionArith(oper, arg1, arg2, context, condResult, jumpOnOverflow) @
                     (* If we haven't had an overflow jump to the result. *)
-                    [UnconditionalForwardJump{label=resultLabel},
+                    [BlockFlow(Unconditional resultLabel),
                      (* If we need to use the full long-precision call we come here. *)
-                     ForwardJumpLabel{label=startLong, result=NONE}] @ longCode @
-                    [ForwardJumpLabel{label=resultLabel, result=SOME condResult},
-                     LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord}],
+                     BlockLabel startLong] @ longCode @
+                    [BlockLabel resultLabel,
+                     BlockSimple(LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord})],
                     RegisterArgument target, false)
             end
 
@@ -1635,13 +1561,13 @@ struct
                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                 val memAddr = newPReg() and valueReg = newPReg()
                 fun initialise n =
-                    StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord}
+                    BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord})
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
-                    [AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]}] @
+                    [BlockSimple(AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]})] @
                     List.tabulate(vecLength, initialise) @
-                    [InitialisationComplete,
-                     LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord}]
+                    [BlockSimple InitialisationComplete,
+                     BlockSimple(LoadArgument{source=RegisterArgument memAddr, dest=target, kind=MoveWord})]
             in
                 (code, RegisterArgument target, false)
             end
@@ -1676,7 +1602,7 @@ struct
                 |   copyContainer(srcReg :: otherRegs, sourceWord, destWord) =
                     if sourceWord < filterLength andalso BoolVector.sub(filter, sourceWord)
                     then
-                        StoreArgument{source=srcReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord} ::
+                        BlockSimple(StoreArgument{source=srcReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord}) ::
                             copyContainer(otherRegs, sourceWord+1, destWord+1)
 
                     else copyContainer(otherRegs, sourceWord+1, destWord)
@@ -1702,8 +1628,8 @@ struct
                     let
                         val loadReg = newPReg()
                     in
-                        LoadArgument{source=wordOffsetAddress(sourceWord, tupleTarget), dest=loadReg, kind=MoveWord} ::
-                        StoreArgument{source=RegisterArgument loadReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord} ::
+                        BlockSimple(LoadArgument{source=wordOffsetAddress(sourceWord, tupleTarget), dest=loadReg, kind=MoveWord}) ::
+                        BlockSimple(StoreArgument{source=RegisterArgument loadReg, offset=destWord*wordSize, base=containerTarget, index=NoMemIndex, kind=MoveWord}) ::
                             copyContainer(sourceWord+1, destWord+1)
                     end
                     else copyContainer(sourceWord+1, destWord)
@@ -1718,7 +1644,7 @@ struct
                 val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument {source=MemoryLocation memLoc, dest=target, kind=MoveWord}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument {source=MemoryLocation memLoc, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address}, context, _, destination) =
@@ -1728,8 +1654,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte},
-                     TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreC8, address}, context, _, destination) =
@@ -1741,8 +1667,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte},
-                     TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreC16, address}, context, _, destination) =
@@ -1753,8 +1679,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move16Bit},
-                     TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move16Bit}),
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreC32, address}, context, _, destination) =
@@ -1766,11 +1692,11 @@ struct
                 val untaggedResReg = newUReg()
                 val (boxTagCode, moveKind) =
                     if isX64
-                    then (TagValue {source=untaggedResReg, dest=target}, Move32Bit)
-                    else (BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}, MoveWord)
+                    then (BlockSimple(TagValue {source=untaggedResReg, dest=target}), Move32Bit)
+                    else (BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}), MoveWord)
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}, boxTagCode], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}), boxTagCode], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreC64, address}, context, _, destination) =
@@ -1783,8 +1709,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord},
-                     BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreCFloat, address}, context, _, destination) =
@@ -1794,8 +1720,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat},
-                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveFloat}),
+                     BlockSimple(BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreCDouble, address}, context, _, destination) =
@@ -1805,8 +1731,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble},
-                     BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveDouble}),
+                     BlockSimple(BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICLoadOperation {kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
@@ -1816,8 +1742,8 @@ struct
                 val untaggedResReg = newUReg()
             in
                 (codeBaseIndex @ codeUntag @
-                    [LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord},
-                     TagValue {source=untaggedResReg, dest=target}], RegisterArgument target, false)
+                    [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord}),
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
         |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
@@ -1826,7 +1752,7 @@ struct
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
                 val code =
                     codeBaseIndex @ sourceCode @ codeUntag @
-                        [StoreArgument {source=source, base=base, offset=offset, index=index, kind=MoveWord}]
+                        [BlockSimple(StoreArgument {source=source, base=base, offset=offset, index=index, kind=MoveWord})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1838,7 +1764,7 @@ struct
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, true, context)
                 val code =
                     codeBaseIndex @ codeUntag @
-                    [StoreArgument {source=IntegerConstant(Word.toLargeInt valueToStore), base=base, offset=offset, index=index, kind=MoveByte}]
+                    [BlockSimple(StoreArgument {source=IntegerConstant(Word.toLargeInt valueToStore), base=base, offset=offset, index=index, kind=MoveByte})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1851,8 +1777,8 @@ struct
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte}]
+                    [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })] @ codeUntag @
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1865,8 +1791,8 @@ struct
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte}]
+                    [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })] @ codeUntag @
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveByte})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1879,8 +1805,8 @@ struct
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @
-                    [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }] @ codeUntag @
-                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move16Bit}]
+                    [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })] @ codeUntag @
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move16Bit})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1892,12 +1818,12 @@ struct
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
                 val untagUnbox =
                     if isX64
-                    then [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }]
-                    else [LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}]
+                    then [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })]
+                    else [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord})]
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ untagUnbox @ codeUntag @
-                    [StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit}]
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1911,8 +1837,8 @@ struct
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord},
-                     StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveWord}]
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}),
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveWord})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1926,13 +1852,13 @@ struct
                     case fpMode of
                         FPModeSSE2 =>
                             (float2Reg,
-                                [SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=RegisterArgument floatReg, arg2=RegisterArgument floatReg}])
+                                [BlockSimple(SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=RegisterArgument floatReg, arg2=RegisterArgument floatReg})])
                     |   FPModeX87 => (floatReg, [])
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble} :: cvtCode @
-                    [StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat}]
+                    BlockSimple(LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble}) :: cvtCode @
+                    [BlockSimple(StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1944,8 +1870,8 @@ struct
                 val code =
                     codeBaseIndex @
                     codeToICodeTarget(value, context, false, valueReg) @ codeUntag @
-                    [LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble},
-                     StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble}]
+                    [BlockSimple(LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble}),
+                     BlockSimple(StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1981,11 +1907,11 @@ struct
                         in
                             (RegisterArgument valueReg1,
                                 codeToICodeTarget(value, context, false, valueReg) @
-                                [UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false }])
+                                [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })])
                         end
                 val code =
                     codeBaseIndex @ valCode @ codeUntag @
-                    [StoreArgument {source=storeVal, base=base, offset=offset, index=index, kind=MoveWord}]
+                    [BlockSimple(StoreArgument {source=storeVal, base=base, offset=offset, index=index, kind=MoveWord})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2011,22 +1937,22 @@ struct
 
                 val code =
                     leftCode @ rightCode @ lengthCode @
-                    leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
-                    rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
+                    leftUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                    rightUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
                     lengthUntag @
-                    [CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef },
+                    [BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
                      (* N.B. These are unsigned comparisons. *)
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JB, label=labLess },
-                     ConditionalForwardJump{ ccRef=ccRef, condition=JA, label=labGreater },
-                     LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord },
-                     UnconditionalForwardJump{ label=exitLab1 },
-                     ForwardJumpLabel{ label=labLess, result=NONE },
-                     LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=MoveWord },
-                     UnconditionalForwardJump{ label=exitLab2 },
-                     ForwardJumpLabel{ label=labGreater, result=NONE },
-                     LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=MoveWord },
-                     ForwardJumpLabel{ label=exitLab1, result=SOME target },
-                     ForwardJumpLabel{ label=exitLab2, result=SOME target }]
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=0 }),
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=0 }),
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord }),
+                     BlockFlow(Unconditional exitLab1),
+                     BlockLabel labLess,
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=MoveWord }),
+                     BlockFlow(Unconditional exitLab2),
+                     BlockLabel labGreater,
+                     BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=MoveWord }),
+                     BlockLabel exitLab1,
+                     BlockLabel exitLab2]
             in
                 (code, RegisterArgument target, false)
             end
@@ -2043,10 +1969,10 @@ struct
                     codeAddress(destRight, isByteMove, context)
                 val code =
                     leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
-                    leftUntag @ [LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}] @
-                    rightUntag @ [LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}] @
-                    [UntagValue{source=RegisterArgument lengthReg, dest=lenReg, isSigned=false},
-                     BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove }]
+                    leftUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                    rightUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
+                    [BlockSimple(UntagValue{source=RegisterArgument lengthReg, dest=lenReg, isSigned=false}),
+                     BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2062,7 +1988,7 @@ struct
             (* Constant - typically part of andalso/orelse.  Either an unconditional branch
                or an unconditional drop-through. *)
             if jumpOn = (toShort value <> 0w0)
-            then UnconditionalForwardJump{label=jumpLabel} :: tailCode
+            then BlockFlow(Unconditional jumpLabel) :: tailCode
             else tailCode
 
         |   codeConditionRev(BICTagTest{test, tag=tagValue, ...}, context, jumpOn, jumpLabel, tailCode) =
@@ -2072,9 +1998,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode, tagReg) = codeToPRegRev(test, context, tailCode)
             in
-                ConditionalForwardJump{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef} ::
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef}) ::
                     testCode
             end
 
@@ -2091,8 +2017,8 @@ struct
                    load it into a register.  That's not currently supported by the rest of
                    the code-generator. *)
             in
-                ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JNE else JE, label=jumpLabel} ::
-                    TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef} :: testCode
+                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=0}) ::
+                    BlockSimple(TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef}) :: testCode
             end
 
             (* Comparisons.  Because this is also used for pointer equality and even for exception matching it
@@ -2104,9 +2030,9 @@ struct
                 val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
                 val arg2Arg = constantAsArgument arg2Value
             in
-                ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel} ::
-                WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef} :: testCode
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
             end
 
 (*        |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
@@ -2118,7 +2044,7 @@ struct
             in
                 testCode @
                     [WordComparison{arg1=arg1Arg, arg2=testReg, ccRef=ccRef},
-                     ConditionalForwardJump{ccRef=ccRef,
+                     BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
             end*)
 
@@ -2129,9 +2055,9 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
             in
-                ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel} ::
-                WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef} :: arg2Code
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
@@ -2142,10 +2068,10 @@ struct
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val argReg = newUReg()
             in
-                ConditionalForwardJump{ccRef=ccRef,
-                           condition=testAsBranch(test, false, jumpOn), label=jumpLabel} ::
-                    WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef} ::
-                    LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord} :: arg2Code
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
+                    BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
+                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg2Code
             end
 
            (* Floating point comparison.  This is complicated because we have different
@@ -2165,28 +2091,28 @@ struct
                (* If this is X87 we get the condition into RAX and test it there.  If
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val testCode =
-                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} ::
-                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
+                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
+                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             in
                 case (fpMode, jumpOn) of
                     (FPModeX87, _) =>
-                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                        ArithmeticFunction{
-                            oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 } ::
-                        ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() } ::
-                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 }) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   (FPModeSSE2, true) =>
                     let
                         val lab = newLabel()
                     in
-                        ForwardJumpLabel{ label=lab, result=NONE } ::
-                        ConditionalForwardJump{ccRef=ccRef1, condition=JE, label=jumpLabel} ::
-                        ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=lab} :: testCode
+                        BlockLabel lab ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=lab, falseJump=0}) :: testCode
                     end
                |    (FPModeSSE2, false) =>
-                        ConditionalForwardJump{ccRef=ccRef1, condition=JNE, label=jumpLabel} ::
-                        ConditionalForwardJump{ccRef=ccRef1, condition=JP, label=jumpLabel} :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=0}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
@@ -2199,17 +2125,17 @@ struct
                 val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
                 val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1} :: (* Reverse *)
-                    LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
+                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                    BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             in
                 case fpMode of
                     FPModeX87 =>
-                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                        ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 } ::
-                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel} :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=0}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
@@ -2222,17 +2148,17 @@ struct
                 val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
                 val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: (* Not reversed. *)
-                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
+                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             in
                 case fpMode of
                     FPModeX87 =>
-                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                        ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 } ::
-                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JA else JNA, label=jumpLabel} :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=0}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
@@ -2245,17 +2171,17 @@ struct
                 val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
                 val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1} :: (* Reverse *)
-                    LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
+                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                    BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             in
                 case fpMode of
                     FPModeX87 =>
-                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                        ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 } ::
-                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel} :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=0}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
@@ -2268,17 +2194,17 @@ struct
                 val (arg1Code, _, _) = codeToICodeRev(arg1, context, false, SpecificPReg arg1Reg, tailCode)
                 val (arg2Code, _, _) = codeToICodeRev(arg2, context, false, SpecificPReg arg2Reg, arg1Code)
                 val testCode =
-                    CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1} :: (* Not reversed. *)
-                    LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble} :: arg2Code
+                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
             in
                 case fpMode of
                     FPModeX87 =>
-                        ConditionalForwardJump{ccRef=ccRef2, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                        ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 } ::
-                        X87FPGetCondition { ccRef=ccRef1, dest=testReg1 } :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockSimple(ArithmeticFunction{
+                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
+                        BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        ConditionalForwardJump{ccRef=ccRef1, condition=if jumpOn then JNB else JB, label=jumpLabel} :: testCode
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=0}) :: testCode
             end
 
         |   codeConditionRev(
@@ -2292,10 +2218,10 @@ struct
                     codeAddressRev(destRight, true, context, leftCode)
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
             in
-                ConditionalForwardJump{ccRef=ccRef, condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef } ::
-                lengthUntag @ LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg} ::
-                rightUntag @ LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg} ::
+                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
+                lengthUntag @ BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
+                rightUntag @ BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
                 leftUntag @ lengthCode
             end
 
@@ -2313,17 +2239,17 @@ struct
                    case. *)
                 (* Branch round the else-part and put in a label for the start of the else *)
                 val testElse = codeConditionRev(elsePart, context, not jumpOn, notElse,
-                    ForwardJumpLabel {label=notTest, result=NONE} ::
-                    UnconditionalForwardJump{label=notThen} :: testThen)
+                    BlockLabel notTest ::
+                    BlockFlow(Unconditional notThen) :: testThen)
             in
              (* And now the labels for the condition where we don't want to branch and want to
                 drop through. *)
-                ForwardJumpLabel{label=notThen, result=NONE} :: ForwardJumpLabel {label=notElse, result=NONE} ::
+                BlockLabel notThen :: BlockLabel notElse ::
                     (* Add a label for the result of the then-part.  Because we branched
                        on the inverse of the test in the else-part we now have both the
                        conditions to take the branch.  Put in an unconditional branch
                        to the final label. *)
-                UnconditionalForwardJump{label=jumpLabel} :: ForwardJumpLabel {label=isThen, result=NONE} :: testElse
+                BlockFlow(Unconditional jumpLabel) :: BlockLabel isThen :: testElse
             end
 
             (* General case.  Load the value into a register and compare it with 1 (true) *)
@@ -2332,9 +2258,9 @@ struct
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
             in
-                ConditionalForwardJump{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, label=jumpLabel} ::
-                    WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef} ::
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                    BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
                     testCode
             end
 
@@ -2368,7 +2294,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 arg1Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2383,7 +2309,7 @@ struct
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
                 arg2Code @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2397,8 +2323,8 @@ struct
                     (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
                     (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
                        the argument if one of the arguments is already untagged or if we have a constant argument. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef}] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2414,7 +2340,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 arg1Code @
-                    [ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef}] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2427,9 +2353,9 @@ struct
             in
                 arg1Code @ arg2Code @
                     (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
-                    [ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef}] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef})] @
                     onOverflow ccRef @
-                    [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithMult, arg1, arg2, context, target, onOverflow) =
@@ -2442,11 +2368,11 @@ struct
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)},
-                     ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()},
-                     Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} ] @
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} )] @
                      onOverflow mulCC @
-                     [ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()}]
+                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithQuot, arg1, arg2, context, target, _) =
@@ -2457,11 +2383,11 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=quotient, dest=target }]
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true}),
+                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true}),
+                     BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(TagValue { source=quotient, dest=target })]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithRem, arg1, arg2, context, target, _) =
@@ -2473,11 +2399,11 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags. *)
-                    [UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true},
-                     UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true},
-                     Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
-                                quotient=quotient, remainder=remainder },
-                     TagValue { source=remainder, dest=target }]
+                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true}),
+                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true}),
+                     BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
+                                quotient=quotient, remainder=remainder }),
+                     BlockSimple(TagValue { source=remainder, dest=target })]
             end
 
         |   codeFixedPrecisionArith(_, _, _, _, _, _) =
@@ -2490,7 +2416,7 @@ struct
                 val indexReg1 = newUReg()
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
-                val untagCode = [UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
+                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false })]
                 val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
                 (codeIndex, untagCode, memResult)
@@ -2534,8 +2460,8 @@ struct
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode =
-                    [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord},
-                     UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false }]
+                    [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}),
+                     BlockSimple(UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false })]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1}
             in
                 (codeBase @ codeIndex, untagCode, memResult)
@@ -2548,7 +2474,7 @@ struct
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
                 and (codeIndex, indexReg) = codeToPReg(index, context)
-                val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
+                val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord})]
                 val memResult =
                     case size of
                         0w2 => {base=untaggedBaseReg, offset=Word.toInt offset-1, index=MemIndex1 indexReg}
@@ -2563,7 +2489,7 @@ struct
             let
                 val untaggedBaseReg = newUReg()
                 val (codeBase, baseReg) = codeToPReg(base, context)
-                val untagCode = [LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}]
+                val untagCode = [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord})]
                 val memResult = {offset=Word.toInt offset, base=untaggedBaseReg, index=NoMemIndex}
             in
                 (codeBase, untagCode, memResult)
@@ -2578,7 +2504,7 @@ struct
                 val untagReg = newUReg()
                 val cval = if isShort value then toShort value else 0w0
                 val cArg = IntegerConstant(if isSigned then Word.toLargeIntX cval else Word.toLargeInt cval) (* Don't tag *)
-                val untag = [LoadArgument{source=cArg, dest=untagReg, kind=MoveWord}]
+                val untag = [BlockSimple(LoadArgument{source=cArg, dest=untagReg, kind=MoveWord})]
             in
                 (tailCode, untag, untagReg) (* Don't tag. *)
             end
@@ -2586,7 +2512,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, srcReg) = codeToPRegRev(arg, context, tailCode)
-                val untag = [UntagValue{source=RegisterArgument srcReg, dest=untagReg, isSigned=isSigned}]
+                val untag = [BlockSimple(UntagValue{source=RegisterArgument srcReg, dest=untagReg, isSigned=isSigned})]
             in
                 (code, untag, untagReg)
             end
@@ -2615,7 +2541,7 @@ struct
             let
                 val argReg = newPReg() and untagReg = newUReg()
                 val code = codeToICodeTarget(arg, context, false, argReg)
-                val untag = [UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned}]
+                val untag = [BlockSimple(UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned})]
             in
                 (code, untag, RegisterArgument untagReg)
             end
@@ -2641,28 +2567,87 @@ struct
              [(* We need to copy the size here because AllocateMemoryVariable modifies the
                  size in order to store the length word.  This is unfortunate especially as
                  we're going to untag it anyway. *)
-              LoadArgument{source=RegisterArgument sizeReg, dest=sizeReg2, kind=MoveWord},
-              AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]}] @
+              BlockSimple(LoadArgument{source=RegisterArgument sizeReg, dest=sizeReg2, kind=MoveWord}),
+              BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]})] @
               flagUntag @
-              [StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte},
+              [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
-              LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord},
-              UntagValue{source=RegisterArgument sizeReg2, dest=untagSizeReg, isSigned=false},
-              LoadArgument{source=initResult, dest=initReg, kind=MoveWord},
-              InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg},
-              InitialisationComplete,
-              LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord}], RegisterArgument target, false)
+              BlockSimple(LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord}),
+              BlockSimple(UntagValue{source=RegisterArgument sizeReg2, dest=untagSizeReg, isSigned=false}),
+              BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=MoveWord}),
+              BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),
+              BlockSimple InitialisationComplete,
+              BlockSimple(LoadArgument{source=RegisterArgument allocReg, dest=target, kind=MoveWord})], RegisterArgument target, false)
         end
 
-
+        (*Turn the codetree structure into icode. *)
         val bodyContext = {loopArgs=NONE, stackPtr=0}
         val (bodyCode, _, bodyExited) =
             codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
         val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
+        
+        (* Turn the icode list into basic blocks. *)
+        local
+            (* Count the number of conditional branches and exception handlers.  We are going to add a block for
+               the drop-through case of a conditional branch so we have to add those. *)
+            val numExtras =
+                List.foldl(fn (BlockFlow(Conditional{falseJump=0, ...}), n) => n+1 | (_, n) => n) 0 icode
+
+            local
+                val initial = BasicBlock{ block=[], flow=ExitCode }
+            in
+                val resArray = Array.array(!labelCounter+numExtras, initial)
+            end
+            
+            fun createEntry (blockNo, block, flow) =
+                Array.update(resArray, blockNo, BasicBlock{ block=block, flow=flow})
+            
+            fun splitCode([], _, _) = 
+                (* End of code.  We should have had a BeginFunction. *)
+                raise InternalError "splitCode - no begin"
+            
+            |   splitCode(BlockBegin regArgs :: _, sinceLabel, flow) =
+                    (* Final instruction.  Create the initial block and exit. *)
+                    createEntry(0, BeginFunction{regArgs=regArgs}::sinceLabel, flow)
+            
+            |   splitCode(BlockSimple instr :: rest, sinceLabel, flow) =
+                    splitCode(rest, instr :: sinceLabel, flow)
+
+            |   splitCode(BlockLabel label :: rest, sinceLabel, flow) =
+                    (* Label - finish this block and start another. *)
+                (
+                    createEntry(label, sinceLabel, flow);
+                    (* Default to a jump to this label.  That is used if we have
+                       assumed a drop-through. *)
+                    splitCode(rest, [], Unconditional label)
+                )
+            
+            |   splitCode(BlockExit instr :: rest, _, _) =
+                    splitCode(rest, [instr], ExitCode)
+
+            |   splitCode(BlockFlow(Conditional{falseJump=0, ccRef, condition, trueJump}) :: rest, sinceLabel, flow) =
+                let
+                    (* Conditional with no drop-through label. Add one. *)
+                    val dropThrough = newLabel()
+                    val () = createEntry(dropThrough, sinceLabel, flow)
+                in
+                    splitCode(rest, [],
+                        Conditional{falseJump=dropThrough, ccRef=ccRef, condition=condition, trueJump=trueJump})
+                end
+
+            |   splitCode(BlockFlow flow :: rest, _, _) =
+                    splitCode(rest, [], flow)
+
+        in
+            val () = splitCode(icode, [], ExitCode)
+
+            val _ = !labelCounter = Array.length resArray orelse raise InternalError "codeFunctionToX86: array size"
+            val resultVector = Array.vector resArray
+        end
       
         open ICODETRANSFORM
     in
-        codeICodeFunctionToX86{blocks = oldToNew(List.rev icode, !labelCounter), functionName = name, maxLabels = !labelCounter,
+        codeICodeFunctionToX86{blocks = resultVector, functionName = name, maxLabels = !labelCounter,
             maxPRegs = ! pregCounter, argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
             debugSwitches = debugSwitches}
     end
