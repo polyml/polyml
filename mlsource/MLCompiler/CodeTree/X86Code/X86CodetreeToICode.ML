@@ -703,8 +703,10 @@ struct
                         (* Since we've subtracted any minimum we only have to check whether the value is greater (unsigned)
                            than the maximum. *)
                         val numberOfCases = LargeInt.fromInt(List.length cases)
+                        val continueLab = newLabel()
                         val testCode2 =
-                                BlockFlow(Conditional{ccRef=ccRef1, condition=JNB, trueJump=defLab1, falseJump=0}) ::
+                                BlockLabel continueLab ::
+                                BlockFlow(Conditional{ccRef=ccRef1, condition=JNB, trueJump=defLab1, falseJump=continueLab}) ::
                                 BlockSimple(WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1}) ::
                                 BlockSimple(LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord}) :: testCode
                     in
@@ -713,6 +715,9 @@ struct
                 
                 (* Make a label for each item in the list. *)
                 val codeLabels = map (fn _ => newLabel()) cases
+                
+                (* Create an exit label in case it's needed. *)
+                val labelForExit = if isTail then ~1 (* Illegal label. *) else newLabel()
 
                 (* Generate the code for each of the cases and the default.  We need to put an
                    unconditional branch after each to skip the other cases.
@@ -724,19 +729,12 @@ struct
                         val (codeThisCase, _, caseExited) =
                             codeToICodeRev(c, context, isTail, SpecificPReg caseTarget,
                                 BlockLabel startLabel :: tailCode) 
-                        val (exitThisCase, exitLabel) =
-                            if caseExited then (codeThisCase, [])
-                            else if isTail then (returnInstruction(context, caseTarget, codeThisCase), [])
-                            else
-                            let
-                                val exitLabel = newLabel()
-                            in
-                                (BlockFlow(Unconditional exitLabel) :: codeThisCase,
-                                 [BlockLabel exitLabel])
-                            end
-                        val codeRest = codeCases(otherCases, otherLabels, exitThisCase)
+                        val exitThisCase =
+                            if caseExited then codeThisCase
+                            else if isTail then returnInstruction(context, caseTarget, codeThisCase)
+                            else BlockFlow(Unconditional labelForExit) :: codeThisCase
                     in
-                        exitLabel @ codeRest
+                        codeCases(otherCases, otherLabels, exitThisCase)
                     end
 
                 |   codeCases(NONE :: otherCases, _ :: otherLabels, tailCode) = codeCases(otherCases, otherLabels, tailCode)
@@ -775,7 +773,8 @@ struct
                 val target = asTarget destination
                 val copyToTarget =
                     if isTail then codedCases
-                    else BlockSimple(LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord}) :: codedCases
+                    else BlockSimple(LoadArgument{source=RegisterArgument targetReg, dest=target, kind=MoveWord}) ::
+                            BlockLabel labelForExit :: codedCases
             in
                 (copyToTarget, RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
@@ -1150,18 +1149,18 @@ struct
                 val target = asTarget destination
                 fun checkOverflow ccRef =
                 let
-                    val label = newLabel()
+                    val overFlowLab = newLabel() and noOverflowLab = newLabel()
                 in
                     [
-                        BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=label, falseJump=0 }),
+                        BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
+                        BlockLabel overFlowLab,
                         BlockExit(RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))}),
-                        BlockLabel label
+                        BlockLabel noOverflowLab
                     ]
                 end
             in
                 (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow), RegisterArgument target, false)
             end
-
 
         |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
@@ -1533,7 +1532,12 @@ struct
                 val condResult = newPReg()
                 (* Overflow check - if there's an overflow jump to the long precision case. *)
                 fun jumpOnOverflow ccRef =
-                    [BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=startLong, falseJump=0 })]
+                let
+                    val noOverFlow = newLabel()
+                in
+                    [BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=startLong, falseJump=noOverFlow }),
+                     BlockLabel noOverFlow]
+                end
                 val (longCode, _, _) = codeToICode(longCall, context, false, SpecificPReg condResult)
                      (* We could use a tail jump here if this is a tail. *)
            in
@@ -1930,8 +1934,8 @@ struct
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
                     codeAddress(destRight, true, context)
                 val ccRef = newCCRef()
-                val labLess = newLabel() and labGreater = newLabel()
-                and exitLab1 = newLabel() and exitLab2 = newLabel()
+                val labLess = newLabel() and labGreater = newLabel() and exitLab = newLabel()
+                val labNotLess = newLabel() and labNotGreater = newLabel()
                 
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
 
@@ -1942,17 +1946,18 @@ struct
                     lengthUntag @
                     [BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
                      (* N.B. These are unsigned comparisons. *)
-                     BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=0 }),
-                     BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=0 }),
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JB, trueJump=labLess, falseJump=labNotLess }),
+                     BlockLabel labNotLess,
+                     BlockFlow(Conditional{ ccRef=ccRef, condition=JA, trueJump=labGreater, falseJump=labNotGreater }),
+                     BlockLabel labNotGreater,
                      BlockSimple(LoadArgument{ source=IntegerConstant(tag 0), dest=target, kind=MoveWord }),
-                     BlockFlow(Unconditional exitLab1),
+                     BlockFlow(Unconditional exitLab),
                      BlockLabel labLess,
                      BlockSimple(LoadArgument{ source=IntegerConstant(tag ~1), dest=target, kind=MoveWord }),
-                     BlockFlow(Unconditional exitLab2),
+                     BlockFlow(Unconditional exitLab),
                      BlockLabel labGreater,
                      BlockSimple(LoadArgument{ source=IntegerConstant(tag 1), dest=target, kind=MoveWord }),
-                     BlockLabel exitLab1,
-                     BlockLabel exitLab2]
+                     BlockLabel exitLab]
             in
                 (code, RegisterArgument target, false)
             end
@@ -1997,9 +2002,11 @@ struct
             let
                 val ccRef = newCCRef()
                 val (testCode, tagReg) = codeToPRegRev(test, context, tailCode)
+                val noJumpLabel = newLabel()
             in
+                BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef}) ::
                     testCode
             end
@@ -2016,8 +2023,10 @@ struct
                 (* TODO: The X86 supports tests with a memory argument so we don't have to
                    load it into a register.  That's not currently supported by the rest of
                    the code-generator. *)
+                val noJumpLabel = newLabel()
             in
-                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=0}) ::
+                BlockLabel noJumpLabel ::
+                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JNE else JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                     BlockSimple(TestTagBit{arg=RegisterArgument testReg, ccRef=ccRef}) :: testCode
             end
 
@@ -2029,9 +2038,11 @@ struct
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
                 val arg2Arg = constantAsArgument arg2Value
+                val noJumpLabel = newLabel()
             in
+                BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
+                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
             end
 
@@ -2054,9 +2065,11 @@ struct
                 val ccRef = newCCRef()
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+                val noJumpLabel = newLabel()
             in
+                BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
+                           condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
             end
 
@@ -2067,11 +2080,13 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val argReg = newUReg()
+                val noJumpLabel = newLabel()
             in
+                BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=0}) ::
-                    BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
-                    BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg2Code
+                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
+                BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg2Code
             end
 
            (* Floating point comparison.  This is complicated because we have different
@@ -2093,10 +2108,12 @@ struct
                 val testCode =
                     BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                val noJumpLabel = newLabel()
             in
                 case (fpMode, jumpOn) of
                     (FPModeX87, _) =>
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 }) ::
                         BlockSimple(ArithmeticFunction{
@@ -2104,15 +2121,22 @@ struct
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   (FPModeSSE2, true) =>
                     let
-                        val lab = newLabel()
+                        val noParityLabel = newLabel()
                     in
-                        BlockLabel lab ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=jumpLabel, falseJump=0}) ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=lab, falseJump=0}) :: testCode
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                        BlockLabel noParityLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=noJumpLabel, falseJump=noParityLabel}) :: testCode
                     end
                |    (FPModeSSE2, false) =>
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JNE, trueJump=jumpLabel, falseJump=0}) ::
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=0}) :: testCode
+                    let
+                        val noParityLabel = newLabel()
+                    in
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                        BlockLabel noParityLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=JP, trueJump=jumpLabel, falseJump=noParityLabel}) :: testCode
+                    end
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLess, arg1, arg2},
@@ -2127,15 +2151,18 @@ struct
                 val testCode =
                     BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
                     BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                val noJumpLabel = newLabel()
             in
                 case fpMode of
                     FPModeX87 =>
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=0}) :: testCode
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreater, arg1, arg2},
@@ -2150,15 +2177,18 @@ struct
                 val testCode =
                     BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                val noJumpLabel = newLabel()
             in
                 case fpMode of
                     FPModeX87 =>
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=0}) :: testCode
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JA else JNA, trueJump=jumpLabel, falseJump=noJumpLabel}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestLessEqual, arg1, arg2},
@@ -2173,15 +2203,18 @@ struct
                 val testCode =
                     BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
                     BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                val noJumpLabel = newLabel()
             in
                 case fpMode of
                     FPModeX87 =>
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=0}) :: testCode
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) :: testCode
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.RealComparison BuiltIns.TestGreaterEqual, arg1, arg2},
@@ -2196,15 +2229,18 @@ struct
                 val testCode =
                     BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
+                val noJumpLabel = newLabel()
             in
                 case fpMode of
                     FPModeX87 =>
-                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
                             oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
-                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=0}) :: testCode
+                        BlockLabel noJumpLabel ::
+                        BlockFlow(Conditional{ccRef=ccRef1, condition=if jumpOn then JNB else JB, trueJump=jumpLabel, falseJump=noJumpLabel}) :: testCode
             end
 
         |   codeConditionRev(
@@ -2217,8 +2253,10 @@ struct
                 val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex}) =
                     codeAddressRev(destRight, true, context, leftCode)
                 val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToRegRev(length, false (* unsigned *), context, rightCode)
+                val noJumpLabel = newLabel()
             in
-                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
+                BlockLabel noJumpLabel ::
+                BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
                 lengthUntag @ BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
                 rightUntag @ BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
@@ -2227,8 +2265,7 @@ struct
 
         |   codeConditionRev(BICCond (testPart, thenPart, elsePart), context, jumpOn, jumpLabel, tailCode) =
             let
-                val notTest = newLabel() and isThen = newLabel()
-                and notThen = newLabel() and notElse = newLabel()
+                val notTest = newLabel() and isThen = newLabel() and notThenElse = newLabel()
                 (* Test the condition and jump to the else-part if this is false. *)
                 val testTest = codeConditionRev(testPart, context, false, notTest, tailCode)
                 (* Test the then-part and jump if the condition we want holds.
@@ -2238,13 +2275,13 @@ struct
                    The destination of this jump is going to be the drop-through
                    case. *)
                 (* Branch round the else-part and put in a label for the start of the else *)
-                val testElse = codeConditionRev(elsePart, context, not jumpOn, notElse,
+                val testElse = codeConditionRev(elsePart, context, not jumpOn, notThenElse,
                     BlockLabel notTest ::
-                    BlockFlow(Unconditional notThen) :: testThen)
+                    BlockFlow(Unconditional notThenElse) :: testThen)
             in
              (* And now the labels for the condition where we don't want to branch and want to
                 drop through. *)
-                BlockLabel notThen :: BlockLabel notElse ::
+                BlockLabel notThenElse ::
                     (* Add a label for the result of the then-part.  Because we branched
                        on the inverse of the test in the else-part we now have both the
                        conditions to take the branch.  Put in an unconditional branch
@@ -2257,11 +2294,13 @@ struct
             let
                 val ccRef = newCCRef()
                 val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
+                val noJumpLabel = newLabel()
             in
+                BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
-                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=0}) ::
-                    BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
-                    testCode
+                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
+                testCode
             end
 
         and codeCondition(condition, context, jumpOn, jumpLabel) =
@@ -2586,18 +2625,10 @@ struct
             codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
         val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
         
-        (* Turn the icode list into basic blocks. *)
+        (* Turn the icode list into basic blocks.  The input list is in reverse so as part of
+           this we reverse the list. *)
         local
-            (* Count the number of conditional branches and exception handlers.  We are going to add a block for
-               the drop-through case of a conditional branch so we have to add those. *)
-            val numExtras =
-                List.foldl(fn (BlockFlow(Conditional{falseJump=0, ...}), n) => n+1 | (_, n) => n) 0 icode
-
-            local
-                val initial = BasicBlock{ block=[], flow=ExitCode }
-            in
-                val resArray = Array.array(!labelCounter+numExtras, initial)
-            end
+            val resArray = Array.array(!labelCounter, BasicBlock{ block=[], flow=ExitCode })
             
             fun createEntry (blockNo, block, flow) =
                 Array.update(resArray, blockNo, BasicBlock{ block=block, flow=flow})
@@ -2625,23 +2656,11 @@ struct
             |   splitCode(BlockExit instr :: rest, _, _) =
                     splitCode(rest, [instr], ExitCode)
 
-            |   splitCode(BlockFlow(Conditional{falseJump=0, ccRef, condition, trueJump}) :: rest, sinceLabel, flow) =
-                let
-                    (* Conditional with no drop-through label. Add one. *)
-                    val dropThrough = newLabel()
-                    val () = createEntry(dropThrough, sinceLabel, flow)
-                in
-                    splitCode(rest, [],
-                        Conditional{falseJump=dropThrough, ccRef=ccRef, condition=condition, trueJump=trueJump})
-                end
-
             |   splitCode(BlockFlow flow :: rest, _, _) =
                     splitCode(rest, [], flow)
 
         in
             val () = splitCode(icode, [], ExitCode)
-
-            val _ = !labelCounter = Array.length resArray orelse raise InternalError "codeFunctionToX86: array size"
             val resultVector = Array.vector resArray
         end
       
