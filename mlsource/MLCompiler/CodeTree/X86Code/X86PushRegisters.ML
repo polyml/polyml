@@ -443,7 +443,8 @@ struct
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                 val check = Option.map mapSaveRegs checkInterrupt
             in
-                (JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
+                pushRegisters(rest,
+                    JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
                          sourceCode @ stackArgLoads @ code, context)
             end
 
