@@ -1237,11 +1237,13 @@ struct
 
         val processing = Array.array(Vector.length identifiedBlocks, Unvisited)
         
-        fun processBlocks blocksToDo =
-            (* Remove any processed blocks from the list. *)
-            case List.filter (fn b => case Array.sub(processing, b) of Done _ => false | _ => true) blocksToDo of
-                [] => () (* Finished *)
-            |   stack as firstItem :: _ =>
+        fun processBlocks [] =  () (* Finished *)
+
+        |   processBlocks(stack as firstItem :: rest) =
+            (
+            case Array.sub(processing, firstItem) of
+                Done _ => processBlocks rest
+            |   _ =>
                 let
                     (* The direct dependencies of block n. *)
                     fun dependencies n =
@@ -1292,6 +1294,7 @@ struct
                         end;
                     processBlocks stack
                 end
+            )
         val () = Array.update(processing, 0, ToDo)
         val () = processBlocks[0]
         fun getResult i =
