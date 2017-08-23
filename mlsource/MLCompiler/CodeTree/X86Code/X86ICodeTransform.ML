@@ -1232,83 +1232,46 @@ struct
         |   codeExtended({instr=SSE2FPArith _, ...} :: _, _) = raise InternalError "codeExtended - SSE2FPArith"
 
         (* Depth-first scan. *)
-
-        datatype processState = Unvisited | ToDo | Done of reg x86ICode list
-
-        val processing = Array.array(Vector.length identifiedBlocks, Unvisited)
-        
-        fun processBlocks [] =  () (* Finished *)
-
-        |   processBlocks(stack as firstItem :: rest) =
-            (
-            case Array.sub(processing, firstItem) of
-                Done _ => processBlocks rest
-            |   _ =>
-                let
-                    (* The direct dependencies of block n. *)
-                    fun dependencies n =
-                        case Vector.sub(identifiedBlocks, n) of
-                            ExtendedBasicBlock { flow=ExitCode, ...} => []
-                        |   ExtendedBasicBlock { flow=Unconditional m, ...} => [m]
-                        |   ExtendedBasicBlock { flow=Conditional {trueJump, falseJump, ...}, ...} => [trueJump, falseJump]
-                        |   ExtendedBasicBlock { flow=IndexedBr cases, ...} => cases
-                        |   ExtendedBasicBlock { flow=SetHandler{ handler, continue }, ...} => [handler, continue]
-
-                    fun getPick (hd::tl) =
-                        let
-                            val deps = dependencies hd
-                        in
-                            (* Find something whose dependencies have been done or has not yet been visited. *)
-                            if List.all(fn d => case Array.sub(processing, d) of ToDo => false | _ => true) deps
-                            then (hd, deps)
-                            else getPick tl
-                        end
-                        
-                    |   getPick [] =
-                            (* The dependencies must all be ToDo.  We have a loop so have to
-                               pick something to break the loop. *)
-                            (firstItem, dependencies firstItem)
-
-                    val (pick, pickDeps) = getPick stack
-                    (* We now have a block that is either ready to go or has unvisited dependencies.
-                       If any of the dependencies are unvisited do them now. *)
-                    fun processDependency d =
-                        case Array.sub(processing, d) of
-                            Unvisited => (Array.update(processing, d, ToDo); processBlocks(d :: stack))
-                        |   _ => ()
-                    val () = List.app processDependency pickDeps
-                    (* At this point we have processed any dependencies or may have a loop. *)
-               in
-                    case Array.sub(processing, pick) of
-                        Done _ => ()
-                    |   _ =>
-                        let
-                            val ExtendedBasicBlock { block, passThrough, exports, ...} = Vector.sub(identifiedBlocks, pick)
-                            (* We assume that anything used later will have been allocated a register.
-                               This is generally true except for a loop where the use may occur earlier. *)
-                            val exported = setToList passThrough @ setToList exports
-                            val () = List.app(fn r => (findRegister(r, NONE, generalRegisters); ())) exported
-                            val codeBlock = codeExtended(block, [])
-                        in
-                            Array.update(processing, pick, Done codeBlock)
-                        end;
-                    processBlocks stack
-                end
-            )
-        val () = Array.update(processing, 0, ToDo)
-        val () = processBlocks[0]
-        fun getResult i =
-        let
-            val ExtendedBasicBlock {flow, ...} = Vector.sub(identifiedBlocks, i)
-            and processState = Array.sub(processing, i)
+        local
+            val numBlocks = Vector.length identifiedBlocks
+            val emptyBlock = BasicBlock { block = [], flow = ExitCode }
         in
-            case processState of
-                Done c => BasicBlock { flow=flow, block=c}
-            |   _ => (* Unreachable code.  Should we prune this? *)
-                 BasicBlock { block = [], flow = ExitCode }
+            val visited = Array.array(numBlocks, false)
+            val results = Array.array(numBlocks, emptyBlock)
         end
+
+        fun processBlocks blockNo =
+        if Array.sub(visited, blockNo)
+        then ()  (* Done or currently being done. *)
+        else
+        let
+            val () = Array.update(visited, blockNo, true)
+            val ExtendedBasicBlock { flow, block, passThrough, exports, ...} =
+                Vector.sub(identifiedBlocks, blockNo)
+            val () =
+                (* Process the dependencies first. *)
+                case flow of
+                    ExitCode => ()
+                |   Unconditional m => processBlocks m
+                |   Conditional {trueJump, falseJump, ...} =>
+                        (processBlocks trueJump; processBlocks falseJump)
+                |   IndexedBr cases => List.app processBlocks cases
+                |   SetHandler{ handler, continue } =>
+                        (processBlocks handler; processBlocks continue)
+            (* Now this block. *)
+            (* We assume that anything used later will have been allocated a register.
+               This is generally true except for a loop where the use may occur earlier. *)
+            val exported = setToList passThrough @ setToList exports
+            val () = List.app(fn r => (findRegister(r, NONE, generalRegisters); ())) exported
+            val codeBlock = codeExtended(block, [])
+            val resultBlock = BasicBlock { block = codeBlock, flow = flow }
+        in
+            Array.update(results, blockNo, resultBlock)
+        end
+
+        val () = processBlocks 0
     in
-        Vector.tabulate(Vector.length identifiedBlocks, getResult)
+        Array.vector results
     end
     
     (* Find out the registers that need to be pushed to the stack, if any.
