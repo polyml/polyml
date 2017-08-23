@@ -27,4 +27,5 @@ sig
     val cardinality: intSet -> int
     val filterSet: (int->bool) -> intSet -> intSet
     val member: int * intSet -> bool
+    val partition: (int -> bool) -> intSet -> intSet * intSet
 end;

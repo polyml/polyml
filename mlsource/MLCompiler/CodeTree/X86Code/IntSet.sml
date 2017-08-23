@@ -102,7 +102,29 @@ struct
             IntSet result
         end
     end
-    
+
+    fun partition partFun =
+    let
+        fun part [] = ([], [])
+        |   part (l as (hd::tl)) =
+            let
+                val (t, f) = part tl
+            in
+                (* Avoid rebuilding the list if the whole tail is in the
+                   partition and so is this. *)
+                if partFun hd
+                then (case f of [] => (l, []) | _ => (hd :: t, f))
+                else (case t of [] => (t, l)  | _ => (t, hd :: f))
+            end
+    in
+        fn IntSet r =>
+        let
+            val (t, f) = part r
+        in
+            (IntSet t, IntSet f)
+        end
+    end
+
     fun cardinality(IntSet l) = List.length l
     
     fun filterSet f (IntSet l) = IntSet(List.filter f l)

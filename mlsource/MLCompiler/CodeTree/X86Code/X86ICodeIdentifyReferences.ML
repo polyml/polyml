@@ -341,17 +341,17 @@ struct
                             val successors = blockSuccessors thisBlock
                             fun addSuccessor b =
                             let
-                                val theirImports = setToList(processBlocks b)
+                                val theirImports = processBlocks b
                                 (* Split the imports.  If a register is a local declaration then
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
                                 val (addToExp, addToImp) =
-                                    List.partition (fn i => member(i, ourDeclarations)) theirImports
+                                    INTSET.partition (fn i => member(i, ourDeclarations)) theirImports
                             in
                                 Array.update(exportArray, blockNo,
-                                    union(Array.sub(exportArray, blockNo), listToSet addToExp));
+                                    union(Array.sub(exportArray, blockNo), addToExp));
                                 Array.update(passThroughArray, blockNo,
-                                    union(Array.sub(passThroughArray, blockNo), listToSet addToImp))
+                                    union(Array.sub(passThroughArray, blockNo), addToImp))
                             end
                             val () = List.app addSuccessor successors
                             val ourInputs =
