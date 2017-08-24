@@ -842,7 +842,12 @@ struct
         
         (* Possibly generate code to match the input state to the output
            by removing items from the stack.  If they don't match we need
-           to add an adjustment block. *)
+           to add an adjustment block.
+           It is possible to adjust the stack at the end of a block to remove
+           locals and imports but that isn't sufficient if we have a conditional
+           or indexed branch.  We may have registers that are required on one of
+           the successors but not on another (e.g. if we are branching round some
+           code). *)
         fun createMergedState(predecessors, destBlock) =
         let
             (* If we have multiple states they should all be set.  There shouldn't be
