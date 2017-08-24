@@ -848,48 +848,25 @@ struct
             (* If we have multiple states they should all be set.  There shouldn't be
                a loop. *)
             val inputStates = List.map(valOf o (asub outputStates)) predecessors
-            (* Work out the largest common stack i.e. the amount of the stack that is
-               common to all the predecessors.  This should be the input and anything extra
-               will need to be trimmed.
-               This is a bit complicated because we want to do it in such a way that we
-               don't rebuild more than is necessary.  The simple method of reversing the
-               stacks and then matching them turned out to be an allocation hot-spot. *)
-            fun getMinLength({stack, ...}, min) =
-                if min < 0 then List.length stack
-                else Int.min(min, List.length stack)
-            val lengthMin = List.foldl getMinLength ~1 inputStates
-            (* Trim them to the same length as a first step. *)
-            val trimmedStacks =
-                List.map(fn{stack, ...} => List.drop(stack, List.length stack - lengthMin)) inputStates
+            (* Choose any of them and remove everything up to the first active entry. *)
+            val ExtendedBasicBlock{ imports, passThrough, ...} = vsub code destBlock
+            local
+                fun removeItems [] = []
 
-            fun findLastDiff(stack1 :: (tail as stack2 :: _), currentMin) =
-                let
-                    fun findLastDifference(entry1 :: tl1, entry2 :: tl2, tailLen) =
-                        let
-                            val matchRest = findLastDifference(tl1, tl2, tailLen-1)
-                        in
-                            if matchRest <> tailLen-1
-                            then matchRest
-                            else case (entry1, entry2) of
-                                (NewEntry {pregNo=reg1}, NewEntry {pregNo=reg2}) =>
-                                    if reg1 = reg2 then tailLen else tailLen-1
-                            |   (ContainerEntry {size=size1}, ContainerEntry {size=size2}) =>
-                                    if size1 = size2 then tailLen else tailLen-1
-                            |   (HandlerEntry, HandlerEntry) => tailLen
-                            |   _ => tailLen-1
-                        end
-                    |   findLastDifference([], [], 0) = 0
-                    |   findLastDifference _ = raise InternalError "findLastDifference"
-                    
-                    val commonLength = findLastDifference(stack1, stack2, lengthMin)
-                in
-                    findLastDiff(tail, Int.min(commonLength, currentMin))
-                end
-            |   findLastDiff(_, currentMin) = currentMin
+                |   removeItems (stack as NewEntry{pregNo} :: rest) =
+                    if member(pregNo, imports) orelse member(pregNo, passThrough)
+                    then stack
+                    else removeItems rest
+
+                    (* Containers and handlers are removed explicitly so if they
+                       are on the stack they stay there. *)
+                |   removeItems (stack as ContainerEntry _ :: _) = stack
+
+                |   removeItems (stack as HandlerEntry :: _) = stack
+            in
+                val commonStack = removeItems(#stack(hd inputStates))
+            end
             
-            val commonLength = findLastDiff(trimmedStacks, lengthMin)
-            val commonStack = List.drop(hd trimmedStacks, lengthMin - commonLength)
-
             fun countSizes([], old, new) = (old, new)
             |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
             |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
@@ -955,7 +932,7 @@ struct
                 
                     val () = processTrace :=
                         (picked, if isSome(List.find available stillToDo) then NONE else SOME stillToDo) :: ! processTrace
-                    
+
                     val ExtendedBasicBlock{ block, flow, ...} = vsub code picked
                     
                     (* Construct the input state for this block depending on its
@@ -970,7 +947,9 @@ struct
                         val inputState =
                             case predecessorStates of
                                 [] => emptyContext (* Initial block. *)
-                            |   [singleton] => singleton (* Easy.  Includes start of a loop. *)
+                                        (* Create a merged state even if we just have one.
+                                           It removes unnecessary entries and avoids a
+                                           problem if this is a loop. *)
                             |   _ => createMergedState(predecessors, picked)
                     end
 
