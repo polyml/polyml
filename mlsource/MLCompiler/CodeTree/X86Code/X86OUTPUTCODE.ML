@@ -1731,18 +1731,9 @@ struct
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
         |   cgOp(ResetStack count) =
-            let
-                val sr = Word.toInt(wordsToBytes(Word.fromInt count)) (* Offset in bytes. *)
-            in
-                if is8Bit sr
-                then (* Can use one byte immediate *)
-                    
-                        opRegPlus2(Group1_8_A (* group1, 8-bit immediate *), esp, arithOpToWord ADD) @
-                            [Word8.fromInt sr]
-                else (* Need 32 bit immediate. *)
-                    opRegPlus2(Group1_32_A (* group1, 32-bit immediate *), esp, arithOpToWord ADD) @
-                        int32Signed(LargeInt.fromInt sr)
-            end
+                (* Use LEA because it doesn't change the condition code so is safe to use
+                   before a conditional branch. *)
+                opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp)
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 
