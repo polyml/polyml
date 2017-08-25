@@ -884,7 +884,8 @@ struct
             
             fun countSizes([], old, new) = (old, new)
             |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
-            |   countSizes(ContainerEntry{size, ...} :: tl, old, new) = countSizes(tl, old+size, new+size)
+            |   countSizes(ContainerEntry{size, active=true} :: tl, old, new) = countSizes(tl, old+size, new+size)
+            |   countSizes(ContainerEntry{size, active=false} :: tl, old, new) = countSizes(tl, old, new+size)
             |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
             
             val (oldCount, newCount) = countSizes(commonStack, 0, 0)
