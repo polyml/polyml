@@ -73,13 +73,8 @@ extern "C" {
 static const char *poly_runtime_system_copyright =
 "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
-#define Str(x) #x
-#define Xstr(x) Str(x)
-
-#ifdef GIT_VERSION
-#define GitVersion             Xstr(GIT_VERSION)
-#else
-#define GitVersion             ""
+#ifndef GIT_VERSION
+#define GIT_VERSION             ""
 #endif
 
 
@@ -90,7 +85,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     {
     case 9: // Return the GIT version if appropriate
         {
-             return SAVE(C_string_to_Poly(taskData, GitVersion));
+             return SAVE(C_string_to_Poly(taskData, GIT_VERSION));
         }
 
     case 10: // Return the RTS version string.
@@ -173,7 +168,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 34: // Return the system directory for modules.  This is configured differently
         // in Unix and in Windows.
 #if (defined(MODULEDIR))
-    return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
+    return SAVE(C_string_to_Poly(taskData, MODULEDIR));
 #elif (defined(_WIN32) && ! defined(__CYGWIN__))
         {
             // This registry key is configured when Poly/ML is installed using the installer.
