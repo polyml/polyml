@@ -47,7 +47,7 @@ struct
         (* The stack contains both entries in the input code and entries added here. *)
         datatype stackEntry =
             NewEntry of {pregNo: int}
-        |   ContainerEntry of { size: int }
+        |   ContainerEntry of { size: int, active: bool }
         |   HandlerEntry
         
         type context =
@@ -67,7 +67,7 @@ struct
                 if regNo = pregNo
                 then offset
                 else findEntry(offset+1, tl)
-            |   findEntry(offset, ContainerEntry {size} :: tl) = findEntry(offset+size, tl)
+            |   findEntry(offset, ContainerEntry {size, ...} :: tl) = findEntry(offset+size, tl)
             |   findEntry(offset, HandlerEntry :: tl) = findEntry(offset+2, tl) (* Occupies two words *)
             |   findEntry(_, []) = raise InternalError "findEntry - not found"
             val stackOffset = findEntry(0, stack)
@@ -92,7 +92,8 @@ struct
                 in
                     case entry of
                         NewEntry _ => adjustStack(old, new+1, tl)
-                    |   ContainerEntry {size} =>
+                    |   ContainerEntry {size, active=false} => adjustStack(old, new+size, tl)
+                    |   ContainerEntry {size, ...} =>
                             if old = 0
                             then new
                             else adjustStack(old-size, new+size, tl)
@@ -460,7 +461,7 @@ struct
         |   pushRegisters({instr=ReserveContainer{size, address}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
                 val containerContext =
-                    {oldCount=oldCount+size, newCount=newCount+size, stack=ContainerEntry{size=size}::stack}
+                    {oldCount=oldCount+size, newCount=newCount+size, stack=ContainerEntry{size=size, active=true}::stack}
                 val (destVal, destCode, newContext) = mapDestReg(address, containerContext)
                 val () = maxStack := Int.max(!maxStack, newCount+size)
             in
@@ -514,7 +515,8 @@ struct
                 (* Get the state after removing the handler. *)
                 fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
                 |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
-                |   popContext (ContainerEntry _ :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
+                |   popContext (ContainerEntry{active=true, ...} :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
+                |   popContext (ContainerEntry{active=false, size} :: tl, old, new) = popContext(tl, old, new-size)
                 |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
                 val newContext as { newCount=newNewCount, ...} = popContext(stack, oldCount, newCount)
                 (* Reset the stack to just above the two words of the handler. *)
@@ -578,27 +580,32 @@ struct
                 val (sourceVal, sourceCode) = mapSource(arg, context)
                 (* This was a push from a previous pass.  Treat as a container of size 1. *)
                 val pushContext =
-                    {oldCount=oldCount+1, newCount=newCount+1, stack=ContainerEntry{size=1}::stack}
+                    {oldCount=oldCount+1, newCount=newCount+1, stack=ContainerEntry{size=1, active=true}::stack}
             in
                 pushRegisters(rest, PushValue{arg=sourceVal} :: sourceCode @ code, pushContext)
             end
 
-        |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code, context as {newCount=oldSp, ...}) =
-            (* This indicates that an old container entry is no longer required.  Remove it and anything
-               else we've pushed since.  Because of the nesting anything pushed more recently should
-               now be free. *)
+        |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code, {newCount, oldCount, stack}) =
+            (* This indicates that an old entry is no longer required.  We can't actually remove
+               it because we may have pushed something since.  Instead we mark it as inactive and remove
+               it when everything above is free. *)
             let
-                fun removeItems(0, state) = state
-                |   removeItems(_, {stack=[], ...}) = raise InternalError "removeItems - stack empty"
-                |   removeItems(toRemove, {stack=ContainerEntry {size} :: tl, oldCount, newCount}) =
+                fun removeItems(0, stack) = stack
+                |   removeItems(_, []) = raise InternalError "removeItems - stack empty"
+                |   removeItems(toRemove, (entry as ContainerEntry {active=false, ...}) :: tl) =
+                        entry :: removeItems(toRemove, tl)
+                |   removeItems(toRemove, ContainerEntry {size, active=true} :: tl) =
                         if toRemove < size then raise InternalError "removeItems - container size"
-                        else removeItems(toRemove-size, {stack=tl, oldCount=oldCount-size, newCount=newCount-size})
-                |   removeItems(_, {stack=HandlerEntry :: _, ...}) = raise InternalError "removeItems - handler"
-                |   removeItems(toRemove, {stack=NewEntry _ :: tl, oldCount, newCount}) =
-                        removeItems(toRemove, {stack=tl, oldCount=oldCount, newCount=newCount-1})
-                val newContext as {newCount=newSp, ...} = removeItems(numWords, context)
+                        else ContainerEntry {size=size, active=false} :: removeItems(toRemove-size, tl)
+                |   removeItems(_, HandlerEntry :: _) = raise InternalError "removeItems - handler"
+                |   removeItems(toRemove, entry :: tl) = entry :: removeItems(toRemove, tl)
+                
+                val newStack = removeItems(numWords, stack)
+                (* Even though the entries have been marked for removal we only deduct
+                   this from the old count. *)
+                val newContext = {newCount=newCount, oldCount=oldCount-numWords, stack=newStack}
             in
-                pushRegisters(rest, ResetStackPtr{numWords=oldSp-newSp} :: code, newContext)
+                pushRegisters(rest, code, newContext)
             end
 
         |   pushRegisters({instr=TagValue{source, dest}, ...} :: rest, code, context) =
@@ -865,7 +872,10 @@ struct
 
                     (* Containers and handlers are removed explicitly so if they
                        are on the stack they stay there. *)
-                |   removeItems (stack as ContainerEntry _ :: _) = stack
+                |   removeItems (stack as ContainerEntry{active=true, ...} :: _) = stack
+
+                    (* This container has been deleted. *)
+                |   removeItems (ContainerEntry{active=false, ...} :: rest) = removeItems rest
 
                 |   removeItems (stack as HandlerEntry :: _) = stack
             in
@@ -874,7 +884,7 @@ struct
             
             fun countSizes([], old, new) = (old, new)
             |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
-            |   countSizes(ContainerEntry{size} :: tl, old, new) = countSizes(tl, old+size, new+size)
+            |   countSizes(ContainerEntry{size, ...} :: tl, old, new) = countSizes(tl, old+size, new+size)
             |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
             
             val (oldCount, newCount) = countSizes(commonStack, 0, 0)
