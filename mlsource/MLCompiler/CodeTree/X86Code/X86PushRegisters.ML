@@ -863,35 +863,27 @@ struct
             (* Choose any of them and remove everything up to the first active entry. *)
             val ExtendedBasicBlock{ imports, passThrough, ...} = vsub code destBlock
             local
-                fun removeItems [] = []
+                fun removeItems([], 0, 0) = {newCount=0, oldCount=0, stack=[]}
+                
+                |   removeItems([], _, _) = raise InternalError "removeItems - stack size"
 
-                |   removeItems (stack as NewEntry{pregNo} :: rest) =
+                |   removeItems (stack as NewEntry{pregNo} :: rest, oldSize, newSize) =
                     if member(pregNo, imports) orelse member(pregNo, passThrough)
-                    then stack
-                    else removeItems rest
+                    then {newCount=newSize, oldCount=oldSize, stack=stack}
+                    else removeItems(rest, oldSize, newSize-1)
 
-                    (* Containers and handlers are removed explicitly so if they
-                       are on the stack they stay there. *)
-                |   removeItems (stack as ContainerEntry{active=true, ...} :: _) = stack
+                    (* This container has been deleted.  Its size has already been removed from
+                       the old count. *)
+                |   removeItems (ContainerEntry{active=false, size} :: rest, oldSize, newSize) =
+                        removeItems(rest, oldSize, newSize-size)
 
-                    (* This container has been deleted. *)
-                |   removeItems (ContainerEntry{active=false, ...} :: rest) = removeItems rest
+                |   removeItems (stack, oldSize, newSize) = {newCount=newSize, oldCount=oldSize, stack=stack}
 
-                |   removeItems (stack as HandlerEntry :: _) = stack
+                val {stack, newCount, oldCount} = hd inputStates (* Could pick any *)
             in
-                val commonStack = removeItems(#stack(hd inputStates))
+                val newContext as {newCount=newSp, ...} = removeItems(stack, oldCount, newCount)
             end
-            
-            fun countSizes([], old, new) = (old, new)
-            |   countSizes(NewEntry _ :: tl, old, new) = countSizes(tl, old, new+1)
-            |   countSizes(ContainerEntry{size, active=true} :: tl, old, new) = countSizes(tl, old+size, new+size)
-            |   countSizes(ContainerEntry{size, active=false} :: tl, old, new) = countSizes(tl, old, new+size)
-            |   countSizes(HandlerEntry :: tl, old, new) = countSizes(tl, old+2, new+2)
-            
-            val (oldCount, newCount) = countSizes(commonStack, 0, 0)
-            (* This is the common context that will be used as the input. *)
-            val newContext as {newCount=newSp, ...} = {newCount=newCount, oldCount=oldCount, stack=commonStack}
-            
+             
             (* We now have to adjust any of the inputs that don't match this. *)
             fun adjustStack(inputBlockNo, {newCount, ...}) =
             if newCount = newSp
