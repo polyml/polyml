@@ -769,257 +769,126 @@ struct
                     destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                         arg2Code @ arg1Code @ code, newContext)
             end
-
-        (* The difficult bit here is matching together the stack if we have more than one
-           branch to the same block.  We can work out the stack space by looking at the
-           various register sets.  Each export that needs to be pushed increases the
-           stack space by one.  Each import that has been pushed can be popped, decreasing
-           the stack space.  Locals only need stack space within the block so aren't a
-           problem.  PassThroughs remain on the stack.
-           
-           In addition we may already have items on the stack.  ReserveContainer and PushExceptionHandler
-           both use the stack and a previous pass may have added items with PushValue.
-           
-           The code above assumes that we will always process both arms of a conditional, or all
-           the arms of an indexed branch, before we reach the merge point.  When the first branch
-           is made to a label we record the state. Subsequently when we reach that label by dropping
-           through we merge the states.  Loops are done by recording the state at the start of
-           the loop and resetting to it when we jump back.
-           
-           Merging may involve adding extra branches if at the merge point we find we want to reset
-           the stack further than the previous branch did.
-        *)
         
-        (* Work out the dependencies of each block i.e. the immediate predecessors. *)
-        val blockReferences = Array.array(numberOfBlocks, [])
-        
-        (* This needs to be recursive.  There may be blocks that aren't reachable
-           but refer to blocks that are. *)
-        local
-            fun setReferences fromLabel =
-            let
-                val ExtendedBasicBlock{ flow, block, ...} = vsub code fromLabel
-            in
-                (* If this has a JumpLoop don't add it on.  That way we will process
-                   the start of a loop and then the jump backwards later. *)
-                if List.exists(fn {instr=JumpLoop _, ...} => true | _ => false) block
-                then ()
-                else
-                let
-                
-                    val refs =
-                        case flow of
-                            ExitCode => []
-                        |   Unconditional lab => [lab]
-                        |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
-                        |   IndexedBr labs => labs
-                        |   SetHandler { handler, continue } => [handler, continue]
-                
-                    (* We're going to add this label as a reference to each of the
-                       blocks we refer to.  If there have not yet been any references
-                       we need to process them*)
-                    val processNext = List.filter(null o asub blockReferences) refs
-
-                    fun setRefs toLabel =
-                        Array.update(blockReferences, toLabel,
-                            fromLabel :: Array.sub(blockReferences, toLabel))
-                    val () = List.app setRefs refs
-                in
-                    List.app setReferences processNext
-                end
-           end
-        in
-            val () = setReferences 0
-        end
-        
-        (* The state for each of the blocks. *)
-        val outputStates = Array.array(numberOfBlocks, NONE: context option)
-        (* Input states.  These are only every used for loops. *)
-        val inputStates = Array.array(numberOfBlocks, emptyContext)
         (* The result code. *)
-        val resultCode = Array.array(numberOfBlocks, NONE)
-        (* The flow for each block i.e. where it goes to next.  This may be
-           updated if we need to add a block to adjust the stack. *)
-        val flowArray =
-            Array.tabulate(numberOfBlocks, (fn ExtendedBasicBlock{flow, ...} => flow) o vsub code)
+        val resultBlocks = Array.array(numberOfBlocks, BasicBlock{flow=ExitCode, block=[]})
         
         (* Extra blocks to adjust the stack are added here. *)
         val extraBlocks: abstract basicBlock list ref = ref []
         val blockCounter = ref numberOfBlocks
-        
-        (* Possibly generate code to match the input state to the output
-           by removing items from the stack.  If they don't match we need
-           to add an adjustment block.
-           It is possible to adjust the stack at the end of a block to remove
-           locals and imports but that isn't sufficient if we have a conditional
-           or indexed branch.  We may have registers that are required on one of
-           the successors but not on another (e.g. if we are branching round some
-           code). *)
-        fun createMergedState(predecessors, destBlock) =
-        let
-            (* If we have multiple states they should all be set.  There shouldn't be
-               a loop. *)
-            val inputStates = List.map(valOf o (asub outputStates)) predecessors
-            (* Choose any of them and remove everything up to the first active entry. *)
-            val ExtendedBasicBlock{ imports, passThrough, ...} = vsub code destBlock
-            local
-                fun removeItems([], 0, 0) = {newCount=0, oldCount=0, stack=[]}
-                
-                |   removeItems([], _, _) = raise InternalError "removeItems - stack size"
-
-                |   removeItems (stack as NewEntry{pregNo} :: rest, oldSize, newSize) =
-                    if member(pregNo, imports) orelse member(pregNo, passThrough)
-                    then {newCount=newSize, oldCount=oldSize, stack=stack}
-                    else removeItems(rest, oldSize, newSize-1)
-
-                    (* This container has been deleted.  Its size has already been removed from
-                       the old count. *)
-                |   removeItems (ContainerEntry{active=false, size} :: rest, oldSize, newSize) =
-                        removeItems(rest, oldSize, newSize-size)
-
-                |   removeItems (stack, oldSize, newSize) = {newCount=newSize, oldCount=oldSize, stack=stack}
-
-                val {stack, newCount, oldCount} = hd inputStates (* Could pick any *)
-            in
-                val newContext as {newCount=newSp, ...} = removeItems(stack, oldCount, newCount)
-            end
-             
-            (* We now have to adjust any of the inputs that don't match this. *)
-            fun adjustStack(inputBlockNo, {newCount, ...}) =
-            if newCount = newSp
-            then () (* Nothing to do*)
-            else
-            let
-                val _ = newCount > newSp orelse raise InternalError "adjustStack"
-                val adjustCode = [ResetStackPtr{numWords=newCount-newSp}]
-                (* If the input is an unconditional branch we could just add it
-                   on to the end of that block.  For the moment we always create a
-                   new block. *)
-                val newBlock = BasicBlock{block=adjustCode, flow=Unconditional destBlock}
-                val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
-                val () = extraBlocks := newBlock :: !extraBlocks
-                (* We need to change the "flow" for the input block so that it points to
-                   the new block rather than the old. *)
-                fun changeDest d = if d = destBlock then newBlockNo else d
-                val newFlow =
-                    case asub flowArray inputBlockNo of
-                        IndexedBr cases => IndexedBr(List.map changeDest cases)
-                    |   Unconditional dest => Unconditional(changeDest dest)
-                    |   Conditional{condition, ccRef, trueJump, falseJump} =>
-                            Conditional{ccRef=ccRef, condition=condition,
-                                    trueJump=changeDest trueJump, falseJump=changeDest falseJump}
-                    |   _ => raise InternalError "adjustStack: flow"
-            in
-                Array.update(flowArray, inputBlockNo, newFlow)
-            end
-            
-            val () = ListPair.appEq adjustStack (predecessors, inputStates)
-        in
-            newContext
-        end
-        
-        val processTrace = ref []
-        
+         
+        (* Recursive scan of the blocks.  For each block we produce an input and output state.
+           The input state is the output state of the predecessor i.e. some block that jumps to
+           this, but with any entries removed that are not used in this block.  It is then
+           necessary to match the input state, if necessary by adding extra blocks that just
+           do the matching. *)
         local
-            fun haveProcessed n = isSome(Array.sub(resultCode, n))
+            (* The stack size we've assumed for the block.  Also indicates if
+               a block has already been processed. *)
+            val inputStackSizes = Array.array(numberOfBlocks, NONE: int option)
 
-            fun processBlocks toDo =
-            case List.filter (not o haveProcessed) toDo of
-                [] => () (* Finished *)
+            fun processBlocks(blockNo, lastOutputState) =
+            case asub inputStackSizes blockNo of
+                SOME stackSize => stackSize
+                (* Already done.  Return the stack size it is expecting. *)
 
-            |   stillToDo =>
+            |   NONE =>
                 let
-                    (* Select a block all of whose predecessors have been processed.
-                       If we can't find one we have a loop and have to select a
-                       block that starts a loop. *)
-                    fun available dest = List.all haveProcessed (asub blockReferences dest)
-                    val picked =
-                        case List.find available stillToDo of
-                            SOME c => c
-                        |   NONE => raise InternalError "processBlocks - nothing available"
+                    (* This is the first time we've come to this block.  *)
+                    val ExtendedBasicBlock{ block, flow, imports, passThrough, ...} = vsub code blockNo
+
+                    (* Remove any items from the input state that are no longer needed for
+                       this block.  They could be local to the previous block or needed by
+                       a different successor. *)
+                    fun removeItems([], 0, 0) = {newCount=0, oldCount=0, stack=[]}
                 
-                    val () = processTrace :=
-                        (picked, if isSome(List.find available stillToDo) then NONE else SOME stillToDo) :: ! processTrace
+                    |   removeItems([], _, _) = raise InternalError "removeItems - stack size"
 
-                    val ExtendedBasicBlock{ block, flow, ...} = vsub code picked
+                    |   removeItems (stack as NewEntry{pregNo} :: rest, oldSize, newSize) =
+                        if member(pregNo, imports) orelse member(pregNo, passThrough)
+                        then {newCount=newSize, oldCount=oldSize, stack=stack}
+                        else removeItems(rest, oldSize, newSize-1)
+
+                        (* This container has been deleted.  Its size has already been removed from
+                           the old count. *)
+                    |   removeItems (ContainerEntry{active=false, size} :: rest, oldSize, newSize) =
+                            removeItems(rest, oldSize, newSize-size)
+
+                    |   removeItems (stack, oldSize, newSize) = {newCount=newSize, oldCount=oldSize, stack=stack}
+
+                    val {stack, newCount, oldCount} = lastOutputState
+
+                    val newContext as {newCount=newSp, ...} = removeItems(stack, oldCount, newCount)
                     
-                    (* Construct the input state for this block depending on its
-                       predecessors. *)
-                    local
-                        val predecessors = asub blockReferences picked
-                        (* Look at the states we actually have.  If this is the start of a
-                           loop we will have unset states and we should have just one that is set.*)
-                        val predecessorStates =
-                            List.mapPartial(asub outputStates) predecessors
+                    (* Save the stack size in case we come by a different route. *)
+                    val () = Array.update(inputStackSizes, blockNo, SOME newSp)
+
+                    (* We can't adjust the stack at this point. *)
+                    val (codeResult, stateResult as {newCount=outputCount, ...}) =
+                        pushRegisters(block, [], newContext)
+                    
+                    (* Process the successor.  If we need a stack adjustment this will require
+                       an adjustment block.  TODO: We could put a pre-adjustment if we only have one
+                       branch to this block. *)
+                    fun matchStacks targetBlock =
+                    let
+                        (* Process the destination.  If it hasn't been processed. *)
+                        val expectedInput = processBlocks(targetBlock, stateResult)
                     in
-                        val inputState =
-                            case predecessorStates of
-                                [] => emptyContext (* Initial block. *)
-                                        (* Create a merged state even if we just have one.
-                                           It removes unnecessary entries and avoids a
-                                           problem if this is a loop. *)
-                            |   _ => createMergedState(predecessors, picked)
-                    end
-
-                    (* Set this as the input state just in case we loop here. *)
-                    val () = Array.update(inputStates, picked, inputState)
-                    
-                    val (codeResult, stateResult) = pushRegisters(block, [], inputState)
-
-                    val successors =
-                        case asub flowArray picked of
-                            ExitCode => []
-                        |   IndexedBr cases => cases
-                        |   Unconditional dest => [dest]
-                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
-                        |   SetHandler { handler, continue } => [handler, continue]
-                   
-                    (* Do we need to adjust the stack because we're looping back?
-                       Look to see if this is a JumpLoop and set the adjustment in that.
-                       If there's no JumpLoop this should not be branching back. *)
-                    val postAdjust =
-                        if List.exists(fn JumpLoop _ => true | _ => false) codeResult
-                        then
-                        let
-                            val destination =
-                                case flow of
-                                    Unconditional dest => dest
-                                |   _ => raise InternalError "processBlocks - JumpLoop"
-                            val {newCount=destStackCount, ...} = asub inputStates destination
-                            val _ = isSome(asub resultCode destination) orelse raise InternalError "processBlocks - not loop"
-                            val adjustStack = #newCount stateResult - destStackCount
-                            val _ = adjustStack >= 0 orelse raise InternalError "processBlocks - jump loop stack"
-                        in
-                            if adjustStack = 0
-                            then codeResult
-                            else ResetStackPtr{numWords=adjustStack} :: codeResult
-                        end
+                        if expectedInput = outputCount
+                        then targetBlock
                         else
-                            (
-                                (* Otherwise none of our successors should have been processed yet. *)
-                                List.exists(isSome o asub resultCode) successors
-                                    andalso raise InternalError "processBlocks - loop?";
-                                codeResult
-                            )
+                        let
+                            val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
+                            val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput}]
+                            val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
+                            val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
+                            val () = extraBlocks := newBlock :: !extraBlocks
+                        in
+                            newBlockNo
+                        end
+                    end
+                    
+                    val (finalCode, newFlow) =
+                        case flow of
+                            ExitCode => (codeResult, ExitCode)
+                        
+                        |   Unconditional m =>
+                            let
+                                (* Process the block.  Since we're making an unconditional jump
+                                   we can include any stack adjustment needed to match the
+                                   destination in here.  In particular this includes loops. *)
+                                val expectedInput = processBlocks(m, stateResult)
+                                val resultCode =
+                                    if expectedInput = outputCount
+                                    then codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput} :: codeResult
+                            in
+                                (resultCode, Unconditional m)
+                            end
 
-                    val () = Array.update(resultCode, picked, SOME (List.rev postAdjust))
-                    val () = Array.update(outputStates, picked, SOME stateResult)
-
-                    (* Now we've done this block add the blocks it jumps to.
-                       They will use the output state as their input state after
-                       possibly removing something from the stack. *)
+                            (* For any of these, if we need to adjust the stack we have to add an
+                               adjustment block. *)
+                        |   Conditional {trueJump, falseJump, ccRef, condition} =>
+                            (codeResult,
+                                Conditional{trueJump=matchStacks trueJump, falseJump=matchStacks falseJump,
+                                    ccRef=ccRef, condition=condition})
+                        
+                        |   SetHandler{ handler, continue } =>
+                            (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
+                        
+                        |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
+                    val () =
+                        Array.update(resultBlocks, blockNo, BasicBlock{block=List.rev finalCode, flow=newFlow})
                 in
-                    processBlocks(successors @ stillToDo)
+                    newSp (* Return our input stack size. *)
                 end
         in
-            val () = processBlocks [0]
+            val _ = processBlocks(0, emptyContext)
         end
 
-        (* Put together the result code and blocks.  N.B. We may have unreferenced and therefore
-           unprocessed blocks. *)
-        val resultBlocks =
-            Vector.tabulate(numberOfBlocks,
-                fn i => BasicBlock{block = getOpt(asub resultCode i, []), flow = asub flowArray i})
+        (* Put together the result code and blocks. *)
+        val resultBlocks = Array.vector resultBlocks
         
         (* Add any extra blocks to the result. *)
         val finalResult =
