@@ -75,7 +75,7 @@ struct
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
 
-    fun is8Bit n = ~ 0x80 <= n andalso n < 0x80
+    (*fun is8Bit n = ~ 0x80 <= n andalso n < 0x80*)
     fun is8BitL (n: LargeInt.int) = ~ 0x80 <= n andalso n < 0x80
 
     local
