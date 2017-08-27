@@ -77,22 +77,6 @@ struct
         in
             StackLoc{size=size, rno=regNo}
         end
-
-        fun getStackOffset(regNo: int, {stack, newCount, ...}: context, testStackLoc) =
-        let
-            fun findEntry(offset, NewEntry {pregNo} :: tl) =
-                if regNo = pregNo
-                then offset
-                else findEntry(offset+1, tl)
-            |   findEntry(offset, ContainerEntry {size, ...} :: tl) = findEntry(offset+size, tl)
-            |   findEntry(offset, HandlerEntry :: tl) = findEntry(offset+2, tl) (* Occupies two words *)
-            |   findEntry(_, []) = raise InternalError "findEntry - not found"
-            val stackOffset = findEntry(0, stack)
-            val _ = stackOffset < newCount orelse raise InternalError "getStackOffset - bad offset"
-            val _ = stackOffset = newCount - testStackLoc orelse raise InternalError "getStackOffset - mismatch"
-        in
-            stackOffset
-        end
         
         (* Adjust a stack offset from the old state to the new state. *)
         fun mapOldStackOffset(offset, {oldCount, newCount, stack, ...}: context) =
@@ -125,7 +109,7 @@ struct
         end
         
         (* Map a source register.  This always loads the argument. *)
-        fun mapSrcReg(PReg n, context: context) =
+        fun mapSrcReg(PReg n, { newCount, ...}: context) =
             case Array.sub(pregMap, n) of
                 Unset => raise InternalError "mapSrcReg - unset"
             |   ToPReg preg => (preg, [])
@@ -136,7 +120,7 @@ struct
                     val newReg = newPReg RegPropUntagged
                 in
                     (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context, stackLoc)}, dest=newReg, kind=MoveWord}])
+                        [LoadArgument{source=StackLocation{wordOffset=newCount-stackLoc}, dest=newReg, kind=MoveWord}])
                 end
        
         fun mapDestReg(PReg n, context: context as {stack, oldCount, newCount}) =
@@ -207,12 +191,12 @@ struct
         |   mapIndex(MemIndex8 r, context) =
                 let val (sreg, c) = mapSrcReg(r, context) in (MemIndex8 sreg, c) end
 
-        fun mapSource(RegisterArgument(PReg r), context: context) =
+        fun mapSource(RegisterArgument(PReg r), { newCount, ...}: context) =
             (
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
                 |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack stackLoc => (StackLocation{wordOffset=getStackOffset(r, context, stackLoc)}, [])
+                |   ToStack stackLoc => (StackLocation{wordOffset=newCount-stackLoc}, [])
             )
 
         |   mapSource(a as AddressConstant _, _) = (a, [])
@@ -426,7 +410,7 @@ struct
         |   pushRegisters({instr=InitialisationComplete, ...} :: rest, code, context) =
                 pushRegisters(rest, InitialisationComplete :: code, context)
 
-        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, code, context) =
+        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, code, context as {newCount, ...}) =
             let
                 (* Normally JumpLoop will be the last item in a block but it is possible that we've
                    added a reset-stack after it. *)
@@ -445,7 +429,7 @@ struct
                         |   ToStack stackLoc =>
                             let
                                 val (sourceVal, sourceCode) = mapSource(source, context)
-                                val stackOff = getStackOffset(n, context, stackLoc)
+                                val stackOff = newCount - stackLoc
                             in
                                 (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
                             end
