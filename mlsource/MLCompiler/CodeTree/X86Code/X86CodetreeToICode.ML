@@ -109,18 +109,22 @@ struct
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
+        val returnAddressEntry = newStackLoc 1
+
         local
             val numFunctionArgs = List.length argTypes
             val maxRegArgs = List.length argRegs
+            
+            fun createArg i = {stackOffset=numFunctionArgs-(i+maxRegArgs), stackReg = newStackLoc 1 }
         in
             val (argRegsUsed, currentStackArgs) =
                 if numFunctionArgs >= maxRegArgs
                 then (argRegs, numFunctionArgs - List.length argRegs)
                 else (List.take(argRegs, numFunctionArgs), 0)
+            
+            val stackArgVector = Vector.tabulate(currentStackArgs, createArg)
         end
-        
-        val returnAddressEntry = newStackLoc 1
-        val stackArguments = List.tabulate(currentStackArgs, fn _ => newStackLoc 1)
+        val stackArguments = Vector.foldr(fn ({stackReg, ...}, l) => stackReg :: l) [] stackArgVector
 
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
@@ -431,10 +435,10 @@ struct
             else (* Pushed before call. *)
             let
                 val target = asTarget destination
+                val {stackOffset, ...} = Vector.sub(stackArgVector, a-numArgRegs)
             in
                 (BlockSimple(LoadArgument{
-                    source=StackLocation{wordOffset=List.length argTypes - a + stackPtr}, dest=target, kind=MoveWord}) ::
-                        tailCode,
+                    source=StackLocation{wordOffset=stackOffset+stackPtr}, dest=target, kind=MoveWord}) :: tailCode,
                  RegisterArgument target, false)
             end
         
