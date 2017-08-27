@@ -49,11 +49,7 @@ struct
 
     open Address
 
-    datatype pregKind =
-        PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
-    |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
-
-    datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
+    datatype abstract = PReg of int (* A pseudo-register - an abstract register. *)
 
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
     datatype stackLocn = StackLoc of {size: int, rno: int }
@@ -612,8 +608,7 @@ struct
             
         fun printConcreteReg(reg, stream) = stream(regRepr reg)
 
-        and printAbstractReg(PReg(i, PRegGeneral), stream) = stream("G" ^ Int.toString i)
-        |   printAbstractReg(PReg(i, PRegUntagged), stream) = stream("U" ^ Int.toString i)
+        and printAbstractReg(PReg i, stream) = stream("R" ^ Int.toString i)
         
         (* Print a basic block. *)
         fun printBlock (printItem, stream) (blockNo, BasicBlock{block, flow, ...}: 'reg basicBlock) =

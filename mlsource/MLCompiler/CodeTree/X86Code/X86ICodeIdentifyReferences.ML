@@ -238,8 +238,9 @@ struct
            part of the choice of which register to spill. *)
         val regRefs = Array.array(maxPRegs, 0)
         (* Whether the register must be saved on the stack, must not or could be. *)
-        and regPushState = Array.array(maxPRegs, MayPush)
-        
+        and regPushState =
+            Array.tabulate(maxPRegs, fn i => case Vector.sub(pregProps, i) of RegPropGeneral => MayPush | _ => MustNotPush)
+
         fun incrRef r = Array.update(regRefs, r, Array.sub(regRefs, r)+1)
         
         (* Contains the, possibly filtered, code for each block. *)
@@ -271,7 +272,7 @@ struct
                         |   LoadEffectiveAddress _ => true
                         |   BoxValue _ => true
                         |   _ => false
-                    fun regNo(PReg(i, _)) = i
+                    fun regNo(PReg i) = i
                     val destRegNos = map regNo dests
                     and sourceRegNos = map regNo sources
                 in
@@ -283,9 +284,6 @@ struct
                         (* Only mark the sources as referred after we know we're going to need this.
                            In that way we may eliminate the instruction that created this source. *)
                         val () = List.app incrRef sourceRegNos
-                        fun setPushState(PReg(i, PRegUntagged)) = Array.update(regPushState, i, MustNotPush)
-                        |   setPushState _ = ()
-                        val () = List.app setPushState dests
                     in
                         { code = instr :: code, decs = union(listToSet destRegNos, decs), refs = union(listToSet sourceRegNos, refs) }
                     end
@@ -391,7 +389,7 @@ struct
             fun createResultInstrs passThrough (instr, (tail, activeAfterThis)) =
             let
                 val { sources, dests } = getInstructionRegisters instr
-                fun regNo(PReg(i, _)) = i
+                fun regNo(PReg i) = i
                 val destRegNos = map regNo dests
                 and sourceRegNos = map regNo sources
                 val destSet = listToSet destRegNos
@@ -439,7 +437,7 @@ struct
                             else case Array.sub(regPushState, i) of
                                 MustNotPush => NONE
                             |   MustPush => NONE (* Already on the stack. *)
-                            |   _ => SOME(PReg(i, PRegGeneral))
+                            |   _ => SOME(PReg i)
                     in
                         List.mapPartial getSave (setToList activeAfter)
                     end
@@ -467,7 +465,7 @@ struct
                                     case Array.sub(regPushState, i) of
                                         MustNotPush => NONE
                                     |   MustPush => NONE (* Already on the stack. *)
-                                    |   _ => SOME(PReg(i, PRegGeneral))
+                                    |   _ => SOME(PReg i)
                                 val currentRegs = union(activeAfterThis, passThrough)
                                 val check =
                                     case checkInterrupt of

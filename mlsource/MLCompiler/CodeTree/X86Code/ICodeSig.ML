@@ -71,11 +71,7 @@ sig
     |   FullCall
     |   DirectReg of genReg
 
-    datatype pregKind =
-        PRegGeneral     (* A general register.  This can contain and address and be pushed to the stack. *)
-    |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
-
-    datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
+    datatype abstract = PReg of int (* A pseudo-register - an abstract register. *)
     
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
     datatype stackLocn = StackLoc of {size: int, rno: int }

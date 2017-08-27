@@ -62,14 +62,12 @@ struct
 
         val emptyContext: context = { oldCount=0, newCount=0, stack=[]}
 
-        fun newPReg kind =
+        fun newPReg propKind =
         let
             val regNo = !pregCounter before pregCounter := !pregCounter + 1
-            val propKind =
-                case kind of PRegGeneral => RegPropGeneral | PRegUntagged => RegPropUntagged
             val () = pregPropList := propKind :: !pregPropList
         in
-            PReg(regNo, kind)
+            PReg regNo
         end
         
         and newStackLoc size =
@@ -126,7 +124,7 @@ struct
         end
         
         (* Map a source register.  This always loads the argument. *)
-        fun mapSrcReg(PReg(n, _), context: context) =
+        fun mapSrcReg(PReg n, context: context) =
             case Array.sub(pregMap, n) of
                 Unset => raise InternalError "mapSrcReg - unset"
             |   ToPReg preg => (preg, [])
@@ -134,15 +132,16 @@ struct
                 let
                     (* Make a new untagged register. That will prevent us pushing it if
                        we have to spill registers. *)
-                    val newReg = newPReg PRegUntagged
+                    val newReg = newPReg RegPropUntagged
                 in
                     (newReg,
                         [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context)}, dest=newReg, kind=MoveWord}])
                 end
        
-        fun mapDestReg(PReg(n, kind), context: context as {stack, oldCount, newCount}) =
+        fun mapDestReg(PReg n, context: context as {stack, oldCount, newCount}) =
         let
             val currentLocation = Array.sub(pregMap, n)
+            val kind = Vector.sub(pregProps, n)
         in
             if Vector.sub(pushVec, n)
             then
@@ -178,7 +177,7 @@ struct
         end
         
         (* A work register must be a normal register. *)
-        fun mapWorkReg(PReg(n, kind)) =
+        fun mapWorkReg(PReg n) =
         let
             val currentLocation = Array.sub(pregMap, n)
             val _ = Vector.sub(pushVec, n) andalso raise InternalError "mapWorkReg - MustPush"
@@ -186,6 +185,7 @@ struct
             case currentLocation of
                 Unset =>
                 let
+                    val kind = Vector.sub(pregProps, n)
                     val newReg = newPReg kind
                     val () = Array.update(pregMap, n, ToPReg newReg)
                 in
@@ -206,7 +206,7 @@ struct
         |   mapIndex(MemIndex8 r, context) =
                 let val (sreg, c) = mapSrcReg(r, context) in (MemIndex8 sreg, c) end
 
-        fun mapSource(RegisterArgument(PReg(r, _)), context: context) =
+        fun mapSource(RegisterArgument(PReg r), context: context) =
             (
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
@@ -231,7 +231,7 @@ struct
         (* If the argument AFTER processing is a stack entry, then load it. *)
         fun loadStack(stack as StackLocation _) =
             let
-                val newReg = newPReg PRegUntagged
+                val newReg = newPReg RegPropUntagged
             in
                 (RegisterArgument newReg, [LoadArgument{source=stack, dest=newReg, kind=MoveWord}])
             end
@@ -241,7 +241,7 @@ struct
         local
             (* We don't need to save registers if we've pushed them.
                N.B.  If we ever cache registers we'll need to clear the cache. *)
-            fun mapSaveReg (PReg(n, _), l) =
+            fun mapSaveReg (PReg n, l) =
                 case Array.sub(pregMap, n) of
                     Unset => raise InternalError "mapSaveReg - unset"
                 |   ToPReg preg => preg :: l
@@ -260,7 +260,7 @@ struct
            the stack.  The result is built up in reverse order and then reversed. *)
         fun pushRegisters([], code, context) = (code, context)
         
-        |   pushRegisters({instr=LoadArgument{source, dest=PReg(dReg, dKind), kind}, ...} :: rest, code, context as {stack, oldCount, newCount}) =
+        |   pushRegisters({instr=LoadArgument{source, dest=PReg dReg, kind}, ...} :: rest, code, context as {stack, oldCount, newCount}) =
             let
                 val (sourceVal, sourceCode) = mapSource(source, context)
                 (* If we have to push the value we don't have to first load it into a register. *)
@@ -283,6 +283,7 @@ struct
                                 case currentLocation of
                                     Unset =>
                                     let
+                                        val dKind = Vector.sub(pregProps, dReg)
                                         val newReg = newPReg dKind
                                         val () = Array.update(pregMap, dReg, ToPReg newReg)
                                     in
@@ -429,7 +430,7 @@ struct
                 (* Normally JumpLoop will be the last item in a block but it is possible that we've
                    added a reset-stack after it. *)
                 fun getValues [] = ([], [], [])
-                |   getValues ((source, PReg(n, _)) :: rest) =
+                |   getValues ((source, PReg n) :: rest) =
                     let
                         val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
                     in

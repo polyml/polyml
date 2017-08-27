@@ -84,7 +84,7 @@ struct
             val regNo = !pregCounter before pregCounter := !pregCounter + 1
             val () = pregPropList := RegPropGeneral :: !pregPropList
         in
-            PReg(regNo, PRegGeneral)
+            PReg regNo
         end
         
         and newUReg() =
@@ -92,7 +92,7 @@ struct
             val regNo = !pregCounter before pregCounter := !pregCounter + 1
             val () = pregPropList := RegPropUntagged :: !pregPropList
         in
-            PReg(regNo, PRegUntagged)
+            PReg regNo
         end
         
         and newStackLoc size =

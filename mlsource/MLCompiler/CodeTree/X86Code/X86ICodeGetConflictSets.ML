@@ -81,7 +81,7 @@ struct
         fun conflictsForInstr passThrough {instr, current, ...} =
         let
             val {sources, dests} = getInstructionRegisters instr
-            fun regNo(PReg(i, _)) = i
+            fun regNo(PReg i) = i
             val destRegNos = map regNo dests
             and sourceRegNos = map regNo sources
             val destSet = listToSet destRegNos
@@ -128,7 +128,7 @@ struct
                 case instr of
                     JumpLoop{regArgs, ...} =>
                     let
-                        val destRegs = List.foldl(fn ((_, PReg(loopReg, _)), dests) => loopReg :: dests) [] regArgs
+                        val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
                     in
                         addConflictsTo(destRegs, listToSet destRegs);
                         addConflictsTo(destRegs, current);
