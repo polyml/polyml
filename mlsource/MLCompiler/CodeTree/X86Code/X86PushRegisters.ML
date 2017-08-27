@@ -344,7 +344,7 @@ struct
                             regArgLoads @ stackArgLoads @ code, newContext)
             end
 
-        |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust, stackOffset}, ...} :: rest, code,
+        |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, stackOffset}, ...} :: rest, code,
                           context as {oldCount, newCount, ...}) =
             let
                 val _ = null rest orelse raise InternalError "pushRegisters - TailRecursiveCall"
@@ -364,14 +364,13 @@ struct
                 end
                 val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
 
-                val returnAddr = {srcStack=mapOldStackOffset(srcStack, context), stack=stack}
                 (* stackOffset is the current stack size.  We need it at the moment because codeExtended
                    doesn't have a current stack pointer. *) 
                 val _ = stackOffset = oldCount orelse raise InternalError "pushRegisters - tail"
                 val newStackOffset = newCount
             in
                 (TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
-                        stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=stackAdjust, stackOffset=newStackOffset} ::
+                        stackArgs=newStackArgs, stackAdjust=stackAdjust, stackOffset=newStackOffset} ::
                             regArgLoads @ stackArgLoads @ code, context)
             end
 

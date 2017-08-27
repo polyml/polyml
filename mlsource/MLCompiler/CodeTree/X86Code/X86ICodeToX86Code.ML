@@ -106,8 +106,7 @@ struct
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
-           address need to be overwritten.  We could actually include the
-           return address among the stackArgs but leave that for the moment.
+           address need to be overwritten.
            stackAdjust is the number of words to remove (positive) or add
            (negative) to the stack before the call.
            stackOffset is a temporary addition.  It contains the number of items
@@ -115,7 +114,6 @@ struct
     |   TailRecursiveCall of
             { callKind: callKinds, regArgs: ('reg argument * reg) list,
               stackArgs: {src: 'reg argument, stack: int} list,
-              returnAddr: {srcStack: int, stack: int},
               stackAdjust: int, stackOffset: int }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
@@ -347,7 +345,7 @@ struct
                 stream "=> "; printReg(dest, stream)
             )
 
-        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust, stackOffset}, stream, printReg) =
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, stackOffset}, stream, printReg) =
             (
                 stream "\tTailCall\t";
                 case callKind of
@@ -357,7 +355,6 @@ struct
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printReg); stream " ")) stackArgs;
-                stream "ret "; stream(Int.toString stack); stream "<="; stream(Int.toString srcStack);
                 stream "adj="; stream(Int.toString stackAdjust);
                 stream "offset="; stream(Int.toString stackOffset)
             )

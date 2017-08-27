@@ -541,9 +541,11 @@ struct
                            This is also the destination address of the return address so when we enter
                            the new function the return address will be the first item on the stack. *)
                         val stackAdjust = firstArgumentAddr - newStackArgCount
+                        (* Add an entry for the return address to the stack arguments. *)
+                        val returnEntry = {src=StackLocation{wordOffset=stackPtr, adjustment=0}, stack=stackAdjust}
                     in
-                        BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
-                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})
+                        BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
+                                  stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})
                     end
                     else BlockSimple(FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind})
             in
