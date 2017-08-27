@@ -78,17 +78,25 @@ struct
         val pregCounter = ref 0
         fun newPReg() = PReg(!pregCounter, PRegGeneral) before pregCounter := !pregCounter + 1
         fun newUReg() = PReg(!pregCounter, PRegUntagged) before pregCounter := !pregCounter + 1
+        fun newStackLoc size = StackLoc{size=size, rno= !pregCounter} before pregCounter := !pregCounter + 1
         val locToPregArray = Array.array(localCount, NONE: abstract option)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
         fun newLabel() = !labelCounter before labelCounter := !labelCounter + 1
         val ccRefCounter = ref 0
         fun newCCRef() = CcRef(!ccRefCounter) before ccRefCounter := !ccRefCounter + 1
 
-        val numFunctionArgs = List.length argTypes
-        val argRegsUsed =
-            if numFunctionArgs >= List.length argRegs
-            then argRegs
-            else List.take(argRegs, numFunctionArgs)
+        local
+            val numFunctionArgs = List.length argTypes
+            val maxRegArgs = List.length argRegs
+        in
+            val (argRegsUsed, currentStackArgs) =
+                if numFunctionArgs >= maxRegArgs
+                then (argRegs, numFunctionArgs - List.length argRegs)
+                else (List.take(argRegs, numFunctionArgs), 0)
+        end
+        
+        val returnAddressEntry = newStackLoc 1
+        val stackArguments = List.tabulate(currentStackArgs, fn _ => newStackLoc 1)
 
         (* Pseudo-regs for the result, the closure and the args that were passed in real regs. *)
         val resultTarget = newPReg()
@@ -101,9 +109,6 @@ struct
         in
             val beginInstruction = BlockBegin(clReg @ argRegs)
         end
-
-        (* Number of arguments on the stack and not in registers. *)
-        val currentStackArgs = Int.max(0, numFunctionArgs - List.length argRegs)
         
         (* The return instruction.  This can be added on to various tails but there is always
            one at the end anyway. *)
@@ -525,7 +530,7 @@ struct
                     let
                         val {stackPtr, ...} = context
                         (* The number of arguments currently on the stack. *)
-                        val currentStackArgCount = Int.max(0, numFunctionArgs - numArgRegs)
+                        val currentStackArgCount = currentStackArgs
                         val newStackArgCount = List.length stackArgs
                         (* The offset of the first argument or the return address if there are
                            no stack arguments.  N.B. We actually have currentStackArgCount+1
@@ -2642,7 +2647,8 @@ struct
             
             |   splitCode(BlockBegin regArgs :: _, sinceLabel, flow) =
                     (* Final instruction.  Create the initial block and exit. *)
-                    createEntry(0, BeginFunction{regArgs=regArgs}::sinceLabel, flow)
+                    createEntry(0,
+                        BeginFunction{regArgs=regArgs, stackArgs=stackArguments @ [returnAddressEntry]}::sinceLabel, flow)
             
             |   splitCode(BlockSimple instr :: rest, sinceLabel, flow) =
                     splitCode(rest, instr :: sinceLabel, flow)

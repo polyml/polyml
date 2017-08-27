@@ -596,7 +596,7 @@ struct
                 (* This is only generated in this pass. *)
                 raise InternalError "codeExtended - ExchangeRegisters"
 
-        |   codeExtended({instr=BeginFunction{regArgs}, ...} :: rest, context) =
+        |   codeExtended({instr=BeginFunction{regArgs, ...}, ...} :: rest, context) =
             let
                 val () = List.app (fn (PReg(pr, _), reg) => addRealHint(pr, reg)) regArgs
                 val code = codeExtended(rest, context)

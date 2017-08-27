@@ -55,6 +55,9 @@ struct
 
     datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
 
+    (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
+    datatype stackLocn = StackLoc of {size: int, rno: int }
+
     datatype 'reg argument =
         RegisterArgument of 'reg
     |   AddressConstant of machineWord (* A constant that is an address. *)
@@ -94,8 +97,9 @@ struct
         (* Exchange two registers. *)
     |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
 
-        (* Start of function.  Set the register arguments. *)
-    |   BeginFunction of { regArgs: ('reg * reg) list }
+        (* Start of function.  Set the register arguments.  stackArgs is the list of
+           stack arguments.  The last entry is the return address. *)
+    |   BeginFunction of { regArgs: ('reg * reg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
@@ -288,6 +292,9 @@ struct
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
         |   printSaves(areg::more, printReg, stream) =
                 (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
+        
+        fun printStackLoc(StackLoc{size, rno}, stream) =
+            (stream "S("; stream(Int.toString size); stream ")"; stream(Int.toString rno))
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
@@ -326,10 +333,11 @@ struct
         |   printICode(ExchangeRegisters { regX, regY}, stream, printReg) =
                 ( stream "\tExchangeRegs\t"; printReg(regX, stream); stream " <=> "; printReg(regY, stream) )
 
-        |   printICode(BeginFunction {regArgs}, stream, printReg) =
+        |   printICode(BeginFunction {regArgs, stackArgs}, stream, printReg) =
             (
                 stream "\tBeginFunction\t";
-                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs
+                List.app(fn (arg, r) => (stream(regRepr r); stream "="; printReg(arg, stream); stream " ")) regArgs;
+                List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
         |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest}, stream, printReg) =
@@ -1482,6 +1490,7 @@ struct
         and destinations    = destinations
         and controlFlow     = controlFlow
         and 'reg basicBlock = 'reg basicBlock
+        and stackLocn       = stackLocn
     end
 
 end;

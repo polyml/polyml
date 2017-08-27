@@ -76,6 +76,9 @@ sig
     |   PRegUntagged    (* An untagged general register. Just used for short-term storage. Not valid on the stack. *)
 
     datatype abstract = PReg of int * pregKind (* A pseudo-register - an abstract register. *)
+    
+    (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
+    datatype stackLocn = StackLoc of {size: int, rno: int }
 
     datatype 'reg argument =
         RegisterArgument of 'reg
@@ -115,8 +118,9 @@ sig
         (* Exchange two registers. *)
     |   ExchangeRegisters of { regX: 'reg, regY: 'reg }
 
-        (* Start of function.  Set the register arguments. *)
-    |   BeginFunction of { regArgs: ('reg * reg) list }
+        (* Start of function.  Set the register arguments.  stackArgs is the list of
+           stack arguments.  The last entry is the return address. *)
+    |   BeginFunction of { regArgs: ('reg * reg) list, stackArgs: stackLocn list }
 
         (* Call a function.  If the code address is a constant it is passed here.
            Otherwise the address is obtained by indirecting through rdx which has been loaded
@@ -308,5 +312,6 @@ sig
         and destinations    = destinations
         and controlFlow     = controlFlow
         and 'reg basicBlock = 'reg basicBlock
+        and stackLocn       = stackLocn
     end
 end;

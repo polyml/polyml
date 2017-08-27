@@ -302,7 +302,7 @@ struct
         |   pushRegisters({instr=ExchangeRegisters _, ...} :: _, _, _) = (* This is added at the next level. *)
                 raise InternalError "pushRegisters - ExchangeRegisters"
 
-        |   pushRegisters({instr=BeginFunction {regArgs}, ...} :: rest, code, context) =
+        |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...} :: rest, code, context) =
             let
                 (* Push any registers that need to be pushed. *)
                 fun pushReg((preg, rreg), (others, code, context)) =
@@ -314,7 +314,7 @@ struct
                 val (newRegArgs, pushCode, newContext) = List.foldl pushReg ([], [], context) regArgs
             in
                 pushRegisters(rest,
-                    pushCode @ (BeginFunction {regArgs=newRegArgs} :: code), newContext)
+                    pushCode @ (BeginFunction {regArgs=newRegArgs, stackArgs=stackArgs} :: code), newContext)
             end
 
         |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, ...} :: rest, code, context) =

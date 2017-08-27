@@ -83,8 +83,8 @@ struct
             (* Should not occur at this stage. *)
             raise InternalError "getInstructionRegisters - ExchangeRegisters"
 
-    |   getInstructionRegisters(BeginFunction {regArgs}) =
-            { sources=[], dests=map #1 regArgs}
+    |   getInstructionRegisters(BeginFunction {regArgs, stackArgs}) =
+            { sources=[], dests=map #1 regArgs (*@ map (fn StackLoc{rno, ...} => rno) stackArgs*)}
 
     |   getInstructionRegisters(FunctionCall{regArgs, stackArgs, dest, ...}) =
         let
