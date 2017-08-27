@@ -44,7 +44,7 @@ struct
         val maxStack = ref 0
         
         (* Each preg in the input is mapped to either a new preg or the stack. *)
-        datatype pregMapType = Unset | ToPReg of abstract | ToStack
+        datatype pregMapType = Unset | ToPReg of abstract | ToStack of int
         val pregMap = Array.array(maxPRegs, Unset)
 
         (* The stack contains both entries in the input code and entries added here. *)
@@ -78,7 +78,7 @@ struct
             StackLoc{size=size, rno=regNo}
         end
 
-        fun getStackOffset(regNo: int, {stack, newCount, ...}: context) =
+        fun getStackOffset(regNo: int, {stack, newCount, ...}: context, testStackLoc) =
         let
             fun findEntry(offset, NewEntry {pregNo} :: tl) =
                 if regNo = pregNo
@@ -89,6 +89,7 @@ struct
             |   findEntry(_, []) = raise InternalError "findEntry - not found"
             val stackOffset = findEntry(0, stack)
             val _ = stackOffset < newCount orelse raise InternalError "getStackOffset - bad offset"
+            val _ = stackOffset = newCount - testStackLoc orelse raise InternalError "getStackOffset - mismatch"
         in
             stackOffset
         end
@@ -128,14 +129,14 @@ struct
             case Array.sub(pregMap, n) of
                 Unset => raise InternalError "mapSrcReg - unset"
             |   ToPReg preg => (preg, [])
-            |   ToStack =>
+            |   ToStack stackLoc =>
                 let
                     (* Make a new untagged register. That will prevent us pushing it if
                        we have to spill registers. *)
                     val newReg = newPReg RegPropUntagged
                 in
                     (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context)}, dest=newReg, kind=MoveWord}])
+                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context, stackLoc)}, dest=newReg, kind=MoveWord}])
                 end
        
         fun mapDestReg(PReg n, context: context as {stack, oldCount, newCount}) =
@@ -149,7 +150,7 @@ struct
                     (* This should not have been seen before. *)
                     val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
                     val newReg = newPReg kind
-                    val () = Array.update(pregMap, n, ToStack)
+                    val () = Array.update(pregMap, n, ToStack (newCount+1))
                     val newContext = { stack = NewEntry{pregNo=n}::stack, oldCount=oldCount, newCount=newCount+1}
                     val () = maxStack := Int.max(!maxStack, newCount+1)
                 in
@@ -170,7 +171,7 @@ struct
                                 newReg
                             end
                         |   ToPReg preg => preg
-                        |   ToStack => raise InternalError "mapDestReg - already on stack"
+                        |   ToStack _ => raise InternalError "mapDestReg - already on stack"
                 in
                     (newReg, [], context)
                 end
@@ -192,7 +193,7 @@ struct
                     newReg
                 end
             |   ToPReg preg => preg
-            |   ToStack => raise InternalError "mapWorkReg - on stack"
+            |   ToStack _ => raise InternalError "mapWorkReg - on stack"
                 
         end
 
@@ -211,7 +212,7 @@ struct
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
                 |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack => (StackLocation{wordOffset=getStackOffset(r, context)}, [])
+                |   ToStack stackLoc => (StackLocation{wordOffset=getStackOffset(r, context, stackLoc)}, [])
             )
 
         |   mapSource(a as AddressConstant _, _) = (a, [])
@@ -245,7 +246,7 @@ struct
                 case Array.sub(pregMap, n) of
                     Unset => raise InternalError "mapSaveReg - unset"
                 |   ToPReg preg => preg :: l
-                |   ToStack => l
+                |   ToStack _ => l
         in
             val mapSaveRegs = List.foldl mapSaveReg [] 
         end
@@ -271,7 +272,7 @@ struct
                     then
                         let
                             val _ = case currentLocation of Unset => () | _ => raise InternalError "LoadArgument - already set"
-                            val () = Array.update(pregMap, dReg, ToStack)
+                            val () = Array.update(pregMap, dReg, ToStack(newCount+1))
                             val newContext = { stack = NewEntry{pregNo=dReg}::stack, oldCount=oldCount, newCount=newCount+1}
                             val () = maxStack := Int.max(!maxStack, newCount+1)
                         in
@@ -290,7 +291,7 @@ struct
                                         newReg
                                     end
                                 |   ToPReg preg => preg
-                                |   ToStack => raise InternalError "LoadArgument - already on stack"
+                                |   ToStack _ => raise InternalError "LoadArgument - already on stack"
                         in
                             (LoadArgument{source=sourceVal, dest=destReg, kind=kind}, context)
                         end
@@ -441,10 +442,10 @@ struct
                             in
                                 ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   ToStack =>
+                        |   ToStack stackLoc =>
                             let
                                 val (sourceVal, sourceCode) = mapSource(source, context)
-                                val stackOff = getStackOffset(n, context)
+                                val stackOff = getStackOffset(n, context, stackLoc)
                             in
                                 (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
                             end
