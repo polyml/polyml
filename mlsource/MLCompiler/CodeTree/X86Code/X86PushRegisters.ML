@@ -33,17 +33,20 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs} =
+    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, pregProps} =
     let
+        val maxPRegs = Vector.length pregProps
         val numberOfBlocks = Vector.length code
+        (* Output registers and properties. *)
         val pregCounter = ref 0
+        val pregPropList = ref []
+
         val maxStack = ref 0
         
         (* Each preg in the input is mapped to either a new preg or the stack. *)
         datatype pregMapType = Unset | ToPReg of abstract | ToStack
         val pregMap = Array.array(maxPRegs, Unset)
-        
-        
+
         (* The stack contains both entries in the input code and entries added here. *)
         datatype stackEntry =
             NewEntry of {pregNo: int}
@@ -59,8 +62,24 @@ struct
 
         val emptyContext: context = { oldCount=0, newCount=0, stack=[]}
 
-        fun newPReg kind = PReg(!pregCounter before pregCounter := !pregCounter + 1, kind)
+        fun newPReg kind =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val propKind =
+                case kind of PRegGeneral => RegPropGeneral | PRegUntagged => RegPropUntagged
+            val () = pregPropList := propKind :: !pregPropList
+        in
+            PReg(regNo, kind)
+        end
         
+        and newStackLoc size =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val () = pregPropList := RegPropStack size :: !pregPropList
+        in
+            StackLoc{size=size, rno=regNo}
+        end
+
         fun getStackOffset(regNo: int, {stack, newCount, ...}: context) =
         let
             fun findEntry(offset, NewEntry {pregNo} :: tl) =
@@ -304,6 +323,7 @@ struct
 
         |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...} :: rest, code, context) =
             let
+                val newStackArgs = List.map(fn _ => newStackLoc 1) stackArgs
                 (* Push any registers that need to be pushed. *)
                 fun pushReg((preg, rreg), (others, code, context)) =
                 let
@@ -314,7 +334,7 @@ struct
                 val (newRegArgs, pushCode, newContext) = List.foldl pushReg ([], [], context) regArgs
             in
                 pushRegisters(rest,
-                    pushCode @ (BeginFunction {regArgs=newRegArgs, stackArgs=stackArgs} :: code), newContext)
+                    pushCode @ (BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code), newContext)
             end
 
         |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, ...} :: rest, code, context) =
@@ -892,8 +912,10 @@ struct
             case !extraBlocks of
                 [] => resultBlocks
             |   blocks => Vector.concat[resultBlocks, Vector.fromList(List.rev blocks)]
+        
+        val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
-        {code=finalResult, maxPRegs= !pregCounter, maxStack= !maxStack}
+        {code=finalResult, pregProps=pregProperties, maxStack= !maxStack}
     end
 
     structure Sharing =
@@ -903,5 +925,6 @@ struct
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
         and 'reg basicBlock = 'reg basicBlock
+        and regProperty = regProperty
     end
 end;

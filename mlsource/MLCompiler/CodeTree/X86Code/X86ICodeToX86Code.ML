@@ -57,6 +57,12 @@ struct
 
     (* A location on the stack.  May be more than word if this is a container or a handler entry. *)
     datatype stackLocn = StackLoc of {size: int, rno: int }
+    
+    (* This combines pregKind and stackLocn.  *)
+    datatype regProperty =
+        RegPropGeneral      (* A general register. *)
+    |   RegPropUntagged     (* An untagged general register. *)
+    |   RegPropStack of int (* A stack location or container. *)
 
     datatype 'reg argument =
         RegisterArgument of 'reg
@@ -1491,6 +1497,7 @@ struct
         and controlFlow     = controlFlow
         and 'reg basicBlock = 'reg basicBlock
         and stackLocn       = stackLocn
+        and regProperty     = regProperty
     end
 
 end;

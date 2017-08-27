@@ -223,8 +223,9 @@ struct
     |   getInstructionRegisters(SSE2FPArith{resultReg, arg1, arg2, ...}) =
             { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg]}
 
-    fun identifyRegisters(blockVector, maxPRegs): extendedBasicBlock vector * regState vector =
+    fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
+        val maxPRegs = Vector.length pregProps
         val vectorLength = Vector.length blockVector
         (* Initial arrays - declarationArray is the set of registers given
            values by the block, importArray is the set of registers referenced by
@@ -555,5 +556,6 @@ struct
         and controlFlow = controlFlow
         and 'reg argument = 'reg argument
         and 'reg memoryIndex = 'reg memoryIndex
+        and regProperty = regProperty
     end
 end;

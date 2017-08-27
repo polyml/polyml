@@ -75,10 +75,34 @@ struct
 
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
+        (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
-        fun newPReg() = PReg(!pregCounter, PRegGeneral) before pregCounter := !pregCounter + 1
-        fun newUReg() = PReg(!pregCounter, PRegUntagged) before pregCounter := !pregCounter + 1
-        fun newStackLoc size = StackLoc{size=size, rno= !pregCounter} before pregCounter := !pregCounter + 1
+        val pregPropList = ref []
+        
+        fun newPReg() =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val () = pregPropList := RegPropGeneral :: !pregPropList
+        in
+            PReg(regNo, PRegGeneral)
+        end
+        
+        and newUReg() =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val () = pregPropList := RegPropUntagged :: !pregPropList
+        in
+            PReg(regNo, PRegUntagged)
+        end
+        
+        and newStackLoc size =
+        let
+            val regNo = !pregCounter before pregCounter := !pregCounter + 1
+            val () = pregPropList := RegPropStack size :: !pregPropList
+        in
+            StackLoc{size=size, rno=regNo}
+        end
+
         val locToPregArray = Array.array(localCount, NONE: abstract option)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
         fun newLabel() = !labelCounter before labelCounter := !labelCounter + 1
@@ -2674,9 +2698,11 @@ struct
         end
       
         open ICODETRANSFORM
+        
+        val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
-        codeICodeFunctionToX86{blocks = resultVector, functionName = name, maxLabels = !labelCounter,
-            maxPRegs = ! pregCounter, argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
+        codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
+            argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
             debugSwitches = debugSwitches}
     end
 

@@ -18,10 +18,11 @@
 signature X86PUSHREGISTERSIG =
 sig
     type abstract and 'reg x86ICode and intSet and extendedBasicBlock and 'reg basicBlock
+    and regProperty
 
     val addRegisterPushes :
-        { code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs: int } ->
-            { code: abstract basicBlock vector, maxPRegs: int, maxStack: int }
+        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector } ->
+            { code: abstract basicBlock vector, pregProps: regProperty vector, maxStack: int }
 
     structure Sharing:
     sig
@@ -29,5 +30,6 @@ sig
         and abstract = abstract
         and extendedBasicBlock = extendedBasicBlock
         and 'reg basicBlock = 'reg basicBlock
+        and regProperty = regProperty
     end
 end;

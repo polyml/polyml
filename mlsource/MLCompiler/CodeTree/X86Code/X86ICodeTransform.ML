@@ -64,8 +64,10 @@ struct
         MemoryLocation{offset=offset*wordSize, base=(GenReg baseReg), index=NoMemIndex}
     exception RegisterOverflow of intSet
 
-    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector, maxPRegs): reg basicBlock vector =
+    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector): reg basicBlock vector =
     let
+        val maxPRegs = Vector.length regStates
+
         (* Allocated registers.  This is set to the real register that is used
            for a specific pseudo-register.  Once a register is allocated that
            is fixed. *)
@@ -1278,8 +1280,9 @@ struct
        involves choosing suitable registers and is a first attempt to check we have enough
        registers.  We can also get a failure in codeExtended when we actually allocate
        the registers. *)
-    fun spillRegisters(identified: extendedBasicBlock vector, regStates: regState vector, maxPRegs) =
+    fun spillRegisters(identified: extendedBasicBlock vector, regStates: regState vector) =
     let
+        val maxPRegs = Vector.length regStates
         val pushArray = Array.array(maxPRegs, false)
         (* Mark anything already marked as "must push" *)
         val () = Vector.appi(fn (i, {pushState=MustPush, ...}) => Array.update(pushArray, i, true) | _ => ()) regStates
@@ -1355,8 +1358,9 @@ struct
      
     type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, maxPRegs, argRegsUsed, hasFullClosure, debugSwitches, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, hasFullClosure, debugSwitches, ...} =
     let
+       (*val maxPRegs = Vector.length pregProps*)
         val icodeTabs = [8, 20, 60]
         val wantPrintCode = DEBUG.getParameter DEBUG.icodeTag debugSwitches
         
@@ -1395,15 +1399,15 @@ struct
             end
             else ()            
 
-        fun processCode(basicBlocks, maxPRegs, maxStack, passes) =
+        fun processCode(basicBlocks, pregProps: regProperty vector, maxStack, passes) =
         let
             val () =
                 if wantPrintCode
                 then printCode basicBlocks
                 else ()
             (* First pass - identify register use patterns *)
-            val (identified, regStates) = identifyRegisters(basicBlocks, maxPRegs)
-            val regsToSpill = spillRegisters(identified, regStates, maxPRegs)
+            val (identified, regStates) = identifyRegisters(basicBlocks, pregProps)
+            val regsToSpill = spillRegisters(identified, regStates)
             val needPhase2 = Vector.exists(fn t => t) regsToSpill
         in
             if needPhase2
@@ -1411,14 +1415,15 @@ struct
             let
                 (* Push those registers we need to.  This also adds and renumbers pregs
                    and may add labels. *)
-                val {code=postPushCode, maxPRegs=maxPRegsPhase2, maxStack=maxStackPhase2} =
-                    addRegisterPushes{code=identified, pushVec=regsToSpill, maxPRegs=maxPRegs}
+                val {code=postPushCode, pregProps=regPropsPhase2, maxStack=maxStackPhase2} =
+                    addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps}
             in
                 (* And reprocess. *)
-                processCode(postPushCode, maxPRegsPhase2, maxStackPhase2, passes+1)
+                processCode(postPushCode, regPropsPhase2, maxStackPhase2, passes+1)
             end
             else
             let
+                val maxPRegs = Vector.length regStates
                 fun selectARegisterToSpill active =
                 let
                     fun chooseReg([], bestReg, _) = bestReg
@@ -1450,20 +1455,20 @@ struct
                 end
 
             in
-                (codeAbstractToConcrete(identified, conflictSets, maxPRegs), maxStack)
+                (codeAbstractToConcrete(identified, conflictSets), maxStack)
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet
-                        val {code=postPushCode, maxPRegs=maxPRegsPhase2, maxStack=maxStackPhase2} =
-                            addRegisterPushes{code=identified, pushVec=regsToSpill, maxPRegs=maxPRegs}
+                        val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
+                            addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps}
                     in
-                        processCode(postPushCode, maxPRegsPhase2, maxStackPhase2, passes+1)
+                        processCode(postPushCode, pregPropsPhase2, maxStackPhase2, passes+1)
                     end
             end
         end
 
         val (postTransformCode: reg basicBlock vector, stackRequired) =
-            processCode(blocks, maxPRegs, 0 (* Should include handlers and containers. *), 0)
+            processCode(blocks, pregProps, 0 (* Should include handlers and containers. *), 0)
 
         val () =
             (* Print the code after the transformation. *)
@@ -1484,9 +1489,9 @@ struct
     end
     structure Sharing =
     struct
-        type 'reg x86ICode  = 'reg x86ICode
-        and abstract        = abstract
+        type abstract        = abstract
         and reg             = reg
         and 'reg basicBlock = 'reg basicBlock
+        and regProperty = regProperty
     end
 end;
