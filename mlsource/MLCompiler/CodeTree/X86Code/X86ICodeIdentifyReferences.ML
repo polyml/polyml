@@ -133,8 +133,11 @@ struct
     |   getInstructionRegisters(RaiseExceptionPacket{packet}) =
             { sources=argRegs packet, dests=[] }
 
-    |   getInstructionRegisters(ReserveContainer{address, ...}) =
-            { sources=[], dests=[address] }
+    |   getInstructionRegisters(ReserveContainer _) =
+            { sources=[], dests=[] }
+
+    |   getInstructionRegisters(LoadContainerAddress{dest, ...}) =
+            { sources=[], dests=[dest] }
 
     |   getInstructionRegisters(IndexedCaseOperation{testReg, workReg, ...}) =
             { sources=[testReg], dests=[workReg]}

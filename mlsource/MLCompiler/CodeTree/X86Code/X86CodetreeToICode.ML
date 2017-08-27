@@ -102,8 +102,13 @@ struct
         in
             StackLoc{size=size, rno=regNo}
         end
+        
+        datatype locationValue =
+            NoLocation
+        |   PregLocation of abstract
+        |   ContainerLocation of { container: stackLocn, stackOffset: int }
 
-        val locToPregArray = Array.array(localCount, NONE: abstract option)
+        val locToPregArray = Array.array(localCount, NoLocation)
         val labelCounter = ref 1 (* Start at 1.  Zero is used for the root. *)
         fun newLabel() = !labelCounter before labelCounter := !labelCounter + 1
         val ccRefCounter = ref 0
@@ -317,7 +322,7 @@ struct
                     let
                         val dest = newPReg()
                         val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg dest, tailCode)
-                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
                     in
                         doBindings(decs, context, code)
                     end
@@ -327,7 +332,7 @@ struct
                     let
                         val dest = newPReg()
                         val (code, _, _) = codeToICodeRev(BICLambda lambda, context, false, SpecificPReg dest, tailCode)
-                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val () = Array.update(locToPregArray, addr, PregLocation dest)
                     in
                         doBindings(decs, context, code)
                     end
@@ -340,7 +345,7 @@ struct
                            entry in the address table to the register containing the address. *)
                         fun makeClosure({lambda={closure, ...}, addr, ...}, dest, c) =
                         let
-                            val () = Array.update(locToPregArray, addr, SOME dest)
+                            val () = Array.update(locToPregArray, addr, PregLocation dest)
                             val sizeClosure = List.length closure + 1
                             fun clear n =
                                 if n = sizeClosure
@@ -393,11 +398,12 @@ struct
        
                 |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr}, tailCode) =
                     let
-                        val dest = newPReg()
-                        val () = Array.update(locToPregArray, addr, SOME dest)
+                        val containerReg = newStackLoc size
+                        val () = Array.update(locToPregArray, addr,
+                                    ContainerLocation{container=containerReg, stackOffset=stackPtr+size})
                     in
                         doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size},
-                            BlockSimple(ReserveContainer{size=size, address=dest}) :: tailCode)
+                            BlockSimple(ReserveContainer{size=size, container=containerReg}) :: tailCode)
                     end
 
                 val (codeBindings, resContext as {stackPtr=finalSp, ...}) = doBindings(bindings, context, tailCode)
@@ -425,8 +431,19 @@ struct
         |   codeToICodeRev(BICConstnt(value, _), _, _, destination, tailCode) =
                 moveIfNotAllowedRev(destination, tailCode, constantAsArgument value)
 
-        |   codeToICodeRev(BICExtract(BICLoadLocal l), _, _, destination, tailCode) =
-                moveIfNotAllowedRev(destination, tailCode, RegisterArgument(valOf(Array.sub(locToPregArray, l))))
+        |   codeToICodeRev(BICExtract(BICLoadLocal l), {stackPtr, ...}, _, destination, tailCode) =
+            (
+                case Array.sub(locToPregArray, l) of
+                    NoLocation => raise InternalError "codeToICodeRev - local unset"
+                |   PregLocation pr => moveIfNotAllowedRev(destination, tailCode, RegisterArgument pr)
+                |   ContainerLocation{container, stackOffset} =>
+                    let
+                        val target = asTarget destination
+                    in
+                       (BlockSimple(LoadContainerAddress{container=container, dest=target, stackOffset=stackPtr-stackOffset}) :: tailCode,
+                        RegisterArgument target, false)
+                    end
+            )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
             if a < numArgRegs
@@ -823,7 +840,7 @@ struct
                 |   codeArgs (({value, addr}, _) :: rest, tailCode) =
                     let
                         val pr = newPReg()
-                        val () = Array.update(locToPregArray, addr, SOME pr)
+                        val () = Array.update(locToPregArray, addr, PregLocation pr)
                         val (code, _, _) = codeToICodeRev(value, context, false, SpecificPReg pr, tailCode)
                         val (pregs, othercode) = codeArgs(rest, code)
                     in
@@ -915,7 +932,7 @@ struct
                         end
                 (* Make a register to hold the exception packet and put eax into it. *)
                 val packetAddr = newPReg()
-                val () = Array.update(locToPregArray, exPacketAddr, SOME packetAddr)
+                val () = Array.update(locToPregArray, exPacketAddr, PregLocation packetAddr)
                 val (handleCode, _, handleExit) =
                     codeToICodeRev(handler, context, isTail, SpecificPReg handlerTarget,
                         BlockSimple(BeginHandler{workReg=newPReg(), packetReg=packetAddr}) :: BlockLabel handlerLab :: atExpEnd)

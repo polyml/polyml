@@ -775,14 +775,25 @@ struct
                     RaiseExceptionPacket {packet=RegisterArgument raxAsArg } :: code
             end
 
-        |   codeExtended({instr=ReserveContainer{size, address=PReg aReg}, ...} :: rest, context) =
+        |   codeExtended({instr=ReserveContainer{size, ...}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
-                val addrReg = findRegister(aReg, NONE, generalRegisters)
                 (* The memory must be cleared in case we have a GC. *)
                 val pushAll = List.tabulate(size, fn _ => PushValue{arg=IntegerConstant(tag 0)})
             in
-                pushAll @ LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord} :: code
+                pushAll @ code
+            end
+
+        |   codeExtended({instr=LoadContainerAddress{stackOffset, dest=PReg aReg, ...}, ...} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val addrReg = findRegister(aReg, NONE, generalRegisters)
+                val loadAddr =
+                    if stackOffset = 0
+                    then LoadArgument{source=RegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord}
+                    else LoadEffectiveAddress { base=SOME(GenReg esp), offset=stackOffset*wordSize, index=NoMemIndex, dest=addrReg }
+            in
+                loadAddr :: code
             end
 
         |   codeExtended({instr=IndexedCaseOperation{testReg=PReg tReg, workReg=PReg wReg}, ...} :: rest, context) =

@@ -461,14 +461,21 @@ struct
                 (RaiseExceptionPacket{packet=packetVal} :: packetCode @ code, context)
             end
 
-        |   pushRegisters({instr=ReserveContainer{size, address}, ...} :: rest, code, {oldCount, newCount, stack}) =
+        |   pushRegisters({instr=ReserveContainer{size, container}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
                 val containerContext =
                     {oldCount=oldCount+size, newCount=newCount+size, stack=ContainerEntry{size=size, active=true}::stack}
-                val (destVal, destCode, newContext) = mapDestReg(address, containerContext)
                 val () = maxStack := Int.max(!maxStack, newCount+size)
             in
-                pushRegisters(rest, destCode @ ReserveContainer{size=size, address=destVal} :: code, newContext)
+                pushRegisters(rest, ReserveContainer{size=size, container=container} :: code, containerContext)
+            end
+
+        |   pushRegisters({instr=LoadContainerAddress{container, dest, stackOffset}, ...} :: rest, code, context) =
+            let
+                val newStackOffset = mapOldStackOffset(stackOffset, context)
+                val (destVal, destCode, newContext) = mapDestReg(dest, context)
+            in
+                pushRegisters(rest, destCode @ LoadContainerAddress{container=container, dest=destVal, stackOffset=newStackOffset} :: code, newContext)
             end
 
         |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...} :: rest, code, context) =

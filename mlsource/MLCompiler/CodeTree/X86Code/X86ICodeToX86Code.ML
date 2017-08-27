@@ -150,7 +150,10 @@ struct
     |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
-    |   ReserveContainer of { size: int, address: 'reg }
+    |   ReserveContainer of { size: int, container: stackLocn }
+    
+        (* Load the address of a container. *)
+    |   LoadContainerAddress of { container: stackLocn, dest: 'reg, stackOffset: int }
 
         (* Indexed case. *)
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg }
@@ -296,7 +299,7 @@ struct
                 (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
         
         fun printStackLoc(StackLoc{size, rno}, stream) =
-            (stream "S("; stream(Int.toString size); stream ")"; stream(Int.toString rno))
+            (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
@@ -411,8 +414,11 @@ struct
 
         |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
 
-        |   printICode(ReserveContainer{size, address}, stream, printReg) =
-            (stream "\tReserveContainer\t"; stream(Int.toString size); stream "=>"; printReg(address, stream))
+        |   printICode(ReserveContainer{size, container}, stream, _) =
+            (stream "\tReserveContainer\t"; stream(Int.toString size); stream " => "; printStackLoc(container, stream))
+
+        |   printICode(LoadContainerAddress{container, dest, ...}, stream, printReg) =
+            (stream "\tLoadContainerAddr\t"; printStackLoc(container, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(IndexedCaseOperation{testReg, workReg}, stream, printReg) =
             (
@@ -1278,6 +1284,10 @@ struct
             |   codeGenICode(ReserveContainer _ :: _, _) =
                     raise InternalError "codeGenICode: ReserveContainer"
                 
+                (* LoadContainerAddress should have been removed by earlier passes. *)
+            |   codeGenICode(LoadContainerAddress _ :: _, _) =
+                    raise InternalError "codeGenICode: LoadContainerAddress"
+
                 (* BoxValue should have been removed by earlier passes. *)
             |   codeGenICode(BoxValue _ :: _, _) =
                     raise InternalError "codeGenICode: BoxValue"

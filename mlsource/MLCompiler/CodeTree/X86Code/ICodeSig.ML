@@ -171,7 +171,10 @@ sig
     |   RaiseExceptionPacket of { packet: 'reg argument }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
-    |   ReserveContainer of { size: int, address: 'reg }
+    |   ReserveContainer of { size: int, container: stackLocn }
+    
+        (* Load the address of a container. *)
+    |   LoadContainerAddress of { container: stackLocn, dest: 'reg, stackOffset: int }
 
         (* Indexed case. *)
     |   IndexedCaseOperation of { testReg: 'reg, workReg: 'reg }
