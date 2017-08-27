@@ -60,7 +60,7 @@ struct
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
-    |   StackLocation of { wordOffset: int, adjustment: int }
+    |   StackLocation of { wordOffset: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -281,8 +281,8 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
-        |   printArg(StackLocation{wordOffset, adjustment}, stream, _) =
-                stream(Int.toString wordOffset ^ "+" ^ Int.toString adjustment ^ "(stackptr)")
+        |   printArg(StackLocation{wordOffset}, stream, _) =
+                stream(Int.toString wordOffset ^ "(stackptr)")
             
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
@@ -699,8 +699,8 @@ struct
         and sourceAsGenRegOrMem(RegisterArgument((GenReg r))) = RegisterArg r
         |   sourceAsGenRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsGenRegOrMem(StackLocation{adjustment, wordOffset}) =
-                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
+        |   sourceAsGenRegOrMem(StackLocation{wordOffset}) =
+                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   sourceAsGenRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsGenRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -708,8 +708,8 @@ struct
         and sourceAsXMMRegOrMem(RegisterArgument((XMMReg r))) = RegisterArg r
         |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsXMMRegOrMem(StackLocation{adjustment, wordOffset}) =
-                MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}
+        |   sourceAsXMMRegOrMem(StackLocation{wordOffset}) =
+                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   sourceAsXMMRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
@@ -1055,9 +1055,9 @@ struct
             |   codeGenICode(TestTagBit {arg = RegisterArgument reg, ...} :: rest, code) =
                     codeGenICode(rest, TestTagR(asGenReg reg) :: code)
 
-            |   codeGenICode(TestTagBit {arg = StackLocation {adjustment, wordOffset}, ...} :: rest, code) =
+            |   codeGenICode(TestTagBit {arg = StackLocation {wordOffset}, ...} :: rest, code) =
                     (* Since the X86 is little-endian we check the addressed byte. *)
-                    codeGenICode(rest, TestByteMem{base=esp, offset=(adjustment+wordOffset)*wordSize, bits=0w1} :: code)
+                    codeGenICode(rest, TestByteMem{base=esp, offset=wordOffset*wordSize, bits=0w1} :: code)
 
             |   codeGenICode(TestTagBit {arg = MemoryLocation {offset, base, index=NoMemIndex}, ...} :: rest, code) =
                     codeGenICode(rest, TestByteMem{base=asGenReg base, offset=offset, bits=0w1} :: code)
@@ -1073,9 +1073,9 @@ struct
             |   codeGenICode(PushValue { arg = AddressConstant v } :: rest, code) =
                     codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
 
-            |   codeGenICode(PushValue { arg = StackLocation {adjustment, wordOffset} } :: rest, code) =
+            |   codeGenICode(PushValue { arg = StackLocation {wordOffset} } :: rest, code) =
                     (* The X86 manual says that the address is computed before the push. *)
-                    codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=(adjustment+wordOffset)*wordSize, index=NoIndex}) :: code)
+                    codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}) :: code)
 
             |   codeGenICode(PushValue { arg = MemoryLocation {offset, base, index} } :: rest, code) =
                     codeGenICode(rest, PushToStack(MemoryArg{base=asGenReg base, offset=offset, index=memoryIndexAsIndex index}) :: code)

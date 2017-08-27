@@ -404,7 +404,7 @@ struct
                 val target = asTarget destination
             in
                 (BlockSimple(LoadArgument{
-                    source=StackLocation{wordOffset=List.length argTypes - a, adjustment=stackPtr}, dest=target, kind=MoveWord}) ::
+                    source=StackLocation{wordOffset=List.length argTypes - a + stackPtr}, dest=target, kind=MoveWord}) ::
                         tailCode,
                  RegisterArgument target, false)
             end
@@ -542,7 +542,7 @@ struct
                            the new function the return address will be the first item on the stack. *)
                         val stackAdjust = firstArgumentAddr - newStackArgCount
                         (* Add an entry for the return address to the stack arguments. *)
-                        val returnEntry = {src=StackLocation{wordOffset=stackPtr, adjustment=0}, stack=stackAdjust}
+                        val returnEntry = {src=StackLocation{wordOffset=stackPtr}, stack=stackAdjust}
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
                                   stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})

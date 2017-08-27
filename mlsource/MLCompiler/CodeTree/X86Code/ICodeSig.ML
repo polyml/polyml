@@ -82,8 +82,8 @@ sig
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location. *)
-        (* Offset on the stack.  The "adjustment" is a temporary hack. *)
-    |   StackLocation of { wordOffset: int, adjustment: int }
+        (* Offset on the stack. *)
+    |   StackLocation of { wordOffset: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg

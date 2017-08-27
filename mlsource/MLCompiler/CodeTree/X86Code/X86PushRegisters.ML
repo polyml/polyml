@@ -118,7 +118,7 @@ struct
                     val newReg = newPReg PRegUntagged
                 in
                     (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context), adjustment=0}, dest=newReg, kind=MoveWord}])
+                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context)}, dest=newReg, kind=MoveWord}])
                 end
        
         fun mapDestReg(PReg(n, kind), context: context as {stack, oldCount, newCount}) =
@@ -192,7 +192,7 @@ struct
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
                 |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack => (StackLocation{wordOffset=getStackOffset(r, context), adjustment=0}, [])
+                |   ToStack => (StackLocation{wordOffset=getStackOffset(r, context)}, [])
             )
 
         |   mapSource(a as AddressConstant _, _) = (a, [])
@@ -206,8 +206,8 @@ struct
                 (MemoryLocation{base=baseReg, offset=offset, index=indexValue}, baseCode @ indexCode)
             end
 
-        |   mapSource(StackLocation{wordOffset, adjustment}, context) =
-                (StackLocation{wordOffset=mapOldStackOffset(wordOffset+adjustment, context), adjustment=0}, [])
+        |   mapSource(StackLocation{wordOffset}, context) =
+                (StackLocation{wordOffset=mapOldStackOffset(wordOffset, context)}, [])
 
         (* If the argument AFTER processing is a stack entry, then load it. *)
         fun loadStack(stack as StackLocation _) =

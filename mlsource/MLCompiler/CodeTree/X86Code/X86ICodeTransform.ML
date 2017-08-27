@@ -241,8 +241,8 @@ struct
         |   codeExtArgument(IntegerConstant i, _) = IntegerConstant i
         |   codeExtArgument(MemoryLocation{base=PReg(bReg, _), offset, index}, _) =
                 MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(StackLocation{wordOffset, adjustment}, _) =
-                MemoryLocation{base=GenReg esp, offset=(wordOffset+adjustment)*wordSize, index=NoMemIndex}
+        |   codeExtArgument(StackLocation{wordOffset}, _) =
+                MemoryLocation{base=GenReg esp, offset=wordOffset*wordSize, index=NoMemIndex}
         
         and codeExtArgGeneral arg = codeExtArgument(arg, generalRegisters)
         and codeExtArgFloat arg = codeExtArgument(arg, floatingPtRegisters)
@@ -320,9 +320,9 @@ struct
                     |   moveEachValue ([{dst=StackDest _, src=MemoryLocation _ }] :: _, _) =
                             raise InternalError "moveEachValue - MemoryArgument"
 
-                    |   moveEachValue ([{dst=StackDest addr, src as StackLocation{ wordOffset, adjustment}}] :: rest, reserved) =
+                    |   moveEachValue ([{dst=StackDest addr, src as StackLocation{ wordOffset}}] :: rest, reserved) =
                             (* Copy a stack location - needs a load and store unless the address is the same. *)
-                            if addr = wordOffset + adjustment
+                            if addr = wordOffset
                             then moveEachValue(rest, reserved)
                             else
                             let
@@ -343,8 +343,8 @@ struct
                                             val destAddr = addr+1
                                             val newSrc =
                                                 case src of
-                                                    StackLocation{wordOffset, adjustment} =>
-                                                        StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}
+                                                    StackLocation{wordOffset} =>
+                                                        StackLocation{wordOffset=wordOffset+1}
                                                 |   src => src
                                         in
                                             [
@@ -353,7 +353,7 @@ struct
                                             StoreArgument{
                                                 source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
                                                 offset = destAddr*wordSize, kind=MoveWord},
-                                            LoadArgument{source=StackLocation{wordOffset=0, adjustment=0}, dest=workReg, kind=MoveWord},
+                                            LoadArgument{source=StackLocation{wordOffset=0}, dest=workReg, kind=MoveWord},
                                             ResetStackPtr{numWords=1}
                                             ]
                                         end
@@ -419,9 +419,9 @@ struct
                                     case (src, originalSrc) of
                                         (RegisterArgument r1, RegisterArgument r2) =>
                                             if r1=r2 then replace else src
-                                    |   (StackLocation{wordOffset=offset1, adjustment=adj1},
-                                         StackLocation{wordOffset=offset2, adjustment=adj2}) =>
-                                            if offset1+adj1 = offset2+adj2 then replace else src
+                                    |   (StackLocation{wordOffset=offset1},
+                                         StackLocation{wordOffset=offset2}) =>
+                                            if offset1 = offset2 then replace else src
                                     |   (MemoryLocation _, _) => raise InternalError "swapSources: memory loc"
                                     |   (_, MemoryLocation _) => raise InternalError "swapSources: memory loc"
                                     |   _ => src
@@ -478,8 +478,8 @@ struct
                     val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
                     val newSrc =
                         case src of
-                            StackLocation{wordOffset, adjustment} =>
-                                StackLocation{wordOffset=wordOffset+1, adjustment=adjustment}
+                            StackLocation{wordOffset} =>
+                                StackLocation{wordOffset=wordOffset+1}
                         |   other => other
                 in
                     {dst=newDest, src=newSrc} :: renumberArgs args
@@ -662,8 +662,8 @@ struct
                         (* Have to adjust the offsets of stack arguments. *)
                         val adjusted =
                             case arg of
-                                StackLocation {wordOffset, adjustment} =>
-                                    StackLocation{wordOffset=wordOffset+argNum, adjustment=adjustment}
+                                StackLocation {wordOffset} =>
+                                    StackLocation{wordOffset=wordOffset+argNum}
                             |   arg => arg
                     in
                         PushValue {arg=codeExtArgGeneral adjusted} :: pushStackArgs(args, argNum+1)
@@ -687,8 +687,8 @@ struct
                         SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
                 |   getConstArgs(IntegerConstant i, reg) =
                         SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
-                |   getConstArgs(StackLocation { wordOffset, adjustment }, reg) =
-                        SOME(LoadArgument{source=StackLocation{wordOffset=wordOffset+numStackArgs, adjustment=adjustment},
+                |   getConstArgs(StackLocation { wordOffset }, reg) =
+                        SOME(LoadArgument{source=StackLocation{wordOffset=wordOffset+numStackArgs},
                                           dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = NONE
