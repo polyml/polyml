@@ -531,7 +531,8 @@ struct
                            no stack arguments.  N.B. We actually have currentStackArgCount+1
                            items on the stack including the return address.  Offsets can be
                            negative. *)
-                        val firstArgumentAddr = stackPtr + currentStackArgCount
+                        val stackOffset = stackPtr
+                        val firstArgumentAddr = currentStackArgCount
                         fun makeStackArgs([], _) = []
                         |   makeStackArgs(arg::args, offset) = {src=arg, stack=offset} :: makeStackArgs(args, offset-1)
                         val stackArgs = makeStackArgs(stackArgs, firstArgumentAddr)
@@ -542,7 +543,7 @@ struct
                         val stackAdjust = firstArgumentAddr - newStackArgCount
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs,
-                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, callKind=callKind})
+                                  returnAddr={srcStack=stackPtr, stack=stackAdjust}, stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})
                     end
                     else BlockSimple(FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind})
             in

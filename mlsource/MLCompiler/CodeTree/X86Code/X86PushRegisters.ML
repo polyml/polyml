@@ -344,18 +344,15 @@ struct
                             regArgLoads @ stackArgLoads @ code, newContext)
             end
 
-        |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust}, ...} :: rest, code,
+        |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust, stackOffset}, ...} :: rest, code,
                           context as {oldCount, newCount, ...}) =
             let
                 val _ = null rest orelse raise InternalError "pushRegisters - TailRecursiveCall"
-                (* We have to adjust all the stack offsets to account for anything we've pushed.
-                   Note: we mustn't use mapOldStackOffset for destination stack offsets.
-                   These are not actual source stack items but overwrite the stack. *)
                 fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
                 let
                     val (argVal, loadCode) = mapSource(src, context)
                 in
-                    (loadCode @ otherLoads, {src=argVal, stack=stack+newCount-oldCount} :: otherArgs)
+                    (loadCode @ otherLoads, {src=argVal, stack=stack} :: otherArgs)
                 end
                 val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                 
@@ -367,13 +364,14 @@ struct
                 end
                 val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
 
-                val returnAddr = {srcStack=mapOldStackOffset(srcStack, context), stack=stack+newCount-oldCount}
-                (* Because we're adjusting to the base of the stack we don't need to look at what we've
-                   actually pushed. *) 
-                val newStackAdjust = stackAdjust+newCount-oldCount
+                val returnAddr = {srcStack=mapOldStackOffset(srcStack, context), stack=stack}
+                (* stackOffset is the current stack size.  We need it at the moment because codeExtended
+                   doesn't have a current stack pointer. *) 
+                val _ = stackOffset = oldCount orelse raise InternalError "pushRegisters - tail"
+                val newStackOffset = newCount
             in
                 (TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
-                        stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=newStackAdjust} ::
+                        stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=stackAdjust, stackOffset=newStackOffset} ::
                             regArgLoads @ stackArgLoads @ code, context)
             end
 

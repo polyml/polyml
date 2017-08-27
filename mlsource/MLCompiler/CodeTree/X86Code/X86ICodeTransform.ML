@@ -497,7 +497,8 @@ struct
                 else [ResetStackPtr{numWords=stackAdjust}]
         in
             loadArgs @ adjustStack @
-            [TailRecursiveCall{regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0}]
+            [TailRecursiveCall{
+                regArgs=[], stackArgs=[], callKind=callKind, returnAddr={srcStack=0, stack=0}, stackAdjust=0, stackOffset=0}]
         end
 
         fun codeExtended([], _) = []
@@ -613,21 +614,21 @@ struct
                 moveMultipleRegisters regPairs @ code
             end
 
-        |   codeExtended({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust}, ...} :: rest, context) =
+        |   codeExtended({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust, stackOffset}, ...} :: rest, context) =
             let
                 val () = List.app (fn (RegisterArgument(PReg(pr, _)), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
                 (* Add the return address as an extra argument.  This is a temporary hack because codeICode doesn't
                    do it that way. *)
-                val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, dst=StackDest stack}
+                val returnEntry = {src=StackLocation{wordOffset=srcStack, adjustment=0}, dst=StackDest(stack+stackOffset)}
                 (* We must leave stack entries as stack entries for the moment. *)
                 fun codeArg(StackLocation stack) = StackLocation stack
                 |   codeArg arg = codeExtArgGeneral arg
 
-                val extStackArgs = map (fn {stack, src} => {dst=StackDest stack, src=codeArg src}) stackArgs
+                val extStackArgs = map (fn {stack, src} => {dst=StackDest(stack+stackOffset), src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=codeArg a, dst=RegDest r}) regArgs
                 val codeTail =
-                    codeTailCall(callKind, returnEntry :: extStackArgs @ extRegArgs, stackAdjust)
+                    codeTailCall(callKind, returnEntry :: extStackArgs @ extRegArgs, stackAdjust+stackOffset)
                         handle RegisterOverflow _ =>
                         let
                             (* We've not been able to find enough free registers and have to push something.
