@@ -280,7 +280,7 @@ struct
                 (BlockSimple(LoadArgument{source=arg, dest=target, kind=MoveWord}) :: code, RegisterArgument target, false)
             end
 
-        fun codeToICodeTarget(instr, context, isTail, target) =
+        and codeToICodeTarget(instr, context, isTail, target) =
         (* This is really for backwards compatibility.  *)
         let
             val (code, _, _) = codeToICode(instr, context, isTail, SpecificPReg target)
@@ -305,7 +305,14 @@ struct
         in
             (code, preg)
         end
-
+        
+        and codeToICode(instr, context, isTail, destination) =
+        let
+            val (code, dest, haveExited) = codeToICodeRev(instr, context, isTail, destination, [])
+        in
+            (List.rev code, dest, haveExited)
+        end
+        
         (* Main function to turn the codetree into ICode.  Optimisation is generally
            left to later passes.  This does detect tail recursion.
            This builds the result up in reverse order.  There was an allocation hotspot in loadFields
@@ -629,30 +636,56 @@ struct
                 (BlockSimple(LoadMemReg{offset=memRegThreadSelf, dest=target}) :: tailCode, RegisterArgument target, false)
             end
 
-        |   codeToICodeRev(instr as BICUnary _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICUnary instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeUnary(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        |   codeToICodeRev(instr as BICBinary _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICBinary instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeBinary(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        |   codeToICodeRev(instr as BICArbitrary _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICArbitrary{oper, shortCond, arg1, arg2, longCall}, context, _, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val startLong = newLabel() and resultLabel = newLabel()
+                val target = asTarget destination
+                val condResult = newPReg()
+                (* Overflow check - if there's an overflow jump to the long precision case. *)
+                fun jumpOnOverflow ccRef =
+                let
+                    val noOverFlow = newLabel()
+                in
+                    [BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=startLong, falseJump=noOverFlow }),
+                     BlockLabel noOverFlow]
+                end
+                val (longCode, _, _) = codeToICode(longCall, context, false, SpecificPReg condResult)
+                
+                     (* We could use a tail jump here if this is a tail. *)
+                val (code, dest, haveExited) =
+                (
+                    (* Test the tag bits and skip to the long case if either is clear. *)
+                    List.rev(codeConditionRev(shortCond, context, false, startLong, [])) @
+                    (* Try evaluating as fixed precision and jump if we get an overflow. *)
+                    codeFixedPrecisionArith(oper, arg1, arg2, context, condResult, jumpOnOverflow) @
+                    (* If we haven't had an overflow jump to the result. *)
+                    [BlockFlow(Unconditional resultLabel),
+                     (* If we need to use the full long-precision call we come here. *)
+                     BlockLabel startLong] @ longCode @
+                    [BlockLabel resultLabel,
+                     BlockSimple(LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord})],
+                    RegisterArgument target, false)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        |   codeToICodeRev(instr as BICAllocateWordMemory _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICAllocateWordMemory instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeAllocate(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
@@ -1098,34 +1131,31 @@ struct
                 (* Better handled as a conditional *)
                 codeAsConditionalRev(instr, context, isTail, destination, tailCode)
 
-        |   codeToICodeRev(instr as BICLoadOperation _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICLoadOperation instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeLoad(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        |   codeToICodeRev(instr as BICStoreOperation _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICStoreOperation instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeStore(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        |   codeToICodeRev(instr as BICBlockOperation {kind=BlockOpEqualByte, ...}, context, isTail, destination, tailCode) =
-                codeAsConditionalRev(instr, context, isTail, destination, tailCode)
+        |   codeToICodeRev(BICBlockOperation (instr as {kind=BlockOpEqualByte, ...}), context, isTail, destination, tailCode) =
+                codeAsConditionalRev(BICBlockOperation instr, context, isTail, destination, tailCode)
 
-        |   codeToICodeRev(instr as BICBlockOperation _, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICBlockOperation instr, context, isTail, destination, tailCode) =
             let
-                val (code, dest, haveExited) = codeToICode(instr, context, isTail, destination)
+                val (code, dest, haveExited) = codeToICodeBlock(instr, context, isTail, destination)
             in
                 (revApp(code, tailCode), dest, haveExited)
             end
 
-        and codeToICode(BICConstnt(value, _), _, _, destination) =
-                moveIfNotAllowed(destination, [], constantAsArgument value)
-
-        |   codeToICode(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
+        and codeToICodeUnary({oper=BuiltIns.NotBoolean, arg1}, context, _, destination) =
             let
                 (* TODO: If the argument is something that will be a conditional we would be better off
                    generating a conditional here. *)
@@ -1138,10 +1168,10 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(instr as BICUnary{oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
+        |   codeToICodeUnary(instr as {oper=BuiltIns.IsTaggedValue, ...}, context, isTail, destination) =
+                codeAsConditional(BICUnary instr, context, isTail, destination)
 
-        |   codeToICode(BICUnary{oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.MemoryCellLength, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val argReg1 = newPReg() and argReg2 = newPReg() and argReg3 = newPReg()
@@ -1159,7 +1189,7 @@ struct
                  BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument argReg3, operand2=IntegerConstant 1, ccRef=ccRef3})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val argReg1 = newUReg()
@@ -1170,7 +1200,7 @@ struct
                  BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
             let
                 val (argCode, addrReg) = codeToPReg(arg1, context)
                 val code = argCode @ [BlockSimple(LockMutable{addr=addrReg})]
@@ -1178,7 +1208,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.AtomicIncrement, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val incrReg = newUReg()
@@ -1192,7 +1222,7 @@ struct
                     RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.AtomicDecrement, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val incrReg = newUReg()
@@ -1205,7 +1235,7 @@ struct
                     RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.AtomicReset, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.AtomicReset, arg1}, context, _, destination) =
             let
                 (* This is needed only for the interpreted version where we have a single real
                    mutex to interlock atomic increment and decrement.  We have to use the same
@@ -1218,7 +1248,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.LongWordToTagged, arg1}, context, _, destination) =
             let (* This is exactly the same as StringLengthWord at the moment.
                    TODO: introduce a new ICode entry so that the next stage can optimise
                    longword operations. *)
@@ -1231,7 +1261,7 @@ struct
                  BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
             let
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
@@ -1242,7 +1272,7 @@ struct
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.UnsignedToLongWord, arg1}, context, _, destination) =
             let
                 val addrReg = newPReg() and argReg1 = newPReg() and untagArg = newUReg()
                 val code =
@@ -1253,7 +1283,7 @@ struct
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealNeg, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1273,7 +1303,7 @@ struct
                  [load] @ code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.RealAbs, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and fpRegSrc = newUReg() and fpRegDest = newUReg() and sse2ConstReg = newUReg()
@@ -1289,7 +1319,7 @@ struct
                  [load] @ code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICUnary{oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
+        |   codeToICodeUnary({oper=BuiltIns.FloatFixedInt, arg1}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and untagReg = newUReg() and fpReg = newUReg()
@@ -1300,10 +1330,10 @@ struct
                   BlockSimple(BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(instr as BICBinary{oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
+        and codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(BICBinary instr, context, isTail, destination)
 
-        |   codeToICode(BICBinary {oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 fun checkOverflow ccRef =
@@ -1321,7 +1351,7 @@ struct
                 (codeFixedPrecisionArith(oper, arg1, arg2, context, target, checkOverflow), RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand.
@@ -1338,7 +1368,7 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
@@ -1353,7 +1383,7 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg3 = newPReg()
@@ -1367,7 +1397,7 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
             let
                 val target = asTarget destination
                 (* If the argument is a constant we can subtract the tag beforehand. Check for short - see comment above. *)
@@ -1382,7 +1412,7 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg3 = newPReg()
@@ -1396,7 +1426,7 @@ struct
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and arg1Untagged = newUReg()
@@ -1412,7 +1442,7 @@ struct
                         RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1428,7 +1458,7 @@ struct
                      BlockSimple(TagValue { source=quotient, dest=target })], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
             let
                 (* Identical to Quot except that the result is the remainder. *)
                 val target = asTarget destination
@@ -1445,10 +1475,10 @@ struct
                      BlockSimple(TagValue { source=remainder, dest=target })], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordArith _, ...}, _, _, _) =
-                raise InternalError "codeToICode: WordArith - unimplemented operation"
+        |   codeToICodeBinary({oper=BuiltIns.WordArith _, ...}, _, _, _) =
+                raise InternalError "codeToICodeNonRev: WordArith - unimplemented operation"
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1458,7 +1488,7 @@ struct
                     [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1468,7 +1498,7 @@ struct
                     [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newPReg()
@@ -1479,7 +1509,7 @@ struct
                      BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
                 (* N.B.  X86 shifts of greater than the word length mask the higher bits.  That isn't what ML wants
                    but that is dealt with at a higher level *)
             let
@@ -1498,7 +1528,7 @@ struct
                   BlockSimple(TagValue{source=resRegUntagged, dest=target})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val sizeReg = newPReg() and baseReg = newPReg()
@@ -1513,10 +1543,10 @@ struct
                   BlockSimple(LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
 
-        |   codeToICode(instr as BICBinary{oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
+        |   codeToICodeBinary(instr as {oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(BICBinary instr, context, isTail, destination)
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
@@ -1528,7 +1558,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
@@ -1540,7 +1570,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and resValue = newUReg()
@@ -1554,7 +1584,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithDiv, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1570,7 +1600,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=quotient, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1586,10 +1616,10 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=remainder, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
-                raise InternalError "codeToICode: LargeWordArith - unimplemented operation"
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
+                raise InternalError "codeToICodeNonRev: LargeWordArith - unimplemented operation"
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
@@ -1601,7 +1631,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
@@ -1613,7 +1643,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg() and aReg3 = newUReg()
@@ -1625,7 +1655,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordShift shift, arg1, arg2}, context, _, destination) =
                 (* The shift is always a Word.word value i.e. tagged.  There is a check at the higher level
                    that the shift does not exceed 32/64 bits. *)
             let
@@ -1643,7 +1673,7 @@ struct
                   BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBinary {oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.RealArith fpOper, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val aReg1 = newPReg() and aReg2 = newPReg()
@@ -1660,7 +1690,7 @@ struct
                                 |   ArithSub => FSUB
                                 |   ArithMult => FMUL
                                 |   ArithDiv => FDIV
-                                |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
+                                |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
                             BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
                         end
@@ -1672,7 +1702,7 @@ struct
                                 |   ArithSub => SSE2Sub
                                 |   ArithMult => SSE2Mul
                                 |   ArithDiv => SSE2Div
-                                |   _ => raise InternalError "codeToICode: RealArith - unimplemented operation"
+                                |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
                             BlockSimple(SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
                         end
@@ -1681,40 +1711,11 @@ struct
                     [load, arith, BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(instr as BICBinary{oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
+        |   codeToICodeBinary(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
+                codeAsConditional(BICBinary instr, context, isTail, destination)
         
-        |   codeToICode(BICArbitrary {oper, shortCond, arg1, arg2, longCall}, context, _, destination) =
-            let
-                val startLong = newLabel() and resultLabel = newLabel()
-                val target = asTarget destination
-                val condResult = newPReg()
-                (* Overflow check - if there's an overflow jump to the long precision case. *)
-                fun jumpOnOverflow ccRef =
-                let
-                    val noOverFlow = newLabel()
-                in
-                    [BlockFlow(Conditional{ ccRef=ccRef, condition=JO, trueJump=startLong, falseJump=noOverFlow }),
-                     BlockLabel noOverFlow]
-                end
-                val (longCode, _, _) = codeToICode(longCall, context, false, SpecificPReg condResult)
-                     (* We could use a tail jump here if this is a tail. *)
-           in
-                (
-                    (* Test the tag bits and skip to the long case if either is clear. *)
-                    codeCondition(shortCond, context, false, startLong) @
-                    (* Try evaluating as fixed precision and jump if we get an overflow. *)
-                    codeFixedPrecisionArith(oper, arg1, arg2, context, condResult, jumpOnOverflow) @
-                    (* If we haven't had an overflow jump to the result. *)
-                    [BlockFlow(Unconditional resultLabel),
-                     (* If we need to use the full long-precision call we come here. *)
-                     BlockLabel startLong] @ longCode @
-                    [BlockLabel resultLabel,
-                     BlockSimple(LoadArgument{source=RegisterArgument condResult, dest=target, kind=MoveWord})],
-                    RegisterArgument target, false)
-            end
 
-        |   codeToICode(BICAllocateWordMemory {numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial}, context, _, destination) =
+        and codeToICodeAllocate({numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial}, context, _, destination) =
             (* Constant length and flags is used for ref.  We could handle other cases. *)
             if  isShort length andalso isShort flagValue andalso toShort length = 0w1
             then
@@ -1737,10 +1738,11 @@ struct
             else (* If it's longer use the full run-time form. *)
                 allocateMemoryVariable(numWords, flags, initial, context, destination)
 
-        |   codeToICode(BICAllocateWordMemory {numWords, flags, initial}, context, _, destination) =
+        |   codeToICodeAllocate({numWords, flags, initial}, context, _, destination) =
                 allocateMemoryVariable(numWords, flags, initial, context, destination)
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLWord _, address}, context, _, destination) =
+
+        and codeToICodeLoad({kind=LoadStoreMLWord _, address}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
@@ -1749,7 +1751,7 @@ struct
                     [BlockSimple(LoadArgument {source=MemoryLocation memLoc, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreMLByte _, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreMLByte _, address}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, true, context)
@@ -1760,7 +1762,7 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreC8, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreC8, address}, context, _, destination) =
             let
                 (* Load a byte from C memory.  This is almost exactly the same as LoadStoreMLByte except
                    that the base address is a LargeWord.word value. *)
@@ -1773,7 +1775,7 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreC16, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreC16, address}, context, _, destination) =
             let
                 (* Load a 16-bit value from C memory. *)
                 val target = asTarget destination
@@ -1785,7 +1787,7 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreC32, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreC32, address}, context, _, destination) =
             let
                 (* Load a 32-bit value from C memory.  If this is 64-bit mode we can tag it but
                    if this is 32-bit mode we need to box it. *)
@@ -1801,11 +1803,11 @@ struct
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=moveKind}), boxTagCode], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreC64, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreC64, address}, context, _, destination) =
             let
                 (* Load a 64-bit value from C memory.  This is only allowed in 64-bit mode.  The result
                    is a boxed value. *)
-                val _ = isX64 orelse raise InternalError "codeToICode: BICLoadOperation LoadStoreC64 in 32-bit"
+                val _ = isX64 orelse raise InternalError "codeToICodeNonRev: BICLoadOperation LoadStoreC64 in 32-bit"
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
                 val untaggedResReg = newUReg()
@@ -1815,7 +1817,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreCFloat, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreCFloat, address}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w4, context)
@@ -1826,7 +1828,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreCDouble, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreCDouble, address}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeCAddress(address, 0w8, context)
@@ -1837,7 +1839,7 @@ struct
                      BlockSimple(BoxValue{boxKind=BoxFloat, source=untaggedResReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICLoadOperation {kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
+        |   codeToICodeLoad({kind=LoadStoreUntaggedUnsigned, address}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (codeBaseIndex, codeUntag, memLoc) = codeAddress(address, false, context)
@@ -1848,7 +1850,8 @@ struct
                      BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLWord _, address, value}, context, _, destination) =
+
+        and codeToICodeStore({kind=LoadStoreMLWord _, address, value}, context, _, destination) =
             let
                 val (sourceCode, source, _) = codeToICode(value, context, false, Allowed allowInMemMove)
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
@@ -1859,7 +1862,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-         |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value=BICConstnt(constByte, _)}, context, _, destination) =
+         |   codeToICodeStore({kind=LoadStoreMLByte _, address, value=BICConstnt(constByte, _)}, context, _, destination) =
             let
                 val valueToStore = if isShort constByte then toShort constByte else 0w0
                 (* Storing a constant. *)
@@ -1871,7 +1874,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreMLByte _, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreMLByte _, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
@@ -1885,7 +1888,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreC8, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreC8, address, value}, context, _, destination) =
             let
                 (* Store a byte to C memory.  Almost exactly the same as LoadStoreMLByte. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
@@ -1899,7 +1902,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreC16, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreC16, address, value}, context, _, destination) =
             let
                 (* Store a 16-bit value to C memory. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
@@ -1913,7 +1916,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreC32, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreC32, address, value}, context, _, destination) =
             let
                 (* Store a 32-bit value.  If this is 64-bit mode we untag it but if this is 32-bit mode we unbox it. *)
                 val valueReg = newPReg() and valueReg1 = newUReg()
@@ -1930,10 +1933,10 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreC64, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreC64, address, value}, context, _, destination) =
             let
                 (* Store a 64-bit value. *)
-                val _ = isX64 orelse raise InternalError "codeToICode: BICStoreOperation LoadStoreC64 in 32-bit"
+                val _ = isX64 orelse raise InternalError "codeToICodeNonRev: BICStoreOperation LoadStoreC64 in 32-bit"
                 val valueReg = newPReg() and valueReg1 = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w8, context)
                 val code =
@@ -1945,7 +1948,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreCFloat, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreCFloat, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg() and floatReg = newUReg() and float2Reg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w4, context)
@@ -1965,7 +1968,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreCDouble, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreCDouble, address, value}, context, _, destination) =
             let
                 val valueReg = newPReg() and floatReg = newUReg()
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeCAddress(address, 0w8, context)
@@ -1978,7 +1981,7 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(BICStoreOperation {kind=LoadStoreUntaggedUnsigned, address, value}, context, _, destination) =
+        |   codeToICodeStore({kind=LoadStoreUntaggedUnsigned, address, value}, context, _, destination) =
             let
                 (* We have to untag the value to store. *)
                 val (codeBaseIndex, codeUntag, {base, offset, index}) = codeAddress(address, false, context)
@@ -2018,10 +2021,8 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(instr as BICBlockOperation {kind=BlockOpEqualByte, ...}, context, isTail, destination) =
-                codeAsConditional(instr, context, isTail, destination)
 
-        |   codeToICode(BICBlockOperation {kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
+        and codeToICodeBlock({kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
                 (* TODO: If we have a short fixed length comparison we might well be better loading the value into
                    a register and comparing with memory. *)
@@ -2060,7 +2061,7 @@ struct
                 (code, RegisterArgument target, false)
             end
 
-        |   codeToICode(BICBlockOperation {kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
+        |   codeToICodeBlock({kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
             let
                 (* TODO: If we have a short fixed length move we might well be better loading the value into
                    a register and storing it. *)
@@ -2080,13 +2081,9 @@ struct
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
 
-        |   codeToICode(instr, context, isTail, destination) =
-            let
-                val (code, dest, haveExited) = codeToICodeRev(instr, context, isTail, destination, [])
-            in
-                (List.rev code, dest, haveExited)
-            end
-        
+        |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
+                raise InternalError "codeToICodeBlock - BlockOpEqualByte" (* Already done *)
+          
         and codeConditionRev(BICConstnt(value, _), _, jumpOn, jumpLabel, tailCode) =
             (* Constant - typically part of andalso/orelse.  Either an unconditional branch
                or an unconditional drop-through. *)
@@ -2401,9 +2398,6 @@ struct
                 testCode
             end
 
-        and codeCondition(condition, context, jumpOn, jumpLabel) =
-            List.rev(codeConditionRev(condition, context, jumpOn, jumpLabel, []))
-
         (* Some operations that deliver boolean results are better coded as
            if condition then true else false *)
         and codeAsConditionalRev(instr, context, isTail, target, tailCode) =
@@ -2411,8 +2405,13 @@ struct
                 BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target, tailCode)
 
         and codeAsConditional(instr, context, isTail, target) =
-            codeToICode(
-                BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])), context, isTail, target)
+        let
+            val (code, dest, haveExited) =
+                codeToICodeRev(BICCond(instr, BICConstnt(toMachineWord 1, []), BICConstnt(toMachineWord 0, [])),
+                    context, isTail, target, [])
+        in
+            (List.rev code, dest, haveExited)
+        end
 
         (* The fixed precision functions are also used for arbitrary precision but instead of raising Overflow we
            need to jump to the code that handles the long format. *)
