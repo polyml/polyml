@@ -96,8 +96,8 @@ struct
                         NewEntry _ => adjustStack(old, new+1, tl)
                     |   ContainerEntry {size, active=false} => adjustStack(old, new+size, tl)
                     |   ContainerEntry {size, ...} =>
-                            if old = 0
-                            then new
+                            if old < size
+                            then new + old
                             else adjustStack(old-size, new+size, tl)
                     |   HandlerEntry =>
                             if old = 0
@@ -190,6 +190,9 @@ struct
                 let val (sreg, c) = mapSrcReg(r, context) in (MemIndex4 sreg, c) end
         |   mapIndex(MemIndex8 r, context) =
                 let val (sreg, c) = mapSrcReg(r, context) in (MemIndex8 sreg, c) end
+
+        (* For the moment return the old container since we don't do anything with it. *)
+        fun mapContainer(container, _) = container
 
         fun mapSource(RegisterArgument(PReg r), { newCount, ...}: context) =
             (
@@ -286,7 +289,7 @@ struct
         |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, ...} :: rest, code, context) =
             let
                 val (sourceVal, sourceCode) = mapSource(source, context)
-                (* We can't have a memory-memory store so we have to load the source if it's now the stack. *)
+                (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
                 val (loadedSource, loadCode) = loadStack sourceVal
                 val (baseReg, baseCode) = mapSrcReg(base, context)
                 val (indexValue, indexCode) = mapIndex(index, context)
@@ -474,8 +477,9 @@ struct
             let
                 val newStackOffset = mapOldStackOffset(stackOffset, context)
                 val (destVal, destCode, newContext) = mapDestReg(dest, context)
+                val newContainer = mapContainer(container, context)
             in
-                pushRegisters(rest, destCode @ LoadContainerAddress{container=container, dest=destVal, stackOffset=newStackOffset} :: code, newContext)
+                pushRegisters(rest, destCode @ LoadContainerAddress{container=newContainer, dest=destVal, stackOffset=newStackOffset} :: code, newContext)
             end
 
         |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...} :: rest, code, context) =
@@ -616,6 +620,20 @@ struct
                 val newContext = {newCount=newCount, oldCount=oldCount-numWords, stack=newStack}
             in
                 pushRegisters(rest, code, newContext)
+            end
+
+        |   pushRegisters({instr=StoreToStack{source, container, field, stackOffset}, ...} :: rest, code, context) =
+            let
+                val (sourceVal, sourceCode) = mapSource(source, context)
+                (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
+                val (loadedSource, loadCode) = loadStack sourceVal
+                val newOffset = mapOldStackOffset(stackOffset, context)
+                val newContainer = mapContainer(container, context)
+            in
+                pushRegisters(rest,
+                    StoreToStack{source=loadedSource, container=newContainer, field=field, stackOffset=newOffset} ::
+                        loadCode @ sourceCode @ code,
+                    context)
             end
 
         |   pushRegisters({instr=TagValue{source, dest}, ...} :: rest, code, context) =

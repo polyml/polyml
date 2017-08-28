@@ -964,6 +964,16 @@ struct
             (* This is needed to remove containers on the stack. *)
                 ResetStackPtr{numWords=numWords} :: codeExtended(rest, context)
 
+        |   codeExtended({instr=StoreToStack{ source, stackOffset, ... }, ...} :: rest, context) =
+            let
+                val code = codeExtended(rest, context)
+                val codeSource = codeExtArgument(source, generalRegisters)
+            in
+                StoreArgument{
+                    source=codeSource, base=GenReg esp, offset=stackOffset*wordSize, index=NoMemIndex, kind=MoveWord}
+                        :: code
+            end
+
         |   codeExtended({instr=TagValue{source=PReg srcReg, dest=PReg dReg}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)

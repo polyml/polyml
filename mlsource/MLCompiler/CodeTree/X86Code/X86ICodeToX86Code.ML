@@ -190,6 +190,9 @@ struct
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
+        (* Store a value into the stack. *)
+    |   StoreToStack of { source: 'reg argument, container: stackLocn, field: int, stackOffset: int }
+
         (* Tag a value by shifting and setting the tag bit. *)
     |   TagValue of { source: 'reg, dest: 'reg }
 
@@ -477,6 +480,14 @@ struct
         |   printICode(PushValue{arg}, stream, printReg) = (stream "\tPushValue\t"; printArg(arg, stream, printReg))
 
         |   printICode(ResetStackPtr{numWords}, stream, _) = (stream "\tResetStackPtr\t"; stream(Int.toString numWords))
+
+        |   printICode(StoreToStack{source, container, field, stackOffset}, stream, printReg) =
+            (
+                stream "\tStoreToStack\t"; printArg(source, stream, printReg);
+                stream " => "; printStackLoc(container, stream); stream "+";
+                stream (Int.toString field); stream "(";
+                stream(Int.toString stackOffset); stream ")"
+            )
 
         |   printICode(TagValue{source, dest}, stream, printReg) =
                 (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
@@ -1291,6 +1302,10 @@ struct
                 (* BoxValue should have been removed by earlier passes. *)
             |   codeGenICode(BoxValue _ :: _, _) =
                     raise InternalError "codeGenICode: BoxValue"
+
+                (* StoreToStack should have been removed by earlier passes. *)
+            |   codeGenICode(StoreToStack _ :: _, _) =
+                    raise InternalError "codeGenICode: StoreToStack"
         in
             codeGenICode(block, code)
         end (* codeGenBlock *)

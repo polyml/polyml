@@ -172,6 +172,9 @@ struct
     |   getInstructionRegisters(ResetStackPtr _) =
             { sources=[], dests=[] }
 
+    |   getInstructionRegisters(StoreToStack {source, ...}) =
+            { sources=argRegs source, dests=[] }
+
     |   getInstructionRegisters(TagValue{source, dest}) =
             { sources=[source], dests=[dest]}
 

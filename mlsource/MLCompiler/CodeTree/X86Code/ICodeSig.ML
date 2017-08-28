@@ -211,6 +211,9 @@ sig
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
 
+        (* Store a value into the stack. *)
+    |   StoreToStack of { source: 'reg argument, container: stackLocn, field: int, stackOffset: int }
+
         (* Tag a value by shifting and setting the tag bit. *)
     |   TagValue of { source: 'reg, dest: 'reg }
 
