@@ -125,7 +125,7 @@ struct
             val regSourceAsRegs =
                 List.foldl(fn ((source, _), srcs) => argRegs source @ srcs) [] regArgs
             val sourceAsRegs =
-                List.foldl(fn ((source, _), srcs) => argRegs source @ srcs) regSourceAsRegs stackArgs
+                List.foldl(fn ((source, _, _), srcs) => argRegs source @ srcs) regSourceAsRegs stackArgs
         in
             { sources=sourceAsRegs, dests=[] }
         end
@@ -166,7 +166,7 @@ struct
     |   getInstructionRegisters(TestTagBit{arg, ...}) =
             { sources=argRegs arg, dests=[] }
 
-    |   getInstructionRegisters(PushValue {arg}) =
+    |   getInstructionRegisters(PushValue {arg, ...}) =
             { sources=argRegs arg, dests=[] }
 
     |   getInstructionRegisters(ResetStackPtr _) =

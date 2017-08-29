@@ -88,7 +88,7 @@ sig
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location. *)
         (* Offset on the stack. *)
-    |   StackLocation of { wordOffset: int }
+    |   StackLocation of { wordOffset: int, container: stackLocn, field: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -164,7 +164,7 @@ sig
 
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
-            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int * stackLocn) list,
               checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
@@ -206,7 +206,7 @@ sig
     |   TestTagBit of { arg: 'reg argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: 'reg argument }
+    |   PushValue of { arg: 'reg argument, container: stackLocn }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }

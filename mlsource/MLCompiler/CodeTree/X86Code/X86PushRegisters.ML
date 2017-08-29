@@ -44,13 +44,13 @@ struct
         val maxStack = ref 0
         
         (* Each preg in the input is mapped to either a new preg or the stack. *)
-        datatype pregMapType = Unset | ToPReg of abstract | ToStack of int
+        datatype pregMapType = Unset | ToPReg of abstract | ToStack of int * stackLocn
         val pregMap = Array.array(maxPRegs, Unset)
 
         (* The stack contains both entries in the input code and entries added here. *)
         datatype stackEntry =
             NewEntry of {pregNo: int}
-        |   ContainerEntry of { size: int, active: bool }
+        |   ContainerEntry of { size: int, active: bool, stackLoc: stackLocn }
         |   HandlerEntry
         
         type context =
@@ -78,49 +78,19 @@ struct
             StackLoc{size=size, rno=regNo}
         end
         
-        (* Adjust a stack offset from the old state to the new state. *)
-        fun mapOldStackOffset(offset, {oldCount, newCount, stack, ...}: context) =
-        let
-            fun adjustStack(old, new, []) =
-                let
-                    val _ = old = offset-oldCount orelse raise InternalError "mapOldStackOffset - old"
-                    val _ = new = newCount orelse raise InternalError "mapOldStackOffset - new"
-                in
-                    old+new
-                end
-            |   adjustStack(old, new, entry :: tl) =
-                let
-                    val _ = old < 0 andalso raise InternalError "adjustStack"
-                in
-                    case entry of
-                        NewEntry _ => adjustStack(old, new+1, tl)
-                    |   ContainerEntry {size, active=false} => adjustStack(old, new+size, tl)
-                    |   ContainerEntry {size, ...} =>
-                            if old < size
-                            then new + old
-                            else adjustStack(old-size, new+size, tl)
-                    |   HandlerEntry =>
-                            if old = 0
-                            then new
-                            else adjustStack(old-2, new+2, tl)
-                end
-        in
-            adjustStack(offset, 0, stack)
-        end
-        
         (* Map a source register.  This always loads the argument. *)
         fun mapSrcReg(PReg n, { newCount, ...}: context) =
             case Array.sub(pregMap, n) of
                 Unset => raise InternalError "mapSrcReg - unset"
             |   ToPReg preg => (preg, [])
-            |   ToStack stackLoc =>
+            |   ToStack(stackLoc, container) =>
                 let
                     (* Make a new untagged register. That will prevent us pushing it if
                        we have to spill registers. *)
                     val newReg = newPReg RegPropUntagged
                 in
                     (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset=newCount-stackLoc}, dest=newReg, kind=MoveWord}])
+                        [LoadArgument{source=StackLocation{wordOffset=newCount-stackLoc, container=container, field=0}, dest=newReg, kind=MoveWord}])
                 end
        
         fun mapDestReg(PReg n, context: context as {stack, oldCount, newCount}) =
@@ -134,11 +104,12 @@ struct
                     (* This should not have been seen before. *)
                     val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
                     val newReg = newPReg kind
-                    val () = Array.update(pregMap, n, ToStack (newCount+1))
+                    val newContainer = newStackLoc 1
+                    val () = Array.update(pregMap, n, ToStack (newCount+1, newContainer))
                     val newContext = { stack = NewEntry{pregNo=n}::stack, oldCount=oldCount, newCount=newCount+1}
                     val () = maxStack := Int.max(!maxStack, newCount+1)
                 in
-                    (newReg, [PushValue{arg=RegisterArgument newReg}], newContext)
+                    (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}], newContext)
                 end
             else
                 let
@@ -191,15 +162,75 @@ struct
         |   mapIndex(MemIndex8 r, context) =
                 let val (sreg, c) = mapSrcReg(r, context) in (MemIndex8 sreg, c) end
 
-        (* For the moment return the old container since we don't do anything with it. *)
-        fun mapContainer(container, _) = container
+        local
+            (* Adjust a stack offset from the old state to the new state. *)
+            fun mapOldStackOffset(offset, {oldCount, newCount, stack, ...}: context) =
+            let
+                fun adjustStack(old, new, []) =
+                    let
+                        val _ = old = offset-oldCount orelse raise InternalError "mapOldStackOffset - old"
+                        val _ = new = newCount orelse raise InternalError "mapOldStackOffset - new"
+                    in
+                        old+new
+                    end
+                |   adjustStack(old, new, entry :: tl) =
+                    let
+                        val _ = old < 0 andalso raise InternalError "adjustStack"
+                    in
+                        case entry of
+                            NewEntry _ => adjustStack(old, new+1, tl)
+                        |   ContainerEntry {size, active=false, ...} => adjustStack(old, new+size, tl)
+                        |   ContainerEntry {size, ...} =>
+                                if old < size
+                                then new + old
+                                else adjustStack(old-size, new+size, tl)
+                        |   HandlerEntry =>
+                                if old = 0 (* This should not be a handler. *)
+                                then raise InternalError "mapOldStackOffset - handler"
+                                else adjustStack(old-2, new+2, tl)
+                    end
+            in
+                adjustStack(offset, 0, stack)
+            end
+        in
+            (* Begin the process of mapping containers. *)
+            fun mapContainerAndStack(StackLoc{rno, size}, stackLoc, field, context as { newCount, ...}) =
+            let
+                val (newStackAddr, newContainer) =
+                case Array.sub(pregMap, rno) of
+                    Unset => raise InternalError "mapContainer - unset"
+                |   ToPReg _ => raise InternalError "mapContainer - ToPReg"
+                |   ToStack stackContainer => stackContainer
+                
+                val mappedStack = mapOldStackOffset(stackLoc, context)
+                
+                val _ = newCount-(newStackAddr+size) + field = mappedStack orelse raise InternalError "mapContainerAndStack"
+            in
+                (mappedStack, newContainer)
+            end
+        end
+        
+        (* Add an entry for an existing stack entry. *)
+        fun mapDestContainer(StackLoc{rno, size}, locn) =
+        (
+            case Array.sub(pregMap, rno) of
+                Unset =>
+                let
+                    val newContainer = newStackLoc size
+                    val () = Array.update(pregMap, rno, ToStack(locn, newContainer))
+                in
+                    newContainer
+                end
+            |   _ => raise InternalError "mapDestContainer: already set"
+        )
 
         fun mapSource(RegisterArgument(PReg r), { newCount, ...}: context) =
             (
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
                 |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack stackLoc => (StackLocation{wordOffset=newCount-stackLoc}, [])
+                |   ToStack(stackLoc, container) =>
+                        (StackLocation{wordOffset=newCount-stackLoc, container=container, field=0}, [])
             )
 
         |   mapSource(a as AddressConstant _, _) = (a, [])
@@ -213,8 +244,12 @@ struct
                 (MemoryLocation{base=baseReg, offset=offset, index=indexValue}, baseCode @ indexCode)
             end
 
-        |   mapSource(StackLocation{wordOffset}, context) =
-                (StackLocation{wordOffset=mapOldStackOffset(wordOffset, context)}, [])
+        |   mapSource(StackLocation{wordOffset, container, field}, context) =
+            let
+                val (newOffset, newContainer) = mapContainerAndStack(container, wordOffset, field, context)
+            in
+                (StackLocation{wordOffset=newOffset, container=newContainer, field=field}, [])
+            end
 
         (* If the argument AFTER processing is a stack entry, then load it. *)
         fun loadStack(stack as StackLocation _) =
@@ -259,11 +294,12 @@ struct
                     then
                         let
                             val _ = case currentLocation of Unset => () | _ => raise InternalError "LoadArgument - already set"
-                            val () = Array.update(pregMap, dReg, ToStack(newCount+1))
+                            val container = newStackLoc 1
+                            val () = Array.update(pregMap, dReg, ToStack(newCount+1, container))
                             val newContext = { stack = NewEntry{pregNo=dReg}::stack, oldCount=oldCount, newCount=newCount+1}
                             val () = maxStack := Int.max(!maxStack, newCount+1)
                         in
-                            (PushValue{arg=sourceVal}, newContext)
+                            (PushValue{arg=sourceVal, container=container}, newContext)
                         end
                     else
                         let
@@ -312,7 +348,16 @@ struct
 
         |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...} :: rest, code, context) =
             let
-                val newStackArgs = List.map(fn _ => newStackLoc 1) stackArgs
+                (* Create a new container list.  The offsets begin at -numArgs. *)
+                fun newContainers(src :: srcs, offset) =
+                    let
+                        val newContainer = mapDestContainer(src, offset)
+                    in
+                        newContainer :: newContainers(srcs, offset+1)
+                    end
+                |   newContainers _ = []
+
+                val newStackArgs = newContainers(stackArgs, ~ (List.length stackArgs))
                 (* Push any registers that need to be pushed. *)
                 fun pushReg((preg, rreg), (others, code, context)) =
                 let
@@ -429,22 +474,23 @@ struct
                             in
                                 ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   ToStack stackLoc =>
+                        |   ToStack(stackLoc, stackC) =>
                             let
                                 val (sourceVal, sourceCode) = mapSource(source, context)
                                 val stackOff = newCount - stackLoc
                             in
-                                (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
+                                (otherRegArgs, (sourceVal, stackOff, stackC) :: otherStackArgs, sourceCode @ otherCode)
                             end
                         |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
                                 (otherRegArgs, otherStackArgs, otherCode)
                     end
                 val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
-                fun loadStackArg((source, destStack), (otherLoads, otherArgs)) =
+                fun loadStackArg((source, destStack, destC), (otherLoads, otherArgs)) =
                 let
                     val (sourceVal, sourceCode) = mapSource(source, context)
+                    val (newOffset, newContainer) = mapContainerAndStack(destC, destStack, 0, context)
                 in
-                    (sourceCode @ otherLoads, (sourceVal, mapOldStackOffset(destStack, context)) :: otherArgs)
+                    (sourceCode @ otherLoads, (sourceVal, newOffset, newContainer) :: otherArgs)
                 end
                 
                 val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
@@ -466,18 +512,19 @@ struct
 
         |   pushRegisters({instr=ReserveContainer{size, container}, ...} :: rest, code, {oldCount, newCount, stack}) =
             let
+                val newContainer = mapDestContainer(container, newCount)
                 val containerContext =
-                    {oldCount=oldCount+size, newCount=newCount+size, stack=ContainerEntry{size=size, active=true}::stack}
+                    {oldCount=oldCount+size, newCount=newCount+size,
+                        stack=ContainerEntry{size=size, active=true, stackLoc=newContainer}::stack}
                 val () = maxStack := Int.max(!maxStack, newCount+size)
             in
-                pushRegisters(rest, ReserveContainer{size=size, container=container} :: code, containerContext)
+                pushRegisters(rest, ReserveContainer{size=size, container=newContainer} :: code, containerContext)
             end
 
         |   pushRegisters({instr=LoadContainerAddress{container, dest, stackOffset}, ...} :: rest, code, context) =
             let
-                val newStackOffset = mapOldStackOffset(stackOffset, context)
+                val (newStackOffset, newContainer) = mapContainerAndStack(container, stackOffset, 0, context)
                 val (destVal, destCode, newContext) = mapDestReg(dest, context)
-                val newContainer = mapContainer(container, context)
             in
                 pushRegisters(rest, destCode @ LoadContainerAddress{container=newContainer, dest=destVal, stackOffset=newStackOffset} :: code, newContext)
             end
@@ -530,7 +577,7 @@ struct
                 fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
                 |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
                 |   popContext (ContainerEntry{active=true, ...} :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
-                |   popContext (ContainerEntry{active=false, size} :: tl, old, new) = popContext(tl, old, new-size)
+                |   popContext (ContainerEntry{active=false, size, ...} :: tl, old, new) = popContext(tl, old, new-size)
                 |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
                 val newContext as { newCount=newNewCount, ...} = popContext(stack, oldCount, newCount)
                 (* Reset the stack to just above the two words of the handler. *)
@@ -589,14 +636,15 @@ struct
                 pushRegisters(rest, TestTagBit{arg=sourceVal, ccRef=ccRef} :: sourceCode @ code, context)
             end
 
-        |   pushRegisters({instr=PushValue{arg}, ...} :: rest, code, context as {oldCount, newCount, stack}) =
+        |   pushRegisters({instr=PushValue{arg, container}, ...} :: rest, code, context as {oldCount, newCount, stack}) =
             let
                 val (sourceVal, sourceCode) = mapSource(arg, context)
                 (* This was a push from a previous pass.  Treat as a container of size 1. *)
+                val newContainer = mapDestContainer(container, newCount)
                 val pushContext =
-                    {oldCount=oldCount+1, newCount=newCount+1, stack=ContainerEntry{size=1, active=true}::stack}
+                    {oldCount=oldCount+1, newCount=newCount+1, stack=ContainerEntry{size=1, active=true, stackLoc=newContainer}::stack}
             in
-                pushRegisters(rest, PushValue{arg=sourceVal} :: sourceCode @ code, pushContext)
+                pushRegisters(rest, PushValue{arg=sourceVal, container=newContainer} :: sourceCode @ code, pushContext)
             end
 
         |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code, {newCount, oldCount, stack}) =
@@ -608,9 +656,9 @@ struct
                 |   removeItems(_, []) = raise InternalError "removeItems - stack empty"
                 |   removeItems(toRemove, (entry as ContainerEntry {active=false, ...}) :: tl) =
                         entry :: removeItems(toRemove, tl)
-                |   removeItems(toRemove, ContainerEntry {size, active=true} :: tl) =
+                |   removeItems(toRemove, ContainerEntry {size, active=true, stackLoc} :: tl) =
                         if toRemove < size then raise InternalError "removeItems - container size"
-                        else ContainerEntry {size=size, active=false} :: removeItems(toRemove-size, tl)
+                        else ContainerEntry {size=size, active=false, stackLoc=stackLoc} :: removeItems(toRemove-size, tl)
                 |   removeItems(_, HandlerEntry :: _) = raise InternalError "removeItems - handler"
                 |   removeItems(toRemove, entry :: tl) = entry :: removeItems(toRemove, tl)
                 
@@ -627,8 +675,7 @@ struct
                 val (sourceVal, sourceCode) = mapSource(source, context)
                 (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
                 val (loadedSource, loadCode) = loadStack sourceVal
-                val newOffset = mapOldStackOffset(stackOffset, context)
-                val newContainer = mapContainer(container, context)
+                val (newOffset, newContainer) = mapContainerAndStack(container, stackOffset, field, context)
             in
                 pushRegisters(rest,
                     StoreToStack{source=loadedSource, container=newContainer, field=field, stackOffset=newOffset} ::
@@ -839,7 +886,7 @@ struct
 
                         (* This container has been deleted.  Its size has already been removed from
                            the old count. *)
-                    |   removeItems (ContainerEntry{active=false, size} :: rest, oldSize, newSize) =
+                    |   removeItems (ContainerEntry{active=false, size, ...} :: rest, oldSize, newSize) =
                             removeItems(rest, oldSize, newSize-size)
 
                     |   removeItems (stack, oldSize, newSize) = {newCount=newSize, oldCount=oldSize, stack=stack}

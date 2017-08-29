@@ -65,7 +65,7 @@ struct
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: 'reg, offset: int, index: 'reg memoryIndex } (* A memory location.  Could be the stack. *)
-    |   StackLocation of { wordOffset: int }
+    |   StackLocation of { wordOffset: int, container: stackLocn, field: int }
 
     and 'reg memoryIndex =
         NoMemIndex | MemIndex1 of 'reg | MemIndex2 of 'reg | MemIndex4 of 'reg | MemIndex8 of 'reg
@@ -143,7 +143,7 @@ struct
 
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
-            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int) list,
+            { regArgs: ('reg argument * 'reg) list, stackArgs: ('reg argument * int * stackLocn) list,
               checkInterrupt: 'reg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
@@ -185,7 +185,7 @@ struct
     |   TestTagBit of { arg: 'reg argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: 'reg argument }
+    |   PushValue of { arg: 'reg argument, container: stackLocn }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
@@ -282,6 +282,9 @@ struct
         |   printIndex(MemIndex2 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*2]")
         |   printIndex(MemIndex4 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*4]")
         |   printIndex(MemIndex8 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*8]")
+        
+        fun printStackLoc(StackLoc{size, rno}, stream) =
+            (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
 
         fun printArg(RegisterArgument reg, stream, printReg) = printReg(reg, stream)
         |   printArg(AddressConstant m, stream, _) = stream(stringOfWord m)
@@ -293,16 +296,17 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
-        |   printArg(StackLocation{wordOffset}, stream, _) =
-                stream(Int.toString wordOffset ^ "(stackptr)")
+        |   printArg(StackLocation{wordOffset, container, field, ...}, stream, _) =
+            (
+                printStackLoc(container, stream); stream " + ";
+                stream(Int.toString field);
+                stream " (";  stream(Int.toString wordOffset); stream ")"
+            )
             
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
         |   printSaves(areg::more, printReg, stream) =
                 (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
-        
-        fun printStackLoc(StackLoc{size, rno}, stream) =
-            (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
@@ -408,7 +412,8 @@ struct
                     fn (source, loopReg) => (printReg(loopReg, stream); stream "="; printArg(source, stream, printReg); stream " ")
                     ) regArgs;
                 List.app(
-                    fn (source, stack) => (stream("sp" ^ Int.toString stack); stream "="; printArg(source, stream, printReg); stream " ")
+                    fn (source, stack, stackLocn) =>
+                        (printStackLoc(stackLocn, stream); stream("(sp" ^ Int.toString stack); stream ")="; printArg(source, stream, printReg); stream " ")
                     ) stackArgs;
                 case checkInterrupt of
                     NONE => ()
@@ -477,7 +482,8 @@ struct
 
         |   printICode(TestTagBit{arg, ...}, stream, printReg) = (stream "\tTestTagBit\t"; printArg(arg, stream, printReg))
 
-        |   printICode(PushValue{arg}, stream, printReg) = (stream "\tPushValue\t"; printArg(arg, stream, printReg))
+        |   printICode(PushValue{arg, container}, stream, printReg) =
+                (stream "\tPushValue\t"; printArg(arg, stream, printReg); stream " => "; printStackLoc(container, stream))
 
         |   printICode(ResetStackPtr{numWords}, stream, _) = (stream "\tResetStackPtr\t"; stream(Int.toString numWords))
 
@@ -725,7 +731,7 @@ struct
         and sourceAsGenRegOrMem(RegisterArgument((GenReg r))) = RegisterArg r
         |   sourceAsGenRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsGenRegOrMem(StackLocation{wordOffset}) =
+        |   sourceAsGenRegOrMem(StackLocation{wordOffset, ...}) =
                 MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   sourceAsGenRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsGenRegOrMem(AddressConstant v) = AddressConstArg v
@@ -734,7 +740,7 @@ struct
         and sourceAsXMMRegOrMem(RegisterArgument((XMMReg r))) = RegisterArg r
         |   sourceAsXMMRegOrMem(MemoryLocation{offset, base=(GenReg baseReg), index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsXMMRegOrMem(StackLocation{wordOffset}) =
+        |   sourceAsXMMRegOrMem(StackLocation{wordOffset, ...}) =
                 MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   sourceAsXMMRegOrMem(IntegerConstant v) = NonAddressConstArg v
         |   sourceAsXMMRegOrMem(AddressConstant v) = AddressConstArg v
@@ -1081,7 +1087,7 @@ struct
             |   codeGenICode(TestTagBit {arg = RegisterArgument reg, ...} :: rest, code) =
                     codeGenICode(rest, TestTagR(asGenReg reg) :: code)
 
-            |   codeGenICode(TestTagBit {arg = StackLocation {wordOffset}, ...} :: rest, code) =
+            |   codeGenICode(TestTagBit {arg = StackLocation {wordOffset, ...}, ...} :: rest, code) =
                     (* Since the X86 is little-endian we check the addressed byte. *)
                     codeGenICode(rest, TestByteMem{base=esp, offset=wordOffset*wordSize, bits=0w1} :: code)
 
@@ -1090,20 +1096,20 @@ struct
 
             |   codeGenICode(TestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
 
-            |   codeGenICode(PushValue { arg = RegisterArgument reg } :: rest, code) =
+            |   codeGenICode(PushValue { arg = RegisterArgument reg, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)
 
-            |   codeGenICode(PushValue { arg = IntegerConstant v } :: rest, code) =
+            |   codeGenICode(PushValue { arg = IntegerConstant v, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
 
-            |   codeGenICode(PushValue { arg = AddressConstant v } :: rest, code) =
+            |   codeGenICode(PushValue { arg = AddressConstant v, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
 
-            |   codeGenICode(PushValue { arg = StackLocation {wordOffset} } :: rest, code) =
+            |   codeGenICode(PushValue { arg = StackLocation {wordOffset, ...}, ... } :: rest, code) =
                     (* The X86 manual says that the address is computed before the push. *)
                     codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}) :: code)
 
-            |   codeGenICode(PushValue { arg = MemoryLocation {offset, base, index} } :: rest, code) =
+            |   codeGenICode(PushValue { arg = MemoryLocation {offset, base, index}, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(MemoryArg{base=asGenReg base, offset=offset, index=memoryIndexAsIndex index}) :: code)
 
             |   codeGenICode(ResetStackPtr {numWords} :: rest, code) =

@@ -459,10 +459,10 @@ struct
             else (* Pushed before call. *)
             let
                 val target = asTarget destination
-                val {stackOffset, ...} = Vector.sub(stackArgVector, a-numArgRegs)
+                val {stackOffset, stackReg} = Vector.sub(stackArgVector, a-numArgRegs)
             in
                 (BlockSimple(LoadArgument{
-                    source=StackLocation{wordOffset=stackOffset+stackPtr}, dest=target, kind=MoveWord}) :: tailCode,
+                    source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0}, dest=target, kind=MoveWord}) :: tailCode,
                  RegisterArgument target, false)
             end
         
@@ -496,7 +496,7 @@ struct
                         val _ = finalOffset >= 0 orelse raise InternalError "offset"
                     in
                         (BlockSimple(LoadArgument{
-                            source=StackLocation{wordOffset=finalOffset}, dest=target, kind=MoveWord}) :: tailCode,
+                            source=StackLocation{wordOffset=finalOffset, container=container, field=offset}, dest=target, kind=MoveWord}) :: tailCode,
                         RegisterArgument target, false)
                     end
             )
@@ -618,7 +618,7 @@ struct
                            the new function the return address will be the first item on the stack. *)
                         val stackAdjust = firstArgumentAddr - newStackArgCount
                         (* Add an entry for the return address to the stack arguments. *)
-                        val returnEntry = {src=StackLocation{wordOffset=stackPtr}, stack=stackAdjust}
+                        val returnEntry = {src=StackLocation{wordOffset=stackPtr, container=returnAddressEntry, field=0}, stack=stackAdjust}
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
                                   stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})

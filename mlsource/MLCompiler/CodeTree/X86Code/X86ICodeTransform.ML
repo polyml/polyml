@@ -58,6 +58,8 @@ struct
         case fpMode of
             FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
         |   FPModeX87 => List.map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6, fp7]
+    
+    val dummyC = StackLoc{size=1, rno=0} (* Needed in various places. *)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
@@ -243,7 +245,7 @@ struct
         |   codeExtArgument(IntegerConstant i, _) = IntegerConstant i
         |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index}, _) =
                 MemoryLocation{base=findGeneralReg bReg, offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(StackLocation{wordOffset}, _) =
+        |   codeExtArgument(StackLocation{wordOffset, ...}, _) =
                 MemoryLocation{base=GenReg esp, offset=wordOffset*wordSize, index=NoMemIndex}
         
         and codeExtArgGeneral arg = codeExtArgument(arg, generalRegisters)
@@ -322,7 +324,7 @@ struct
                     |   moveEachValue ([{dst=StackDest _, src=MemoryLocation _ }] :: _, _) =
                             raise InternalError "moveEachValue - MemoryArgument"
 
-                    |   moveEachValue ([{dst=StackDest addr, src as StackLocation{ wordOffset}}] :: rest, reserved) =
+                    |   moveEachValue ([{dst=StackDest addr, src as StackLocation{wordOffset, ...}}] :: rest, reserved) =
                             (* Copy a stack location - needs a load and store unless the address is the same. *)
                             if addr = wordOffset
                             then moveEachValue(rest, reserved)
@@ -345,17 +347,17 @@ struct
                                             val destAddr = addr+1
                                             val newSrc =
                                                 case src of
-                                                    StackLocation{wordOffset} =>
-                                                        StackLocation{wordOffset=wordOffset+1}
+                                                    StackLocation{wordOffset, container, field} =>
+                                                        StackLocation{wordOffset=wordOffset+1, container=container, field=field+1}
                                                 |   src => src
                                         in
                                             [
-                                            PushValue{arg=workRegAsArg},
+                                            PushValue{arg=workRegAsArg, container=dummyC},
                                             LoadArgument{source=newSrc, dest=workReg, kind=MoveWord},
                                             StoreArgument{
                                                 source=RegisterArgument workReg, base=GenReg esp, index=NoMemIndex,
                                                 offset = destAddr*wordSize, kind=MoveWord},
-                                            LoadArgument{source=StackLocation{wordOffset=0}, dest=workReg, kind=MoveWord},
+                                            LoadArgument{source=StackLocation{wordOffset=0, container=dummyC, field=0}, dest=workReg, kind=MoveWord},
                                             ResetStackPtr{numWords=1}
                                             ]
                                         end
@@ -421,8 +423,8 @@ struct
                                     case (src, originalSrc) of
                                         (RegisterArgument r1, RegisterArgument r2) =>
                                             if r1=r2 then replace else src
-                                    |   (StackLocation{wordOffset=offset1},
-                                         StackLocation{wordOffset=offset2}) =>
+                                    |   (StackLocation{wordOffset=offset1, ...},
+                                         StackLocation{wordOffset=offset2, ...}) =>
                                             if offset1 = offset2 then replace else src
                                     |   (MemoryLocation _, _) => raise InternalError "swapSources: memory loc"
                                     |   (_, MemoryLocation _) => raise InternalError "swapSources: memory loc"
@@ -480,14 +482,14 @@ struct
                     val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
                     val newSrc =
                         case src of
-                            StackLocation{wordOffset} =>
-                                StackLocation{wordOffset=wordOffset+1}
+                            StackLocation{wordOffset, container, field} =>
+                                StackLocation{wordOffset=wordOffset+1, container=container, field=field+1}
                         |   other => other
                 in
                     {dst=newDest, src=newSrc} :: renumberArgs args
                 end
         in
-            PushValue{arg=argM1} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1)
+            PushValue{arg=argM1, container=dummyC} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1)
         end
         else
         let
@@ -664,11 +666,11 @@ struct
                         (* Have to adjust the offsets of stack arguments. *)
                         val adjusted =
                             case arg of
-                                StackLocation {wordOffset} =>
-                                    StackLocation{wordOffset=wordOffset+argNum}
+                                StackLocation {wordOffset, container, field} =>
+                                    StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum}
                             |   arg => arg
                     in
-                        PushValue {arg=codeExtArgGeneral adjusted} :: pushStackArgs(args, argNum+1)
+                        PushValue {arg=codeExtArgGeneral adjusted, container=dummyC} :: pushStackArgs(args, argNum+1)
                     end
                 val pushedArgs = pushStackArgs(stackArgs, 0)
                 (* We have to adjust any stack offset to account for the arguments we've pushed. *)
@@ -689,8 +691,8 @@ struct
                         SOME(LoadArgument{source=AddressConstant m, dest=reg, kind=MoveWord})
                 |   getConstArgs(IntegerConstant i, reg) =
                         SOME(LoadArgument{source=IntegerConstant i, dest=reg, kind=MoveWord})
-                |   getConstArgs(StackLocation { wordOffset }, reg) =
-                        SOME(LoadArgument{source=StackLocation{wordOffset=wordOffset+numStackArgs},
+                |   getConstArgs(StackLocation { wordOffset, container, field}, reg) =
+                        SOME(LoadArgument{source=StackLocation{wordOffset=wordOffset+numStackArgs, container=container, field=field+numStackArgs},
                                           dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = NONE
@@ -747,7 +749,7 @@ struct
                 (* We must leave stack entries as stack entries for the moment as with TailCall. *)
                 fun codeArg(StackLocation stack) = StackLocation stack
                 |   codeArg arg = codeExtArgGeneral arg
-                val extStackArgs = map (fn (src, stack) => {dst=StackDest stack, src=codeArg src}) stackArgs
+                val extStackArgs = map (fn (src, stack, _) => {dst=StackDest stack, src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, PReg r) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
                 val check = Option.map(List.map(fn (PReg r) => findGeneralReg r)) checkInterrupt
             in
@@ -779,7 +781,7 @@ struct
             let
                 val code = codeExtended(rest, context)
                 (* The memory must be cleared in case we have a GC. *)
-                val pushAll = List.tabulate(size, fn _ => PushValue{arg=IntegerConstant(tag 0)})
+                val pushAll = List.tabulate(size, fn _ => PushValue{arg=IntegerConstant(tag 0), container=dummyC})
             in
                 pushAll @ code
             end
@@ -953,11 +955,11 @@ struct
                 TestTagBit{ arg=codeExtArgGeneral arg, ccRef=ccRef } :: code
             end
 
-        |   codeExtended({instr=PushValue {arg}, ...} :: rest, context) =
+        |   codeExtended({instr=PushValue {arg, container}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
             in
-                PushValue {arg=codeExtArgGeneral arg} :: code
+                PushValue {arg=codeExtArgGeneral arg, container=container} :: code
             end
 
         |   codeExtended({instr=ResetStackPtr {numWords}, ...} :: rest, context) =
@@ -1228,7 +1230,7 @@ struct
                                register so we have to push it to the stack and then make sure it is
                                popped afterwards.  Because it is untagged it is unsafe to leave it. *)
                             [
-                                PushValue{arg=intSource},
+                                PushValue{arg=intSource, container=dummyC},
                                 FloatFixedInt{dest=fpReg, source=wordOffsetAddress(0, esp)},
                                 ResetStackPtr {numWords=1}
                             ]
