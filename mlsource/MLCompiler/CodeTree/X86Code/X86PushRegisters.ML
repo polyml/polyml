@@ -94,14 +94,14 @@ struct
             case Array.sub(pregMap, n) of
                 Unset => raise InternalError "mapSrcReg - unset"
             |   ToPReg preg => (preg, [])
-            |   ToStack(stackLoc, container) =>
+            |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
                 let
                     (* Make a new untagged register. That will prevent us pushing it if
                        we have to spill registers. *)
                     val newReg = newPReg RegPropUntagged
                 in
                     (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset= !stackCount-stackLoc, container=container, field=0}, dest=newReg, kind=MoveWord}])
+                        [LoadArgument{source=StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0}, dest=newReg, kind=MoveWord}])
                 end
 
 
@@ -117,7 +117,7 @@ struct
                     val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
                     val newReg = newPReg kind
                     val newContainer = newStackLoc 1
-                    val () = Array.update(pregMap, n, ToStack (!stackCount + 1, newContainer))
+                    val () = Array.update(pregMap, n, ToStack (!stackCount, newContainer))
                     val () = pushItemToStack(NewEntry{pregNo=n})
                 in
                     (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}])
@@ -206,8 +206,8 @@ struct
                 case Array.sub(pregMap, r) of
                     Unset => raise InternalError "mapSrcReg - unset"
                 |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack(stackLoc, container) =>
-                        (StackLocation{wordOffset= !stackCount-stackLoc, container=container, field=0}, [])
+                |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
+                        (StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0}, [])
             )
 
         |   mapSource(a as AddressConstant _) = (a, [])
@@ -266,7 +266,7 @@ struct
                         let
                             val _ = case currentLocation of Unset => () | _ => raise InternalError "LoadArgument - already set"
                             val container = newStackLoc 1
-                            val () = Array.update(pregMap, dReg, ToStack(! stackCount+1, container))
+                            val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                             val () = pushItemToStack(NewEntry{pregNo=dReg})
                         in
                             (PushValue{arg=sourceVal, container=container})
@@ -442,10 +442,10 @@ struct
                             in
                                 ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
                             end
-                        |   ToStack(stackLoc, stackC) =>
+                        |   ToStack(stackLoc, stackC as StackLoc{size, ...}) =>
                             let
                                 val (sourceVal, sourceCode) = mapSource(source)
-                                val stackOff = !stackCount - stackLoc
+                                val stackOff = !stackCount - stackLoc - size
                             in
                                 (otherRegArgs, (sourceVal, stackOff, stackC) :: otherStackArgs, sourceCode @ otherCode)
                             end
