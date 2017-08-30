@@ -26,7 +26,7 @@ sig
 
     type regState =
     { 
-        active: int, refs: int, pushState: pushState
+        active: int, refs: int, pushState: pushState, prop: regProperty
     }
     
     (* Simple basic block with register usage information. *)

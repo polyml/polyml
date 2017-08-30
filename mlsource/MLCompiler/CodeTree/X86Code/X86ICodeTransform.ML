@@ -66,7 +66,7 @@ struct
         MemoryLocation{offset=offset*wordSize, base=(GenReg baseReg), index=NoMemIndex}
     exception RegisterOverflow of intSet
 
-    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector): reg basicBlock vector =
+    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector, pregProps): reg basicBlock vector =
     let
         val maxPRegs = Vector.length regStates
 
@@ -142,7 +142,7 @@ struct
                             if isFree prefReg
                             then (Array.update(allocatedRegs, r, somePref); somePref)
                             else NONE
-                    
+
                     fun findAReg [] = raise RegisterOverflow conflicts
                     |   findAReg (reg::regs) =
                             if isFree reg then (Array.update(allocatedRegs, r, SOME reg); reg)
@@ -1281,10 +1281,17 @@ struct
                 |   SetHandler{ handler, continue } =>
                         (processBlocks handler; processBlocks continue)
             (* Now this block. *)
-            (* We assume that anything used later will have been allocated a register.
-               This is generally true except for a loop where the use may occur earlier. *)
-            val exported = setToList passThrough @ setToList exports
-            val () = List.app(fn r => (findRegister(r, NONE, generalRegisters); ())) exported
+            local
+                (* We assume that anything used later will have been allocated a register.
+                   This is generally true except for a loop where the use may occur earlier. *)
+                val exported = setToList passThrough @ setToList exports
+                fun findAReg r =
+                    case Vector.sub(pregProps, r) of
+                        RegPropStack _ => ()
+                    |   _ => ignore(findRegister(r, NONE, generalRegisters))
+            in
+                val () = List.app findAReg exported
+            end
             val codeBlock = codeExtended(block, [])
             val resultBlock = BasicBlock { block = codeBlock, flow = flow }
         in
@@ -1307,27 +1314,45 @@ struct
     let
         val maxPRegs = Vector.length regStates
         val pushArray = Array.array(maxPRegs, false)
-        (* Mark anything already marked as "must push" *)
-        val () = Vector.appi(fn (i, {pushState=MustPush, ...}) => Array.update(pushArray, i, true) | _ => ()) regStates
+
+        (* Mark anything already marked as "must push" unless it's already on the stack *)
+        local
+            fun checkPush(i, {pushState=MustPush, prop=RegPropGeneral, ...}) =
+                Array.update(pushArray, i, true)
+            |   checkPush _ = ()
+        in
+            val () = Vector.appi checkPush regStates
+        end
+        
         val nGenRegs = List.length generalRegisters
         (* Make a list of all the active sets ignoring those marked to be pushed.
            Do that first because we need to know how many sets each register is in. *)
-        fun nowActive regs =
-            List.foldl (fn (r, l) => if Array.sub(pushArray, r) then l else r :: l) [] regs
-        fun getBlockSets(ExtendedBasicBlock{block, passThrough, ...}, sets) =
-        let
-            fun getSets({active, ...}, l) =
-            let
-                val set = nowActive(setToList(union(active, passThrough)))
-            in
-                if List.length set > nGenRegs
-                then set :: l
-                else l
-            end
+        local
+            fun addToActive(r, l) =
+            (
+                case Vector.sub(regStates, r) of
+                    {prop=RegPropStack _, ...} => l
+                |   _ => if Array.sub(pushArray, r) then l else r :: l
+            )
         in
-            List.foldl getSets sets block
+            fun nowActive regs = List.foldl addToActive [] regs
         end
-        val activeSets = Vector.foldl getBlockSets [] identified
+            fun getBlockSets(ExtendedBasicBlock{block, passThrough, ...}, sets) =
+            let
+                fun getSets({active, ...}, l) =
+                let
+                    val set = nowActive(setToList(union(active, passThrough)))
+                in
+                    if List.length set > nGenRegs
+                    then set :: l
+                    else l
+                end
+            in
+                List.foldl getSets sets block
+            end
+
+            val activeSets = Vector.foldl getBlockSets [] identified
+
     in
         if null activeSets then ()
         else
@@ -1363,8 +1388,9 @@ struct
                     then ()
                     else
                     let
-                        val {pushState, ...} = Vector.sub(regStates, reg)
+                        val {pushState, prop, ...} = Vector.sub(regStates, reg)
                         val _ = case pushState of MustNotPush => raise InternalError "markAsPush" | _ => ()
+                        val _ = case prop of RegPropStack _ => raise InternalError "markAsPush" | _ => ()
                     in
                         Array.update(pushArray, reg, true);
                         markAsPush(regs, n-1)
@@ -1452,11 +1478,12 @@ struct
                     fun chooseReg([], bestReg, _) = bestReg
                     |   chooseReg(reg::regs, bestReg, bestCost) =
                         let
-                            val {active, pushState, refs, ...} = Vector.sub(regStates, reg)
+                            val {active, pushState, refs, prop, ...} = Vector.sub(regStates, reg)
                             val cost = if refs = 0 then 0 else Int.quot(active, refs)
                         in
-                            case pushState of
-                                MustNotPush => chooseReg(regs, bestReg, bestCost)
+                            case (pushState, prop) of
+                                (MustNotPush, _) => chooseReg(regs, bestReg, bestCost)
+                            |   (_, RegPropStack _) => chooseReg(regs, bestReg, bestCost)
                             |   _ =>
                                 if cost >= bestCost
                                 then chooseReg(regs, reg, active)
@@ -1476,9 +1503,8 @@ struct
                     val () =
                         if wantPrintCode then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets) else ()
                 end
-
             in
-                (codeAbstractToConcrete(identified, conflictSets), maxStack)
+                (codeAbstractToConcrete(identified, conflictSets, pregProps), maxStack)
                     handle RegisterOverflow activeSet =>
                     let
                         val regsToSpill = selectARegisterToSpill activeSet

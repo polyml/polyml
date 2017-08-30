@@ -28,7 +28,7 @@ struct
 
     type regState =
     { 
-        active: int, refs: int, pushState: pushState
+        active: int, refs: int, pushState: pushState, prop: regProperty
     }
 
     and conflictState =
@@ -83,8 +83,8 @@ struct
             (* Should not occur at this stage. *)
             raise InternalError "getInstructionRegisters - ExchangeRegisters"
 
-    |   getInstructionRegisters(BeginFunction {regArgs, stackArgs}) =
-            { sources=[], dests=map #1 regArgs (*@ map (fn StackLoc{rno, ...} => rno) stackArgs*)}
+    |   getInstructionRegisters(BeginFunction {regArgs, ...}) =
+            { sources=[], dests=map #1 regArgs }
 
     |   getInstructionRegisters(FunctionCall{regArgs, stackArgs, dest, ...}) =
         let
@@ -228,6 +228,109 @@ struct
 
     |   getInstructionRegisters(SSE2FPArith{resultReg, arg1, arg2, ...}) =
             { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg]}
+   
+    fun argStacks(StackLocation { container, ...}) = [container]
+    |   argStacks _ = []
+    
+    (* Get the stack loc entries that this instruction refers to.  *)
+    fun getInstructionStackLocs(LoadArgument { source, ...}) =
+        { sources=argStacks source, dests=[] }
+
+    |   getInstructionStackLocs(StoreArgument{ source, ...}) =
+            { sources=argStacks source, dests=[] }
+
+    |   getInstructionStackLocs(ExchangeRegisters _) =
+            (* Should not occur at this stage. *)
+            raise InternalError "getInstructionStackLocs - ExchangeRegisters"
+
+    |   getInstructionStackLocs(BeginFunction {stackArgs, ...}) =
+            { sources=[], dests=stackArgs}
+
+    |   getInstructionStackLocs(FunctionCall{regArgs, stackArgs, ...}) =
+        let
+            (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
+            val stackSources = List.foldl(fn (arg, srcs) => argStacks arg @ srcs) [] stackArgs
+        
+            fun regSource((arg, _), srcs) = argStacks arg @ srcs
+            val regSources = List.foldl regSource [] regArgs
+        in
+            { sources=stackSources @ regSources, dests=[] }
+        end
+
+    |   getInstructionStackLocs(TailRecursiveCall{regArgs, stackArgs, ...}) =
+        let
+            (* Tail recursive call.  References the argument sources but exits. *)
+            val stackSources = List.foldl(fn ({src, ...}, srcs) => argStacks src @ srcs) [] stackArgs
+            fun regSource((arg, _), srcs) = argStacks arg @ srcs
+            val regSources = List.foldl regSource [] regArgs
+        in
+            { sources=stackSources @ regSources, dests=[] }
+        end
+
+    |   getInstructionStackLocs(JumpLoop{regArgs, stackArgs, ...}) =
+        let
+            val regSourceAsRegs =
+                List.foldl(fn ((source, _), srcs) => argStacks source @ srcs) [] regArgs
+            val sourceAsRegs =
+                List.foldl(fn ((source, _, _), srcs) => argStacks source @ srcs) regSourceAsRegs stackArgs
+        in
+            { sources=sourceAsRegs, dests=[] }
+        end
+
+    |   getInstructionStackLocs(RaiseExceptionPacket{packet}) =
+            { sources=argStacks packet, dests=[] }
+
+    |   getInstructionStackLocs(ReserveContainer{container, ...}) =
+            { sources=[], dests=[container] }
+
+    |   getInstructionStackLocs(LoadContainerAddress{container, ...}) =
+            { sources=[container], dests=[] }
+
+    |   getInstructionStackLocs(WordComparison{arg1, arg2, ...}) =
+            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
+
+    |   getInstructionStackLocs(ArithmeticFunction{operand1, operand2, ...}) =
+            { sources=argStacks operand1 @ argStacks operand2, dests=[] }
+
+    |   getInstructionStackLocs(TestTagBit{arg, ...}) =
+            { sources=argStacks arg, dests=[] }
+
+    |   getInstructionStackLocs(PushValue {arg, container, ...}) =
+            { sources=argStacks arg, dests=[container] }
+
+    |   getInstructionStackLocs(StoreToStack {source, container, ...}) =
+        (* Although this stores into the container it must already exist. *)
+            { sources=container :: argStacks source, dests=[] }
+
+    |   getInstructionStackLocs(UntagValue{source, ...}) =
+            { sources=argStacks source, dests=[]}
+
+    |   getInstructionStackLocs(ShiftOperation{operand, shiftAmount, ...}) =
+            { sources=argStacks operand @ argStacks shiftAmount, dests=[] }
+
+    |   getInstructionStackLocs(Multiplication{operand1, operand2, ...}) =
+            { sources=argStacks operand1 @ argStacks operand2, dests=[] }
+
+    |   getInstructionStackLocs(Division{divisor, ...}) =
+            { sources=argStacks divisor, dests=[] }
+
+    |   getInstructionStackLocs(CompareFloatingPt{arg1, arg2, ...}) =
+            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
+
+    |   getInstructionStackLocs(X87FPArith{arg1, arg2, ...}) =
+            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
+
+    |   getInstructionStackLocs(X87FPUnaryOps{source, ...}) =
+            { sources=argStacks source, dests=[] }
+
+    |   getInstructionStackLocs(FloatFixedInt{source, ...}) =
+            { sources=argStacks source, dests=[] }
+
+    |   getInstructionStackLocs(SSE2FPArith{arg1, arg2, ...}) =
+            { sources=argStacks arg1 @ argStacks arg2, dests=[]}
+    
+        (* Many of the instructions take just register args. *)
+    |   getInstructionStackLocs _ = { sources=[], dests=[] } 
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
@@ -238,6 +341,8 @@ struct
            the block and not declared locally. *)
         val declarationArray = Array.array(vectorLength, emptySet)
         and importArray = Array.array(vectorLength, emptySet)
+(*        val decStackArray = Array.array(vectorLength, emptySet)
+        and importStackArray = Array.array(vectorLength, emptySet)*)
         
         (* References - this is used locally to see if a register is ever
            actually used and also included in the result which uses it as
@@ -270,6 +375,7 @@ struct
                 fun scanCode(instr, original as { code, decs, refs }) =
                 let
                     val { sources, dests } = getInstructionRegisters instr
+                    val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
                     val eliminateable =
                         case instr of
                             LoadArgument _ => true
@@ -279,8 +385,9 @@ struct
                         |   BoxValue _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
-                    val destRegNos = map regNo dests
-                    and sourceRegNos = map regNo sources
+                    and stackNo(StackLoc{rno, ...}) = rno
+                    val destRegNos = map regNo dests @ map stackNo stackDests
+                    and sourceRegNos = map regNo sources @ map stackNo stackSrcs
                 in
                     if eliminateable andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
@@ -396,8 +503,10 @@ struct
             let
                 val { sources, dests } = getInstructionRegisters instr
                 fun regNo(PReg i) = i
-                val destRegNos = map regNo dests
-                and sourceRegNos = map regNo sources
+                val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
+                fun stackNo(StackLoc{rno, ...}) = rno
+                val destRegNos = map regNo dests @ map stackNo stackDests
+                and sourceRegNos = map regNo sources @ map stackNo stackSrcs
                 val destSet = listToSet destRegNos
                 (* Remove any sources that are present in passThrough since
                    they are going to be active throughout the block. *)
@@ -541,7 +650,8 @@ struct
                 fn i => {
                     active = Array.sub(regActive, i),
                     refs = Array.sub(regRefs, i),
-                    pushState = Array.sub(regPushState, i)
+                    pushState = Array.sub(regPushState, i),
+                    prop = Vector.sub(pregProps, i)
                 }
             )
     in
