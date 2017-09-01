@@ -67,7 +67,6 @@ struct
     datatype llIcode =
         LLLoadArgument of { source: reg regOrMemoryArg, dest: reg, kind: moveKind }
     |   LLStoreArgument of { source: reg regOrMemoryArg, base: genReg, offset: int, index: indexType, kind: moveKind }
-    |   LLLoadMemReg of { offset: int, dest: reg }
     |   LLExchangeRegisters of { regX: reg, regY: reg }
     |   LLFunctionCall of { callKind: callKinds}
     |   LLTailRecursiveCall of { callKind: callKinds }
@@ -180,6 +179,94 @@ struct
             ]
         end
         
+        (* Moves and loads. *)
+        fun llLoadArgument{ source, dest=GenReg destReg, kind=MoveWord} =
+                MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg }
+
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte} = (* Load from memory. *)
+                LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
+
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit} = (* Load from memory. *)
+                LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
+                
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit} = (* Load from memory. *)
+                LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
+
+                (* Load a floating point value. *)
+        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                FPLoadFromMemory{ address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision }
+            end
+
+                (* Load or move from an XMM reg. *)
+        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveDouble} =
+                XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
+
+                (* Load a floating point value. *)
+        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index }, precision=SinglePrecision }
+            end
+
+                (* Load or move from an XMM reg. *)
+        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveFloat} =
+                XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
+
+            (* Any other combinations are not allowed. *)
+        |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
+
+                (* Store to memory *)
+        fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} =
+                StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} =
+                StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} 
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move16Bit} =
+                StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} =
+                StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
+
+                (* Store a short constant to memory *)
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} =
+                StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} =
+                StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
+
+                (* Store a long constant to memory *)
+        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} =
+                StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
+
+                (* Store a floating point value. *)
+        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveDouble} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
+            in
+                 FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true }
+            end
+
+        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveDouble} =
+                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision }
+
+                (* Store a floating point value. *)
+        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveFloat} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
+            in
+                 FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true }
+            end
+
+        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveFloat} =
+                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision }
+
+        |   llStoreArgument _ = raise InternalError "llStoreArgument: StoreArgument"
+
         (* Code-generate a block.  A couple of instructions require the "flow". *)
         fun codeGenBlock(LLBasicBlock{block, flow, ...}, code) =
         let
@@ -187,123 +274,12 @@ struct
             (* Turn the icode into machine code.  This produces the code in reverse. *)
             fun codeGenICode([], code) = code
 
-            |   codeGenICode(
-                    (* Load to a general register or move to a general register. *)
-                    LLLoadArgument{ source, dest=GenReg destReg, kind=MoveWord} :: rest, code) =
-                        codeGenICode(rest, MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg } :: code)
-
-            |   codeGenICode(
-                    (* Load from memory. *)
-                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte} :: rest, code) =
-                    codeGenICode(rest, LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
-
-            |   codeGenICode(
-                    (* Load from memory. *)
-                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit} :: rest, code) =
-                    codeGenICode(rest, LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
-
-            |   codeGenICode(
-                    (* Load from memory. *)
-                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit} :: rest, code) =
-                    codeGenICode(rest, LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
+            |   codeGenICode(LLLoadArgument args :: rest, code) =
+                    codeGenICode(rest, llLoadArgument args :: code)
 
                     (* Store to memory *)
-            |   codeGenICode(
-                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=base, offset=offset, index=index}} :: code)
-
-            |   codeGenICode(
-                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-            |   codeGenICode(
-                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move16Bit} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-            |   codeGenICode(
-                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-                    (* Store a short constant to memory *)
-            |   codeGenICode(
-                    LLStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-            |   codeGenICode(
-                    LLStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-                    (* Store a long constant to memory *)
-            |   codeGenICode(
-                    LLStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
-                    codeGenICode(rest,
-                        StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
-
-                    (* Load a floating point value. *)
-            |   codeGenICode(LLLoadArgument{source=MemoryArg{offset, base=baseReg, index},
-                                    dest=FPReg fpReg, kind=MoveDouble} :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-                in
-                    codeGenICode(rest, FPLoadFromMemory{ address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
-                end
-
-                    (* Load or move from an XMM reg. *)
-            |   codeGenICode(LLLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveDouble} :: rest, code) =
-                    codeGenICode(rest, XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
-
-                    (* Store a floating point value. *)
-            |   codeGenICode(LLStoreArgument{source=RegisterArg(FPReg fpReg),
-                             offset, base=baseReg, index, kind=MoveDouble} :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
-                in
-                    codeGenICode(rest, FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true } :: code)
-                end
-
-            |   codeGenICode(LLStoreArgument{source=RegisterArg(XMMReg xmmRegReg),
-                             offset, base=baseReg, index, kind=MoveDouble} :: rest, code) =
-                    codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
-
-                    (* Load a floating point value. *)
-            |   codeGenICode(LLLoadArgument{source=MemoryArg{offset, base=baseReg, index},
-                                    dest=FPReg fpReg, kind=MoveFloat} :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-                in
-                    codeGenICode(rest, FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index }, precision=SinglePrecision } :: code)
-                end
-
-                    (* Load or move from an XMM reg. *)
-            |   codeGenICode(LLLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveFloat} :: rest, code) =
-                    codeGenICode(rest, XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
-
-                    (* Store a floating point value. *)
-            |   codeGenICode(LLStoreArgument{source=RegisterArg(FPReg fpReg),
-                             offset, base=baseReg, index, kind=MoveFloat} :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
-                in
-                    codeGenICode(rest, FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true } :: code)
-                end
-
-            |   codeGenICode(LLStoreArgument{source=RegisterArg(XMMReg xmmRegReg),
-                             offset, base=baseReg, index, kind=MoveFloat} :: rest, code) =
-                    codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision } :: code)
-
-                (* Any other combinations are not allowed. *)
-            |   codeGenICode(LLLoadArgument _ :: _, _) = raise InternalError "codeGenICode: LoadArgument"
-
-            |   codeGenICode(LLStoreArgument _ :: _, _) = raise InternalError "codeGenICode: StoreArgument"
-
-                (* This should have been transformed into MoveArgument. *)
-            |   codeGenICode(LLLoadMemReg _ :: _, _) = raise InternalError "codeGenICode - LoadMemReg"
+            |   codeGenICode(LLStoreArgument args :: rest, code) =
+                    codeGenICode(rest, llStoreArgument args :: code)
 
                 (* Exchange two general registers. *)
             |   codeGenICode(LLExchangeRegisters{ regX, regY} :: rest, code) =
@@ -2172,7 +2148,7 @@ struct
             in
                 val () = List.app findAReg exported
             end
-            val codeBlock = codeExtended(block, [])
+            val codeBlock = codeExtended(block, {flow=flow})
             val resultBlock = LLBasicBlock { block = codeBlock, flow = flow }
         in
             Array.update(results, blockNo, resultBlock)
