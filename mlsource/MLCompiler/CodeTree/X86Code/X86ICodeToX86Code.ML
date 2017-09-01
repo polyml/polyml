@@ -65,8 +65,8 @@ struct
     (* Temporary datatype to bridge the gap between the concrete icode and the
        direct generation of the low-level assembly code. *)
     datatype llIcode =
-        LLLoadArgument of { source: llargument, dest: reg, kind: moveKind }
-    |   LLStoreArgument of { source: llargument, base: reg, offset: int, index: indexType, kind: moveKind }
+        LLLoadArgument of { source: reg regOrMemoryArg, dest: reg, kind: moveKind }
+    |   LLStoreArgument of { source: reg regOrMemoryArg, base: genReg, offset: int, index: indexType, kind: moveKind }
     |   LLLoadMemReg of { offset: int, dest: reg }
     |   LLExchangeRegisters of { regX: reg, regY: reg }
     |   LLFunctionCall of { callKind: callKinds}
@@ -76,44 +76,35 @@ struct
     |   LLInitialiseMem of { size: reg, addr: reg, init: reg }
     |   LLInitialisationComplete
     |   LLJumpLoop of { checkInterrupt: reg list option }
-    |   LLRaiseExceptionPacket of { packet: llargument }
+    |   LLRaiseExceptionPacket of { packet: reg regOrMemoryArg }
     |   LLIndexedCaseOperation of { testReg: reg, workReg: reg }
     |   LLLockMutable of { addr: reg }
-    |   LLWordComparison of { arg1: llargument, arg2: llargument }
+    |   LLWordComparison of { arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
     |   LLPushExceptionHandler of { workReg: reg }
     |   LLPopExceptionHandler of { workReg: reg }
     |   LLBeginHandler of { packetReg: reg, workReg: reg }
     |   LLReturnResultFromFunction of { resultReg: reg, numStackArgs: int }
-    |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand1: llargument, operand2: llargument }
-    |   LLTestTagBit of { arg: llargument }
-    |   LLPushValue of { arg: llargument, container: stackLocn }
+    |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
+    |   LLTestTagBit of { arg: reg regOrMemoryArg }
+    |   LLPushValue of { arg: reg regOrMemoryArg }
     |   LLResetStackPtr of { numWords: int }
     |   LLTagValue of { source: reg, dest: reg }
-    |   LLUntagValue of { source: llargument, dest: reg, isSigned: bool }
+    |   LLUntagValue of { source: reg regOrMemoryArg, dest: reg, isSigned: bool }
     |   LLLoadEffectiveAddress of { base: reg option, offset: int, index: indexType, dest: reg }
-    |   LLShiftOperation of { shift: shiftType, resultReg: reg, operand: llargument, shiftAmount: llargument }
-    |   LLMultiplication of { resultReg: reg, operand1: llargument, operand2: llargument }
-    |   LLDivision of { isSigned: bool, dividend: reg, divisor: llargument, quotient: reg, remainder: reg }
+    |   LLShiftOperation of { shift: shiftType, resultReg: reg, operand: reg regOrMemoryArg, shiftAmount: reg regOrMemoryArg }
+    |   LLMultiplication of { resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
+    |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
     |   LLAtomicExchangeAndAdd of { base: reg, source: reg }
     |   LLCompareByteVectors of { vec1Addr: reg, vec2Addr: reg, length: reg }
     |   LLBlockMove of { srcAddr: reg, destAddr: reg, length: reg, isByteMove: bool }
-    |   LLCompareFloatingPt of { arg1: llargument, arg2: llargument }
+    |   LLCompareFloatingPt of { arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
     |   LLX87FPGetCondition of { dest: reg }
-    |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg1: llargument, arg2: llargument }
-    |   LLX87FPUnaryOps of { fpOp: fpUnaryOps, dest: reg, source: llargument }
-    |   LLFloatFixedInt of { dest: reg, source: llargument }
-    |   LLSSE2FPArith of { opc: sse2Operations, resultReg: reg, arg1: llargument, arg2: llargument }
+    |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
+    |   LLX87FPUnaryOps of { fpOp: fpUnaryOps, dest: reg, source: reg regOrMemoryArg }
+    |   LLFloatFixedInt of { dest: reg, source: reg regOrMemoryArg }
+    |   LLSSE2FPArith of { opc: sse2Operations, resultReg: reg, arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
     
     and llBasicBlock = LLBasicBlock of { block: llIcode list, flow: ICODE.controlFlow }
-    
-    and llargument =
-        LLRegisterArgument of reg
-    |   LLAddressConstant of machineWord (* A constant that is an address. *)
-    |   LLIntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   LLMemoryLocation of { base: genReg, offset: int, index: indexType } (* A memory location. *)
-        (* Offset on the stack. *)
-    |   LLStackLocation of { wordOffset: int, container: stackLocn, field: int }
-
     
     fun asGenReg(GenReg r) = r
     |   asGenReg _ = raise InternalError "asGenReg"
@@ -150,7 +141,7 @@ struct
         val addAllocatingFunction =
             DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
         
-        fun argAsGenReg(LLRegisterArgument(GenReg r)) = r
+        fun argAsGenReg(RegisterArg(GenReg r)) = r
         |   argAsGenReg _ = raise InternalError "argAsGenReg"
 
         fun memoryAddressAsBaseOffset({offset, base=baseReg, index}) =
@@ -158,22 +149,18 @@ struct
 
         and memoryIndexAsIndex l = l
 
-        and sourceAsGenRegOrMem(LLRegisterArgument((GenReg r))) = RegisterArg r
-        |   sourceAsGenRegOrMem(LLMemoryLocation{offset, base=baseReg, index}) =
+        and sourceAsGenRegOrMem(RegisterArg((GenReg r))) = RegisterArg r
+        |   sourceAsGenRegOrMem(MemoryArg{offset, base=baseReg, index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsGenRegOrMem(LLStackLocation{wordOffset, ...}) =
-                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
-        |   sourceAsGenRegOrMem(LLIntegerConstant v) = NonAddressConstArg v
-        |   sourceAsGenRegOrMem(LLAddressConstant v) = AddressConstArg v
+        |   sourceAsGenRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
+        |   sourceAsGenRegOrMem(AddressConstArg v) = AddressConstArg v
         |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
 
-        and sourceAsXMMRegOrMem(LLRegisterArgument((XMMReg r))) = RegisterArg r
-        |   sourceAsXMMRegOrMem(LLMemoryLocation{offset, base=baseReg, index}) =
+        and sourceAsXMMRegOrMem(RegisterArg((XMMReg r))) = RegisterArg r
+        |   sourceAsXMMRegOrMem(MemoryArg{offset, base=baseReg, index}) =
                 MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsXMMRegOrMem(LLStackLocation{wordOffset, ...}) =
-                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
-        |   sourceAsXMMRegOrMem(LLIntegerConstant v) = NonAddressConstArg v
-        |   sourceAsXMMRegOrMem(LLAddressConstant v) = AddressConstArg v
+        |   sourceAsXMMRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
+        |   sourceAsXMMRegOrMem(AddressConstArg v) = AddressConstArg v
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
 
         (* Check the stack limit "register".  This is used both at the start of a function for genuine
@@ -207,59 +194,59 @@ struct
 
             |   codeGenICode(
                     (* Load from memory. *)
-                    LLLoadArgument{ source=LLMemoryLocation mLoc, dest=GenReg destReg, kind=MoveByte} :: rest, code) =
+                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte} :: rest, code) =
                     codeGenICode(rest, LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
             |   codeGenICode(
                     (* Load from memory. *)
-                    LLLoadArgument{ source=LLMemoryLocation mLoc, dest=GenReg destReg, kind=Move16Bit} :: rest, code) =
+                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit} :: rest, code) =
                     codeGenICode(rest, LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
             |   codeGenICode(
                     (* Load from memory. *)
-                    LLLoadArgument{ source=LLMemoryLocation mLoc, dest=GenReg destReg, kind=Move32Bit} :: rest, code) =
+                    LLLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit} :: rest, code) =
                     codeGenICode(rest, LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg} :: code)
 
                     (* Store to memory *)
             |   codeGenICode(
-                    LLStoreArgument{ source=LLRegisterArgument(GenReg sourceReg), base, offset, index, kind=MoveWord} :: rest, code) =
+                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} :: rest, code) =
                     codeGenICode(rest,
-                        StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=base, offset=offset, index=index}} :: code)
 
             |   codeGenICode(
-                    LLStoreArgument{ source=LLRegisterArgument(GenReg sourceReg), base, offset, index, kind=MoveByte} :: rest, code) =
+                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} :: rest, code) =
                     codeGenICode(rest,
-                        StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
             |   codeGenICode(
-                    LLStoreArgument{ source=LLRegisterArgument(GenReg sourceReg), base, offset, index, kind=Move16Bit} :: rest, code) =
+                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move16Bit} :: rest, code) =
                     codeGenICode(rest,
-                        StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
             |   codeGenICode(
-                    LLStoreArgument{ source=LLRegisterArgument(GenReg sourceReg), base, offset, index, kind=Move32Bit} :: rest, code) =
+                    LLStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} :: rest, code) =
                     codeGenICode(rest,
-                        StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                     (* Store a short constant to memory *)
             |   codeGenICode(
-                    LLStoreArgument{ source=LLIntegerConstant srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
+                    LLStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
                     codeGenICode(rest,
-                        StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
             |   codeGenICode(
-                    LLStoreArgument{ source=LLIntegerConstant srcValue, base, offset, index, kind=MoveByte} :: rest, code) =
+                    LLStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} :: rest, code) =
                     codeGenICode(rest,
-                        StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                     (* Store a long constant to memory *)
             |   codeGenICode(
-                    LLStoreArgument{ source=LLAddressConstant srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
+                    LLStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} :: rest, code) =
                     codeGenICode(rest,
-                        StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=asGenReg base, offset=offset, index=index}} :: code)
+                        StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} :: code)
 
                     (* Load a floating point value. *)
-            |   codeGenICode(LLLoadArgument{source=LLMemoryLocation{offset, base=baseReg, index},
+            |   codeGenICode(LLLoadArgument{source=MemoryArg{offset, base=baseReg, index},
                                     dest=FPReg fpReg, kind=MoveDouble} :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
@@ -272,20 +259,20 @@ struct
                     codeGenICode(rest, XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                     (* Store a floating point value. *)
-            |   codeGenICode(LLStoreArgument{source=LLRegisterArgument(FPReg fpReg),
-                             offset, base=(GenReg baseReg), index, kind=MoveDouble} :: rest, code) =
+            |   codeGenICode(LLStoreArgument{source=RegisterArg(FPReg fpReg),
+                             offset, base=baseReg, index, kind=MoveDouble} :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
                 in
                     codeGenICode(rest, FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true } :: code)
                 end
 
-            |   codeGenICode(LLStoreArgument{source=LLRegisterArgument(XMMReg xmmRegReg),
-                             offset, base=(GenReg baseReg), index, kind=MoveDouble} :: rest, code) =
+            |   codeGenICode(LLStoreArgument{source=RegisterArg(XMMReg xmmRegReg),
+                             offset, base=baseReg, index, kind=MoveDouble} :: rest, code) =
                     codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision } :: code)
 
                     (* Load a floating point value. *)
-            |   codeGenICode(LLLoadArgument{source=LLMemoryLocation{offset, base=baseReg, index},
+            |   codeGenICode(LLLoadArgument{source=MemoryArg{offset, base=baseReg, index},
                                     dest=FPReg fpReg, kind=MoveFloat} :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
@@ -298,16 +285,16 @@ struct
                     codeGenICode(rest, XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg } :: code)
 
                     (* Store a floating point value. *)
-            |   codeGenICode(LLStoreArgument{source=LLRegisterArgument(FPReg fpReg),
-                             offset, base=(GenReg baseReg), index, kind=MoveFloat} :: rest, code) =
+            |   codeGenICode(LLStoreArgument{source=RegisterArg(FPReg fpReg),
+                             offset, base=baseReg, index, kind=MoveFloat} :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Store FPReg <> fp0"
                 in
                     codeGenICode(rest, FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true } :: code)
                 end
 
-            |   codeGenICode(LLStoreArgument{source=LLRegisterArgument(XMMReg xmmRegReg),
-                             offset, base=(GenReg baseReg), index, kind=MoveFloat} :: rest, code) =
+            |   codeGenICode(LLStoreArgument{source=RegisterArg(XMMReg xmmRegReg),
+                             offset, base=baseReg, index, kind=MoveFloat} :: rest, code) =
                     codeGenICode(rest, XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision } :: code)
 
                 (* Any other combinations are not allowed. *)
@@ -439,7 +426,7 @@ struct
             |   codeGenICode(LLLockMutable { addr } :: rest, code) =
                     codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
 
-            |   codeGenICode(LLWordComparison {arg1=LLRegisterArgument(GenReg r), arg2, ...} :: rest, code) =
+            |   codeGenICode(LLWordComparison {arg1=RegisterArg(GenReg r), arg2, ...} :: rest, code) =
                     codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
 
             |   codeGenICode(LLWordComparison _ :: _, _) =
@@ -501,7 +488,7 @@ struct
 
             |   codeGenICode(
                     LLArithmeticFunction{
-                        oper, resultReg=(GenReg resReg), operand1=LLRegisterArgument(GenReg op1Reg),
+                        oper, resultReg=(GenReg resReg), operand1=RegisterArg(GenReg op1Reg),
                         operand2, ...} :: rest, code) =
                 let
                     val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
@@ -512,32 +499,24 @@ struct
             |   codeGenICode(LLArithmeticFunction _ :: _, _) =
                     raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
 
-            |   codeGenICode(LLTestTagBit {arg = LLRegisterArgument reg, ...} :: rest, code) =
+            |   codeGenICode(LLTestTagBit {arg = RegisterArg reg, ...} :: rest, code) =
                     codeGenICode(rest, TestTagR(asGenReg reg) :: code)
 
-            |   codeGenICode(LLTestTagBit {arg = LLStackLocation {wordOffset, ...}, ...} :: rest, code) =
-                    (* Since the X86 is little-endian we check the addressed byte. *)
-                    codeGenICode(rest, TestByteMem{base=esp, offset=wordOffset*wordSize, bits=0w1} :: code)
-
-            |   codeGenICode(LLTestTagBit {arg = LLMemoryLocation {offset, base, index=NoIndex}, ...} :: rest, code) =
+            |   codeGenICode(LLTestTagBit {arg = MemoryArg {offset, base, index=NoIndex}, ...} :: rest, code) =
                     codeGenICode(rest, TestByteMem{base=base, offset=offset, bits=0w1} :: code)
 
             |   codeGenICode(LLTestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
 
-            |   codeGenICode(LLPushValue { arg = LLRegisterArgument reg, ... } :: rest, code) =
+            |   codeGenICode(LLPushValue { arg = RegisterArg reg, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)
 
-            |   codeGenICode(LLPushValue { arg = LLIntegerConstant v, ... } :: rest, code) =
+            |   codeGenICode(LLPushValue { arg = NonAddressConstArg v, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
 
-            |   codeGenICode(LLPushValue { arg = LLAddressConstant v, ... } :: rest, code) =
+            |   codeGenICode(LLPushValue { arg = AddressConstArg v, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
 
-            |   codeGenICode(LLPushValue { arg = LLStackLocation {wordOffset, ...}, ... } :: rest, code) =
-                    (* The X86 manual says that the address is computed before the push. *)
-                    codeGenICode(rest, PushToStack(MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}) :: code)
-
-            |   codeGenICode(LLPushValue { arg = LLMemoryLocation {offset, base, index}, ... } :: rest, code) =
+            |   codeGenICode(LLPushValue { arg = MemoryArg {offset, base, index}, ... } :: rest, code) =
                     codeGenICode(rest, PushToStack(MemoryArg{base=base, offset=offset, index=memoryIndexAsIndex index}) :: code)
 
             |   codeGenICode(LLResetStackPtr {numWords} :: rest, code) =
@@ -561,7 +540,7 @@ struct
                 end
 
             |   codeGenICode(
-                    LLShiftOperation{ shift, resultReg, operand, shiftAmount=LLIntegerConstant shiftValue, ...} :: rest, code) =
+                    LLShiftOperation{ shift, resultReg, operand, shiftAmount=NonAddressConstArg shiftValue, ...} :: rest, code) =
                 let
                     val resReg = asGenReg resultReg and opReg = argAsGenReg operand
                     val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
@@ -580,7 +559,7 @@ struct
                     codeGenICode(rest, ShiftVariable{ shiftType=shift, output=resReg } :: code)
                 end
 
-            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2=LLMemoryLocation{offset, base, index=NoIndex}, ... } :: rest, code) =
+            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2=MemoryArg{offset, base, index=NoIndex}, ... } :: rest, code) =
                 let
                     val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and baseReg = base
                     val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
@@ -642,8 +621,8 @@ struct
 
             |   codeGenICode(
                     LLCompareFloatingPt {
-                        arg1=LLRegisterArgument(FPReg fpReg),
-                        arg2=LLMemoryLocation{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
+                        arg1=RegisterArg(FPReg fpReg),
+                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                     (* This currently pops the value. *)
@@ -652,7 +631,7 @@ struct
                     codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
                 end
 
-            |   codeGenICode(LLCompareFloatingPt {arg1=LLRegisterArgument(XMMReg xmmReg), arg2, ... } :: rest, code) =
+            |   codeGenICode(LLCompareFloatingPt {arg1=RegisterArg(XMMReg xmmReg), arg2, ... } :: rest, code) =
                     codeGenICode(rest, XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
 
             |   codeGenICode(LLCompareFloatingPt _ :: _, _) =
@@ -669,8 +648,8 @@ struct
 
             |   codeGenICode(
                     LLX87FPArith {
-                        opc, resultReg=(FPReg fpResReg), arg1=LLRegisterArgument(FPReg fpArgReg),
-                        arg2=LLMemoryLocation{offset, base=baseReg, index=NoIndex} } :: rest, code) =
+                        opc, resultReg=(FPReg fpResReg), arg1=RegisterArg(FPReg fpArgReg),
+                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex} } :: rest, code) =
                 let
                     val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                     val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
@@ -683,15 +662,15 @@ struct
 
             |   codeGenICode(
                     LLSSE2FPArith {
-                        opc, resultReg=(XMMReg xmmResReg), arg1=LLRegisterArgument(XMMReg xmmArgReg), arg2 } :: rest, code) =
+                        opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArg(XMMReg xmmArgReg), arg2 } :: rest, code) =
                 let
                     val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
                     (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
                     val _ =
                         case (opc, arg2) of
-                            (SSE2Xor, LLRegisterArgument _) => ()
+                            (SSE2Xor, RegisterArg _) => ()
                         |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
-                        |   (SSE2And, LLRegisterArgument _) => ()
+                        |   (SSE2And, RegisterArg _) => ()
                         |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
                         |   _ => ()
                 in
@@ -701,7 +680,7 @@ struct
             |   codeGenICode(LLSSE2FPArith _ :: _, _) =
                     raise InternalError "codeGenICode: SSE2FPArith: TODO"
 
-            |   codeGenICode(LLX87FPUnaryOps {fpOp, dest=(FPReg fpResReg), source=LLRegisterArgument(FPReg fpArgReg)} :: rest, code) =
+            |   codeGenICode(LLX87FPUnaryOps {fpOp, dest=(FPReg fpResReg), source=RegisterArg(FPReg fpArgReg)} :: rest, code) =
                 let
                     val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
                     val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
@@ -712,10 +691,10 @@ struct
             |   codeGenICode(LLX87FPUnaryOps _ :: _, _) =
                     raise InternalError "codeGenICode: FloatingPointNeg: TODO"
 
-            |   codeGenICode(LLFloatFixedInt { dest=(XMMReg xmmResReg), source=LLRegisterArgument(GenReg srcReg) } :: rest, code) =
+            |   codeGenICode(LLFloatFixedInt { dest=(XMMReg xmmResReg), source=RegisterArg(GenReg srcReg) } :: rest, code) =
                     codeGenICode(rest, XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code)
 
-            |   codeGenICode(LLFloatFixedInt { dest=(FPReg fpReg), source=LLMemoryLocation{base, offset, index=NoIndex} } :: rest, code) =
+            |   codeGenICode(LLFloatFixedInt { dest=(FPReg fpReg), source=MemoryArg{base, offset, index=NoIndex} } :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
                 in
@@ -936,12 +915,10 @@ struct
         case fpMode of
             FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
         |   FPModeX87 => List.map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6, fp7]
-    
-    val dummyC = StackLoc{size=1, rno=0} (* Needed in various places. *)
 
     (* Generally we have an offset in words and no index register. *)
     fun wordOffsetAddress(offset, baseReg) =
-        LLMemoryLocation{offset=offset*wordSize, base=baseReg, index=NoIndex}
+        MemoryArg{offset=offset*wordSize, base=baseReg, index=NoIndex}
 
     exception RegisterOverflow of intSet
 
@@ -1119,13 +1096,13 @@ struct
         fun findGeneralReg r = findRegister(r, NONE, generalRegisters)
         and findFloatReg r = findRegister(r, NONE, floatingPtRegisters)
 
-        fun codeExtArgument(RegisterArgument(PReg r), regSet) = LLRegisterArgument(findRegister(r, NONE, regSet))
-        |   codeExtArgument(AddressConstant m, _) = LLAddressConstant m
-        |   codeExtArgument(IntegerConstant i, _) = LLIntegerConstant i
+        fun codeExtArgument(RegisterArgument(PReg r), regSet) = RegisterArg(findRegister(r, NONE, regSet))
+        |   codeExtArgument(AddressConstant m, _) = AddressConstArg m
+        |   codeExtArgument(IntegerConstant i, _) = NonAddressConstArg i
         |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index}, _) =
-                LLMemoryLocation{base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index}
+                MemoryArg{base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index}
         |   codeExtArgument(StackLocation{wordOffset, ...}, _) =
-                LLMemoryLocation{base=esp, offset=wordOffset*wordSize, index=NoIndex}
+                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         
         and codeExtArgGeneral arg = codeExtArgument(arg, generalRegisters)
         and codeExtArgFloat arg = codeExtArgument(arg, floatingPtRegisters)
@@ -1136,28 +1113,37 @@ struct
         |   codeExtIndex(MemIndex4(PReg r)) = Index4(asGenReg(findGeneralReg r))
         |   codeExtIndex(MemIndex8(PReg r)) = Index8(asGenReg(findGeneralReg r))
 
-        fun moveRR{src, dst} = LLLoadArgument{source=LLRegisterArgument src, dest=dst, kind=MoveWord}
+        fun moveRR{src, dst} = LLLoadArgument{source=RegisterArg src, dest=dst, kind=MoveWord}
 
         fun moveIfNecessary{src, dst} =
             if src = dst then [] else [moveRR{src=src, dst=dst}]
-        
+       
+        datatype llsource =
+            StackSource of int
+        |   OtherSource of reg regOrMemoryArg
+
+        fun sourceToX86Code(OtherSource r) = r
+        |   sourceToX86Code(StackSource wordOffset) = MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
+
         local
             fun indexRegister NoIndex = NONE
             |   indexRegister (Index1 r) = SOME r
             |   indexRegister (Index2 r) = SOME r
             |   indexRegister (Index4 r) = SOME r
             |   indexRegister (Index8 r) = SOME r
-                (* The registers are numbered from 0.  Choose values that don't conflict with
-                   the stack addresses. *)
-                fun regNo r = ~1 - nReg r
-                type node = {src: llargument, dst: destinations }
-                fun nodeAddress({dst=RegDest r, ...}: node) = regNo r
-                |   nodeAddress({dst=StackDest a, ...}) = a
-                fun arcs({src=LLStackLocation{wordOffset, ...}, ...}: node) = [wordOffset]
-                |   arcs{src=LLRegisterArgument r, ...} = [regNo r]
-                |   arcs{src=LLMemoryLocation{base, index, ...}, ...} =
-                        (case indexRegister index of NONE => [regNo(GenReg base)] | SOME r => [regNo(GenReg base), regNo(GenReg r)])
-                |   arcs _ = []
+            (* The registers are numbered from 0.  Choose values that don't conflict with
+               the stack addresses. *)
+            fun regNo r = ~1 - nReg r
+            type node = {src: llsource, dst: destinations }
+            
+            fun nodeAddress({dst=RegDest r, ...}: node) = regNo r
+            |   nodeAddress({dst=StackDest a, ...}) = a
+            
+            fun arcs({src=StackSource wordOffset, ...}: node) = [wordOffset]
+            |   arcs{src=OtherSource(RegisterArg r), ...} = [regNo r]
+            |   arcs{src=OtherSource(MemoryArg{base, index, ...}), ...} =
+                    (case indexRegister index of NONE => [regNo(GenReg base)] | SOME r => [regNo(GenReg base), regNo(GenReg r)])
+            |   arcs _ = []
         in
             val stronglyConnected = STRONGLY.stronglyConnectedComponents { nodeAddress=nodeAddress, arcs=arcs }
         end
@@ -1178,9 +1164,9 @@ struct
                 
                 fun filterASet(_, []) = [] (* Stop if there's nothing there. *)
                 |   filterASet([], regs) = regs
-                |   filterASet({src=LLRegisterArgument srcReg, ...} :: rest, regs) =
+                |   filterASet({src=OtherSource(RegisterArg srcReg), ...} :: rest, regs) =
                         filterASet(rest, List.filter(fn r => r <> srcReg) regs)
-                |   filterASet({src=LLMemoryLocation _, ...} :: _, _) = raise InternalError "filterASet - Memory"
+                |   filterASet({src=OtherSource(MemoryArg _), ...} :: _, _) = raise InternalError "filterASet - Memory"
                 |   filterASet(_ :: rest, regs) = filterASet(rest, regs)
                 
                 fun filterList(_, []) = []
@@ -1210,22 +1196,22 @@ struct
                     
                     fun moveEachValue ([], _) = []
 
-                    |   moveEachValue ([{dst=RegDest reg, src as LLRegisterArgument r}] :: rest, reserved) =
+                    |   moveEachValue ([{dst=RegDest reg, src as OtherSource(RegisterArg r)}] :: rest, reserved) =
                             (* Source and dest are both regs - only move if they're different. *)
                             if r = reg
                             then moveEachValue(rest, reg :: reserved)
-                            else LLLoadArgument{source=src, dest=reg, kind=MoveWord} ::
+                            else LLLoadArgument{source=sourceToX86Code src, dest=reg, kind=MoveWord} ::
                                     moveEachValue(rest, reg :: reserved)
 
                     |   moveEachValue ([{dst=RegDest reg, src}] :: rest, reserved) =
                             (* Load from store or a constant. *)
-                            LLLoadArgument{source=src, dest=reg, kind=MoveWord} ::
+                            LLLoadArgument{source=sourceToX86Code src, dest=reg, kind=MoveWord} ::
                                 moveEachValue(rest, reg :: reserved)
 
-                    |   moveEachValue ([{dst=StackDest _, src=LLMemoryLocation _ }] :: _, _) =
+                    |   moveEachValue ([{dst=StackDest _, src=OtherSource(MemoryArg _ )}] :: _, _) =
                             raise InternalError "moveEachValue - MemoryArgument"
 
-                    |   moveEachValue ([{dst=StackDest addr, src as LLStackLocation{wordOffset, ...}}] :: rest, reserved) =
+                    |   moveEachValue ([{dst=StackDest addr, src as StackSource wordOffset}] :: rest, reserved) =
                             (* Copy a stack location - needs a load and store unless the address is the same. *)
                             if addr = wordOffset
                             then moveEachValue(rest, reserved)
@@ -1234,9 +1220,9 @@ struct
                                 val loadAndStoreCode =
                                     case getWorkRegister(reserved, rest) of
                                         SOME workReg =>
-                                            [LLLoadArgument{source=src, dest=workReg, kind=MoveWord},
+                                            [LLLoadArgument{source=sourceToX86Code src, dest=workReg, kind=MoveWord},
                                              LLStoreArgument{
-                                                    source=LLRegisterArgument workReg, base=GenReg esp, index=NoIndex,
+                                                    source=RegisterArg(workReg), base=esp, index=NoIndex,
                                                     offset = addr*wordSize, kind=MoveWord}]
                                     |   NONE =>
                                         (* So far it seems we always find a register this way if we need one.
@@ -1244,21 +1230,20 @@ struct
                                            again. *)
                                         let
                                             val workReg = GenReg eax
-                                            val workRegAsArg = LLRegisterArgument workReg
+                                            val workRegAsArg = RegisterArg workReg
                                             val destAddr = addr+1
                                             val newSrc =
                                                 case src of
-                                                    LLStackLocation{wordOffset, container, field} =>
-                                                        LLStackLocation{wordOffset=wordOffset+1, container=container, field=field+1}
+                                                    StackSource wordOffset => StackSource(wordOffset+1)
                                                 |   src => src
                                         in
                                             [
-                                            LLPushValue{arg=workRegAsArg, container=dummyC},
-                                            LLLoadArgument{source=newSrc, dest=workReg, kind=MoveWord},
+                                            LLPushValue{arg=workRegAsArg},
+                                            LLLoadArgument{source=sourceToX86Code newSrc, dest=workReg, kind=MoveWord},
                                             LLStoreArgument{
-                                                source=LLRegisterArgument workReg, base=GenReg esp, index=NoIndex,
+                                                source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = destAddr*wordSize, kind=MoveWord},
-                                            LLLoadArgument{source=LLStackLocation{wordOffset=0, container=dummyC, field=0}, dest=workReg, kind=MoveWord},
+                                            LLLoadArgument{source=MemoryArg{base=esp, offset=0, index=NoIndex}, dest=workReg, kind=MoveWord},
                                             LLResetStackPtr{numWords=1}
                                             ]
                                         end
@@ -1269,10 +1254,10 @@ struct
                     |   moveEachValue ([{dst=StackDest addr, src}] :: rest, reserved) =
                             (* Store from a register or a constant. *)
                             LLStoreArgument{
-                                source=src, base=GenReg esp, index=NoIndex, offset = addr*wordSize, kind=MoveWord} ::
+                                source=sourceToX86Code src, base=esp, index=NoIndex, offset = addr*wordSize, kind=MoveWord} ::
                                     moveEachValue(rest, reserved)
 
-                    |   moveEachValue(({dst=RegDest regA, src=LLRegisterArgument regB} :: (cycle as _ :: _)) :: rest, reserved) =
+                    |   moveEachValue(({dst=RegDest regA, src=OtherSource(RegisterArg regB)} :: (cycle as _ :: _)) :: rest, reserved) =
                         (* Cycle with register arguments - swap the registers. *)
                         let
                             (* We need to exchange some of the arguments.  Doing an exchange here will
@@ -1285,9 +1270,9 @@ struct
                             val flattened = List.foldl(fn (a, b) => a @ b) [] (cycle :: rest)
                             fun swapRegs r = if r = regA then regB else if r = regB then regA else r
                             fun swapGenRegs r = if GenReg r = regA then asGenReg regB else if GenReg r = regB then asGenReg regA else r
-                            fun swapSources{src=LLRegisterArgument r, dst} =
-                                    {src=LLRegisterArgument(swapRegs r), dst=dst}
-                            |   swapSources{src=LLMemoryLocation{base, index, offset}, dst} =
+                            fun swapSources{src=OtherSource(RegisterArg r), dst} =
+                                    {src=OtherSource(RegisterArg(swapRegs r)), dst=dst}
+                            |   swapSources{src=OtherSource(MemoryArg{base, index, offset}), dst} =
                                 let
                                     val newIndex =
                                         case index of
@@ -1297,7 +1282,7 @@ struct
                                         |   Index4 r => Index4(swapGenRegs r)
                                         |   Index8 r => Index8(swapGenRegs r)
                                 in
-                                    {src=LLMemoryLocation{base=swapGenRegs base, index=newIndex, offset=offset}, dst=dst}
+                                    {src=OtherSource(MemoryArg{base=swapGenRegs base, index=newIndex, offset=offset}), dst=dst}
                                 end
                             |   swapSources sd = sd
                         in
@@ -1318,24 +1303,23 @@ struct
                                     SOME workReg => workReg
                                 |   _ => raise RegisterOverflow emptySet  (* Force an extra register spill here. *)
                             (* Replace any reference to the source by the new register. *)
-                            val replace = LLRegisterArgument workReg
+                            val replace = OtherSource(RegisterArg workReg)
                             fun swapSources{src, dst} =
                             let
                                 val newSource =
                                     case (src, originalSrc) of
-                                        (LLRegisterArgument r1, LLRegisterArgument r2) =>
+                                        (OtherSource(RegisterArg r1), OtherSource(RegisterArg r2)) =>
                                             if r1=r2 then replace else src
-                                    |   (LLStackLocation{wordOffset=offset1, ...},
-                                         LLStackLocation{wordOffset=offset2, ...}) =>
+                                    |   (StackSource offset1, StackSource offset2) =>
                                             if offset1 = offset2 then replace else src
-                                    |   (LLMemoryLocation _, _) => raise InternalError "swapSources: memory loc"
-                                    |   (_, LLMemoryLocation _) => raise InternalError "swapSources: memory loc"
+                                    |   (OtherSource(MemoryArg _), _) => raise InternalError "swapSources: memory loc"
+                                    |   (_, OtherSource(MemoryArg _)) => raise InternalError "swapSources: memory loc"
                                     |   _ => src
                             in
                                 {src=newSource, dst=dst}
                             end
                         in
-                            LLLoadArgument{source=originalSrc, dest=workReg, kind=MoveWord} ::
+                            LLLoadArgument{source=sourceToX86Code originalSrc, dest=workReg, kind=MoveWord} ::
                                 (* Process the whole input including this instruction. Don't include
                                    the work reg as reserved.  It's present as a source now so won't
                                    be reused until we've copied it to the real destination. *)
@@ -1357,7 +1341,7 @@ struct
         fun moveMultipleRegisters regPairList =
         let
             val regPairsAsDests =
-                List.map(fn {src, dst} => {src=LLRegisterArgument src, dst=RegDest dst}) regPairList
+                List.map(fn {src, dst} => {src=OtherSource(RegisterArg src), dst=RegDest dst}) regPairList
             (* We don't need a work register so this doesn't matter. *)
             val reserveRegs = generalRegisters (* Consider all registers to be in use. *)
         in
@@ -1368,7 +1352,7 @@ struct
            That means storing the arguments in the right order to avoid overwriting a
            value that we are using for a different argument. *)
 
-        fun codeTailCall(callKind, arguments, stackAdjust) =
+        fun codeTailCall(callKind, arguments: {dst: destinations, src: llsource} list, stackAdjust) =
         if stackAdjust < 0
         then
         let
@@ -1383,14 +1367,13 @@ struct
                     val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
                     val newSrc =
                         case src of
-                            LLStackLocation{wordOffset, container, field} =>
-                                LLStackLocation{wordOffset=wordOffset+1, container=container, field=field+1}
+                            StackSource wordOffset => StackSource(wordOffset+1)
                         |   other => other
                 in
                     {dst=newDest, src=newSrc} :: renumberArgs args
                 end
         in
-            LLPushValue{arg=argM1, container=dummyC} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1)
+            LLPushValue{arg=sourceToX86Code argM1} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1)
         end
         else
         let
@@ -1452,7 +1435,7 @@ struct
                 val code = codeExtended(rest, context)
             in
                 LLStoreArgument{
-                    source=codeExtArgGeneral source, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=MoveByte}
+                    source=codeExtArgGeneral source, base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index, kind=MoveByte}
                         :: code
             end
             else
@@ -1469,7 +1452,7 @@ struct
             in
                 moveCode @
                 (LLStoreArgument{
-                    source=LLRegisterArgument storeReg, base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=MoveByte}
+                    source=RegisterArg storeReg, base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index, kind=MoveByte}
                         :: code)
             end
 
@@ -1480,7 +1463,7 @@ struct
                     case kind of MoveFloat => floatingPtRegisters | MoveDouble => floatingPtRegisters | _ => generalRegisters
             in
                 LLStoreArgument{
-                    source=codeExtArgument(source, regSet), base=findGeneralReg bReg, offset=offset, index=codeExtIndex index, kind=kind}
+                    source=codeExtArgument(source, regSet), base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index, kind=kind}
                         :: code
             end
 
@@ -1492,7 +1475,7 @@ struct
                 (* If we don't have a register that means the result is never used. *)
                 case Array.sub(allocatedRegs, pr) of
                     SOME regResult =>
-                        LLLoadArgument{source=LLMemoryLocation{base=ebp, offset=offset, index=NoIndex}, dest=regResult, kind=MoveWord} :: code
+                        LLLoadArgument{source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=regResult, kind=MoveWord} :: code
                 |   NONE => code
             end
 
@@ -1518,8 +1501,8 @@ struct
                 val () = List.app (fn (RegisterArgument(PReg pr), reg) => addRealHint(pr, reg) | _ => ()) regArgs
                 val code = codeExtended(rest, context)
                 (* We must leave stack entries as stack entries for the moment. *)
-                fun codeArg(StackLocation stack) = LLStackLocation stack
-                |   codeArg arg = codeExtArgGeneral arg
+                fun codeArg(StackLocation{wordOffset, ...}) = StackSource wordOffset
+                |   codeArg arg = OtherSource(codeExtArgGeneral arg)
 
                 val extStackArgs = map (fn {stack, src} => {dst=StackDest(stack+stackOffset), src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=codeArg a, dst=RegDest r}) regArgs
@@ -1566,7 +1549,7 @@ struct
                                     StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum}
                             |   arg => arg
                     in
-                        LLPushValue {arg=codeExtArgGeneral adjusted, container=dummyC} :: pushStackArgs(args, argNum+1)
+                        LLPushValue {arg=codeExtArgGeneral adjusted} :: pushStackArgs(args, argNum+1)
                     end
                 val pushedArgs = pushStackArgs(stackArgs, 0)
                 (* We have to adjust any stack offset to account for the arguments we've pushed. *)
@@ -1584,11 +1567,11 @@ struct
                 (* These are all items we can load without requiring a source register.
                    That includes loading from the stack. *)
                 fun getConstArgs(AddressConstant m, reg) =
-                        SOME(LLLoadArgument{source=LLAddressConstant m, dest=reg, kind=MoveWord})
+                        SOME(LLLoadArgument{source=AddressConstArg m, dest=reg, kind=MoveWord})
                 |   getConstArgs(IntegerConstant i, reg) =
-                        SOME(LLLoadArgument{source=LLIntegerConstant i, dest=reg, kind=MoveWord})
-                |   getConstArgs(StackLocation { wordOffset, container, field}, reg) =
-                        SOME(LLLoadArgument{source=LLStackLocation{wordOffset=wordOffset+numStackArgs, container=container, field=field+numStackArgs},
+                        SOME(LLLoadArgument{source=NonAddressConstArg i, dest=reg, kind=MoveWord})
+                |   getConstArgs(StackLocation { wordOffset, ...}, reg) =
+                        SOME(LLLoadArgument{source=MemoryArg{offset=(wordOffset+numStackArgs)*wordSize, base=esp, index=NoIndex},
                                           dest=reg, kind=MoveWord})
                 |   getConstArgs(RegisterArgument _, _) = NONE
                 |   getConstArgs(MemoryLocation _, _) = NONE
@@ -1643,8 +1626,8 @@ struct
                 (* TODO: Make the sources and destinations "friends". *)
                 val code = codeExtended(rest, context)
                 (* We must leave stack entries as stack entries for the moment as with TailCall. *)
-                fun codeArg(StackLocation stack) = LLStackLocation stack
-                |   codeArg arg = codeExtArgGeneral arg
+                fun codeArg(StackLocation{wordOffset, ...}) = StackSource wordOffset
+                |   codeArg arg = OtherSource(codeExtArgGeneral arg)
                 val extStackArgs = map (fn (src, stack, _) => {dst=StackDest stack, src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, PReg r) => {src=codeArg a, dst=RegDest(findGeneralReg r)}) regArgs
                 val check = Option.map(List.map(fn (PReg r) => findGeneralReg r)) checkInterrupt
@@ -1661,7 +1644,7 @@ struct
                 val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
             in
                 moveIfNecessary{src=argReg, dst=raxAsArg} @
-                    LLRaiseExceptionPacket {packet=LLRegisterArgument raxAsArg } :: code
+                    LLRaiseExceptionPacket {packet=RegisterArg raxAsArg } :: code
             end
 
         |   codeExtended({instr=RaiseExceptionPacket{ packet }, ...} :: rest, context) =
@@ -1670,14 +1653,14 @@ struct
                 val code = codeExtended(rest, context)
             in
                 LLLoadArgument{source=codeExtArgument(packet, generalRegisters), dest=raxAsArg, kind=MoveWord} ::
-                    LLRaiseExceptionPacket {packet=LLRegisterArgument raxAsArg } :: code
+                    LLRaiseExceptionPacket {packet=RegisterArg raxAsArg } :: code
             end
 
         |   codeExtended({instr=ReserveContainer{size, ...}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
                 (* The memory must be cleared in case we have a GC. *)
-                val pushAll = List.tabulate(size, fn _ => LLPushValue{arg=LLIntegerConstant(tag 0), container=dummyC})
+                val pushAll = List.tabulate(size, fn _ => LLPushValue{arg=NonAddressConstArg(tag 0)})
             in
                 pushAll @ code
             end
@@ -1688,7 +1671,7 @@ struct
                 val addrReg = findRegister(aReg, NONE, generalRegisters)
                 val loadAddr =
                     if stackOffset = 0
-                    then LLLoadArgument{source=LLRegisterArgument(GenReg esp), dest=addrReg, kind=MoveWord}
+                    then LLLoadArgument{source=RegisterArg(GenReg esp), dest=addrReg, kind=MoveWord}
                     else LLLoadEffectiveAddress { base=SOME(GenReg esp), offset=stackOffset*wordSize, index=NoIndex, dest=addrReg }
             in
                 loadAddr :: code
@@ -1780,7 +1763,7 @@ struct
                 (* If we couldn't put it in the result register we have to copy it there. *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
-                    (LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand1=LLRegisterArgument realDestReg, operand2=op2Arg} :: code)
+                    (LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
             end
 
         |   codeExtended({instr=ArithmeticFunction{oper=SUB, ...}, ...} :: _, _) = raise InternalError "codeExtended - ArithmeticFunction"
@@ -1805,8 +1788,8 @@ struct
                     else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg}])
             in
                 moveInstr @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=LLRegisterArgument realDestReg,
-                                        operand2=LLRegisterArgument operandReg} :: code)
+                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg,
+                                        operand2=RegisterArg operandReg} :: code)
             end
 
         |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
@@ -1824,7 +1807,7 @@ struct
                    location with the result reg as a base or index? *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=LLRegisterArgument realDestReg, operand2=op2Arg} :: code)
+                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
             end
 
         |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1,
@@ -1838,7 +1821,7 @@ struct
                 val op1Arg = codeExtArgGeneral operand1
             in
                 moveIfNecessary{src=realOp2Reg, dst=realDestReg} @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=LLRegisterArgument realDestReg, operand2=op1Arg} :: code)
+                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op1Arg} :: code)
             end
 
         |   codeExtended({instr=ArithmeticFunction _, ...} :: _, _) =
@@ -1851,11 +1834,11 @@ struct
                 LLTestTagBit{ arg=codeExtArgGeneral arg } :: code
             end
 
-        |   codeExtended({instr=PushValue {arg, container}, ...} :: rest, context) =
+        |   codeExtended({instr=PushValue {arg, ...}, ...} :: rest, context) =
             let
                 val code = codeExtended(rest, context)
             in
-                LLPushValue {arg=codeExtArgGeneral arg, container=container} :: code
+                LLPushValue {arg=codeExtArgGeneral arg} :: code
             end
 
         |   codeExtended({instr=ResetStackPtr {numWords}, ...} :: rest, context) =
@@ -1868,7 +1851,7 @@ struct
                 val codeSource = codeExtArgument(source, generalRegisters)
             in
                 LLStoreArgument{
-                    source=codeSource, base=GenReg esp, offset=stackOffset*wordSize, index=NoIndex, kind=MoveWord}
+                    source=codeSource, base=esp, offset=stackOffset*wordSize, index=NoIndex, kind=MoveWord}
                         :: code
             end
 
@@ -1899,8 +1882,8 @@ struct
                             val realSReg = findRegister(sReg, SOME regResult, generalRegisters)
                         in
                             moveIfNecessary{src=realSReg, dst=regResult} @
-                                (LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult, operand=LLRegisterArgument regResult,
-                                    shiftAmount=LLIntegerConstant 1} :: code)
+                                (LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult, operand=RegisterArg regResult,
+                                    shiftAmount=NonAddressConstArg 1} :: code)
                         end
                 |   NONE => code
             end
@@ -1930,8 +1913,8 @@ struct
                 val realOpReg = findRegister(operReg, SOME realDestReg, generalRegisters)
             in
                  moveIfNecessary{src=realOpReg, dst=realDestReg} @
-                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=LLRegisterArgument realDestReg,
-                                    shiftAmount=LLIntegerConstant i} :: code)
+                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
+                                    shiftAmount=NonAddressConstArg i} :: code)
             end
 
         |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=RegisterArgument(PReg operReg),
@@ -1947,8 +1930,8 @@ struct
                    should be free. *)
             in
                  moveIfNecessary{src=realOpReg, dst=realDestReg} @ moveIfNecessary{src=realShiftReg, dst=GenReg ecx} @
-                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=LLRegisterArgument realDestReg,
-                                    shiftAmount=LLRegisterArgument(GenReg ecx)} :: code)
+                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
+                                    shiftAmount=RegisterArg(GenReg ecx)} :: code)
             end
 
         |   codeExtended({instr=ShiftOperation _, ...} :: _, _) = raise InternalError "codeExtended - ShiftOperation"
@@ -1973,8 +1956,8 @@ struct
                     else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg}])
             in
                 moveInstr @
-                    (LLMultiplication{resultReg=realDestReg, operand1=LLRegisterArgument realDestReg,
-                                        operand2=LLRegisterArgument operandReg} :: code)
+                    (LLMultiplication{resultReg=realDestReg, operand1=RegisterArg realDestReg,
+                                        operand2=RegisterArg operandReg} :: code)
             end
 
             (* We currently only generate the register/register case. *)
@@ -2023,7 +2006,7 @@ struct
                 val dstReg = findGeneralReg dReg
             in
                 LLAllocateMemoryOperation{ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve} ::
-                LLStoreArgument{ source=LLRegisterArgument srcReg, offset=0, base=dstReg, index=NoIndex, kind=moveKind} ::
+                LLStoreArgument{ source=RegisterArg srcReg, offset=0, base=asGenReg dstReg, index=NoIndex, kind=moveKind} ::
                 LLInitialisationComplete :: code
             end
 
@@ -2048,7 +2031,7 @@ struct
             in
                 moveIfNecessary{src=realV1Reg, dst=GenReg esi} @ moveIfNecessary{src=realV2Reg, dst=GenReg edi} @
                     moveIfNecessary{src=realLengthReg, dst=GenReg ecx} @
-                    (LLWordComparison {arg1=LLRegisterArgument rcxAsArg, arg2=LLRegisterArgument rcxAsArg} ::
+                    (LLWordComparison {arg1=RegisterArg rcxAsArg, arg2=RegisterArg rcxAsArg} ::
                      LLCompareByteVectors{vec1Addr=GenReg esi, vec2Addr=GenReg edi, length=GenReg ecx} :: code)
             end
 
@@ -2096,7 +2079,7 @@ struct
                 val op2Arg = codeExtArgFloat arg2
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
-                    (LLX87FPArith{opc=opc, resultReg=realDestReg, arg1=LLRegisterArgument realDestReg, arg2=op2Arg} :: code)
+                    (LLX87FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
             end
 
         |   codeExtended({instr=X87FPArith _, ...} :: _, _) = raise InternalError "codeExtended - X87FPArith"
@@ -2109,7 +2092,7 @@ struct
                 val realOp1Reg = findRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
-                    (LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=LLRegisterArgument realDestReg} :: code)
+                    (LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArg realDestReg} :: code)
             end
 
         |   codeExtended({instr=X87FPUnaryOps _, ...} :: _, _) = raise InternalError "codeExtended - X87FPArith"
@@ -2126,7 +2109,7 @@ struct
                                register so we have to push it to the stack and then make sure it is
                                popped afterwards.  Because it is untagged it is unsafe to leave it. *)
                             [
-                                LLPushValue{arg=intSource, container=dummyC},
+                                LLPushValue{arg=intSource},
                                 LLFloatFixedInt{dest=fpReg, source=wordOffsetAddress(0, esp)},
                                 LLResetStackPtr {numWords=1}
                             ]
@@ -2144,7 +2127,7 @@ struct
                 val op2Arg = codeExtArgFloat arg2
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
-                    (LLSSE2FPArith{opc=opc, resultReg=realDestReg, arg1=LLRegisterArgument realDestReg, arg2=op2Arg} :: code)
+                    (LLSSE2FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
             end
     
         |   codeExtended({instr=SSE2FPArith _, ...} :: _, _) = raise InternalError "codeExtended - SSE2FPArith"
