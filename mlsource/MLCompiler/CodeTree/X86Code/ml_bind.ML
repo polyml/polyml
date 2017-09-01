@@ -36,10 +36,8 @@ local
         )
 
     structure X86ICode =
-        X86ICodeToX86Code (
-            structure DEBUG         = Debug
+        X86ICode (
             structure X86CODE       = X86OutputCode
-            structure X86OPTIMISE   = X86Optimise
         )
 
     structure X86ICodeIdentify =
@@ -81,6 +79,20 @@ local
             structure INTSET        = IntSet
             structure IDENTIFY      = X86ICodeIdentify
         )
+
+    structure X86ICodeGenerate =
+        X86ICodeToX86Code (
+            structure DEBUG         = Debug
+            structure ICODE         = X86ICode
+            structure IDENTIFY      = X86ICodeIdentify
+            structure CONFLICTSETS  = X86ICodeConflicts
+            structure PUSHREGISTERS = X86PushRegs
+            structure PRETTY        = Pretty
+            structure STRONGLY      = Strongly
+            structure INTSET        = IntSet
+            structure X86CODE       = X86OutputCode
+            structure X86OPTIMISE   = X86Optimise
+        )
         
     structure X86ICodeTransform =
         X86ICodeTransform (
@@ -90,8 +102,8 @@ local
             structure CONFLICTSETS  = X86ICodeConflicts
             structure PUSHREGISTERS = X86PushRegs
             structure PRETTY        = Pretty
-            structure STRONGLY      = Strongly
             structure INTSET        = IntSet
+            structure CODEGEN       = X86ICodeGenerate
         )
 in
 

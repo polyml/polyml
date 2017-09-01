@@ -295,9 +295,9 @@ sig
     |   SetHandler of { handler: int, continue: int }
 
     and 'reg basicBlock = BasicBlock of { block: 'reg x86ICode list, flow: controlFlow }
-
+(*
     val codeAsX86Code: {blockCode: reg basicBlock vector, stackRequired: int, inputRegisters: reg list,
-            functionName: string, debugSwitches: Universal.universal list } -> address
+            functionName: string, debugSwitches: Universal.universal list } -> address*)
  
     val printICodeConcrete: reg basicBlock vector * (string -> unit) -> unit
 
@@ -322,5 +322,11 @@ sig
         and 'reg basicBlock = 'reg basicBlock
         and stackLocn       = stackLocn
         and regProperty     = regProperty
-    end
+        and callKinds       = callKinds
+        and arithOp         = arithOp
+        and shiftType       = shiftType
+        and fpOps           = fpOps
+        and fpUnaryOps      = fpUnaryOps
+        and sse2Operations  = sse2Operations
+   end
 end;

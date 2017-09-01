@@ -3293,6 +3293,13 @@ struct
         and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
+        and  callKinds      = callKinds
+        and  arithOp        = arithOp
+        and  shiftType      = shiftType
+        and  repOps         = repOps
+        and  fpOps          = fpOps
+        and  fpUnaryOps     = fpUnaryOps
+        and  sse2Operations = sse2Operations
     end
 
 end (* struct *) (* CODECONS *);
