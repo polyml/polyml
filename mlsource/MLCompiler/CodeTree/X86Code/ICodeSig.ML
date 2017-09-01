@@ -81,14 +81,17 @@ sig
         RegPropGeneral      (* A general register. *)
     |   RegPropUntagged     (* An untagged general register. *)
     |   RegPropStack of int (* A stack location or container. *)
+    |   RegPropCache
 
     datatype argument =
         RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: preg, offset: int, index: memoryIndex } (* A memory location. *)
-        (* Offset on the stack. *)
-    |   StackLocation of { wordOffset: int, container: stackLocn, field: int }
+        (* Offset on the stack.  The container is the stack location identifier, the field is an
+           offset in a container.  inCache is a cache register that contains the value before
+           the reference and outCache a cache register of the value after the reference. *)
+    |   StackLocation of { wordOffset: int, container: stackLocn, field: int, inCache: preg option, outCache: preg option }
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -203,7 +206,7 @@ sig
     |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: argument, container: stackLocn }
+    |   PushValue of { arg: argument, container: stackLocn, outCache: preg option }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }

@@ -178,9 +178,10 @@ struct
                                 (* Make a new untagged register. That will prevent us pushing it if
                                    we have to spill registers. *)
                                 val newReg = newPReg RegPropUntagged
+                                val stackSource =
+                                    StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, inCache=NONE, outCache=NONE}
                             in
-                                (newReg,
-                                    [LoadArgument{source=StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0}, dest=newReg, kind=MoveWord}])
+                                (newReg, [LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}])
                             end
 
 
@@ -200,7 +201,7 @@ struct
                             val () = pushItemToStack(NewEntry{pregNo=n})
                             val _ = setActive n
                         in
-                            (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}])
+                            (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer, outCache=NONE}])
                         end
                         else
                         let
@@ -290,7 +291,13 @@ struct
                                 Unset => raise InternalError "mapSrcReg - unset"
                             |   ToPReg preg => (RegisterArgument preg, [])
                             |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
-                                    (checkCurrent(r, current); (StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0}, []))
+                                let
+                                    val _ = checkCurrent(r, current)
+                                    val stackLoc =
+                                        StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, inCache=NONE, outCache=NONE}
+                                in
+                                    (stackLoc, [])
+                                end
                         )
 
                     |   mapSource(a as AddressConstant _, _) = (a, [])
@@ -307,8 +314,10 @@ struct
                     |   mapSource(StackLocation{container, field, ...}, current) =
                         let
                             val (newOffset, newContainer) = mapContainerAndStack(container, field, current)
+                            val stackLoc =
+                                StackLocation{wordOffset=newOffset, container=newContainer, field=field, inCache=NONE, outCache=NONE}
                         in
-                            (StackLocation{wordOffset=newOffset, container=newContainer, field=field}, [])
+                            (stackLoc, [])
                         end
 
                     (* If the argument AFTER processing is a stack entry, then load it. *)
@@ -353,7 +362,7 @@ struct
                                     val () = pushItemToStack(NewEntry{pregNo=dReg})
                                     val _ = setActive dReg
                                 in
-                                    (PushValue{arg=sourceVal, container=container})
+                                    (PushValue{arg=sourceVal, container=container, outCache=NONE})
                                 end
                                 else
                                 let
@@ -685,14 +694,14 @@ struct
                             pushRegisters(rest, TestTagBit{arg=sourceVal, ccRef=ccRef} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=PushValue{arg, container}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=PushValue{arg, container, ...}, current, ...} :: rest, code) =
                         let
                             val (sourceVal, sourceCode) = mapSource(arg, current)
                             (* This was a push from a previous pass.  Treat as a container of size 1. *)
                             val newContainer = mapDestContainer(container, !stackCount)
                             val () = pushItemToStack(ContainerEntry{size=1, active=true, stackLoc=newContainer})
                         in
-                            pushRegisters(rest, PushValue{arg=sourceVal, container=newContainer} :: sourceCode @ code)
+                            pushRegisters(rest, PushValue{arg=sourceVal, container=newContainer, outCache=NONE} :: sourceCode @ code)
                         end
 
                     |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code) =

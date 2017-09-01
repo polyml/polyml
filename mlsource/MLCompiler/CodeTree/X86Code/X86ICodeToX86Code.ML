@@ -1545,8 +1545,9 @@ struct
                         (* Have to adjust the offsets of stack arguments. *)
                         val adjusted =
                             case arg of
-                                StackLocation {wordOffset, container, field} =>
-                                    StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum}
+                                StackLocation {wordOffset, container, field, inCache, outCache} =>
+                                    StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum,
+                                                  inCache=inCache, outCache=outCache}
                             |   arg => arg
                     in
                         LLPushValue {arg=codeExtArgGeneral adjusted} :: pushStackArgs(args, argNum+1)
