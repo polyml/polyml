@@ -53,26 +53,7 @@ local
             structure INTSET        = IntSet
             structure IDENTIFY      = X86ICodeIdentify
         )
-        
-    structure Strongly =
-        StronglyConnected (
-            structure Graph =
-            struct
-                open X86ICode
-                (* The registers are numbered from 0.  Choose values that don't conflict with
-                   the stack addresses. *)
-                fun regNo r = ~1 - nReg r
-                type node = {src: reg argument, dst: destinations }
-                fun nodeAddress({dst=RegDest r, ...}: node) = regNo r
-                |   nodeAddress({dst=StackDest a, ...}) = a
-                fun arcs({src=StackLocation{wordOffset, ...}, ...}: node) = [wordOffset]
-                |   arcs{src=RegisterArgument r, ...} = [regNo r]
-                |   arcs{src=MemoryLocation{base, index, ...}, ...} =
-                        (case indexRegister index of NONE => [regNo base] | SOME r => [regNo base, regNo r])
-                |   arcs _ = []
-            end
-        )
-
+ 
     structure X86PushRegs =
         X86PushRegisters (
             structure ICODE         = X86ICode
@@ -88,10 +69,10 @@ local
             structure CONFLICTSETS  = X86ICodeConflicts
             structure PUSHREGISTERS = X86PushRegs
             structure PRETTY        = Pretty
-            structure STRONGLY      = Strongly
             structure INTSET        = IntSet
             structure X86CODE       = X86OutputCode
             structure X86OPTIMISE   = X86Optimise
+            structure STRONGLY      = StronglyConnected
         )
         
     structure X86ICodeTransform =

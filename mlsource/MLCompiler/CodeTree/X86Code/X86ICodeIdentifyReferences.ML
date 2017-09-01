@@ -39,7 +39,7 @@ struct
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+            block: {instr: x86ICode, current: intSet, active: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -78,10 +78,6 @@ struct
 
     |   getInstructionRegisters(LoadMemReg { dest, ...}) =
             { sources=[], dests=[dest] }
-
-    |   getInstructionRegisters(ExchangeRegisters _) =
-            (* Should not occur at this stage. *)
-            raise InternalError "getInstructionRegisters - ExchangeRegisters"
 
     |   getInstructionRegisters(BeginFunction {regArgs, ...}) =
             { sources=[], dests=map #1 regArgs }
@@ -238,10 +234,6 @@ struct
 
     |   getInstructionStackLocs(StoreArgument{ source, ...}) =
             { sources=argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(ExchangeRegisters _) =
-            (* Should not occur at this stage. *)
-            raise InternalError "getInstructionStackLocs - ExchangeRegisters"
 
     |   getInstructionStackLocs(BeginFunction {stackArgs, ...}) =
             { sources=[], dests=stackArgs}
@@ -660,16 +652,16 @@ struct
 
     structure Sharing =
     struct
-        type 'reg x86ICode = 'reg x86ICode
-        and reg = reg
-        and pushState = pushState
-        and abstract = abstract
-        and intSet = intSet
-        and 'reg basicBlock = 'reg basicBlock
-        and extendedBasicBlock = extendedBasicBlock
-        and controlFlow = controlFlow
-        and 'reg argument = 'reg argument
-        and 'reg memoryIndex = 'reg memoryIndex
-        and regProperty = regProperty
+        type x86ICode           = x86ICode
+        and reg                 = reg
+        and pushState           = pushState
+        and preg                = preg
+        and intSet              = intSet
+        and basicBlock          = basicBlock
+        and extendedBasicBlock  = extendedBasicBlock
+        and controlFlow         = controlFlow
+        and argument            = argument
+        and memoryIndex         = memoryIndex
+        and regProperty         = regProperty
     end
 end;

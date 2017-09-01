@@ -139,7 +139,7 @@ struct
         Array.vector pushArray
     end
      
-    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
+    type triple = {instr: x86ICode, current: intSet, active: intSet}
 
     fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, hasFullClosure, debugSwitches, ...} =
     let
@@ -182,7 +182,7 @@ struct
             end
             else ()            
 
-        fun processCode(basicBlocks, pregProps: regProperty vector, maxStack, passes) =
+        fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes) =
         let
             val () =
                 if wantPrintCode
@@ -256,9 +256,9 @@ struct
     end
     structure Sharing =
     struct
-        type abstract        = abstract
-        and reg             = reg
-        and 'reg basicBlock = 'reg basicBlock
+        type preg       = preg
+        and reg         = reg
+        and basicBlock  = basicBlock
         and regProperty = regProperty
     end
 end;

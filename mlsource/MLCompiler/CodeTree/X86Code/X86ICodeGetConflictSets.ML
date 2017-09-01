@@ -31,7 +31,7 @@ struct
         conflicts: intSet, realConflicts: reg list
     }
     
-    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
+    type triple = {instr: x86ICode, current: intSet, active: intSet}
 
     exception InternalError = Misc.InternalError
     
@@ -238,9 +238,9 @@ struct
 
     structure Sharing =
     struct
-        type 'reg x86ICode = 'reg x86ICode
+        type x86ICode = x86ICode
         and reg = reg
-        and abstract = abstract
+        and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
     end

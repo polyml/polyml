@@ -17,18 +17,18 @@
 
 signature X86ICODETRANSFORMSIG =
 sig
-    type reg and abstract and 'reg basicBlock and regProperty
+    type reg and preg and basicBlock and regProperty
     type address = Address.address
 
-    val codeICodeFunctionToX86: {blocks: abstract basicBlock vector, functionName: string, pregProps: regProperty vector,
+    val codeICodeFunctionToX86: {blocks: basicBlock vector, functionName: string, pregProps: regProperty vector,
             argRegsUsed: reg list, hasFullClosure: bool, currentStackArgs: int,
             debugSwitches: Universal.universal list } -> address
 
     structure Sharing:
     sig
-        type abstract        = abstract
-        and reg             = reg
-        and 'reg basicBlock = 'reg basicBlock
+        type preg       = preg
+        and reg         = reg
+        and basicBlock  = basicBlock
         and regProperty = regProperty
     end
 end;

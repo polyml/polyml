@@ -34,7 +34,7 @@ struct
     exception InternalError = Misc.InternalError
 
     (* Each preg in the input is mapped to either a new preg or the stack. *)
-    datatype pregMapType = Unset | ToPReg of abstract | ToStack of int * stackLocn
+    datatype pregMapType = Unset | ToPReg of preg | ToStack of int * stackLocn
 
     (* The stack contains both entries in the input code and entries added here. *)
     datatype stackEntry =
@@ -56,7 +56,7 @@ struct
         val resultBlocks = Array.array(numberOfBlocks, BasicBlock{flow=ExitCode, block=[]})
         
         (* Extra blocks to adjust the stack are added here. *)
-        val extraBlocks: abstract basicBlock list ref = ref []
+        val extraBlocks: basicBlock list ref = ref []
         val blockCounter = ref numberOfBlocks
          
         (* Recursive scan of the blocks.  For each block we produce an input and output state.
@@ -396,9 +396,6 @@ struct
                             pushRegisters(rest,
                                 destCode @ LoadMemReg { offset=offset, dest=destVal} :: code)
                         end
-
-                    |   pushRegisters({instr=ExchangeRegisters _, ...} :: _, _) = (* This is added at the next level. *)
-                            raise InternalError "pushRegisters - ExchangeRegisters"
 
                     |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, current, ...} :: rest, code) =
                         let
@@ -977,11 +974,11 @@ struct
 
     structure Sharing =
     struct
-        type 'reg x86ICode = 'reg x86ICode
-        and abstract = abstract
+        type x86ICode = x86ICode
+        and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
-        and 'reg basicBlock = 'reg basicBlock
+        and basicBlock = basicBlock
         and regProperty = regProperty
     end
 end;

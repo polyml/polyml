@@ -17,7 +17,7 @@
 
 signature X86GETCONFLICTSETSIG =
 sig
-    type 'reg x86ICode and reg and abstract and controlFlow and extendedBasicBlock    
+    type x86ICode and reg and preg and controlFlow and extendedBasicBlock    
     type intSet
     
     type conflictState =
@@ -29,9 +29,9 @@ sig
 
     structure Sharing:
     sig
-        type 'reg x86ICode = 'reg x86ICode
+        type x86ICode = x86ICode
         and reg = reg
-        and abstract = abstract
+        and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
     end;

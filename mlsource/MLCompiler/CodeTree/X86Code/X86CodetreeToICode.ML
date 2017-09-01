@@ -47,11 +47,11 @@ struct
     
     
     datatype blockStruct =
-        BlockSimple of abstract x86ICode
-    |   BlockExit of abstract x86ICode
+        BlockSimple of x86ICode
+    |   BlockExit of x86ICode
     |   BlockLabel of int
     |   BlockFlow of controlFlow
-    |   BlockBegin of (abstract * reg) list
+    |   BlockBegin of (preg * reg) list
 
     local
         open RunCall
@@ -105,7 +105,7 @@ struct
         
         datatype locationValue =
             NoLocation
-        |   PregLocation of abstract
+        |   PregLocation of preg
         |   ContainerLocation of { container: stackLocn, stackOffset: int }
 
         val locToPregArray = Array.array(localCount, NoLocation)
@@ -184,7 +184,7 @@ struct
         end
 
         (* Generally we have an offset in words and no index register. *)
-        fun wordOffsetAddress(offset, baseReg: abstract): abstract argument =
+        fun wordOffsetAddress(offset, baseReg: preg): argument =
             MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex}
    
         (* The large-word operations all work on the value within the box pointed at
@@ -211,7 +211,7 @@ struct
             { anyConstant=true, const32s=true, memAddr=true, existingPreg=true }
 
         datatype destination =
-            SpecificPReg of abstract
+            SpecificPReg of preg
         |   NoResult
         |   Allowed of allowedArgument
 

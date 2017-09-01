@@ -17,8 +17,8 @@
 
 signature X86IDENTIFYREFSSIG =
 sig
-    type 'reg x86ICode and reg and abstract and 'reg basicBlock and controlFlow
-    and 'reg argument and 'reg memoryIndex and regProperty
+    type x86ICode and reg and preg and basicBlock and controlFlow
+    and argument and memoryIndex and regProperty
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -33,7 +33,7 @@ sig
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: abstract x86ICode, current: intSet, active: intSet } list,
+            block: {instr: x86ICode, current: intSet, active: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -41,26 +41,25 @@ sig
             passThrough: intSet (* Active throughout the block. May be referred to by it but needed afterwards. *)
         }
 
-    val identifyRegisters:
-        abstract basicBlock vector * regProperty vector -> extendedBasicBlock vector * regState vector
+    val identifyRegisters: basicBlock vector * regProperty vector -> extendedBasicBlock vector * regState vector
     
     (* Get the registers for an instruction.  *)
-    val getInstructionRegisters: 'reg x86ICode -> { sources: 'reg list, dests: 'reg list }
-    val argRegs: 'reg argument -> 'reg list
-    and argIndex: 'reg memoryIndex -> 'reg list
+    val getInstructionRegisters: x86ICode -> { sources: preg list, dests: preg list }
+    val argRegs: argument -> preg list
+    and argIndex: memoryIndex -> preg list
 
     structure Sharing:
     sig
-        type 'reg x86ICode = 'reg x86ICode
-        and reg = reg
-        and pushState = pushState
-        and abstract = abstract
-        and intSet = intSet
-        and 'reg basicBlock = 'reg basicBlock
-        and extendedBasicBlock = extendedBasicBlock
-        and controlFlow = controlFlow
-        and 'reg argument = 'reg argument
-        and 'reg memoryIndex = 'reg memoryIndex
-        and regProperty = regProperty
+        type x86ICode           = x86ICode
+        and reg                 = reg
+        and pushState           = pushState
+        and preg                = preg
+        and intSet              = intSet
+        and basicBlock          = basicBlock
+        and extendedBasicBlock  = extendedBasicBlock
+        and controlFlow         = controlFlow
+        and argument            = argument
+        and memoryIndex         = memoryIndex
+        and regProperty         = regProperty
     end;
 end;
