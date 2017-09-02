@@ -107,774 +107,7 @@ struct
     
     fun asGenReg(GenReg r) = r
     |   asGenReg _ = raise InternalError "asGenReg"
-
-    (* Generate code from the ICode.  This assumes that all pseudo-registers have been replaced by
-       real registers or locations.  Only certain patterns of arguments are accepted. *)
-    fun codeAsX86Code{blockCode: llBasicBlock vector, stackRequired, inputRegisters: reg list, functionName, debugSwitches} =
-    let
-        val blockCount = Vector.length blockCode
-        val outputLabelCount = ref 0
-        val blockToLabelMap = Array.array(blockCount, ~1)
-
-        fun makeLabel() = Label{labelNo = ! outputLabelCount} before outputLabelCount := !outputLabelCount + 1
-       
-        fun getBlockLabel blockNo =
-            case Array.sub(blockToLabelMap, blockNo) of
-                ~1 =>
-                let
-                    val label as Label{labelNo} = makeLabel()
-                    val () = Array.update(blockToLabelMap, blockNo, labelNo)
-                in label end
-            |   n => Label{labelNo=n}
-
-        (* The profile object is a single mutable with the F_bytes bit set. *)
-        local
-            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
-            fun clear 0w0 = ()
-            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
-            val () = clear(Word.fromInt wordSize)
-        in
-            val profileObject = toMachineWord v
-        end
-        (* Switch to indicate if we want to trace where live data has been allocated. *)
-        val addAllocatingFunction =
-            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
-        
-        fun argAsGenReg(RegisterArg(GenReg r)) = r
-        |   argAsGenReg _ = raise InternalError "argAsGenReg"
-
-        fun memoryAddressAsBaseOffset({offset, base=baseReg, index}) =
-            {base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-
-        and memoryIndexAsIndex l = l
-
-        and sourceAsGenRegOrMem(RegisterArg((GenReg r))) = RegisterArg r
-        |   sourceAsGenRegOrMem(MemoryArg{offset, base=baseReg, index}) =
-                MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsGenRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
-        |   sourceAsGenRegOrMem(AddressConstArg v) = AddressConstArg v
-        |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
-
-        and sourceAsXMMRegOrMem(RegisterArg((XMMReg r))) = RegisterArg r
-        |   sourceAsXMMRegOrMem(MemoryArg{offset, base=baseReg, index}) =
-                MemoryArg{base=baseReg, offset=offset, index=memoryIndexAsIndex index}
-        |   sourceAsXMMRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
-        |   sourceAsXMMRegOrMem(AddressConstArg v) = AddressConstArg v
-        |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
-
-        (* Check the stack limit "register".  This is used both at the start of a function for genuine
-           stack checking but also in a loop to check for an interrupt.  We need to save the registers
-           even across an interrupt because it can be used if another thread wants a GC. *)
-        fun testRegAndTrap(reg, entryPt, saveRegs) =
-        let
-            (* Normally we won't have a stack overflow so we will skip the check. *)
-            val skipCheckLab = makeLabel()
-        in
-            (* Need it in reverse order. *)
-            [
-                JumpLabel skipCheckLab,
-                CallRTS{rtsEntry=entryPt, saveRegs=saveRegs},
-                ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
-                ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
-            ]
-        end
-        
-        (* Moves and loads. *)
-        fun llLoadArgument{ source, dest=GenReg destReg, kind=MoveWord} =
-                MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg }
-
-        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte} = (* Load from memory. *)
-                LoadNonWord{size=Size8Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
-
-        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit} = (* Load from memory. *)
-                LoadNonWord{size=Size16Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
-                
-        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit} = (* Load from memory. *)
-                LoadNonWord{size=Size32Bit, source=memoryAddressAsBaseOffset mLoc, output=destReg}
-
-                (* Load a floating point value. *)
-        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble} =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-            in
-                FPLoadFromMemory{ address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision }
-            end
-
-                (* Load or move from an XMM reg. *)
-        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveDouble} =
-                XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
-
-                (* Load a floating point value. *)
-        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat} =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-            in
-                FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index }, precision=SinglePrecision }
-            end
-
-                (* Load or move from an XMM reg. *)
-        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveFloat} =
-                XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
-
-            (* Any other combinations are not allowed. *)
-        |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
-
-                (* Store to memory *)
-        fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} =
-                StoreRegToMemory{toStore=sourceReg, address=memoryAddressAsBaseOffset{base=base, offset=offset, index=index}}
-
-        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} =
-                StoreNonWord{size=Size8Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}} 
-
-        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move16Bit} =
-                StoreNonWord{size=Size16Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
-
-        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} =
-                StoreNonWord{size=Size32Bit, toStore=sourceReg, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
-
-                (* Store a short constant to memory *)
-        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} =
-                StoreConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
-
-        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} =
-                StoreNonWordConst{size=Size8Bit, toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
-
-                (* Store a long constant to memory *)
-        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} =
-                StoreLongConstToMemory{toStore=srcValue, address=memoryAddressAsBaseOffset {base=base, offset=offset, index=index}}
-
-                (* Store a floating point value. *)
-        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveDouble} =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
-            in
-                 FPStoreToMemory{ address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision, andPop=true }
-            end
-
-        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveDouble} =
-                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=DoublePrecision }
-
-                (* Store a floating point value. *)
-        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveFloat} =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
-            in
-                 FPStoreToMemory{address={ base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision, andPop=true }
-            end
-
-        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveFloat} =
-                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=memoryIndexAsIndex index}, precision=SinglePrecision }
-
-        |   llStoreArgument _ = raise InternalError "llStoreArgument: StoreArgument"
-
-        (* Code-generate a block.  A couple of instructions require the "flow". *)
-        fun codeGenBlock(LLBasicBlock{block, flow, ...}, code) =
-        let
-
-            (* Turn the icode into machine code.  This produces the code in reverse. *)
-            fun codeGenICode([], code) = code
-
-            |   codeGenICode(LLLoadArgument args :: rest, code) =
-                    codeGenICode(rest, llLoadArgument args :: code)
-
-                    (* Store to memory *)
-            |   codeGenICode(LLStoreArgument args :: rest, code) =
-                    codeGenICode(rest, llStoreArgument args :: code)
-
-                (* Exchange two general registers. *)
-            |   codeGenICode(LLExchangeRegisters{ regX, regY} :: rest, code) =
-                    codeGenICode(rest, XChngRegisters { regX=asGenReg regX, regY=asGenReg regY } :: code)
-
-            |   codeGenICode(LLFunctionCall {callKind, ...} :: rest, code) =
-                    codeGenICode(rest, CallFunction callKind :: code)
-
-            |   codeGenICode(LLTailRecursiveCall {callKind, ...} :: rest, code) =
-                    codeGenICode(rest, JumpToFunction callKind :: code)
-
-            |   codeGenICode(LLAllocateMemoryOperation { size, flags, dest, saveRegs} :: rest, code) =
-                let
-                    val toReg = asGenReg dest
-                    val preserve = map asGenReg saveRegs
-
-                    (* Allocate memory.  N.B. Instructions are in reverse order. *)
-                    fun allocStore{size, flags, output, preserve} =
-                    if isX64 andalso flags <> 0w0
-                    then
-                        [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address={offset= ~1, base=output, index=NoIndex}},
-                         StoreConstToMemory{toStore=LargeInt.fromInt size, address={offset= ~wordSize, base=output, index=NoIndex}},
-                         AllocStore{size=size, output=output, saveRegs=preserve}]
-                    else
-                    let
-                        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
-                    in
-                        [StoreConstToMemory{toStore=lengthWord, address={offset= ~wordSize, base=output, index=NoIndex}},
-                         AllocStore{size=size, output=output, saveRegs=preserve}]
-                    end
-
-                    val allocCode =
-                        (* If we need to add the profile object *)
-                        if addAllocatingFunction
-                        then
-                            allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
-                                [StoreLongConstToMemory{ toStore=profileObject, address={base=toReg, offset=size*wordSize, index=NoIndex}}]
-                        else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
-                in
-                    codeGenICode(rest, allocCode @ code)
-                end
-
-            |   codeGenICode(LLAllocateMemoryVariable{ size, dest, saveRegs} :: rest, code) =
-                let
-                    val sReg = asGenReg size and dReg = asGenReg dest
-                    val _ = sReg <> dReg
-                                orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
-                    val preserve = map asGenReg saveRegs
-
-                    val allocCode =
-                    [
-                        (* Store it as the length field. *)
-                        StoreRegToMemory{toStore=sReg,
-                            address={base=dReg, offset= ~wordSize, index=NoIndex}},
-                        (* Untag the length *)
-                        ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
-                        (* Allocate the memory *)
-                        AllocStoreVariable{ output=dReg, saveRegs=preserve},
-                        (* Compute the number of bytes into dReg. The length in sReg is the number
-                           of words as a tagged value so we need to multiply it, add wordSize to
-                           include one word for the header then subtract the, multiplied, tag. *)
-                        if wordSize = 4
-                        then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
-                        else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
-                    ]
-                in
-                    codeGenICode(rest, allocCode @ code)
-                end
-
-            |   codeGenICode(LLInitialiseMem{size, addr, init} :: rest, code) =
-                let
-                    val sReg = asGenReg size and iReg = asGenReg init and aReg = asGenReg addr
-                    (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and aReg = edi. *)
-                    val _ = sReg = ecx orelse raise InternalError "codeGenICode: InitialiseMem"
-                    val _ = iReg = eax orelse raise InternalError "codeGenICode: InitialiseMem"
-                    val _ = aReg = edi orelse raise InternalError "codeGenICode: InitialiseMem"
-                in
-                    codeGenICode(rest, RepeatOperation STOSL :: code)
-                end
-
-            |   codeGenICode(LLInitialisationComplete :: rest, code) =
-                    codeGenICode(rest, StoreInitialised :: code)
-
-            |   codeGenICode(LLJumpLoop {checkInterrupt, ...} :: rest, code) =
-                let
-                    val checkCode =
-                        case checkInterrupt of
-                            NONE => []
-                        |   SOME saveRegs => testRegAndTrap (esp, StackOverflowCall, map asGenReg saveRegs)
-                in
-                    codeGenICode(rest, checkCode @ code)
-                end
- 
-            |   codeGenICode(LLRaiseExceptionPacket _ :: rest, code) =
-                    codeGenICode(rest, RaiseException :: code)
-
-            |   codeGenICode(LLIndexedCaseOperation { testReg, workReg, ...} :: rest, code) =
-                let
-                    val rReg = asGenReg testReg and wReg = asGenReg workReg
-                    val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
-                    (* This should only be within a block with an IndexedBr flow type. *)
-                    val cases =
-                        case flow of IndexedBr cases => cases | _ => raise InternalError "codeGenICode: IndexedCaseOperation"
-                    val caseLabels = map getBlockLabel cases
-                    val startJumpTable = makeLabel()
-                    (* Compute the jump address.  The index is a tagged
-                       integer so it is already multiplied by 2.  We need to
-                       multiply by four to get the correct size. Subtract off the
-                       shifted tag. *)
-                    val jumpSize = ref JumpSize8
-                    (* We use JumpToFunction even though we're not actually going to a new function. *)
-                    val resultCode =
-                        JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
-                            IndexedJumpCalc{ addrReg=wReg, indexReg=rReg, jumpSize=jumpSize } ::
-                            LoadLabelAddress{label=startJumpTable, output=wReg} :: code
-                in
-                    codeGenICode(rest, resultCode)
-                end
-
-            |   codeGenICode(LLLockMutable { addr } :: rest, code) =
-                    codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
-
-            |   codeGenICode(LLWordComparison {arg1=RegisterArg(GenReg r), arg2, ...} :: rest, code) =
-                    codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
-
-            |   codeGenICode(LLWordComparison _ :: _, _) =
-                    raise InternalError "codeGenICode: TODO WordComparison"
-
-            |   codeGenICode(LLPushExceptionHandler { workReg, ... } :: rest, code) =
-                let (* Set up an exception handler. *)
-                    (* Although we're pushing this to the stack we need to use LEA on the
-                       X86/64 and some arithmetic on the X86/32.  We need a work reg for that. *)
-                    val handleReg = asGenReg workReg
-                    (* This should only be within a block with a SetHandler flow type. *)
-                    val handleLabel =
-                        case flow of
-                            SetHandler{ handler, ...} => handler
-                        |   _ => raise InternalError "codeGenICode: PushExceptionHandler"
-                    val labelRef = getBlockLabel handleLabel
-                    (* Set up the handler by pushing the old handler to the stack, pushing the
-                       entry point and setting the handler address to the current stack pointer. *)
-                in
-                    codeGenICode(rest,
-                        StoreRegToMemory{
-                            toStore=esp, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
-                        PushToStack(RegisterArg handleReg) ::
-                        LoadLabelAddress{ label=labelRef, output=handleReg} ::
-                        PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}) :: code)
-                end
-
-            |   codeGenICode(LLPopExceptionHandler { workReg, ... } :: rest, code) =
-                let (* Remove an exception handler if no exception was raised. *)
-                    val wReg = asGenReg workReg
-                in
-                    (* The stack pointer has been adjusted to just above the two words that were stored
-                       in PushExceptionHandler. *)
-                    codeGenICode(rest,
-                        StoreRegToMemory{
-                            toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
-                        PopR wReg ::
-                        ResetStack 1 :: code)
-                end
- 
-            |   codeGenICode(LLBeginHandler {workReg, packetReg, ...} :: rest, code) =
-                let
-                    val _ = asGenReg packetReg = eax orelse raise InternalError "codeGenICode: BeginHandler"
-                    val wReg = asGenReg workReg
-                in
-                    (* The code here is almost the same as PopExceptionHandler.  The only real difference
-                       is that PopExceptionHandler needs to pass the result of executing the handled code
-                       which could be in any register.  This code needs to transmit the exception packet
-                       and that is always in rax. *)
-                    codeGenICode(rest,
-                        StoreRegToMemory{
-                            toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
-                        PopR wReg :: ResetStack 1 ::
-                        MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } :: code)
-                end
-
-            |   codeGenICode(LLReturnResultFromFunction { numStackArgs, ... } :: rest, code) =
-                    codeGenICode(rest, ReturnFromFunction numStackArgs :: code)
-
-            |   codeGenICode(
-                    LLArithmeticFunction{
-                        oper, resultReg=(GenReg resReg), operand1=RegisterArg(GenReg op1Reg),
-                        operand2, ...} :: rest, code) =
-                let
-                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
-                in
-                    codeGenICode(rest, ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand2 } :: code)
-                end
-
-            |   codeGenICode(LLArithmeticFunction _ :: _, _) =
-                    raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
-
-            |   codeGenICode(LLTestTagBit {arg = RegisterArg reg, ...} :: rest, code) =
-                    codeGenICode(rest, TestTagR(asGenReg reg) :: code)
-
-            |   codeGenICode(LLTestTagBit {arg = MemoryArg {offset, base, index=NoIndex}, ...} :: rest, code) =
-                    codeGenICode(rest, TestByteMem{base=base, offset=offset, bits=0w1} :: code)
-
-            |   codeGenICode(LLTestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
-
-            |   codeGenICode(LLPushValue { arg = RegisterArg reg, ... } :: rest, code) =
-                    codeGenICode(rest, PushToStack(RegisterArg(asGenReg reg)) :: code)
-
-            |   codeGenICode(LLPushValue { arg = NonAddressConstArg v, ... } :: rest, code) =
-                    codeGenICode(rest, PushToStack(NonAddressConstArg v) :: code)
-
-            |   codeGenICode(LLPushValue { arg = AddressConstArg v, ... } :: rest, code) =
-                    codeGenICode(rest, PushToStack(AddressConstArg v) :: code)
-
-            |   codeGenICode(LLPushValue { arg = MemoryArg {offset, base, index}, ... } :: rest, code) =
-                    codeGenICode(rest, PushToStack(MemoryArg{base=base, offset=offset, index=memoryIndexAsIndex index}) :: code)
-
-            |   codeGenICode(LLResetStackPtr {numWords} :: rest, code) =
-                (
-                    numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
-                    codeGenICode(rest, ResetStack numWords :: code)
-                )
-
-            |   codeGenICode(LLTagValue _ :: _, _) =
-                    raise InternalError "codeGenICode: TODO TagValue"
-
-            |   codeGenICode(LLUntagValue _ :: _, _) =
-                    raise InternalError "codeGenICode: TODO UntagValue"
-
-            |   codeGenICode(LLLoadEffectiveAddress { base, offset, index, dest } :: rest, code) =
-                let
-                    val bReg = Option.map asGenReg base
-                    val indexR = memoryIndexAsIndex index
-                in
-                    codeGenICode(rest, LoadAddress{ output=asGenReg dest, offset=offset, base=bReg, index=indexR } :: code)
-                end
-
-            |   codeGenICode(
-                    LLShiftOperation{ shift, resultReg, operand, shiftAmount=NonAddressConstArg shiftValue, ...} :: rest, code) =
-                let
-                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
-                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
-                in
-                    codeGenICode(rest, ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
-                end
-
-            |   codeGenICode(LLShiftOperation { shift, resultReg, operand, shiftAmount, ...} :: rest, code) =
-                let
-                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
-                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
-                    (* The amount to shift must be in ecx.  The shift is masked to 5 or 6 bits so we have to
-                       check for larger shift values at a higher level. *)
-                    val _ = argAsGenReg shiftAmount = ecx orelse raise InternalError "codeGenICode: ShiftOperation"
-                in
-                    codeGenICode(rest, ShiftVariable{ shiftType=shift, output=resReg } :: code)
-                end
-
-            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2=MemoryArg{offset, base, index=NoIndex}, ... } :: rest, code) =
-                let
-                    val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and baseReg = base
-                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
-                in
-                    codeGenICode(rest, MultiplyRM { base=baseReg, offset=offset, output=resReg } :: code)
-                end
-
-            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2, ... } :: rest, code) =
-                let
-                    val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and op2Reg = argAsGenReg operand2
-                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
-                in
-                    codeGenICode(rest, MultiplyRR { source=op2Reg, output=resReg } :: code)
-                end
-
-            |   codeGenICode(LLDivision { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
-                let
-                    val dividendReg = asGenReg dividend and divisorReg = argAsGenReg divisor
-                    and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
-                    val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
-                    val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
-                    val _ = quotientReg = eax orelse raise InternalError "codeGenICode: Division"
-                    val _ = remainderReg = edx orelse raise InternalError "codeGenICode: Division"
-                    (* rdx needs to be set to the high order part of the dividend.  For signed
-                       division that means sign-extending rdx, for unsigned division we clear it. *)
-                    val setRDX =
-                        if isSigned then SignExtendForDivide
-                        else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
-                in
-                    codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
-                end
-
-            |   codeGenICode(LLAtomicExchangeAndAdd{ base, source } :: rest, code) =
-                let
-                    val baseReg = asGenReg base and outReg = asGenReg source
-                in
-                    codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
-                end
-
-            |   codeGenICode(LLCompareByteVectors { vec1Addr, vec2Addr, length, ... } :: rest, code) =
-                let
-                    (* The arguments must be in specific registers. *)
-                    val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
-                    val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
-                    val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
-                in
-                    codeGenICode(rest, RepeatOperation CMPSB :: code)
-                end
-
-            |   codeGenICode(LLBlockMove { srcAddr, destAddr, length, isByteMove } :: rest, code) =
-                let
-                    (* The arguments must be in specific registers. *)
-                    val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
-                    val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
-                    val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
-                in
-                    codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
-                end
-
-            |   codeGenICode(
-                    LLCompareFloatingPt {
-                        arg1=RegisterArg(FPReg fpReg),
-                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
-                    (* This currently pops the value. *)
-                    (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FCOMP in SSE2 mode"*)
-                in
-                    codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
-                end
-
-            |   codeGenICode(LLCompareFloatingPt {arg1=RegisterArg(XMMReg xmmReg), arg2, ... } :: rest, code) =
-                    codeGenICode(rest, XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
-
-            |   codeGenICode(LLCompareFloatingPt _ :: _, _) =
-                    raise InternalError "codeGenICode: CompareFloatingPt: TODO"
-
-            |   codeGenICode(LLX87FPGetCondition { dest, ... } :: rest, code) =
-                let
-                    val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
-                    (* This currently pops the value. *)
-                    (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FPStatusToEAX in SSE2 mode"*)
-                in
-                    codeGenICode(rest, FPStatusToEAX :: code)
-                end
-
-            |   codeGenICode(
-                    LLX87FPArith {
-                        opc, resultReg=(FPReg fpResReg), arg1=RegisterArg(FPReg fpArgReg),
-                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex} } :: rest, code) =
-                let
-                    val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
-                    val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
-                in
-                    codeGenICode(rest, FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
-                end
-
-            |   codeGenICode(LLX87FPArith _ :: _, _) =
-                    raise InternalError "codeGenICode: X87FPArith: TODO"
-
-            |   codeGenICode(
-                    LLSSE2FPArith {
-                        opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArg(XMMReg xmmArgReg), arg2 } :: rest, code) =
-                let
-                    val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
-                    (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
-                    val _ =
-                        case (opc, arg2) of
-                            (SSE2Xor, RegisterArg _) => ()
-                        |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
-                        |   (SSE2And, RegisterArg _) => ()
-                        |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
-                        |   _ => ()
-                in
-                    codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
-                end
-
-            |   codeGenICode(LLSSE2FPArith _ :: _, _) =
-                    raise InternalError "codeGenICode: SSE2FPArith: TODO"
-
-            |   codeGenICode(LLX87FPUnaryOps {fpOp, dest=(FPReg fpResReg), source=RegisterArg(FPReg fpArgReg)} :: rest, code) =
-                let
-                    val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
-                    val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
-                in
-                    codeGenICode(rest, FPUnary fpOp :: code)
-                end
-
-            |   codeGenICode(LLX87FPUnaryOps _ :: _, _) =
-                    raise InternalError "codeGenICode: FloatingPointNeg: TODO"
-
-            |   codeGenICode(LLFloatFixedInt { dest=(XMMReg xmmResReg), source=RegisterArg(GenReg srcReg) } :: rest, code) =
-                    codeGenICode(rest, XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code)
-
-            |   codeGenICode(LLFloatFixedInt { dest=(FPReg fpReg), source=MemoryArg{base, offset, index=NoIndex} } :: rest, code) =
-                let
-                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
-                in
-                    codeGenICode(rest, FPLoadInt{ base=base, offset=offset} :: code)
-                end
-
-            |   codeGenICode(LLFloatFixedInt _ :: _, _) =
-                    raise InternalError "codeGenICode: FloatFixedInt: TODO"
-        in
-            codeGenICode(block, code)
-        end (* codeGenBlock *)
-        
-        val minStackCheck = 20
-        val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
-        val preludeCode =
-            if stackRequired >= minStackCheck
-            then
-            let
-                (* Compute the necessary amount in edi and compare that. *)
-                val stackByteAdjust = ~wordSize * stackRequired
-                val testEdiCode =
-                    testRegAndTrap (edi, StackOverflowCallEx, saveRegs)
-            in
-                (* N.B. In reverse order. *)
-                testEdiCode @ [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}]
-            end
-     
-            else testRegAndTrap (esp, StackOverflowCall, saveRegs)
-
-        val newCode = codeCreate (functionName, profileObject, debugSwitches) 
-        
-        local
-            (* processed - set to true when a block has been processed. *)
-            val processed = Array.array(Vector.length blockCode, false)
-            fun haveProcessed n = Array.sub(processed, n)
-            
-            (* Find the blocks that reference this one.  This isn't essential but
-               allows us to try to generate blocks in the order of the control
-               flow.  This in turn may allow us to use short branches rather
-               than long ones. *)
-            val labelRefs = Array.array(Vector.length blockCode, [])
-            
-            fun setReferences(fromLabel, LLBasicBlock{ flow, ...}) =
-            let
-                val refs =
-                    case flow of
-                        ExitCode => []
-                    |   Unconditional lab => [lab]
-                    |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
-                    |   IndexedBr labs => labs
-                    |   SetHandler { handler, continue } => [handler, continue]
-                
-                fun setRefs toLabel =
-                    Array.update(labelRefs, toLabel, fromLabel :: Array.sub(labelRefs, toLabel))
-            in
-                List.app setRefs refs
-            end
-
-            val () = Vector.appi setReferences blockCode
-            
-            (* Process the blocks.  We keep the "stack" explicit rather than using recursion
-               because this allows us to select both arms of a conditional branch sooner. *)
-            fun genCode(toDo, lastFlow, code) =
-            case List.filter (not o haveProcessed) toDo of
-                [] =>
-                let
-                    (* There's nothing left to do. We may need to add a final branch to the end. *)
-                    val finalBranch =
-                        case lastFlow of
-                            ExitCode => []
-                        |   IndexedBr _ => []
-                        |   Unconditional dest => [UncondBranch(getBlockLabel dest)]
-                        |   Conditional { condition, trueJump, falseJump, ...} =>
-                                [
-                                    UncondBranch(getBlockLabel falseJump),
-                                    ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
-                                ]
-                        |   SetHandler { continue, ...} => [UncondBranch(getBlockLabel continue)]
-                in
-                    finalBranch @ code (* Done. *)
-                end
-
-            |   stillToDo as head :: _ =>
-                let
-                    local
-                        (* Check the references.  If all the sources that lead up to this have
-                           already been we won't have any backward jumps. *)
-                        fun available dest = List.all haveProcessed (Array.sub(labelRefs, dest))
-
-                        val continuation =
-                            case lastFlow of
-                                ExitCode => NONE
-                            |   IndexedBr _ => NONE (* We could put the last branch in here. *)
-                            |   Unconditional dest =>
-                                    if not (haveProcessed dest) andalso available dest
-                                    then SOME dest
-                                    else NONE
-                            |   Conditional {trueJump, falseJump, ...} =>
-                                    (* Try the falseJump first - this is the usual case.  If that fails
-                                       try the trueJump. *)
-                                    if not (haveProcessed falseJump) andalso available falseJump
-                                    then SOME falseJump
-                                    else if not (haveProcessed trueJump) andalso available trueJump
-                                    then SOME trueJump
-                                    else NONE
-                           |    SetHandler { continue, ... } =>
-                                    (* We want the continuation if possible.  We'll need a
-                                       branch round the handler so that won't help. *)
-                                    if not (haveProcessed continue) andalso available continue
-                                    then SOME continue
-                                    else NONE
-                                    
-                    in
-                        (* First choice - continue the existing block.
-                           Second choice - the first item whose sources have all been
-                           processed.
-                           Third choice - something from the list. *)
-                        val picked =
-                            case continuation of
-                                SOME c => c
-                            |   NONE =>
-                                    case List.find available stillToDo of
-                                        SOME c => c
-                                    |   NONE => head
-                    end
-                        
-                    val () = Array.update(processed, picked, true)
-
-                    (* Code to terminate the previous block. *)
-                    val startCode =
-                        case lastFlow of
-                            ExitCode => []
-                        |   IndexedBr _ => []
-                        |   Unconditional dest =>
-                                if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
-                        |   SetHandler { continue, ... } =>
-                                if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
-                        |   Conditional { condition, trueJump, falseJump, ...} =>
-                            if picked = falseJump (* Usual case. *)
-                            then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
-                            else if picked = trueJump
-                            then (* We have a jump to the true condition. Invert the jump.
-                                    This is more than an optimisation.  Because this immediately precedes the
-                                    true block we're not going to generate a label. *)
-                            let
-                                val revTest =
-                                    case condition of
-                                        JE  => JNE  |   JNE => JE   |   JA  => JNA  |   JB  => JNB  |   JNA => JA
-                                    |   JNB => JB   |   JL  => JGE  |   JG  => JLE  |   JLE => JG   |   JGE => JL
-                                    |   JO  => JNO  |   JNO => JO   |   JP  => JNP  |   JNP => JP
-                            in
-                                [ConditionalBranch{test=revTest, predict=PredictNeutral, label=getBlockLabel falseJump}]
-                            end
-                            else
-                            [
-                                UncondBranch(getBlockLabel falseJump),
-                                ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
-                            ]
-
-                    val blockToCode as LLBasicBlock{ flow, ...} = Vector.sub(blockCode, picked)
-
-                    (* Code-generate the body with the code we've done so far
-                       at the end.  Add a label at the start if necessary. *)
-                    local
-                        (* If the previous block dropped through to this and this was
-                           the only reference then we don't need a label. *)
-                        fun onlyJumpingHere lab =
-                            if lab <> picked then false
-                            else case Array.sub(labelRefs, picked) of
-                                [singleton] => singleton = lab
-                            |   _ => false
-                        
-                        val noLabel =
-                            case lastFlow of
-                                ExitCode => picked = 0 (* Unless this was the first block. *)
-                            |   Unconditional dest => onlyJumpingHere dest
-                            |   Conditional { trueJump, falseJump, ...} =>
-                                    onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
-                            |   IndexedBr _ => false
-                            |   SetHandler _ => false 
-                    in
-                        val startLabel = if noLabel then [] else [JumpLabel(getBlockLabel picked)]
-                    end
-
-                    val bodyCode = codeGenBlock(blockToCode, startLabel @ startCode @ code)
-
-                    val addSet =
-                        case flow of
-                            ExitCode => []
-                        |   IndexedBr cases => cases
-                        |   Unconditional dest => [dest]
-                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
-                        |   SetHandler { handler, continue } => [handler, continue]
-
-                in
-                    genCode(addSet @ stillToDo, flow, bodyCode)
-                end
-        in
-            val ops = genCode([0], ExitCode, preludeCode)
-        end
-    in
-        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
-    end
-
+    
     (* tag a short constant *)
     fun tag c = 2 * c + 1
 
@@ -892,15 +125,127 @@ struct
             FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
         |   FPModeX87 => List.map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6, fp7]
 
-    (* Generally we have an offset in words and no index register. *)
-    fun wordOffsetAddress(offset, baseReg) =
-        MemoryArg{offset=offset*wordSize, base=baseReg, index=NoIndex}
-
     exception RegisterOverflow of intSet
-
-    fun codeAbstractToConcrete(identifiedBlocks: extendedBasicBlock vector, regStates: conflictState vector, pregProps): llBasicBlock vector =
+    
+    fun icodeToX86Code{blocks, functionName, regStates, regProps, stackRequired, argRegsUsed, hasFullClosure, debugSwitches} =
     let
+        (* Generally we have an offset in words and no index register. *)
+        fun wordOffsetAddress(offset, baseReg) =
+            MemoryArg{offset=offset*wordSize, base=baseReg, index=NoIndex}
+        
+        fun argAsGenReg(RegisterArg(GenReg r)) = r
+        |   argAsGenReg _ = raise InternalError "argAsGenReg"
+
+        fun sourceAsGenRegOrMem(RegisterArg(GenReg r)) = RegisterArg r
+        |   sourceAsGenRegOrMem(MemoryArg{offset, base=baseReg, index}) =
+                MemoryArg{base=baseReg, offset=offset, index=index}
+        |   sourceAsGenRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
+        |   sourceAsGenRegOrMem(AddressConstArg v) = AddressConstArg v
+        |   sourceAsGenRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
+
+        and sourceAsXMMRegOrMem(RegisterArg(XMMReg r)) = RegisterArg r
+        |   sourceAsXMMRegOrMem(MemoryArg{offset, base=baseReg, index}) =
+                MemoryArg{base=baseReg, offset=offset, index=index}
+        |   sourceAsXMMRegOrMem(NonAddressConstArg v) = NonAddressConstArg v
+        |   sourceAsXMMRegOrMem(AddressConstArg v) = AddressConstArg v
+        |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
+        
+        (* Moves and loads. *)
+        fun llLoadArgument{ source, dest=GenReg destReg, kind=MoveWord} =
+                MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg }
+
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte} = (* Load from memory. *)
+                LoadNonWord{size=Size8Bit, source=mLoc, output=destReg}
+
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit} = (* Load from memory. *)
+                LoadNonWord{size=Size16Bit, source=mLoc, output=destReg}
+                
+        |   llLoadArgument{ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit} = (* Load from memory. *)
+                LoadNonWord{size=Size32Bit, source=mLoc, output=destReg}
+
+                (* Load a floating point value. *)
+        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                FPLoadFromMemory{ address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision }
+            end
+
+                (* Load or move from an XMM reg. *)
+        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveDouble} =
+                XMMArith { opc= SSE2Move, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
+
+                (* Load a floating point value. *)
+        |   llLoadArgument{source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
+            in
+                FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=index }, precision=SinglePrecision }
+            end
+
+                (* Load or move from an XMM reg. *)
+        |   llLoadArgument{source, dest=XMMReg xmmRegReg, kind=MoveFloat} =
+                XMMArith { opc= SSE2MoveSingle, source=sourceAsXMMRegOrMem source, output=xmmRegReg }
+
+            (* Any other combinations are not allowed. *)
+        |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
+
+                (* Store to memory *)
+        fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} =
+                StoreRegToMemory{toStore=sourceReg, address={base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} =
+                StoreNonWord{size=Size8Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}} 
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move16Bit} =
+                StoreNonWord{size=Size16Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} =
+                StoreNonWord{size=Size32Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}}
+
+                (* Store a short constant to memory *)
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} =
+                StoreConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} =
+                StoreNonWordConst{size=Size8Bit, toStore=srcValue, address={base=base, offset=offset, index=index}}
+
+                (* Store a long constant to memory *)
+        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} =
+                StoreLongConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}}
+
+                (* Store a floating point value. *)
+        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveDouble} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
+            in
+                 FPStoreToMemory{ address={ base=baseReg, offset=offset, index=index}, precision=DoublePrecision, andPop=true }
+            end
+
+        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveDouble} =
+                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision }
+
+                (* Store a floating point value. *)
+        |   llStoreArgument{source=RegisterArg(FPReg fpReg), offset, base=baseReg, index, kind=MoveFloat} =
+            let
+                val _ = fpReg = fp0 orelse raise InternalError "llStoreArgument: Store FPReg <> fp0"
+            in
+                 FPStoreToMemory{address={ base=baseReg, offset=offset, index=index}, precision=SinglePrecision, andPop=true }
+            end
+
+        |   llStoreArgument{source=RegisterArg(XMMReg xmmRegReg), offset, base=baseReg, index, kind=MoveFloat} =
+                 XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=index}, precision=SinglePrecision }
+
+        |   llStoreArgument _ = raise InternalError "llStoreArgument: StoreArgument"
+
+        fun llPushValue{ arg = RegisterArg reg, ... } = PushToStack(RegisterArg(asGenReg reg))
+        |   llPushValue{ arg = NonAddressConstArg v, ... } = PushToStack(NonAddressConstArg v)
+        |   llPushValue{ arg = AddressConstArg v, ... } = PushToStack(AddressConstArg v)
+        |   llPushValue{ arg = MemoryArg {offset, base, index}, ... } =
+                PushToStack(MemoryArg{base=base, offset=offset, index=index})
+
         val maxPRegs = Vector.length regStates
+        and numBlocks = Vector.length blocks
 
         (* Allocated registers.  This is set to the real register that is used
            for a specific pseudo-register.  Once a register is allocated that
@@ -1361,6 +706,50 @@ struct
                 else [LLResetStackPtr{numWords=stackAdjust}]
         in
             loadArgs @ adjustStack @ [LLTailRecursiveCall{callKind=callKind}]
+        end
+
+        val outputLabelCount = ref 0
+        val blockToLabelMap = Array.array(numBlocks, ~1)
+
+        fun makeLabel() = Label{labelNo = ! outputLabelCount} before outputLabelCount := !outputLabelCount + 1
+       
+        fun getBlockLabel blockNo =
+            case Array.sub(blockToLabelMap, blockNo) of
+                ~1 =>
+                let
+                    val label as Label{labelNo} = makeLabel()
+                    val () = Array.update(blockToLabelMap, blockNo, labelNo)
+                in label end
+            |   n => Label{labelNo=n}
+
+        (* The profile object is a single mutable with the F_bytes bit set. *)
+        local
+            val v = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
+            fun clear 0w0 = ()
+            |   clear i = (assignByte(v, i-0w1, 0w0); clear (i-0w1))
+            val () = clear(Word.fromInt wordSize)
+        in
+            val profileObject = toMachineWord v
+        end
+        (* Switch to indicate if we want to trace where live data has been allocated. *)
+        val addAllocatingFunction =
+            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
+
+        (* Check the stack limit "register".  This is used both at the start of a function for genuine
+           stack checking but also in a loop to check for an interrupt.  We need to save the registers
+           even across an interrupt because it can be used if another thread wants a GC. *)
+        fun testRegAndTrap(reg, entryPt, saveRegs) =
+        let
+            (* Normally we won't have a stack overflow so we will skip the check. *)
+            val skipCheckLab = makeLabel()
+        in
+            (* Need it in reverse order. *)
+            [
+                JumpLabel skipCheckLab,
+                CallRTS{rtsEntry=entryPt, saveRegs=saveRegs},
+                ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
+                ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
+            ]
         end
 
         fun codeExtended([], _) = []
@@ -2111,11 +1500,10 @@ struct
 
         (* Depth-first scan. *)
         local
-            val numBlocks = Vector.length identifiedBlocks
             val emptyBlock = LLBasicBlock { block = [], flow = ExitCode }
         in
             val visited = Array.array(numBlocks, false)
-            val results = Array.array(numBlocks, emptyBlock)
+            val resultBlocks = Array.array(numBlocks, emptyBlock)
         end
 
         fun processBlocks blockNo =
@@ -2125,7 +1513,7 @@ struct
         let
             val () = Array.update(visited, blockNo, true)
             val ExtendedBasicBlock { flow, block, passThrough, exports, ...} =
-                Vector.sub(identifiedBlocks, blockNo)
+                Vector.sub(blocks, blockNo)
             val () =
                 (* Process the dependencies first. *)
                 case flow of
@@ -2142,7 +1530,7 @@ struct
                    This is generally true except for a loop where the use may occur earlier. *)
                 val exported = setToList passThrough @ setToList exports
                 fun findAReg r =
-                    case Vector.sub(pregProps, r) of
+                    case Vector.sub(regProps, r) of
                         RegPropStack _ => ()
                     |   _ => ignore(findRegister(r, NONE, generalRegisters))
             in
@@ -2151,21 +1539,613 @@ struct
             val codeBlock = codeExtended(block, {flow=flow})
             val resultBlock = LLBasicBlock { block = codeBlock, flow = flow }
         in
-            Array.update(results, blockNo, resultBlock)
+            Array.update(resultBlocks, blockNo, resultBlock)
         end
 
         val () = processBlocks 0
+        
+        (* We now have the code with concrete registers. *)
+        
+        (* Generate code from the ICode.  This assumes that all pseudo-registers have been replaced by
+           real registers or locations.  Only certain patterns of arguments are accepted. *)
+
+        (* Code-generate a block.  A couple of instructions require the "flow". *)
+        fun codeGenBlock(LLBasicBlock{block, flow, ...}, code) =
+        let
+
+            (* Turn the icode into machine code.  This produces the code in reverse. *)
+            fun codeGenICode([], code) = code
+
+            |   codeGenICode(LLLoadArgument args :: rest, code) =
+                    codeGenICode(rest, llLoadArgument args :: code)
+
+                    (* Store to memory *)
+            |   codeGenICode(LLStoreArgument args :: rest, code) =
+                    codeGenICode(rest, llStoreArgument args :: code)
+
+                (* Exchange two general registers. *)
+            |   codeGenICode(LLExchangeRegisters{ regX, regY} :: rest, code) =
+                    codeGenICode(rest, XChngRegisters { regX=asGenReg regX, regY=asGenReg regY } :: code)
+
+            |   codeGenICode(LLFunctionCall {callKind, ...} :: rest, code) =
+                    codeGenICode(rest, CallFunction callKind :: code)
+
+            |   codeGenICode(LLTailRecursiveCall {callKind, ...} :: rest, code) =
+                    codeGenICode(rest, JumpToFunction callKind :: code)
+
+            |   codeGenICode(LLAllocateMemoryOperation { size, flags, dest, saveRegs} :: rest, code) =
+                let
+                    val toReg = asGenReg dest
+                    val preserve = map asGenReg saveRegs
+
+                    (* Allocate memory.  N.B. Instructions are in reverse order. *)
+                    fun allocStore{size, flags, output, preserve} =
+                    if isX64 andalso flags <> 0w0
+                    then
+                        [StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt flags, address={offset= ~1, base=output, index=NoIndex}},
+                         StoreConstToMemory{toStore=LargeInt.fromInt size, address={offset= ~wordSize, base=output, index=NoIndex}},
+                         AllocStore{size=size, output=output, saveRegs=preserve}]
+                    else
+                    let
+                        val lengthWord = IntInf.orb(IntInf.fromInt size, IntInf.<<(Word8.toLargeInt flags, 0w24))
+                    in
+                        [StoreConstToMemory{toStore=lengthWord, address={offset= ~wordSize, base=output, index=NoIndex}},
+                         AllocStore{size=size, output=output, saveRegs=preserve}]
+                    end
+
+                    val allocCode =
+                        (* If we need to add the profile object *)
+                        if addAllocatingFunction
+                        then
+                            allocStore {size=size+1, flags=Word8.orb(flags, Address.F_profile), output=toReg, preserve=preserve} @
+                                [StoreLongConstToMemory{ toStore=profileObject, address={base=toReg, offset=size*wordSize, index=NoIndex}}]
+                        else allocStore {size=size, flags=flags, output=toReg, preserve=preserve}
+                in
+                    codeGenICode(rest, allocCode @ code)
+                end
+
+            |   codeGenICode(LLAllocateMemoryVariable{ size, dest, saveRegs} :: rest, code) =
+                let
+                    val sReg = asGenReg size and dReg = asGenReg dest
+                    val _ = sReg <> dReg
+                                orelse raise InternalError "codeGenICode-AllocateMemoryVariable"
+                    val preserve = map asGenReg saveRegs
+
+                    val allocCode =
+                    [
+                        (* Store it as the length field. *)
+                        StoreRegToMemory{toStore=sReg,
+                            address={base=dReg, offset= ~wordSize, index=NoIndex}},
+                        (* Untag the length *)
+                        ShiftConstant{ shiftType=SHR, output=sReg, shift=0w1},
+                        (* Allocate the memory *)
+                        AllocStoreVariable{ output=dReg, saveRegs=preserve},
+                        (* Compute the number of bytes into dReg. The length in sReg is the number
+                           of words as a tagged value so we need to multiply it, add wordSize to
+                           include one word for the header then subtract the, multiplied, tag. *)
+                        if wordSize = 4
+                        then LoadAddress{output=dReg, base=NONE, offset=wordSize-2, index=Index2 sReg }
+                        else LoadAddress{output=dReg, base=NONE, offset=wordSize-4, index=Index4 sReg }
+                    ]
+                in
+                    codeGenICode(rest, allocCode @ code)
+                end
+
+            |   codeGenICode(LLInitialiseMem{size, addr, init} :: rest, code) =
+                let
+                    val sReg = asGenReg size and iReg = asGenReg init and aReg = asGenReg addr
+                    (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and aReg = edi. *)
+                    val _ = sReg = ecx orelse raise InternalError "codeGenICode: InitialiseMem"
+                    val _ = iReg = eax orelse raise InternalError "codeGenICode: InitialiseMem"
+                    val _ = aReg = edi orelse raise InternalError "codeGenICode: InitialiseMem"
+                in
+                    codeGenICode(rest, RepeatOperation STOSL :: code)
+                end
+
+            |   codeGenICode(LLInitialisationComplete :: rest, code) =
+                    codeGenICode(rest, StoreInitialised :: code)
+
+            |   codeGenICode(LLJumpLoop {checkInterrupt, ...} :: rest, code) =
+                let
+                    val checkCode =
+                        case checkInterrupt of
+                            NONE => []
+                        |   SOME saveRegs => testRegAndTrap (esp, StackOverflowCall, map asGenReg saveRegs)
+                in
+                    codeGenICode(rest, checkCode @ code)
+                end
+ 
+            |   codeGenICode(LLRaiseExceptionPacket _ :: rest, code) =
+                    codeGenICode(rest, RaiseException :: code)
+
+            |   codeGenICode(LLIndexedCaseOperation { testReg, workReg, ...} :: rest, code) =
+                let
+                    val rReg = asGenReg testReg and wReg = asGenReg workReg
+                    val _ = rReg <> wReg orelse raise InternalError "IndexedCaseOperation - same registers"
+                    (* This should only be within a block with an IndexedBr flow type. *)
+                    val cases =
+                        case flow of IndexedBr cases => cases | _ => raise InternalError "codeGenICode: IndexedCaseOperation"
+                    val caseLabels = map getBlockLabel cases
+                    val startJumpTable = makeLabel()
+                    (* Compute the jump address.  The index is a tagged
+                       integer so it is already multiplied by 2.  We need to
+                       multiply by four to get the correct size. Subtract off the
+                       shifted tag. *)
+                    val jumpSize = ref JumpSize8
+                    (* We use JumpToFunction even though we're not actually going to a new function. *)
+                    val resultCode =
+                        JumpTable{cases=caseLabels, jumpSize=jumpSize} :: JumpLabel startJumpTable :: JumpToFunction(DirectReg wReg) ::
+                            IndexedJumpCalc{ addrReg=wReg, indexReg=rReg, jumpSize=jumpSize } ::
+                            LoadLabelAddress{label=startJumpTable, output=wReg} :: code
+                in
+                    codeGenICode(rest, resultCode)
+                end
+
+            |   codeGenICode(LLLockMutable { addr } :: rest, code) =
+                    codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
+
+            |   codeGenICode(LLWordComparison {arg1=RegisterArg(GenReg r), arg2, ...} :: rest, code) =
+                    codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
+
+            |   codeGenICode(LLWordComparison _ :: _, _) =
+                    raise InternalError "codeGenICode: TODO WordComparison"
+
+            |   codeGenICode(LLPushExceptionHandler { workReg, ... } :: rest, code) =
+                let (* Set up an exception handler. *)
+                    (* Although we're pushing this to the stack we need to use LEA on the
+                       X86/64 and some arithmetic on the X86/32.  We need a work reg for that. *)
+                    val handleReg = asGenReg workReg
+                    (* This should only be within a block with a SetHandler flow type. *)
+                    val handleLabel =
+                        case flow of
+                            SetHandler{ handler, ...} => handler
+                        |   _ => raise InternalError "codeGenICode: PushExceptionHandler"
+                    val labelRef = getBlockLabel handleLabel
+                    (* Set up the handler by pushing the old handler to the stack, pushing the
+                       entry point and setting the handler address to the current stack pointer. *)
+                in
+                    codeGenICode(rest,
+                        StoreRegToMemory{
+                            toStore=esp, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        PushToStack(RegisterArg handleReg) ::
+                        LoadLabelAddress{ label=labelRef, output=handleReg} ::
+                        PushToStack(MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}) :: code)
+                end
+
+            |   codeGenICode(LLPopExceptionHandler { workReg, ... } :: rest, code) =
+                let (* Remove an exception handler if no exception was raised. *)
+                    val wReg = asGenReg workReg
+                in
+                    (* The stack pointer has been adjusted to just above the two words that were stored
+                       in PushExceptionHandler. *)
+                    codeGenICode(rest,
+                        StoreRegToMemory{
+                            toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        PopR wReg ::
+                        ResetStack 1 :: code)
+                end
+ 
+            |   codeGenICode(LLBeginHandler {workReg, packetReg, ...} :: rest, code) =
+                let
+                    val _ = asGenReg packetReg = eax orelse raise InternalError "codeGenICode: BeginHandler"
+                    val wReg = asGenReg workReg
+                in
+                    (* The code here is almost the same as PopExceptionHandler.  The only real difference
+                       is that PopExceptionHandler needs to pass the result of executing the handled code
+                       which could be in any register.  This code needs to transmit the exception packet
+                       and that is always in rax. *)
+                    codeGenICode(rest,
+                        StoreRegToMemory{
+                            toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
+                        PopR wReg :: ResetStack 1 ::
+                        MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } :: code)
+                end
+
+            |   codeGenICode(LLReturnResultFromFunction { numStackArgs, ... } :: rest, code) =
+                    codeGenICode(rest, ReturnFromFunction numStackArgs :: code)
+
+            |   codeGenICode(
+                    LLArithmeticFunction{
+                        oper, resultReg=(GenReg resReg), operand1=RegisterArg(GenReg op1Reg),
+                        operand2, ...} :: rest, code) =
+                let
+                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
+                in
+                    codeGenICode(rest, ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand2 } :: code)
+                end
+
+            |   codeGenICode(LLArithmeticFunction _ :: _, _) =
+                    raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
+
+            |   codeGenICode(LLTestTagBit {arg = RegisterArg reg, ...} :: rest, code) =
+                    codeGenICode(rest, TestTagR(asGenReg reg) :: code)
+
+            |   codeGenICode(LLTestTagBit {arg = MemoryArg {offset, base, index=NoIndex}, ...} :: rest, code) =
+                    codeGenICode(rest, TestByteMem{base=base, offset=offset, bits=0w1} :: code)
+
+            |   codeGenICode(LLTestTagBit _ :: _, _) = raise InternalError "codeGenICode: TestTagBit"
+
+            |   codeGenICode(LLPushValue arg :: rest, code) = codeGenICode(rest, llPushValue arg :: code)
+
+            |   codeGenICode(LLResetStackPtr {numWords} :: rest, code) =
+                (
+                    numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
+                    codeGenICode(rest, ResetStack numWords :: code)
+                )
+
+            |   codeGenICode(LLTagValue _ :: _, _) =
+                    raise InternalError "codeGenICode: TODO TagValue"
+
+            |   codeGenICode(LLUntagValue _ :: _, _) =
+                    raise InternalError "codeGenICode: TODO UntagValue"
+
+            |   codeGenICode(LLLoadEffectiveAddress { base, offset, index, dest } :: rest, code) =
+                let
+                    val bReg = Option.map asGenReg base
+                    val indexR = index
+                in
+                    codeGenICode(rest, LoadAddress{ output=asGenReg dest, offset=offset, base=bReg, index=indexR } :: code)
+                end
+
+            |   codeGenICode(
+                    LLShiftOperation{ shift, resultReg, operand, shiftAmount=NonAddressConstArg shiftValue, ...} :: rest, code) =
+                let
+                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
+                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
+                in
+                    codeGenICode(rest, ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
+                end
+
+            |   codeGenICode(LLShiftOperation { shift, resultReg, operand, shiftAmount, ...} :: rest, code) =
+                let
+                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
+                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
+                    (* The amount to shift must be in ecx.  The shift is masked to 5 or 6 bits so we have to
+                       check for larger shift values at a higher level. *)
+                    val _ = argAsGenReg shiftAmount = ecx orelse raise InternalError "codeGenICode: ShiftOperation"
+                in
+                    codeGenICode(rest, ShiftVariable{ shiftType=shift, output=resReg } :: code)
+                end
+
+            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2=MemoryArg{offset, base, index=NoIndex}, ... } :: rest, code) =
+                let
+                    val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and baseReg = base
+                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
+                in
+                    codeGenICode(rest, MultiplyRM { base=baseReg, offset=offset, output=resReg } :: code)
+                end
+
+            |   codeGenICode(LLMultiplication { resultReg, operand1, operand2, ... } :: rest, code) =
+                let
+                    val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and op2Reg = argAsGenReg operand2
+                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
+                in
+                    codeGenICode(rest, MultiplyRR { source=op2Reg, output=resReg } :: code)
+                end
+
+            |   codeGenICode(LLDivision { isSigned, dividend, divisor, quotient, remainder } :: rest, code) =
+                let
+                    val dividendReg = asGenReg dividend and divisorReg = argAsGenReg divisor
+                    and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
+                    val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
+                    val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
+                    val _ = quotientReg = eax orelse raise InternalError "codeGenICode: Division"
+                    val _ = remainderReg = edx orelse raise InternalError "codeGenICode: Division"
+                    (* rdx needs to be set to the high order part of the dividend.  For signed
+                       division that means sign-extending rdx, for unsigned division we clear it. *)
+                    val setRDX =
+                        if isSigned then SignExtendForDivide
+                        else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
+                in
+                    codeGenICode(rest, DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
+                end
+
+            |   codeGenICode(LLAtomicExchangeAndAdd{ base, source } :: rest, code) =
+                let
+                    val baseReg = asGenReg base and outReg = asGenReg source
+                in
+                    codeGenICode(rest, AtomicXAdd{base=baseReg, output=outReg} :: code)
+                end
+
+            |   codeGenICode(LLCompareByteVectors { vec1Addr, vec2Addr, length, ... } :: rest, code) =
+                let
+                    (* The arguments must be in specific registers. *)
+                    val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
+                    val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
+                    val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
+                in
+                    codeGenICode(rest, RepeatOperation CMPSB :: code)
+                end
+
+            |   codeGenICode(LLBlockMove { srcAddr, destAddr, length, isByteMove } :: rest, code) =
+                let
+                    (* The arguments must be in specific registers. *)
+                    val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
+                    val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
+                    val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
+                in
+                    codeGenICode(rest, RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
+                end
+
+            |   codeGenICode(
+                    LLCompareFloatingPt {
+                        arg1=RegisterArg(FPReg fpReg),
+                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
+                let
+                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
+                    (* This currently pops the value. *)
+                    (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FCOMP in SSE2 mode"*)
+                in
+                    codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
+                end
+
+            |   codeGenICode(LLCompareFloatingPt {arg1=RegisterArg(XMMReg xmmReg), arg2, ... } :: rest, code) =
+                    codeGenICode(rest, XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
+
+            |   codeGenICode(LLCompareFloatingPt _ :: _, _) =
+                    raise InternalError "codeGenICode: CompareFloatingPt: TODO"
+
+            |   codeGenICode(LLX87FPGetCondition { dest, ... } :: rest, code) =
+                let
+                    val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
+                    (* This currently pops the value. *)
+                    (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FPStatusToEAX in SSE2 mode"*)
+                in
+                    codeGenICode(rest, FPStatusToEAX :: code)
+                end
+
+            |   codeGenICode(
+                    LLX87FPArith {
+                        opc, resultReg=(FPReg fpResReg), arg1=RegisterArg(FPReg fpArgReg),
+                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex} } :: rest, code) =
+                let
+                    val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+                    val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+                in
+                    codeGenICode(rest, FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
+                end
+
+            |   codeGenICode(LLX87FPArith _ :: _, _) =
+                    raise InternalError "codeGenICode: X87FPArith: TODO"
+
+            |   codeGenICode(
+                    LLSSE2FPArith {
+                        opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArg(XMMReg xmmArgReg), arg2 } :: rest, code) =
+                let
+                    val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
+                    (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
+                    val _ =
+                        case (opc, arg2) of
+                            (SSE2Xor, RegisterArg _) => ()
+                        |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                        |   (SSE2And, RegisterArg _) => ()
+                        |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                        |   _ => ()
+                in
+                    codeGenICode(rest, XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
+                end
+
+            |   codeGenICode(LLSSE2FPArith _ :: _, _) =
+                    raise InternalError "codeGenICode: SSE2FPArith: TODO"
+
+            |   codeGenICode(LLX87FPUnaryOps {fpOp, dest=(FPReg fpResReg), source=RegisterArg(FPReg fpArgReg)} :: rest, code) =
+                let
+                    val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+                    val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+                in
+                    codeGenICode(rest, FPUnary fpOp :: code)
+                end
+
+            |   codeGenICode(LLX87FPUnaryOps _ :: _, _) =
+                    raise InternalError "codeGenICode: FloatingPointNeg: TODO"
+
+            |   codeGenICode(LLFloatFixedInt { dest=(XMMReg xmmResReg), source=RegisterArg(GenReg srcReg) } :: rest, code) =
+                    codeGenICode(rest, XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code)
+
+            |   codeGenICode(LLFloatFixedInt { dest=(FPReg fpReg), source=MemoryArg{base, offset, index=NoIndex} } :: rest, code) =
+                let
+                    val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
+                in
+                    codeGenICode(rest, FPLoadInt{ base=base, offset=offset} :: code)
+                end
+
+            |   codeGenICode(LLFloatFixedInt _ :: _, _) =
+                    raise InternalError "codeGenICode: FloatFixedInt: TODO"
+        in
+            codeGenICode(block, code)
+        end (* codeGenBlock *)
+        
+        val minStackCheck = 20
+        val inputRegisters = argRegsUsed @ (if hasFullClosure then [GenReg edx] else [])
+        val saveRegs = List.mapPartial(fn GenReg r => SOME r | _ => NONE) inputRegisters
+        val preludeCode =
+            if stackRequired >= minStackCheck
+            then
+            let
+                (* Compute the necessary amount in edi and compare that. *)
+                val stackByteAdjust = ~wordSize * stackRequired
+                val testEdiCode =
+                    testRegAndTrap (edi, StackOverflowCallEx, saveRegs)
+            in
+                (* N.B. In reverse order. *)
+                testEdiCode @ [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}]
+            end
+     
+            else testRegAndTrap (esp, StackOverflowCall, saveRegs)
+
+        val newCode = codeCreate (functionName, profileObject, debugSwitches) 
+        
+        local
+            (* processed - set to true when a block has been processed. *)
+            val processed = Array.array(numBlocks, false)
+            fun haveProcessed n = Array.sub(processed, n)
+            
+            (* Find the blocks that reference this one.  This isn't essential but
+               allows us to try to generate blocks in the order of the control
+               flow.  This in turn may allow us to use short branches rather
+               than long ones. *)
+            val labelRefs = Array.array(numBlocks, [])
+            
+            fun setReferences(fromLabel, LLBasicBlock{ flow, ...}) =
+            let
+                val refs =
+                    case flow of
+                        ExitCode => []
+                    |   Unconditional lab => [lab]
+                    |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
+                    |   IndexedBr labs => labs
+                    |   SetHandler { handler, continue } => [handler, continue]
+                
+                fun setRefs toLabel =
+                    Array.update(labelRefs, toLabel, fromLabel :: Array.sub(labelRefs, toLabel))
+            in
+                List.app setRefs refs
+            end
+
+            val () = Array.appi setReferences resultBlocks
+            
+            (* Process the blocks.  We keep the "stack" explicit rather than using recursion
+               because this allows us to select both arms of a conditional branch sooner. *)
+            fun genCode(toDo, lastFlow, code) =
+            case List.filter (not o haveProcessed) toDo of
+                [] =>
+                let
+                    (* There's nothing left to do. We may need to add a final branch to the end. *)
+                    val finalBranch =
+                        case lastFlow of
+                            ExitCode => []
+                        |   IndexedBr _ => []
+                        |   Unconditional dest => [UncondBranch(getBlockLabel dest)]
+                        |   Conditional { condition, trueJump, falseJump, ...} =>
+                                [
+                                    UncondBranch(getBlockLabel falseJump),
+                                    ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
+                                ]
+                        |   SetHandler { continue, ...} => [UncondBranch(getBlockLabel continue)]
+                in
+                    finalBranch @ code (* Done. *)
+                end
+
+            |   stillToDo as head :: _ =>
+                let
+                    local
+                        (* Check the references.  If all the sources that lead up to this have
+                           already been we won't have any backward jumps. *)
+                        fun available dest = List.all haveProcessed (Array.sub(labelRefs, dest))
+
+                        val continuation =
+                            case lastFlow of
+                                ExitCode => NONE
+                            |   IndexedBr _ => NONE (* We could put the last branch in here. *)
+                            |   Unconditional dest =>
+                                    if not (haveProcessed dest) andalso available dest
+                                    then SOME dest
+                                    else NONE
+                            |   Conditional {trueJump, falseJump, ...} =>
+                                    (* Try the falseJump first - this is the usual case.  If that fails
+                                       try the trueJump. *)
+                                    if not (haveProcessed falseJump) andalso available falseJump
+                                    then SOME falseJump
+                                    else if not (haveProcessed trueJump) andalso available trueJump
+                                    then SOME trueJump
+                                    else NONE
+                           |    SetHandler { continue, ... } =>
+                                    (* We want the continuation if possible.  We'll need a
+                                       branch round the handler so that won't help. *)
+                                    if not (haveProcessed continue) andalso available continue
+                                    then SOME continue
+                                    else NONE
+                                    
+                    in
+                        (* First choice - continue the existing block.
+                           Second choice - the first item whose sources have all been
+                           processed.
+                           Third choice - something from the list. *)
+                        val picked =
+                            case continuation of
+                                SOME c => c
+                            |   NONE =>
+                                    case List.find available stillToDo of
+                                        SOME c => c
+                                    |   NONE => head
+                    end
+                        
+                    val () = Array.update(processed, picked, true)
+
+                    (* Code to terminate the previous block. *)
+                    val startCode =
+                        case lastFlow of
+                            ExitCode => []
+                        |   IndexedBr _ => []
+                        |   Unconditional dest =>
+                                if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
+                        |   SetHandler { continue, ... } =>
+                                if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
+                        |   Conditional { condition, trueJump, falseJump, ...} =>
+                            if picked = falseJump (* Usual case. *)
+                            then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
+                            else if picked = trueJump
+                            then (* We have a jump to the true condition. Invert the jump.
+                                    This is more than an optimisation.  Because this immediately precedes the
+                                    true block we're not going to generate a label. *)
+                            let
+                                val revTest =
+                                    case condition of
+                                        JE  => JNE  |   JNE => JE   |   JA  => JNA  |   JB  => JNB  |   JNA => JA
+                                    |   JNB => JB   |   JL  => JGE  |   JG  => JLE  |   JLE => JG   |   JGE => JL
+                                    |   JO  => JNO  |   JNO => JO   |   JP  => JNP  |   JNP => JP
+                            in
+                                [ConditionalBranch{test=revTest, predict=PredictNeutral, label=getBlockLabel falseJump}]
+                            end
+                            else
+                            [
+                                UncondBranch(getBlockLabel falseJump),
+                                ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
+                            ]
+
+                    val blockToCode as LLBasicBlock{ flow, ...} = Array.sub(resultBlocks, picked)
+
+                    (* Code-generate the body with the code we've done so far
+                       at the end.  Add a label at the start if necessary. *)
+                    local
+                        (* If the previous block dropped through to this and this was
+                           the only reference then we don't need a label. *)
+                        fun onlyJumpingHere lab =
+                            if lab <> picked then false
+                            else case Array.sub(labelRefs, picked) of
+                                [singleton] => singleton = lab
+                            |   _ => false
+                        
+                        val noLabel =
+                            case lastFlow of
+                                ExitCode => picked = 0 (* Unless this was the first block. *)
+                            |   Unconditional dest => onlyJumpingHere dest
+                            |   Conditional { trueJump, falseJump, ...} =>
+                                    onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
+                            |   IndexedBr _ => false
+                            |   SetHandler _ => false 
+                    in
+                        val startLabel = if noLabel then [] else [JumpLabel(getBlockLabel picked)]
+                    end
+
+                    val bodyCode = codeGenBlock(blockToCode, startLabel @ startCode @ code)
+
+                    val addSet =
+                        case flow of
+                            ExitCode => []
+                        |   IndexedBr cases => cases
+                        |   Unconditional dest => [dest]
+                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                        |   SetHandler { handler, continue } => [handler, continue]
+
+                in
+                    genCode(addSet @ stillToDo, flow, bodyCode)
+                end
+        in
+            val ops = genCode([0], ExitCode, preludeCode)
+        end
     in
-        Array.vector results
-    end
-    
-    fun icodeToX86Code{blocks, functionName, regStates, regProps, stackRequired, argRegsUsed, hasFullClosure, debugSwitches} =
-    let
-        val postTransformCode = codeAbstractToConcrete(blocks, regStates, regProps)
-    in
-        codeAsX86Code{blockCode=postTransformCode, stackRequired = stackRequired,
-                      inputRegisters= argRegsUsed @ (if hasFullClosure then [GenReg edx] else []), debugSwitches=debugSwitches,
-                      functionName=functionName}
+        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
     end
 
     val nGenRegs = List.length generalRegisters
