@@ -62,6 +62,8 @@ struct
         (* Extra blocks to adjust the stack are added here. *)
         val extraBlocks: basicBlock list ref = ref []
         val blockCounter = ref numberOfBlocks
+
+        val activeStacks = Array.array(maxPRegs, false)
          
         (* Recursive scan of the blocks.  For each block we produce an input and output state.
            The input state is the output state of the predecessor i.e. some block that jumps to
@@ -103,10 +105,9 @@ struct
                     |   removeItems result = result
 
                     val {stackCount=newSp, stack=newStack} = removeItems lastOutputState
-
-                    val activeStacks = Array.array(maxPRegs, false)
                     
                     (* Active stack entries *)
+                    val () = Array.modify(fn _ => false) activeStacks
                     local
                         fun setActive(NewEntry{pregNo}) =
                             if member(pregNo, imports) orelse member(pregNo, passThrough)
