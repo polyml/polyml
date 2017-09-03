@@ -595,7 +595,10 @@ struct
                         val activeAfter = union(activeAfterThis, passThrough)
                         fun pushAllButDests i =
                             if List.exists(fn j => i=j) destRegNos
-                            then () else Array.update(regPushState, i, MustPush)
+                            then ()
+                            else case Vector.sub(pregProps, i) of
+                                RegPropCache => raise InternalError "pushRegisters: cache reg"
+                            |  _ => Array.update(regPushState, i, MustPush)
                     in
                         (* We need to push everything active after this
                            except the result register. *)

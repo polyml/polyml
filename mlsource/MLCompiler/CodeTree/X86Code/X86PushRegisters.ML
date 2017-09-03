@@ -491,6 +491,8 @@ struct
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
                             val (destVal, destCode) = mapDestReg(dest, current)
+                            (* Now clear the cache table. *)
+                            val () = Array.modify(fn _ => NONE) cacheMap
                         in
                             pushRegisters(rest,
                                 destCode @
