@@ -422,8 +422,9 @@ struct
         |   codeExtArgument(IntegerConstant i, _) = NonAddressConstArg i
         |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index}, _) =
                 MemoryArg{base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(StackLocation{wordOffset, ...}, _) =
+        |   codeExtArgument(StackLocation{wordOffset, cache=NONE, ...}, _) =
                 MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
+        |   codeExtArgument(StackLocation{cache=SOME(PReg r), ...}, regSet) = RegisterArg(findRegister(r, NONE, regSet))
         
         and codeExtArgGeneral arg = codeExtArgument(arg, generalRegisters)
         and codeExtArgFloat arg = codeExtArgument(arg, floatingPtRegisters)
@@ -910,9 +911,9 @@ struct
                         (* Have to adjust the offsets of stack arguments. *)
                         val adjusted =
                             case arg of
-                                StackLocation {wordOffset, container, field, inCache, outCache} =>
+                                StackLocation {wordOffset, container, field, cache} =>
                                     StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum,
-                                                  inCache=inCache, outCache=outCache}
+                                                  cache=cache}
                             |   arg => arg
                     in
                         LLPushValue {arg=codeExtArgGeneral adjusted} :: pushStackArgs(args, argNum+1)
@@ -1205,6 +1206,18 @@ struct
                 val code = codeExtended(rest, context)
             in
                 LLPushValue {arg=codeExtArgGeneral arg} :: code
+            end
+
+        |   codeExtended({instr=CopyToCache{source=PReg sreg, dest=PReg dreg}, ...} :: rest, context) =
+            let
+                val () = addSourceAndDestinationHint {src=sreg, dst=dreg}
+                val code = codeExtended(rest, context)
+                val realDestReg = findRegister(dreg, NONE, generalRegisters)
+                (* Get the source register using the current destination as a preference. *)
+                val realSrcReg = findRegister(sreg, SOME realDestReg, generalRegisters)
+            in
+                (* If the source is the same as the destination we don't need to do anything. *)
+                moveIfNecessary{src=realSrcReg, dst=realDestReg} @ code
             end
 
         |   codeExtended({instr=ResetStackPtr {numWords}, ...} :: rest, context) =

@@ -49,9 +49,8 @@ struct
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
     |   MemoryLocation of { base: preg, offset: int, index: memoryIndex } (* A memory location.  Could be the stack. *)
         (* Offset on the stack.  The container is the stack location identifier, the field is an
-           offset in a container.  inCache is a cache register that contains the value before
-           the reference and outCache a cache register of the value after the reference. *)
-    |   StackLocation of { wordOffset: int, container: stackLocn, field: int, inCache: preg option, outCache: preg option }
+           offset in a container.  cache is an optional cache register. *)
+    |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -168,7 +167,11 @@ struct
     |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
-    |   PushValue of { arg: argument, container: stackLocn, outCache: preg option }
+    |   PushValue of { arg: argument, container: stackLocn }
+
+        (* Copy a value to a cache register.  LoadArgument could be used for this
+           but it may be better to keep it separate. *)
+    |   CopyToCache of { source: preg, dest: preg }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int }
@@ -281,13 +284,12 @@ struct
                 stream ")";
                 printIndex(index, stream, printReg)
             )
-        |   printArg(StackLocation{wordOffset, container, field, inCache, outCache, ...}, stream, printReg) =
+        |   printArg(StackLocation{wordOffset, container, field, cache, ...}, stream, printReg) =
             (
                 printStackLoc(container, stream); stream " + ";
                 stream(Int.toString field);
                 stream " (";  stream(Int.toString wordOffset); stream ")";
-                case inCache of NONE => () | SOME r => (stream " cache in "; printReg(r, stream));
-                case outCache of NONE => () | SOME r => (stream " cache out "; printReg(r, stream))
+                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
             
         fun printSaves([], _, _) = ()
@@ -466,11 +468,11 @@ struct
 
         |   printICode(TestTagBit{arg, ...}, stream, printReg) = (stream "\tTestTagBit\t"; printArg(arg, stream, printReg))
 
-        |   printICode(PushValue{arg, container, outCache}, stream, printReg) =
-            (
-                stream "\tPushValue\t"; printArg(arg, stream, printReg); stream " => "; printStackLoc(container, stream);
-                case outCache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
-            )
+        |   printICode(PushValue{arg, container}, stream, printReg) =
+                (stream "\tPushValue\t"; printArg(arg, stream, printReg); stream " => "; printStackLoc(container, stream))
+
+        |   printICode(CopyToCache{source, dest}, stream, printReg) =
+                (stream "\tCopyToCache\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(ResetStackPtr{numWords}, stream, _) = (stream "\tResetStackPtr\t"; stream(Int.toString numWords))
 

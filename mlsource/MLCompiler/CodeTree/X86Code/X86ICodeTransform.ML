@@ -218,6 +218,7 @@ struct
                             case (pushState, prop) of
                                 (MustNotPush, _) => chooseReg(regs, bestReg, bestCost)
                             |   (_, RegPropStack _) => chooseReg(regs, bestReg, bestCost)
+                            |   (_, RegPropCache) => reg (* Pick the first cache reg. *)
                             |   _ =>
                                 if cost >= bestCost
                                 then chooseReg(regs, reg, active)

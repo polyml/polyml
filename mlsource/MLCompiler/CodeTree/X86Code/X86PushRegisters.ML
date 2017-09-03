@@ -36,7 +36,9 @@ struct
     (* Each preg in the input is mapped to either a new preg or the stack. *)
     datatype pregMapType = Unset | ToPReg of preg | ToStack of int * stackLocn
 
-    (* The stack contains both entries in the input code and entries added here. *)
+    (* The stack contains both entries in the input code and entries added here.
+       It is really used to ensure that the stack at run time is the same size
+       at the start of a block whichever block has jumped to it. *)
     datatype stackEntry =
         NewEntry of {pregNo: int} (* pregNo is the original preg that has been pushed here. *)
     |   ContainerEntry of { size: int, active: bool, stackLoc: stackLocn }
@@ -50,6 +52,8 @@ struct
         val pregCounter = ref 0
         val pregPropList = ref []
         val pregMap = Array.array(maxPRegs, Unset)
+        (* Cache registers.  The index is the original preg or stackloc. *)
+        val cacheMap = Array.array(maxPRegs, NONE: preg option)
 
         val maxStack = ref 0
          (* The result code. *)
@@ -178,10 +182,14 @@ struct
                                 (* Make a new untagged register. That will prevent us pushing it if
                                    we have to spill registers. *)
                                 val newReg = newPReg RegPropUntagged
+                                val sourceCache = Array.sub(cacheMap, n)
                                 val stackSource =
-                                    StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, inCache=NONE, outCache=NONE}
+                                    StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
+                                (* Because this is in a register we can copy it to a cache register. *)
+                                val newCacheReg = newPReg RegPropCache
+                                val () = Array.update(cacheMap, n, SOME newCacheReg)
                             in
-                                (newReg, [LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}])
+                                (newReg, [CopyToCache{source=newReg, dest=newCacheReg}, LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}])
                             end
 
 
@@ -201,7 +209,7 @@ struct
                             val () = pushItemToStack(NewEntry{pregNo=n})
                             val _ = setActive n
                         in
-                            (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer, outCache=NONE}])
+                            (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}])
                         end
                         else
                         let
@@ -293,10 +301,22 @@ struct
                             |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
                                 let
                                     val _ = checkCurrent(r, current)
+                                    val sourceCache = Array.sub(cacheMap, r)
                                     val stackLoc =
-                                        StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, inCache=NONE, outCache=NONE}
+                                        StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
+                                    (* If this is cached we need to make a new cache register and copy it there. *)
+                                    val cacheCode =
+                                        case sourceCache of
+                                            NONE => []
+                                        |   SOME cacheR =>
+                                            let
+                                                val newCacheReg = newPReg RegPropCache
+                                                val () = Array.update(cacheMap, r, SOME newCacheReg)
+                                            in
+                                                [CopyToCache{source=cacheR, dest=newCacheReg}]
+                                            end
                                 in
-                                    (stackLoc, [])
+                                    (stackLoc, cacheCode)
                                 end
                         )
 
@@ -311,36 +331,57 @@ struct
                             (MemoryLocation{base=baseReg, offset=offset, index=indexValue}, baseCode @ indexCode)
                         end
 
-                    |   mapSource(StackLocation{container, field, ...}, current) =
+                    |   mapSource(StackLocation{container as StackLoc{rno, ...}, field, cache, ...}, current) =
                         let
                             val (newOffset, newContainer) = mapContainerAndStack(container, field, current)
+                            (* Was the item previously cached?  If it wasn't or the cache reg has been marked
+                               as "must push" we can't use a cache. *)
+                            val newCache =
+                                case cache of
+                                    NONE => NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else Array.sub(cacheMap, rno)
                             val stackLoc =
-                                StackLocation{wordOffset=newOffset, container=newContainer, field=field, inCache=NONE, outCache=NONE}
+                                StackLocation{wordOffset=newOffset, container=newContainer, field=field, cache=newCache}
+                            val cacheCode =
+                                case newCache of
+                                    NONE => (Array.update(cacheMap, rno, NONE); [])
+                                |   SOME oldCacheReg =>
+                                    let
+                                        val newCacheReg = newPReg RegPropCache
+                                        val () = Array.update(cacheMap, rno, SOME newCacheReg)
+                                    in
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg}]
+                                    end
                         in
-                            (stackLoc, [])
+                            (stackLoc, cacheCode)
                         end
 
-                    (* If the argument AFTER processing is a stack entry, then load it. *)
-                    fun loadStack(stack as StackLocation _) =
+                    (* Force a load of the source into a register if it is on the stack.
+                       This is used in cases where a register or literal is allowed but not
+                       a memory location. If we do load it we can cache the register. *)
+                    fun mapAndLoad(source as RegisterArgument(PReg r), current) =
                         let
-                            val newReg = newPReg RegPropUntagged
+                            val (sourceVal, sourceCode) = mapSource(source, current)
                         in
-                            (RegisterArgument newReg, [LoadArgument{source=stack, dest=newReg, kind=MoveWord}])
+                            case sourceVal of
+                                stack as StackLocation _ =>
+                                let
+                                    val newReg = newPReg RegPropUntagged
+                                    val newCacheReg = newPReg RegPropCache
+                                    val _ = Array.update(cacheMap, r, SOME newCacheReg)
+                                in
+                                    (RegisterArgument newReg,
+                                        CopyToCache{source=newReg, dest=newCacheReg} :: LoadArgument{source=stack, dest=newReg, kind=MoveWord} :: sourceCode)
+                                end
+                            |   _ => (sourceVal, sourceCode)
                         end
-                    |   loadStack other = (other, [])
 
-
-                    local
-                        (* We don't need to save registers if we've pushed them.
-                           N.B.  If we ever cache registers we'll need to clear the cache. *)
-                        fun mapSaveReg (PReg n, l) =
-                            case Array.sub(pregMap, n) of
-                                Unset => raise InternalError "mapSaveReg - unset"
-                            |   ToPReg preg => preg :: l
-                            |   ToStack _ => l
-                    in
-                        val mapSaveRegs = List.foldl mapSaveReg [] 
-                    end
+                    |   mapAndLoad(StackLocation _, _) = raise InternalError "mapAndLoad - already a stack loc"
+                    |   mapAndLoad(MemoryLocation _, _) = raise InternalError "mapAndLoad - already a mem loc"
+                    |   mapAndLoad(source, current) = mapSource(source, current)
         
                     (* Rewrite the code, replacing any registers that need to be pushed with references to
                        the stack.  The result is built up in reverse order and then reversed. *)
@@ -362,7 +403,7 @@ struct
                                     val () = pushItemToStack(NewEntry{pregNo=dReg})
                                     val _ = setActive dReg
                                 in
-                                    (PushValue{arg=sourceVal, container=container, outCache=NONE})
+                                    (PushValue{arg=sourceVal, container=container})
                                 end
                                 else
                                 let
@@ -387,15 +428,14 @@ struct
 
                     |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, current, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
+                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
-                            val (loadedSource, loadCode) = loadStack sourceVal
                             val (baseReg, baseCode) = mapSrcReg(base, current)
                             val (indexValue, indexCode) = mapIndex(index, current)
                         in
                             pushRegisters(rest,
                                 StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind} ::
-                                    indexCode @ baseCode @ loadCode @ sourceCode @ code)
+                                    indexCode @ baseCode @ sourceCode @ code)
                         end
 
                     |   pushRegisters({instr=LoadMemReg { offset, dest}, current, ...} :: rest, code) =
@@ -486,21 +526,21 @@ struct
                                         regArgLoads @ stackArgLoads @ code)
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, saveRegs}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, ...}, current, ...} :: rest, code) =
                         let
                             val (destVal, destCode) = mapDestReg(dest, current)
                         in
                             pushRegisters(rest,
-                                destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: code)
+                                destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=[]} :: code)
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, saveRegs}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, current, ...} :: rest, code) =
                         let
                             val (sizeVal, sizeCode) = mapSrcReg(size, current)
                             val (destVal, destCode) = mapDestReg(dest, current)
                         in
                             pushRegisters(rest,
-                                destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: sizeCode @ code)
+                                destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=[]} :: sizeCode @ code)
                         end
 
                     |   pushRegisters({instr=InitialiseMem{size, addr, init}, current, ...} :: rest, code) =
@@ -552,7 +592,7 @@ struct
                             end
                 
                             val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
-                            val check = Option.map mapSaveRegs checkInterrupt
+                            val check = case checkInterrupt of NONE => NONE | SOME _ => SOME []
                         in
                             pushRegisters(rest,
                                 JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
@@ -607,11 +647,10 @@ struct
                             (* codeExtended expects the first argument to be in a register.
                                We may be able to do something clever if the second is actually in the
                                register but for the moment just force a load. *)
-                            val (op1Val, op1Code) = mapSource(arg1, current)
-                            val (loadedOp1, loadCode) = loadStack op1Val
+                            val (loadedOp1, op1Code) = mapAndLoad(arg1, current)
                             val (op2Val, op2Code) = mapSource(arg2, current)
                         in
-                            pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code)
+                            pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code)
                         end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...} :: rest, code) =
@@ -677,14 +716,13 @@ struct
                             (* codeExtended expects the first argument to be in a register.
                                We may be able to do something clever if the second is actually in the
                                register but for the moment just force a load. *)
-                            val (op1Val, op1Code) = mapSource(operand1, current)
-                            val (loadedOp1, loadCode) = loadStack op1Val
+                            val (loadedOp1, op1Code) = mapAndLoad(operand1, current)
                             val (op2Val, op2Code) = mapSource(operand2, current)
                             val (destVal, destCode) = mapDestReg(resultReg, current)
                         in
                             pushRegisters(rest,
                                 destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
-                                    op2Code @ loadCode @ op1Code @ code)
+                                    op2Code @ op1Code @ code)
                         end
 
                     |   pushRegisters({instr=TestTagBit{arg, ccRef}, current, ...} :: rest, code) =
@@ -701,8 +739,13 @@ struct
                             val newContainer = mapDestContainer(container, !stackCount)
                             val () = pushItemToStack(ContainerEntry{size=1, active=true, stackLoc=newContainer})
                         in
-                            pushRegisters(rest, PushValue{arg=sourceVal, container=newContainer, outCache=NONE} :: sourceCode @ code)
+                            pushRegisters(rest, PushValue{arg=sourceVal, container=newContainer} :: sourceCode @ code)
                         end
+                    
+                    |   pushRegisters({instr=CopyToCache _, ...} :: rest, code) =
+                            (* This was added on a previous pass.  Discard it.  If we are going to cache this again we'll
+                               add new CopyToCache instructions. *)
+                            pushRegisters(rest, code)
 
                     |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code) =
                         (* This indicates that an old entry is no longer required.  We can't actually remove
@@ -728,14 +771,13 @@ struct
 
                     |   pushRegisters({instr=StoreToStack{source, container, field, ...}, current, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
+                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
-                            val (loadedSource, loadCode) = loadStack sourceVal
                             val (newOffset, newContainer) = mapContainerAndStack(container, field, current)
                         in
                             pushRegisters(rest,
                                 StoreToStack{source=loadedSource, container=newContainer, field=field, stackOffset=newOffset} ::
-                                    loadCode @ sourceCode @ code)
+                                    sourceCode @ code)
                         end
 
                     |   pushRegisters({instr=TagValue{source, dest}, current, ...} :: rest, code) =
@@ -748,12 +790,11 @@ struct
 
                     |   pushRegisters({instr=UntagValue{source, dest, isSigned}, current, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
-                            val (loadedSource, loadCode) = loadStack sourceVal
+                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
                             val (destVal, destCode) = mapDestReg(dest, current)
                         in
                             pushRegisters(rest,
-                                destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: loadCode @ sourceCode @ code)
+                                destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: sourceCode @ code)
                         end
 
                     |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, current, ...} :: rest, code) =
@@ -815,13 +856,13 @@ struct
                             pushRegisters(rest, AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code)
                         end
 
-                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, saveRegs}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, current, ...} :: rest, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg(source, current)
                             val (destVal, destCode) = mapDestReg(dest, current)
                         in
                             pushRegisters(rest,
-                                destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: sourceCode @ code)
+                                destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code)
                         end
 
                     |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, current, ...} :: rest, code) =
@@ -901,6 +942,8 @@ struct
                         end
         
 
+                    (* For the moment always clear the cache. *)
+                    val () = Array.modify(fn _ => NONE) cacheMap
                     (* We can't adjust the stack at this point. *)
                     val codeResult = pushRegisters(block, [])
                     val outputCount = ! stackCount

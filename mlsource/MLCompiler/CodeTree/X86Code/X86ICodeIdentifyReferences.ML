@@ -59,6 +59,7 @@ struct
     (* Find the registers from an argument. *)
     fun argRegs(RegisterArgument rarg) = [rarg]
     |   argRegs(MemoryLocation { base, index, ...}) = base :: argIndex index
+    |   argRegs(StackLocation { cache=SOME rarg, ...}) = [rarg]
     |   argRegs _ = []
     
     and argIndex NoMemIndex = []
@@ -164,6 +165,8 @@ struct
 
     |   getInstructionRegisters(PushValue {arg, ...}) =
             { sources=argRegs arg, dests=[] }
+    
+    |   getInstructionRegisters(CopyToCache{source, dest}) = { sources=[source], dests=[dest]}
 
     |   getInstructionRegisters(ResetStackPtr _) =
             { sources=[], dests=[] }
@@ -333,8 +336,6 @@ struct
            the block and not declared locally. *)
         val declarationArray = Array.array(vectorLength, emptySet)
         and importArray = Array.array(vectorLength, emptySet)
-(*        val decStackArray = Array.array(vectorLength, emptySet)
-        and importStackArray = Array.array(vectorLength, emptySet)*)
         
         (* References - this is used locally to see if a register is ever
            actually used and also included in the result which uses it as
@@ -342,7 +343,8 @@ struct
         val regRefs = Array.array(maxPRegs, 0)
         (* Whether the register must be saved on the stack, must not or could be. *)
         and regPushState =
-            Array.tabulate(maxPRegs, fn i => case Vector.sub(pregProps, i) of RegPropGeneral => MayPush | _ => MustNotPush)
+            Array.tabulate(maxPRegs,
+                fn i => case Vector.sub(pregProps, i) of RegPropGeneral => MayPush | RegPropCache => MayPush | _ => MustNotPush)
 
         fun incrRef r = Array.update(regRefs, r, Array.sub(regRefs, r)+1)
         
@@ -375,6 +377,7 @@ struct
                         |   UntagValue _ => true
                         |   LoadEffectiveAddress _ => true
                         |   BoxValue _ => true
+                        |   CopyToCache _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
@@ -603,6 +606,16 @@ struct
                         case instr of
                             FunctionCall _ => pushRegisters ()
                         |   BeginHandler _ => pushRegisters ()
+                        
+                        |   CopyToCache {source=PReg srcReg, dest=PReg dstReg} =>
+                            (* If the source is a cache register marked as "must push" i.e. discard,
+                               the destination must also be discarded i.e. not available. 
+                               Note: the source could be a non-cache register marked for pushing. *)
+                            (
+                                case (Vector.sub(pregProps, srcReg), Array.sub(regPushState, srcReg)) of
+                                    (RegPropCache, MustPush) => Array.update(regPushState, dstReg, MustPush)
+                                |   _ => ()
+                            )
                         |   _ => ()
                 end
             in
