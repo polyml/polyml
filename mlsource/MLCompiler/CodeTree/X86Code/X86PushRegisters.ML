@@ -52,8 +52,34 @@ struct
         val pregCounter = ref 0
         val pregPropList = ref []
         val pregMap = Array.array(maxPRegs, Unset)
+        
         (* Cache registers.  The index is the original preg or stackloc. *)
-        val cacheMap = Array.array(maxPRegs, NONE: preg option)
+        local
+            (* The number of items cached is likely to be a small proportion of
+               the total number of pregs which can be very large.  To avoid scanning
+               the whole array each time we keep a list of the currently cached items
+               and just clear that. *)
+            val cacheMap: preg option ref vector = Vector.tabulate(maxPRegs, fn _ => ref NONE)
+            val currentCache: preg option ref list ref = ref []
+        in
+            fun clearCache() =
+                List.app(fn r => r := NONE) (! currentCache) before currentCache := []
+            
+            fun getCache n = ! (Vector.sub(cacheMap, n))
+            
+            fun setCache(n, newItem) =
+            let
+                val entry = Vector.sub(cacheMap, n)
+            in
+                (* If this was not previously cached add it to the list.
+                   Note: we may clear an entry and later it set it again.
+                   This will add the item to the list a second time. *)
+                case !entry of
+                    NONE => currentCache := entry :: ! currentCache
+                |   SOME _ => ();
+                entry := newItem
+            end
+        end
 
         val maxStack = ref 0
          (* The result code. *)
@@ -183,12 +209,12 @@ struct
                                 (* Make a new untagged register. That will prevent us pushing it if
                                    we have to spill registers. *)
                                 val newReg = newPReg RegPropUntagged
-                                val sourceCache = Array.sub(cacheMap, n)
+                                val sourceCache = getCache n
                                 val stackSource =
                                     StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
                                 (* Because this is in a register we can copy it to a cache register. *)
                                 val newCacheReg = newPReg RegPropCache
-                                val () = Array.update(cacheMap, n, SOME newCacheReg)
+                                val () = setCache(n, SOME newCacheReg)
                             in
                                 (newReg, [CopyToCache{source=newReg, dest=newCacheReg}, LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}])
                             end
@@ -302,7 +328,7 @@ struct
                             |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
                                 let
                                     val _ = checkCurrent(r, current)
-                                    val sourceCache = Array.sub(cacheMap, r)
+                                    val sourceCache = getCache r
                                     val stackLoc =
                                         StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
                                     (* If this is cached we need to make a new cache register and copy it there. *)
@@ -312,7 +338,7 @@ struct
                                         |   SOME cacheR =>
                                             let
                                                 val newCacheReg = newPReg RegPropCache
-                                                val () = Array.update(cacheMap, r, SOME newCacheReg)
+                                                val () = setCache(r, SOME newCacheReg)
                                             in
                                                 [CopyToCache{source=cacheR, dest=newCacheReg}]
                                             end
@@ -343,16 +369,16 @@ struct
                                 |   SOME (PReg c) =>
                                     if Vector.sub(pushVec, c)
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
-                                    else Array.sub(cacheMap, rno)
+                                    else getCache rno
                             val stackLoc =
                                 StackLocation{wordOffset=newOffset, container=newContainer, field=field, cache=newCache}
                             val cacheCode =
                                 case newCache of
-                                    NONE => (Array.update(cacheMap, rno, NONE); [])
+                                    NONE => (setCache(rno, NONE); [])
                                 |   SOME oldCacheReg =>
                                     let
                                         val newCacheReg = newPReg RegPropCache
-                                        val () = Array.update(cacheMap, rno, SOME newCacheReg)
+                                        val () = setCache(rno, SOME newCacheReg)
                                     in
                                         [CopyToCache{source=oldCacheReg, dest=newCacheReg}]
                                     end
@@ -372,7 +398,7 @@ struct
                                 let
                                     val newReg = newPReg RegPropUntagged
                                     val newCacheReg = newPReg RegPropCache
-                                    val _ = Array.update(cacheMap, r, SOME newCacheReg)
+                                    val _ = setCache(r, SOME newCacheReg)
                                 in
                                     (RegisterArgument newReg,
                                         CopyToCache{source=newReg, dest=newCacheReg} :: LoadArgument{source=stack, dest=newReg, kind=MoveWord} :: sourceCode)
@@ -493,7 +519,7 @@ struct
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
                             val (destVal, destCode) = mapDestReg(dest, current)
                             (* Now clear the cache table. *)
-                            val () = Array.modify(fn _ => NONE) cacheMap
+                            val () = clearCache()
                         in
                             pushRegisters(rest,
                                 destCode @
@@ -946,7 +972,7 @@ struct
         
 
                     (* For the moment always clear the cache. *)
-                    val () = Array.modify(fn _ => NONE) cacheMap
+                    val () = clearCache()
                     (* We can't adjust the stack at this point. *)
                     val codeResult = pushRegisters(block, [])
                     val outputCount = ! stackCount
