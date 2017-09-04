@@ -88,8 +88,6 @@ struct
         (* Extra blocks to adjust the stack are added here. *)
         val extraBlocks: basicBlock list ref = ref []
         val blockCounter = ref numberOfBlocks
-
-        val activeStacks = Array.array(maxPRegs, false)
          
         (* Recursive scan of the blocks.  For each block we produce an input and output state.
            The input state is the output state of the predecessor i.e. some block that jumps to
@@ -132,24 +130,6 @@ struct
 
                     val {stackCount=newSp, stack=newStack} = removeItems lastOutputState
                     
-                    (* Active stack entries *)
-                    val () = Array.modify(fn _ => false) activeStacks
-                    local
-                        fun setActive(NewEntry{pregNo}) =
-                            if member(pregNo, imports) orelse member(pregNo, passThrough)
-                            then Array.update(activeStacks, pregNo, true)
-                            else ()
-                        |   setActive(ContainerEntry{stackLoc=StackLoc{rno, ...}, ...}) =
-                            if member(rno, imports) orelse member(rno, passThrough)
-                            then Array.update(activeStacks, rno, true)
-                            else ()
-                        |   setActive HandlerEntry = ()
-                    in
-                        val () = List.app setActive newStack
-                        (* ??? We need this for the stack args and return address. *)
-                        val () = List.app (fn i => Array.update(activeStacks, i, true)) (setToList imports)
-                    end
-
                     (* References to hold the current stack count (number of words on the stack)
                        and the list of items on the stack.  The list is not used directly to map
                        stack addresses.  Instead it is used to match the stack at the beginning
@@ -188,24 +168,14 @@ struct
                     in
                         StackLoc{size=size, rno=regNo}
                     end
-
-                    fun checkCurrent(r, current) = ()
-                        (*if Array.sub(activeStacks, r)
-                        then if member(r, current) orelse member(r, passThrough) then () else Array.update(activeStacks, r, false)
-                        else raise InternalError "inactive" *)
-                    
-                    fun setActive r =
-                        if Array.sub(activeStacks, r) then raise InternalError "already active"
-                        else Array.update(activeStacks, r, true)
         
                     (* Map a source register.  This always loads the argument. *)
-                    fun mapSrcReg(PReg n, current) =
+                    fun mapSrcReg(PReg n, _) =
                         case Array.sub(pregMap, n) of
                             Unset => raise InternalError "mapSrcReg - unset"
                         |   ToPReg preg => (preg, [])
                         |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
                             let
-                                val _ = checkCurrent(n, current)
                                 (* Make a new untagged register. That will prevent us pushing it if
                                    we have to spill registers. *)
                                 val newReg = newPReg RegPropUntagged
@@ -234,13 +204,11 @@ struct
                             val newContainer = newStackLoc 1
                             val () = Array.update(pregMap, n, ToStack (!stackCount, newContainer))
                             val () = pushItemToStack(NewEntry{pregNo=n})
-                            val _ = setActive n
                         in
                             (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}])
                         end
                         else
                         let
-                            val _ = setActive n
                         (* See if we already have a number for it.  We may encounter the same preg
                            as a destination when returning the result from a conditional in which
                            case we have to use the same number.  We shouldn't have pushed it. *)
@@ -291,9 +259,8 @@ struct
                             let val (sreg, c) = mapSrcReg(r, current) in (MemIndex8 sreg, c) end
 
                     (* Adjust a stack offset from the old state to the new state. *)
-                    fun mapContainerAndStack(StackLoc{rno, size}, field, current) =
+                    fun mapContainerAndStack(StackLoc{rno, size}, field, _) =
                     let
-                        val _ = checkCurrent(rno, current)
                         val (newStackAddr, newContainer) =
                         case Array.sub(pregMap, rno) of
                             Unset => raise InternalError "mapContainer - unset"
@@ -311,7 +278,6 @@ struct
                         case Array.sub(pregMap, rno) of
                             Unset =>
                             let
-                                val _ = setActive rno
                                 val newContainer = newStackLoc size
                                 val () = Array.update(pregMap, rno, ToStack(locn, newContainer))
                             in
@@ -320,14 +286,13 @@ struct
                         |   _ => raise InternalError "mapDestContainer: already set"
                     )
 
-                    fun mapSource(RegisterArgument(PReg r), current) =
+                    fun mapSource(RegisterArgument(PReg r), _) =
                         (
                             case Array.sub(pregMap, r) of
                                 Unset => raise InternalError "mapSrcReg - unset"
                             |   ToPReg preg => (RegisterArgument preg, [])
                             |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
                                 let
-                                    val _ = checkCurrent(r, current)
                                     val sourceCache = getCache r
                                     val stackLoc =
                                         StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
@@ -428,7 +393,6 @@ struct
                                     val container = newStackLoc 1
                                     val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                                     val () = pushItemToStack(NewEntry{pregNo=dReg})
-                                    val _ = setActive dReg
                                 in
                                     (PushValue{arg=sourceVal, container=container})
                                 end
