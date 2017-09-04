@@ -379,9 +379,9 @@ struct
                        the stack.  The result is built up in reverse order and then reversed. *)
                     fun pushRegisters([], code) = code
         
-                    |   pushRegisters({instr=LoadArgument{source, dest=PReg dReg, kind}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=LoadArgument{source, dest=PReg dReg, kind}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
+                            val (sourceVal, sourceCode) = mapSource(source, kill)
                             (* If we have to push the value we don't have to first load it into a register. *)
                             val currentLocation = Array.sub(pregMap, dReg)
 
@@ -417,27 +417,27 @@ struct
                             pushRegisters(rest, destCode  :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, kill, ...} :: rest, code) =
                         let
-                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
+                            val (loadedSource, sourceCode) = mapAndLoad(source, kill)
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
-                            val (baseReg, baseCode) = mapSrcReg(base, current)
-                            val (indexValue, indexCode) = mapIndex(index, current)
+                            val (baseReg, baseCode) = mapSrcReg(base, kill)
+                            val (indexValue, indexCode) = mapIndex(index, kill)
                         in
                             pushRegisters(rest,
                                 StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind} ::
                                     indexCode @ baseCode @ sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=LoadMemReg { offset, dest}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=LoadMemReg { offset, dest}, kill, ...} :: rest, code) =
                         let
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ LoadMemReg { offset=offset, dest=destVal} :: code)
                         end
 
-                    |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, kill, ...} :: rest, code) =
                         let
                             (* Create a new container list.  The offsets begin at -numArgs. *)
                             fun newContainers(src :: srcs, offset) =
@@ -452,7 +452,7 @@ struct
                             (* Push any registers that need to be pushed. *)
                             fun pushReg((preg, rreg), (others, code)) =
                             let
-                                val (newReg, newCode) = mapDestReg(preg, current)
+                                val (newReg, newCode) = mapDestReg(preg, kill)
                             in
                                 ((newReg, rreg) :: others, newCode @ code)
                             end
@@ -462,13 +462,13 @@ struct
                                 pushCode @ (BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code))
                         end
 
-                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, kill, ...} :: rest, code) =
                         let
                             (* It's possible that this could lead to having to spill registers in order
                                to load others.  Leave that problem for the moment. *)
                             fun loadStackArg (arg, (otherLoads, otherArgs)) =
                             let
-                                val (argVal, loadCode) = mapSource(arg, current)
+                                val (argVal, loadCode) = mapSource(arg, kill)
                             in
                                 (loadCode @ otherLoads, argVal :: otherArgs)
                             end
@@ -476,12 +476,12 @@ struct
 
                             fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
                             let
-                                val (argVal, loadCode) = mapSource(arg, current)
+                                val (argVal, loadCode) = mapSource(arg, kill)
                             in
                                 (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                             (* Now clear the cache table. *)
                             val () = clearCache()
                         in
@@ -491,12 +491,12 @@ struct
                                         regArgLoads @ stackArgLoads @ code)
                         end
 
-                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, kill, ...} :: rest, code) =
                         let
                             val _ = null rest orelse raise InternalError "pushRegisters - TailRecursiveCall"
                             fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
                             let
-                                val (argVal, loadCode) = mapSource(src, current)
+                                val (argVal, loadCode) = mapSource(src, kill)
                             in
                                 (loadCode @ otherLoads, {src=argVal, stack=stack} :: otherArgs)
                             end
@@ -504,7 +504,7 @@ struct
                 
                             fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
                             let
-                                val (argVal, loadCode) = mapSource(arg, current)
+                                val (argVal, loadCode) = mapSource(arg, kill)
                             in
                                 (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
                             end
@@ -519,28 +519,28 @@ struct
                                         regArgLoads @ stackArgLoads @ code)
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, ...}, kill, ...} :: rest, code) =
                         let
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=[]} :: code)
                         end
 
-                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, kill, ...} :: rest, code) =
                         let
-                            val (sizeVal, sizeCode) = mapSrcReg(size, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (sizeVal, sizeCode) = mapSrcReg(size, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=[]} :: sizeCode @ code)
                         end
 
-                    |   pushRegisters({instr=InitialiseMem{size, addr, init}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=InitialiseMem{size, addr, init}, kill, ...} :: rest, code) =
                         let
-                            val (sizeVal, sizeCode) = mapSrcReg(size, current)
-                            val (addrVal, addrCode) = mapSrcReg(addr, current)
-                            val (initVal, initCode) = mapSrcReg(init, current)
+                            val (sizeVal, sizeCode) = mapSrcReg(size, kill)
+                            val (addrVal, addrCode) = mapSrcReg(addr, kill)
+                            val (initVal, initCode) = mapSrcReg(init, kill)
                         in
                             pushRegisters(rest,
                                 InitialiseMem{size=sizeVal, addr=addrVal, init=initVal} :: initCode @ addrCode @ sizeCode @ code)
@@ -549,7 +549,7 @@ struct
                     |   pushRegisters({instr=InitialisationComplete, ...} :: rest, code) =
                             pushRegisters(rest, InitialisationComplete :: code)
 
-                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, kill, ...} :: rest, code) =
                         let
                             (* Normally JumpLoop will be the last item in a block but it is possible that we've
                                added a reset-stack after it. *)
@@ -561,13 +561,13 @@ struct
                                     case Array.sub(pregMap, n) of
                                         ToPReg lReg =>
                                         let
-                                            val (sourceVal, sourceCode) = mapSource(source, current)
+                                            val (sourceVal, sourceCode) = mapSource(source, kill)
                                         in
                                             ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
                                         end
                                     |   ToStack(stackLoc, stackC as StackLoc{size, ...}) =>
                                         let
-                                            val (sourceVal, sourceCode) = mapSource(source, current)
+                                            val (sourceVal, sourceCode) = mapSource(source, kill)
                                             val stackOff = !stackCount - stackLoc - size
                                         in
                                             (otherRegArgs, (sourceVal, stackOff, stackC) :: otherStackArgs, sourceCode @ otherCode)
@@ -578,8 +578,8 @@ struct
                             val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
                             fun loadStackArg((source, _, destC), (otherLoads, otherArgs)) =
                             let
-                                val (sourceVal, sourceCode) = mapSource(source, current)
-                                val (newOffset, newContainer) = mapContainerAndStack(destC, 0, current)
+                                val (sourceVal, sourceCode) = mapSource(source, kill)
+                                val (newOffset, newContainer) = mapContainerAndStack(destC, 0, kill)
                             in
                                 (sourceCode @ otherLoads, (sourceVal, newOffset, newContainer) :: otherArgs)
                             end
@@ -592,9 +592,9 @@ struct
                                      sourceCode @ stackArgLoads @ code)
                         end
 
-                    |   pushRegisters({instr=RaiseExceptionPacket{packet}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=RaiseExceptionPacket{packet}, kill, ...} :: rest, code) =
                         let
-                            val (packetVal, packetCode) = mapSource(packet, current)
+                            val (packetVal, packetCode) = mapSource(packet, kill)
                             (* Should be last. *)
                             val _ = null rest orelse raise InternalError "pushRegisters:RaiseExceptionPacket"
                         in
@@ -609,39 +609,39 @@ struct
                             pushRegisters(rest, ReserveContainer{size=size, container=newContainer} :: code)
                         end
 
-                    |   pushRegisters({instr=LoadContainerAddress{container, dest, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=LoadContainerAddress{container, dest, ...}, kill, ...} :: rest, code) =
                         let
-                            val (newStackOffset, newContainer) = mapContainerAndStack(container, 0, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (newStackOffset, newContainer) = mapContainerAndStack(container, 0, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest, destCode @ LoadContainerAddress{container=newContainer, dest=destVal, stackOffset=newStackOffset} :: code)
                         end
 
-                    |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, kill, ...} :: rest, code) =
                         let
                             (* Should be last. *)
                             val _ = null rest orelse raise InternalError "pushRegisters:IndexedCaseOperation"
-                            val (srcVal, srcCode) = mapSrcReg(testReg, current)
+                            val (srcVal, srcCode) = mapSrcReg(testReg, kill)
                             val newWorkReg = mapWorkReg workReg
                         in
                             (* This is an unconditional branch. *)
                             (IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg} :: srcCode @ code)
                         end
 
-                    |   pushRegisters({instr=LockMutable{addr}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=LockMutable{addr}, kill, ...} :: rest, code) =
                         let
-                            val (addrVal, addrCode) = mapSrcReg(addr, current)
+                            val (addrVal, addrCode) = mapSrcReg(addr, kill)
                         in
                             pushRegisters(rest, LockMutable{addr=addrVal} :: addrCode @ code)
                         end
  
-                    |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, kill, ...} :: rest, code) =
                         let
                             (* codeExtended expects the first argument to be in a register.
                                We may be able to do something clever if the second is actually in the
                                register but for the moment just force a load. *)
-                            val (loadedOp1, op1Code) = mapAndLoad(arg1, current)
-                            val (op2Val, op2Code) = mapSource(arg2, current)
+                            val (loadedOp1, op1Code) = mapAndLoad(arg1, kill)
+                            val (op2Val, op2Code) = mapSource(arg2, kill)
                         in
                             pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code)
                         end
@@ -680,7 +680,7 @@ struct
                             pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code)
                         end
 
-                    |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, kill, ...} :: rest, code) =
                         let
                             (* Start of a handler.  The top active entry should be the handler. *)
                             val () =
@@ -689,45 +689,45 @@ struct
                                 |   _ => raise InternalError "pushRegisters: BeginHandler"
                             val () = stackCount := !stackCount - 2
                             val newWorkReg = mapWorkReg workReg
-                            val (pktReg, pktCode) = mapDestReg(packetReg, current)
+                            val (pktReg, pktCode) = mapDestReg(packetReg, kill)
                         in
                             pushRegisters(rest, pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code)
                         end
 
-                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, kill, ...} :: rest, code) =
                         let
                             val _ = null rest orelse raise InternalError "pushRegisters - ReturnResultFromFunction"
-                            val (resultValue, loadResult) = mapSrcReg(resultReg, current)
+                            val (resultValue, loadResult) = mapSrcReg(resultReg, kill)
                             val resetCode =
                                 if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount}]
                         in
                             ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code
                         end
 
-                    |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, kill, ...} :: rest, code) =
                         let
                             (* codeExtended expects the first argument to be in a register.
                                We may be able to do something clever if the second is actually in the
                                register but for the moment just force a load. *)
-                            val (loadedOp1, op1Code) = mapAndLoad(operand1, current)
-                            val (op2Val, op2Code) = mapSource(operand2, current)
-                            val (destVal, destCode) = mapDestReg(resultReg, current)
+                            val (loadedOp1, op1Code) = mapAndLoad(operand1, kill)
+                            val (op2Val, op2Code) = mapSource(operand2, kill)
+                            val (destVal, destCode) = mapDestReg(resultReg, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
                                     op2Code @ op1Code @ code)
                         end
 
-                    |   pushRegisters({instr=TestTagBit{arg, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=TestTagBit{arg, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(arg, current)
+                            val (sourceVal, sourceCode) = mapSource(arg, kill)
                         in
                             pushRegisters(rest, TestTagBit{arg=sourceVal, ccRef=ccRef} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=PushValue{arg, container, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=PushValue{arg, container, ...}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(arg, current)
+                            val (sourceVal, sourceCode) = mapSource(arg, kill)
                             (* This was a push from a previous pass.  Treat as a container of size 1. *)
                             val newContainer = mapDestContainer(container, !stackCount)
                             val () = pushItemToStack(ContainerEntry{size=1, active=true, stackLoc=newContainer})
@@ -762,75 +762,75 @@ struct
                             pushRegisters(rest, code)
                         end
 
-                    |   pushRegisters({instr=StoreToStack{source, container, field, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=StoreToStack{source, container, field, ...}, kill, ...} :: rest, code) =
                         let
-                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
+                            val (loadedSource, sourceCode) = mapAndLoad(source, kill)
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
-                            val (newOffset, newContainer) = mapContainerAndStack(container, field, current)
+                            val (newOffset, newContainer) = mapContainerAndStack(container, field, kill)
                         in
                             pushRegisters(rest,
                                 StoreToStack{source=loadedSource, container=newContainer, field=field, stackOffset=newOffset} ::
                                     sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=TagValue{source, dest}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=TagValue{source, dest}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSrcReg(source, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (sourceVal, sourceCode) = mapSrcReg(source, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest, destCode @ TagValue{source=sourceVal, dest=destVal} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=UntagValue{source, dest, isSigned}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=UntagValue{source, dest, isSigned}, kill, ...} :: rest, code) =
                         let
-                            val (loadedSource, sourceCode) = mapAndLoad(source, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (loadedSource, sourceCode) = mapAndLoad(source, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, kill, ...} :: rest, code) =
                         let
                             val (baseVal, baseCode) =
                                 case base of
                                     NONE => (NONE, [])
                                 |   SOME bReg =>
-                                        let val (newBReg, regCode) = mapSrcReg(bReg, current) in (SOME newBReg, regCode) end
-                            val (indexVal, indexCode) = mapIndex(index, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                                        let val (newBReg, regCode) = mapSrcReg(bReg, kill) in (SOME newBReg, regCode) end
+                            val (indexVal, indexCode) = mapIndex(index, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code)
                         end
 
-                    |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (opVal, opCode) = mapSource(operand, current)
-                            val (shiftVal, shiftCode) = mapSource(shiftAmount, current)
-                            val (destVal, destCode) = mapDestReg(resultReg, current)
+                            val (opVal, opCode) = mapSource(operand, kill)
+                            val (shiftVal, shiftCode) = mapSource(shiftAmount, kill)
+                            val (destVal, destCode) = mapDestReg(resultReg, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef} ::
                                     shiftCode @ opCode @ code)
                         end
 
-                    |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (op1Val, op1Code) = mapSource(operand1, current)
-                            val (op2Val, op2Code) = mapSource(operand2, current)
-                            val (destVal, destCode) = mapDestReg(resultReg, current)
+                            val (op1Val, op1Code) = mapSource(operand1, kill)
+                            val (op2Val, op2Code) = mapSource(operand2, kill)
+                            val (destVal, destCode) = mapDestReg(resultReg, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code)
                         end
 
-                    |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder}, kill, ...} :: rest, code) =
                         let
-                            val (dividendVal, dividendCode) = mapSrcReg(dividend, current)
-                            val (divisorVal, divisorCode) = mapSource(divisor, current)
-                            val (quotVal, quotCode) = mapDestReg(quotient, current)
-                            val (remVal, remCode) = mapDestReg(remainder, current)
+                            val (dividendVal, dividendCode) = mapSrcReg(dividend, kill)
+                            val (divisorVal, divisorCode) = mapSource(divisor, kill)
+                            val (quotVal, quotCode) = mapDestReg(quotient, kill)
+                            val (remVal, remCode) = mapDestReg(remainder, kill)
                         in
                             pushRegisters(rest,
                                 remCode @ quotCode @
@@ -838,10 +838,10 @@ struct
                                         divisorCode @ dividendCode @ code)
                         end
 
-                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, kill, ...} :: rest, code) =
                         let
-                            val (baseVal, baseCode) = mapSrcReg(base, current)
-                            val (sourceVal, sourceCode) = mapSrcReg(source, current)
+                            val (baseVal, baseCode) = mapSrcReg(base, kill)
+                            val (sourceVal, sourceCode) = mapSrcReg(source, kill)
                             (* The "source" is also a result and must be in a register.  It's an untagged reg
                                so it shouldn't have been marked as to be pushed. *)
                             val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
@@ -849,85 +849,85 @@ struct
                             pushRegisters(rest, AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code)
                         end
 
-                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSrcReg(source, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (sourceVal, sourceCode) = mapSrcReg(source, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (vec1Val, vec1Code) = mapSrcReg(vec1Addr, current)
-                            val (vec2Val, vec2Code) = mapSrcReg(vec2Addr, current)
-                            val (lengthVal, lengthCode) = mapSrcReg(length, current)
+                            val (vec1Val, vec1Code) = mapSrcReg(vec1Addr, kill)
+                            val (vec2Val, vec2Code) = mapSrcReg(vec2Addr, kill)
+                            val (lengthVal, lengthCode) = mapSrcReg(length, kill)
                         in
                             pushRegisters(rest,
                                 CompareByteVectors{vec1Addr=vec1Val, vec2Addr=vec2Val, length=lengthVal, ccRef=ccRef} ::
                                     lengthCode @ vec2Code @ vec1Code @ code)
                         end
 
-                    |   pushRegisters({instr=BlockMove{srcAddr, destAddr, length, isByteMove}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=BlockMove{srcAddr, destAddr, length, isByteMove}, kill, ...} :: rest, code) =
                         let
-                            val (srcVal, srcCode) = mapSrcReg(srcAddr, current)
-                            val (destVal, destCode) = mapSrcReg(destAddr, current)
-                            val (lengthVal, lengthCode) = mapSrcReg(length, current)
+                            val (srcVal, srcCode) = mapSrcReg(srcAddr, kill)
+                            val (destVal, destCode) = mapSrcReg(destAddr, kill)
+                            val (lengthVal, lengthCode) = mapSrcReg(length, kill)
                         in
                             pushRegisters(rest,
                                 BlockMove{srcAddr=srcVal, destAddr=destVal, length=lengthVal, isByteMove=isByteMove} ::
                                     lengthCode @ destCode @ srcCode @ code)
                         end
 
-                    |   pushRegisters({instr=CompareFloatingPt{arg1, arg2, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=CompareFloatingPt{arg1, arg2, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource(arg1, current)
-                            val (arg2Val, arg2Code) = mapSource(arg2, current)
+                            val (arg1Val, arg1Code) = mapSource(arg1, kill)
+                            val (arg2Val, arg2Code) = mapSource(arg2, kill)
                         in
                             pushRegisters(rest, CompareFloatingPt{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code)
                         end
 
-                    |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, kill, ...} :: rest, code) =
                         let
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest, destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code)
                         end
 
-                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, kill, ...} :: rest, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource(arg1, current)
-                            val (arg2Val, arg2Code) = mapSource(arg2, current)
-                            val (destVal, destCode) = mapDestReg(resultReg, current)
+                            val (arg1Val, arg1Code) = mapSource(arg1, kill)
+                            val (arg2Val, arg2Code) = mapSource(arg2, kill)
+                            val (destVal, destCode) = mapDestReg(resultReg, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
                                     arg2Code @ arg1Code @ code)
                         end
     
-                    |   pushRegisters({instr=X87FPUnaryOps{fpOp, dest, source}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=X87FPUnaryOps{fpOp, dest, source}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (sourceVal, sourceCode) = mapSource(source, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code)
                         end
 
-                    |   pushRegisters({instr=FloatFixedInt{dest, source}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=FloatFixedInt{dest, source}, kill, ...} :: rest, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource(source, current)
-                            val (destVal, destCode) = mapDestReg(dest, current)
+                            val (sourceVal, sourceCode) = mapSource(source, kill)
+                            val (destVal, destCode) = mapDestReg(dest, kill)
                         in
                             pushRegisters(rest, destCode @ FloatFixedInt{dest=destVal, source=sourceVal} :: sourceCode @ code)
                         end
     
-                    |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, current, ...} :: rest, code) =
+                    |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, kill, ...} :: rest, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource(arg1, current)
-                            val (arg2Val, arg2Code) = mapSource(arg2, current)
-                            val (destVal, destCode) = mapDestReg(resultReg, current)
+                            val (arg1Val, arg1Code) = mapSource(arg1, kill)
+                            val (arg2Val, arg2Code) = mapSource(arg2, kill)
+                            val (destVal, destCode) = mapDestReg(resultReg, kill)
                         in
                             pushRegisters(rest,
                                 destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::

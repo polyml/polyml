@@ -33,7 +33,7 @@ sig
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: x86ICode, current: intSet, active: intSet } list,
+            block: {instr: x86ICode, current: intSet, active: intSet, kill: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)

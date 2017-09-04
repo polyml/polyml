@@ -1292,9 +1292,10 @@ struct
         |   codeExtended({instr=UntagValue _, ...} :: _, _) =
                 raise InternalError "UntagValue"
 
-        |   codeExtended({instr=LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest}, active, current} :: rest, context) =
+        |   codeExtended({instr=LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest}, active, current, kill} :: rest, context) =
                 (* This should be handled at the higher level. *)
-                codeExtended({instr=LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord}, active=active, current=current} :: rest, context)
+                codeExtended({instr=LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord},
+                              active=active, current=current, kill=kill} :: rest, context)
 
         |   codeExtended({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...} :: rest, context) =
             let

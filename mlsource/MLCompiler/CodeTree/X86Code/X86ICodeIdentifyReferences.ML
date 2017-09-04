@@ -39,7 +39,7 @@ struct
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
         {
-            block: {instr: x86ICode, current: intSet, active: intSet } list,
+            block: {instr: x86ICode, current: intSet, active: intSet, kill: intSet } list,
             flow: controlFlow,
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
@@ -326,6 +326,7 @@ struct
     
         (* Many of the instructions take just register args. *)
     |   getInstructionStackLocs _ = { sources=[], dests=[] } 
+    
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
@@ -336,6 +337,8 @@ struct
            the block and not declared locally. *)
         val declarationArray = Array.array(vectorLength, emptySet)
         and importArray = Array.array(vectorLength, emptySet)
+        val stackDecArray = Array.array(vectorLength, emptySet)
+        and stackImportArray = Array.array(vectorLength, emptySet)
         
         (* References - this is used locally to see if a register is ever
            actually used and also included in the result which uses it as
@@ -366,7 +369,7 @@ struct
                 (* Visit everything reachable first. *)
                 val () = List.app blockScan successors
                 
-                fun scanCode(instr, original as { code, decs, refs }) =
+                fun scanCode(instr, original as { code, decs, refs, sDecs, sRefs }) =
                 let
                     val { sources, dests } = getInstructionRegisters instr
                     val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
@@ -381,8 +384,10 @@ struct
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
-                    val destRegNos = map regNo dests @ map stackNo stackDests
-                    and sourceRegNos = map regNo sources @ map stackNo stackSrcs
+                    val destRegNos = map regNo dests
+                    and sourceRegNos = map regNo sources
+                    val stackDestRegNos = map stackNo stackDests
+                    and stackSourceRegNos = map stackNo stackSrcs
                 in
                     if eliminateable andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
@@ -393,15 +398,19 @@ struct
                            In that way we may eliminate the instruction that created this source. *)
                         val () = List.app incrRef sourceRegNos
                     in
-                        { code = instr :: code, decs = union(listToSet destRegNos, decs), refs = union(listToSet sourceRegNos, refs) }
+                        { code = instr :: code, decs = union(listToSet destRegNos, decs), refs = union(listToSet sourceRegNos, refs),
+                          sDecs = union(listToSet stackDestRegNos, sDecs), sRefs = union(listToSet stackSourceRegNos, sRefs)}
                     end
                 end
                 
-                val { code, decs, refs } = List.foldr scanCode {code=[], decs=emptySet, refs=emptySet} block
+                val { code, decs, refs, sDecs, sRefs } =
+                    List.foldr scanCode {code=[], decs=emptySet, refs=emptySet, sDecs=emptySet, sRefs=emptySet} block
             in
                 Array.update(declarationArray, blockNo, decs);
                 (* refs includes local declarations. Remove before adding to the result. *)
                 Array.update(importArray, blockNo, minus(refs, decs));
+                Array.update(stackDecArray, blockNo, sDecs);
+                Array.update(stackImportArray, blockNo, minus(sRefs, sDecs));
                 Array.update(resultCode, blockNo, SOME code)
             end
         in
@@ -416,10 +425,13 @@ struct
         (* Pass through array - values used in other blocks after this that
            are not declared in this block. *)
         val passThroughArray = Array.array(vectorLength, emptySet)
+        val stackPassThroughArray = Array.array(vectorLength, emptySet)
         (* Exports - those of our declarations that are used in other blocks. *)
         val exportArray = Array.array(vectorLength, emptySet)
+        val stackExportArray = Array.array(vectorLength, emptySet)
         local
-            datatype loopData = Unprocessed | Processing | Processed | Looped of intSet
+            datatype loopData =
+                Unprocessed | Processing | Processed | Looped of { regSet: intSet, stackSet: intSet }
             
             fun reprocessLoop () =
             let
@@ -429,13 +441,19 @@ struct
                 fun processBlocks blockNo =
                     case Array.sub(loopArray, blockNo) of
                         Processed => (* Already seen this by a different route. *)
-                            union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
+                            {
+                                regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
+                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
+                            }
                     |   Looped s => s (* We've already seen this in a loop. *)
                     |   Processing => (* We have a loop. *)
                         let
                             (* Use the existing input array. *)
                             val inputs =
-                                union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
+                            {
+                                regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
+                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
+                            }
                             val () = Array.update(loopArray, blockNo, Looped inputs)
                         in
                             inputs
@@ -445,33 +463,44 @@ struct
                             val () = Array.update(loopArray, blockNo, Processing)
                             val thisBlock = Vector.sub(blockVector, blockNo)
                             val ourDeclarations = Array.sub(declarationArray, blockNo)
+                            and ourStackDeclarations = Array.sub(stackDecArray, blockNo)
                             val successors = blockSuccessors thisBlock
                             fun addSuccessor b =
                             let
-                                val theirImports = processBlocks b
+                                val {regSet=theirImports, stackSet=theirStackImports} = processBlocks b
                                 (* Split the imports.  If a register is a local declaration then
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
                                 val (addToExp, addToImp) =
                                     INTSET.partition (fn i => member(i, ourDeclarations)) theirImports
+                                val (addToStackExp, addToStackImp) =
+                                    INTSET.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
                             in
                                 Array.update(exportArray, blockNo,
                                     union(Array.sub(exportArray, blockNo), addToExp));
                                 Array.update(passThroughArray, blockNo,
-                                    union(Array.sub(passThroughArray, blockNo), addToImp))
+                                    union(Array.sub(passThroughArray, blockNo), addToImp));
+                                Array.update(stackExportArray, blockNo,
+                                    union(Array.sub(stackExportArray, blockNo), addToStackExp));
+                                Array.update(stackPassThroughArray, blockNo,
+                                    union(Array.sub(stackPassThroughArray, blockNo), addToStackImp))
                             end
                             val () = List.app addSuccessor successors
                             val ourInputs =
                                 union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo))
+                            val ourStackInputs =
+                                union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
                         in
                             (* Was this block used in a loop? *)
                             case Array.sub(loopArray, blockNo) of
-                                Looped s =>
-                                    if setToList s = setToList ourInputs then ()
+                                Looped {regSet, stackSet} =>
+                                    if setToList regSet = setToList ourInputs andalso
+                                        setToList stackSet = setToList ourStackInputs
+                                    then ()
                                     else reprocess := true
                             |   _ => ();
                             Array.update(loopArray, blockNo, Processed);
-                            ourInputs
+                            { regSet = ourInputs, stackSet = ourStackInputs }
                         end
 
             in
@@ -494,21 +523,32 @@ struct
             val regActive = Array.array(maxPRegs, 0)
             fun addActivity n r = Array.update(regActive, r, Array.sub(regActive, r)+n)
             
-            fun createResultInstrs passThrough (instr, (tail, activeAfterThis)) =
+            fun createResultInstrs (passThrough, stackPassThrough)
+                (instr, (tail, activeAfterThis, stackActiveAfterThis)) =
             let
                 val { sources, dests } = getInstructionRegisters instr
                 fun regNo(PReg i) = i
                 val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
                 fun stackNo(StackLoc{rno, ...}) = rno
-                val destRegNos = map regNo dests @ map stackNo stackDests
-                and sourceRegNos = map regNo sources @ map stackNo stackSrcs
+                val destRegNos = map regNo dests
+                and sourceRegNos = map regNo sources
                 val destSet = listToSet destRegNos
                 (* Remove any sources that are present in passThrough since
                    they are going to be active throughout the block. *)
                 and sourceSet = minus(listToSet sourceRegNos, passThrough)
+                val stackDestRegNos = map stackNo stackDests
+                and stackSourceRegNos = map stackNo stackSrcs
+                val stackDestSet = listToSet stackDestRegNos
+                and stackSourceSet = minus(listToSet stackSourceRegNos, stackPassThrough)
 
+                (* To compute the active set for the PREVIOUS instruction (we're processing from the
+                   end back to the start) we remove any registers that have been given values in this
+                   instruction and add anything that we are using in this instruction since they will
+                   now need to have values. *)
                 val afterRemoveDests = minus(activeAfterThis, destSet)
+                val stackAfterRemoveDests = minus(stackActiveAfterThis, stackDestSet)
                 val activeForPrevious = union(sourceSet, afterRemoveDests)
+                val stackActiveForPrevious = union(stackSourceSet, stackAfterRemoveDests)
             
                 (* The "active" set is the set of registers that need to be active DURING the
                    instruction.  It includes destinations, which will usually be in
@@ -621,8 +661,12 @@ struct
                             )
                         |   _ => ()
                 end
+                
+                (* Which entries are active in this instruction but not afterwards? *)
+                val kill = union(minus(stackSourceSet, stackActiveAfterThis), minus(sourceSet, activeAfterThis))
             in
-                ({instr=convertedInstr, active=activeForInstr, current=activeAfterThis} :: tail, activeForPrevious)
+                ({instr=convertedInstr, active=activeForInstr, current=activeAfterThis, kill=kill} :: tail, activeForPrevious,
+                 stackActiveForPrevious)
             end
 
             fun createResult blockNo =
@@ -632,9 +676,11 @@ struct
                 and importSet = Array.sub(importArray, blockNo)
                 and passSet   = Array.sub(passThroughArray, blockNo)
                 and exportSet = Array.sub(exportArray, blockNo)
+                and stackPassSet = Array.sub(stackPassThroughArray, blockNo)
+                and stackExportSet = Array.sub(stackExportArray, blockNo)
                 val filteredCode = getOpt(Array.sub(resultCode, blockNo), [])
                 (* At the end of the block we should have the exports active. *)
-                val (resultInstrs, _) = List.foldr (createResultInstrs passSet) ([], exportSet) filteredCode
+                val (resultInstrs, _, _) = List.foldr (createResultInstrs (passSet, stackPassSet)) ([], exportSet, stackExportSet) filteredCode
                 (* Set the active count for the pass through. *)
                 val instrCount = List.length filteredCode
                 val () = List.app(addActivity instrCount) (setToList passSet)
