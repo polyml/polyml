@@ -53,7 +53,7 @@ struct
     |   BlockFlow of controlFlow
     |   BlockBegin of (preg * reg) list
     |   BlockRaiseAndHandle of x86ICode * int
-    |   BlockCallAndHandle of {call: x86ICode, handler: int, label: int }
+    |   BlockOptionalHandle of {call: x86ICode, handler: int, label: int }
 
     local
         open RunCall
@@ -637,7 +637,7 @@ struct
                     in
                         case currHandler of
                             NONE => BlockSimple call
-                        |   SOME h => BlockCallAndHandle{call=call, handler=h, label=newLabel()}
+                        |   SOME h => BlockOptionalHandle{call=call, handler=h, label=newLabel()}
                     end
             in
                 (callInstr :: codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
@@ -923,7 +923,7 @@ struct
                 (loopBody, RegisterArgument target, loopExited)
             end
 
-        |   codeToICodeRev(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, ...}, _, destination, tailCode) =
+        |   codeToICodeRev(BICLoop args, context as {loopArgs=SOME (loopRegs, loopLabel, loopSp), stackPtr, currHandler, ...}, _, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Registers to receive the evaluated arguments.  We can't put the
@@ -939,8 +939,15 @@ struct
                 val stackReset =
                     if loopSp = stackPtr then codeArgs
                     else BlockSimple(ResetStackPtr{numWords=stackPtr-loopSp}) :: codeArgs
+                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}
+                (* "checkInterrupt" could result in a Interrupt exception so we treat this like
+                   a function call. *)
+                val code =
+                    case currHandler of
+                        NONE => BlockFlow(Unconditional loopLabel) :: BlockSimple jumpLoop :: stackReset
+                    |   SOME h => BlockOptionalHandle{call=jumpLoop, handler=h, label=loopLabel} :: stackReset
             in
-                (BlockFlow(Unconditional loopLabel) :: BlockSimple(JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}) :: stackReset, RegisterArgument target, true)
+                (code, RegisterArgument target, true)
             end
 
         |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
@@ -2806,10 +2813,12 @@ struct
             |   splitCode(BlockRaiseAndHandle(instr, handler) :: rest, _, _) =
                     splitCode(rest, [instr], UnconditionalHandle handler)
 
-            |   splitCode(BlockCallAndHandle{call, handler, label} :: rest, sinceLabel, flow) =
+            |   splitCode(BlockOptionalHandle{call, handler, label} :: rest, sinceLabel, flow) =
                 let
                     (* A function call within a handler.  This could go to the handler but
-                       if there is no exception will go to the next instruction. *)
+                       if there is no exception will go to the next instruction.
+                       Also includes JumpLoop since the stack check could result in an
+                       Interrupt exception. *)
                 in
                     createEntry(label, sinceLabel, flow);
                     splitCode(rest, [call], ConditionalHandle{handler=handler, continue=label})
