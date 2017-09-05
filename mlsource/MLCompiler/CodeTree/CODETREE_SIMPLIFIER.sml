@@ -209,19 +209,19 @@ struct
             (* To see if we really need the loop first try simply binding the
                arguments and process it.  It's often the case that if one
                or more arguments is a constant that the looping case will
-               be eliminated.
-               It would be possible to look more carefully and eliminate
-               arguments that do not change round the loop. *)
+               be eliminated. *)
             val withoutBeginLoop =
                 simplify(mkEnv(List.map (Declar o #1) arguments, loop), context)
+            
+            fun foldLoop f n (Loop l) = f(l, n)
+            |   foldLoop f n (Newenv(_, exp)) = foldLoop f n exp
+            |   foldLoop f n (Cond(_, t, e)) = foldLoop f (foldLoop f n t) e
+            |   foldLoop f n (Handle {handler, ...}) = foldLoop f n handler
+            |   foldLoop f n (SetContainer{tuple, ...}) = foldLoop f n tuple
+            |   foldLoop _ n _ = n
             (* Check if the Loop instruction is there.  This assumes that these
                are the only tail-recursive cases. *)
-            fun hasLoop (Loop _) = true
-            |   hasLoop (Newenv(_, exp)) = hasLoop exp
-            |   hasLoop (Cond(_, t, e)) = hasLoop t orelse hasLoop e
-            |   hasLoop (Handle {handler, ...}) = hasLoop handler
-            |   hasLoop (SetContainer{tuple, ...}) = hasLoop tuple
-            |   hasLoop _ = false
+            val hasLoop = foldLoop (fn _ => true) false
         in
             if not (hasLoop withoutBeginLoop)
             then SOME withoutBeginLoop
@@ -238,10 +238,61 @@ struct
                         enterAddr(addr, (EnvGenLoad(LoadLocal newAddr), EnvSpecNone));
                         ({addr = newAddr, value = simplify(value, context), use = use }, typ)
                     end
-                 val declArgs = map declArg arguments
-                 val beginBody = simplify(loop, context)
+                (* Now look to see if the (remaining) loops have any arguments that do not change.
+                   Do this after processing because we could be eliminating other loops that
+                   may change the arguments. *)
+                val declArgs = map declArg arguments
+                val beginBody = simplify(loop, context)
+                
+                local
+                    fun argsMatch((Extract (LoadLocal argNo), _), ({addr, ...}, _)) = argNo = addr
+                    |   argsMatch _ = false
+                    
+                    fun checkLoopArgs(loopArgs, checks) =
+                    let
+                        fun map3(loopA :: loopArgs, decA :: decArgs, checkA :: checkArgs) =
+                            (argsMatch(loopA, decA) andalso checkA) :: map3(loopArgs, decArgs, checkArgs)
+                        |   map3 _ = []
+                    in
+                        map3(loopArgs, declArgs, checks)
+                    end
+                in
+                    val checkList = foldLoop checkLoopArgs (map (fn _ => true) arguments) beginBody
+                end
             in
-                SOME(BeginLoop {loop=beginBody, arguments=declArgs})
+                if List.exists (fn l => l) checkList
+                then
+                let
+                    (* Turn the original arguments into bindings. *)
+                    local
+                        fun argLists(true, (arg, _), (tArgs, fArgs)) = (Declar arg :: tArgs, fArgs)
+                        |   argLists(false, arg, (tArgs, fArgs)) = (tArgs, arg :: fArgs)
+                    in
+                        val (unchangedArgs, filteredDeclArgs) = ListPair.foldrEq argLists ([], [])  (checkList, declArgs)
+                    end
+                    fun changeLoops (Loop loopArgs) =
+                        let
+                            val newArgs =
+                                ListPair.foldrEq(fn (false, arg, l) => arg :: l | (true, _, l) => l) [] (checkList, loopArgs)
+                        in
+                            Loop newArgs
+                        end
+                    |   changeLoops(Newenv(decs, exp)) = Newenv(decs, changeLoops exp)
+                    |   changeLoops(Cond(i, t, e)) = Cond(i, changeLoops t, changeLoops e)
+                    |   changeLoops(Handle{handler, exp, exPacketAddr}) =
+                            Handle{handler=changeLoops handler, exp=exp, exPacketAddr=exPacketAddr}
+                    |   changeLoops(SetContainer{tuple, container, filter}) =
+                            SetContainer{tuple=changeLoops tuple, container=container, filter=filter}
+                    |   changeLoops code = code
+                    
+                    val beginBody = simplify(changeLoops loop, context)
+                    (* Reprocess because we've lost any special part from the arguments that
+                       haven't changed. *)
+                    val () = reprocess := true
+                in
+                    SOME(mkEnv(unchangedArgs, BeginLoop {loop=beginBody, arguments=filteredDeclArgs}))
+                end
+                else SOME(BeginLoop {loop=beginBody, arguments=declArgs})
             end
         end
 
