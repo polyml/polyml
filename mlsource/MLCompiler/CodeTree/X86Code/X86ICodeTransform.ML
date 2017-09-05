@@ -149,8 +149,6 @@ struct
         
         fun printCode identifiedCode =
             (* Print the code before the transformation. *)
-            if wantPrintCode
-            then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
             in
@@ -158,11 +156,8 @@ struct
                 printICodeAbstract(identifiedCode, printStream);
                 printStream "\n"
             end
-            else ()
         
         fun printConflicts(regStates: conflictState vector) =
-            if wantPrintCode
-            then
             let
                 val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
 
@@ -180,7 +175,6 @@ struct
             in
                 Vector.appi printRegData regStates
             end
-            else ()            
 
         fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes) =
         let
