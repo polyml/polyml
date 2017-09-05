@@ -630,7 +630,7 @@ struct
                         |   _ => instr
                 end
                 
-                (* FunctionCall and Handler need to mark all registers as "push". *)
+                (* FunctionCall must mark all registers as "push". *)
                 local
                     fun pushRegisters () =
                     let
@@ -650,7 +650,6 @@ struct
                     val () =
                         case instr of
                             FunctionCall _ => pushRegisters ()
-                        |   BeginHandler _ => pushRegisters ()
                         
                         |   CopyToCache {source=PReg srcReg, dest=PReg dstReg} =>
                             (* If the source is a cache register marked as "must push" i.e. discard,
