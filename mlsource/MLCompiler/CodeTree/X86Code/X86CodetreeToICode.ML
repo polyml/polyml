@@ -1104,9 +1104,34 @@ struct
                         end
 
                     |   tuple =>
-                        let (* Copy a heap tuple. *)
-                            val tupleTarget = newPReg()
-                            val (codeTuple, _, _) = codeToICodeRev(tuple, context, false, SpecificPReg tupleTarget, codeContainer)
+                        let (* Copy a heap tuple.  It is possible that this is another container in which case
+                               we must load the fields directly.  We mustn't load its address and then copy
+                               because loading the address would be the last reference and might cause
+                               the container to be reused prematurely. *)
+                            val (codeTuple, loadField) =
+                                case tuple of
+                                    BICExtract(BICLoadLocal l) =>
+                                    (
+                                        case Array.sub(locToPregArray, l) of
+                                            NoLocation => raise InternalError "codeToICodeRev - local unset"
+                                        |   PregLocation pr => (codeContainer, fn sourceWord => wordOffsetAddress(sourceWord, pr))
+                                        |   ContainerLocation{container, stackOffset} =>
+                                            let
+                                                fun getAddr sourceWord =
+                                                    StackLocation{wordOffset=stackPtr-stackOffset+sourceWord, container=container,
+                                                                  field=sourceWord, cache=NONE}
+                                            in
+                                                (codeContainer, getAddr)
+                                            end
+                                   )
+                                |   _ =>
+                                let
+                                    val tupleTarget = newPReg()
+                                    val (codeTuple, _, _) = codeToICodeRev(tuple, context, false, SpecificPReg tupleTarget, codeContainer)
+                                    fun loadField sourceWord = wordOffsetAddress(sourceWord, tupleTarget)
+                                in
+                                    (codeTuple, loadField)
+                                end
 
                             fun copyContainer(sourceWord, destWord, tailCode) =
                             if sourceWord = filterLength
@@ -1117,7 +1142,7 @@ struct
                                 val loadReg = newPReg()
                                 val code =
                                     BlockSimple(storeInstr(RegisterArgument loadReg, destWord)) ::
-                                    BlockSimple(LoadArgument{source=wordOffsetAddress(sourceWord, tupleTarget), dest=loadReg, kind=MoveWord}) ::
+                                    BlockSimple(LoadArgument{source=loadField sourceWord, dest=loadReg, kind=MoveWord}) ::
                                     tailCode
                             in
                                 copyContainer(sourceWord+1, destWord+1, code)
