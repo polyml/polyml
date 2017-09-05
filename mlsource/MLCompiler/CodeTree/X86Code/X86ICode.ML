@@ -258,6 +258,12 @@ struct
         (* Set up a handler.  This doesn't cause an immediate branch but the state at the
            start of the handler is the state at this point. *)
     |   SetHandler of { handler: int, continue: int }
+        (* Unconditional branch to a handler.  If an exception is raised explicitly
+           within the scope of a handler. *)
+    |   UnconditionalHandle of int
+        (* Conditional branch to a handler.  Occurs if there is a call to a
+           function within the scope of a handler.  It may jump to the handler. *)
+    |   ConditionalHandle of { handler: int, continue: int }
 
     and basicBlock =
         BasicBlock of { block: x86ICode list, flow: controlFlow }

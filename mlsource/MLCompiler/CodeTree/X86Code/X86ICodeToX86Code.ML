@@ -1560,6 +1560,8 @@ struct
                 |   IndexedBr cases => List.app processBlocks cases
                 |   SetHandler{ handler, continue } =>
                         (processBlocks handler; processBlocks continue)
+                |   UnconditionalHandle _ => ()
+                |   ConditionalHandle { continue, ...} => processBlocks continue
             (* Now this block. *)
             local
                 (* We assume that anything used later will have been allocated a register.
@@ -2031,6 +2033,8 @@ struct
                     |   Conditional{trueJump, falseJump, ... } => [trueJump, falseJump]
                     |   IndexedBr labs => labs
                     |   SetHandler { handler, continue } => [handler, continue]
+                    |   UnconditionalHandle _ => []
+                    |   ConditionalHandle { continue, ...} => [continue]
                 
                 fun setRefs toLabel =
                     Array.update(labelRefs, toLabel, fromLabel :: Array.sub(labelRefs, toLabel))
@@ -2058,6 +2062,8 @@ struct
                                     ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
                                 ]
                         |   SetHandler { continue, ...} => [UncondBranch(getBlockLabel continue)]
+                        |   UnconditionalHandle _ => []
+                        |   ConditionalHandle { continue, ...} => [UncondBranch(getBlockLabel continue)]
                 in
                     finalBranch @ code (* Done. *)
                 end
@@ -2091,7 +2097,8 @@ struct
                                     if not (haveProcessed continue) andalso available continue
                                     then SOME continue
                                     else NONE
-                                    
+                           |    UnconditionalHandle _ => NONE
+                           |    ConditionalHandle _ => NONE
                     in
                         (* First choice - continue the existing block.
                            Second choice - the first item whose sources have all been
@@ -2113,8 +2120,11 @@ struct
                         case lastFlow of
                             ExitCode => []
                         |   IndexedBr _ => []
+                        |   UnconditionalHandle _ => []
                         |   Unconditional dest =>
                                 if dest = picked then [] else [UncondBranch(getBlockLabel dest)]
+                        |   ConditionalHandle { continue, ...} =>
+                                if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
                         |   SetHandler { continue, ... } =>
                                 if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
                         |   Conditional { condition, trueJump, falseJump, ...} =>
@@ -2159,7 +2169,9 @@ struct
                             |   Conditional { trueJump, falseJump, ...} =>
                                     onlyJumpingHere trueJump orelse onlyJumpingHere falseJump
                             |   IndexedBr _ => false
-                            |   SetHandler _ => false 
+                            |   SetHandler _ => false
+                            |   UnconditionalHandle _ => false
+                            |   ConditionalHandle { continue, ...} => onlyJumpingHere continue
                     in
                         val startLabel = if noLabel then [] else [JumpLabel(getBlockLabel picked)]
                     end
@@ -2173,6 +2185,8 @@ struct
                         |   Unconditional dest => [dest]
                         |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
                         |   SetHandler { handler, continue } => [handler, continue]
+                        |   UnconditionalHandle _ => []
+                        |   ConditionalHandle { continue, ...} => [continue]
 
                 in
                     genCode(addSet @ stillToDo, flow, bodyCode)

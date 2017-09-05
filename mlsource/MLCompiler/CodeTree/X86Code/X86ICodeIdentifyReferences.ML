@@ -54,7 +54,9 @@ struct
     |   blockSuccessors(BasicBlock{flow=Conditional{trueJump, falseJump, ...}, ...}) = [trueJump, falseJump]
     |   blockSuccessors(BasicBlock{flow=ExitCode, ...}) = []
     |   blockSuccessors(BasicBlock{flow=IndexedBr cases, ...}) = cases
-    |   blockSuccessors(BasicBlock{flow=SetHandler{handler, continue, ...}, ...}) = [handler, continue]
+    |   blockSuccessors(BasicBlock{flow=SetHandler{(*handler, *)continue, ...}, ...}) = [(*handler, *)continue]
+    |   blockSuccessors(BasicBlock{flow=UnconditionalHandle handler, ...}) = [handler]
+    |   blockSuccessors(BasicBlock{flow=ConditionalHandle{handler, continue, ...}, ...}) = [handler, continue]
 
     (* Find the registers from an argument. *)
     fun argRegs(RegisterArgument rarg) = [rarg]

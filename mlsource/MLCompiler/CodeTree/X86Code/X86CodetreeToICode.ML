@@ -52,6 +52,8 @@ struct
     |   BlockLabel of int
     |   BlockFlow of controlFlow
     |   BlockBegin of (preg * reg) list
+    |   BlockRaiseAndHandle of x86ICode * int
+    |   BlockCallAndHandle of {call: x86ICode, handler: int, label: int }
 
     local
         open RunCall
@@ -214,6 +216,9 @@ struct
             SpecificPReg of preg
         |   NoResult
         |   Allowed of allowedArgument
+        
+        (* Context type. *)
+        type context = { loopArgs: (preg list * int * int) option, stackPtr: int, currHandler: int option }
 
         (* If a preg has been provided, use that, otherwise generate a new one. *)
         fun asTarget(SpecificPReg preg) = preg
@@ -280,7 +285,7 @@ struct
                 (BlockSimple(LoadArgument{source=arg, dest=target, kind=MoveWord}) :: code, RegisterArgument target, false)
             end
 
-        and codeToICodeTarget(instr, context, isTail, target) =
+        and codeToICodeTarget(instr, context: context, isTail, target) =
         (* This is really for backwards compatibility.  *)
         let
             val (code, _, _) = codeToICode(instr, context, isTail, SpecificPReg target)
@@ -319,7 +324,7 @@ struct
            in the BICTuple case which was eliminated by building the list in reverse and then
            reversing the result.  It seems better to build the list in reverse generally but for
            the moment there are too many special cases to do everything. *)
-        and codeToICodeRev(BICNewenv (bindings, exp), context as {stackPtr=initialSp, ...} , isTail, destination, tailCode) =
+        and codeToICodeRev(BICNewenv (bindings, exp), context: context as {stackPtr=initialSp, ...} , isTail, destination, tailCode) =
             let
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
@@ -403,13 +408,13 @@ struct
                         doBindings(decs, context, code)
                     end
        
-                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr}, tailCode) =
+                |   doBindings(BICDecContainer{ addr, size } :: decs, {loopArgs, stackPtr, currHandler}, tailCode) =
                     let
                         val containerReg = newStackLoc size
                         val () = Array.update(locToPregArray, addr,
                                     ContainerLocation{container=containerReg, stackOffset=stackPtr+size})
                     in
-                        doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size},
+                        doBindings(decs, {loopArgs=loopArgs, stackPtr=stackPtr+size, currHandler=currHandler},
                             BlockSimple(ReserveContainer{size=size, container=containerReg}) :: tailCode)
                     end
 
@@ -510,7 +515,7 @@ struct
                 moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset, baseR))
             end
 
-        |   codeToICodeRev(BICEval{function, argList, ...}, context, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 (* Create pregs for the closure and each argument. *)
@@ -626,7 +631,14 @@ struct
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
                                   stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})
                     end
-                    else BlockSimple(FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind})
+                    else
+                    let
+                        val call = FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
+                    in
+                        case currHandler of
+                            NONE => BlockSimple call
+                        |   SOME h => BlockCallAndHandle{call=call, handler=h, label=newLabel()}
+                    end
             in
                 (callInstr :: codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
             end
@@ -887,7 +899,7 @@ struct
                 (copyToTarget, RegisterArgument target, isTail (* We have always exited on a tail. *))
             end
 
-        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, ...}, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICBeginLoop {loop, arguments}, context as { stackPtr, currHandler, ...}, isTail, destination, tailCode) =
             let
                 val target = asTarget destination
                 
@@ -905,8 +917,8 @@ struct
 
                 val loopLabel = newLabel()
                 val (loopBody, _, loopExited) =
-                    codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr }, isTail, SpecificPReg target,
-                        BlockLabel loopLabel :: argCode)
+                    codeToICodeRev(loop, {loopArgs=SOME (loopRegs, loopLabel, stackPtr), stackPtr=stackPtr, currHandler=currHandler },
+                            isTail, SpecificPReg target, BlockLabel loopLabel :: argCode)
             in
                 (loopBody, RegisterArgument target, loopExited)
             end
@@ -934,15 +946,19 @@ struct
         |   codeToICodeRev(BICLoop _, {loopArgs=NONE, ...}, _, _, _) = raise InternalError "BICLoop without BICBeginLoop"
 
 
-        |   codeToICodeRev(BICRaise exc, context, _, destination, tailCode) =
+        |   codeToICodeRev(BICRaise exc, context as { currHandler, ...}, _, destination, tailCode) =
             let
                 val (code, dest, _) =
                     codeToICodeRev(exc, context, false, Allowed allowDefer, tailCode)
+                val raiseCode = RaiseExceptionPacket{packet=dest}
+                val block =
+                    case currHandler of
+                        NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)
             in
-                (BlockExit(RaiseExceptionPacket{packet=dest}) :: code, RegisterArgument(asTarget destination), true (* Always exits *))
+                (block :: code, RegisterArgument(asTarget destination), true (* Always exits *))
             end
 
-        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs }, isTail, destination, tailCode) =
+        |   codeToICodeRev(BICHandle{exp, handler, exPacketAddr}, context as { stackPtr, loopArgs, ... }, isTail, destination, tailCode) =
             let
                 (* As with BICCond and BICCase we need to create a new register for the
                    result in case we need to push it to the stack. *)
@@ -966,7 +982,8 @@ struct
                     BlockFlow(SetHandler{handler=handlerLab, continue=startHandling}) ::
                     BlockSimple(PushExceptionHandler{workReg=newPReg()}) :: tailCode
                 val (expCode, _, expExit) =
-                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs}, false (* Not tail *), SpecificPReg bodyTarget, initialCode)
+                    codeToICodeRev(exp, {stackPtr=stackPtr+2, loopArgs=loopArgs, currHandler=SOME handlerLab},
+                        false (* Not tail *), SpecificPReg bodyTarget, initialCode)
                 (* If this is the tail we can replace the jump at the end of the
                    handled code with returns.  If the handler has exited we don't need
                    a return there.  Otherwise we need to add an unconditional jump to
@@ -1361,17 +1378,18 @@ struct
         and codeToICodeBinary(instr as {oper=BuiltIns.WordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
 
-        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.FixedPrecisionArith oper, arg1, arg2}, context as {currHandler, ...}, _, destination) =
             let
                 val target = asTarget destination
                 fun checkOverflow ccRef =
                 let
                     val overFlowLab = newLabel() and noOverflowLab = newLabel()
+                    val raiseCode = RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))}
                 in
                     [
                         BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
                         BlockLabel overFlowLab,
-                        BlockExit(RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))}),
+                        case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
                         BlockLabel noOverflowLab
                     ]
                 end
@@ -2745,7 +2763,7 @@ struct
         end
 
         (*Turn the codetree structure into icode. *)
-        val bodyContext = {loopArgs=NONE, stackPtr=0}
+        val bodyContext = {loopArgs=NONE, stackPtr=0, currHandler=NONE}
         val (bodyCode, _, bodyExited) =
             codeToICodeRev(body, bodyContext, true, SpecificPReg resultTarget, [beginInstruction])
         val icode = if bodyExited then bodyCode else returnInstruction(bodyContext, resultTarget, bodyCode)
@@ -2784,6 +2802,18 @@ struct
 
             |   splitCode(BlockFlow flow :: rest, _, _) =
                     splitCode(rest, [], flow)
+            
+            |   splitCode(BlockRaiseAndHandle(instr, handler) :: rest, _, _) =
+                    splitCode(rest, [instr], UnconditionalHandle handler)
+
+            |   splitCode(BlockCallAndHandle{call, handler, label} :: rest, sinceLabel, flow) =
+                let
+                    (* A function call within a handler.  This could go to the handler but
+                       if there is no exception will go to the next instruction. *)
+                in
+                    createEntry(label, sinceLabel, flow);
+                    splitCode(rest, [call], ConditionalHandle{handler=handler, continue=label})
+                end
 
         in
             val () = splitCode(icode, [], ExitCode)

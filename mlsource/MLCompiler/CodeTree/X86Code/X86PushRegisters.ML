@@ -986,6 +986,20 @@ struct
                             (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
                         
                         |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
+                        
+                        |   u as UnconditionalHandle _ => (codeResult, u)
+                        
+                        |   c as ConditionalHandle{ continue, ... } =>
+                            let
+                                (* As for unconditional branch *)
+                                val expectedInput = processBlocks(continue, stateResult)
+                                val resultCode =
+                                    if expectedInput = outputCount
+                                    then codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput} :: codeResult
+                            in
+                                (resultCode, c)
+                            end
                     val () =
                         Array.update(resultBlocks, blockNo, BasicBlock{block=List.rev finalCode, flow=newFlow})
                 in
