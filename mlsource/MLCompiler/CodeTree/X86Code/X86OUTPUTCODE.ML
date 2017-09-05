@@ -75,7 +75,6 @@ struct
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
 
-    (*fun is8Bit n = ~ 0x80 <= n andalso n < 0x80*)
     fun is8BitL (n: LargeInt.int) = ~ 0x80 <= n andalso n < 0x80
 
     local
@@ -1731,9 +1730,10 @@ struct
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
         |   cgOp(ResetStack count) =
-                (* Use LEA because it doesn't change the condition code so is safe to use
-                   before a conditional branch. *)
-                opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp)
+                immediateOperand(ADD, esp, Word.toLargeInt(wordsToBytes(Word.fromInt count)))
+            (* LEA has the advantage of not changing the condition code but the disadvantage of
+               requiring an extra byte because using esp as a base requires the sib byte. *)
+            (*    opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp) *)
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 
