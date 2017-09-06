@@ -1730,10 +1730,10 @@ struct
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
         |   cgOp(ResetStack count) =
-                immediateOperand(ADD, esp, Word.toLargeInt(wordsToBytes(Word.fromInt count)))
+                (*immediateOperand(ADD, esp, Word.toLargeInt(wordsToBytes(Word.fromInt count)))*)
             (* LEA has the advantage of not changing the condition code but the disadvantage of
                requiring an extra byte because using esp as a base requires the sib byte. *)
-            (*    opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp) *)
+                opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp) 
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 
