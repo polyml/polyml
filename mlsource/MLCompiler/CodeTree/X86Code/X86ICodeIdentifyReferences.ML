@@ -35,6 +35,15 @@ struct
     {
         conflicts: int list, realConflicts: reg list
     }
+
+    (* CC states before and after.  The instruction may use the CC or ignore it. The only
+       instruction to use the CC is X87FPGetCondition.  Conditional branches are handled at
+       the block level.
+       The result of executing the instruction may be to set the condition code to a
+       defined state, an undefined state or leave it unchanged.
+       N.B. Some "instructions" may involve a stack reset that could affect the CC. *)
+    datatype outCCState = CCSet of ccRef | CCIndeterminate | CCUnchanged
+    and inCCState = CCNeeded of ccRef | CCUnused
     
     datatype extendedBasicBlock =
         ExtendedBasicBlock of
@@ -44,7 +53,9 @@ struct
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
             exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
-            passThrough: intSet (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            inCCState: ccRef option, (* The state this block assumes.  If SOME _ all predecessors must set it. *)
+            outCCState: ccRef option (* The condition code set by this block.  SOME _ if at least one successor needs it. *)
         }
     
     exception InternalError = Misc.InternalError
@@ -70,265 +81,188 @@ struct
     |   argIndex(MemIndex4 arg) = [arg]
     |   argIndex(MemIndex8 arg) = [arg]
 
+    fun argStacks(StackLocation { container, ...}) = [container]
+    |   argStacks _ = []
+
     (* Return the set of registers used by the instruction.
        sources are registers that must have values after the instruction.
        dests are registers that are given values or modified by the instruction. *)
-    fun getInstructionRegisters(LoadArgument { source, dest, ...}) =
-        { sources=argRegs source, dests=[dest] }
+    fun getInstructionState(LoadArgument { source, dest, ...}) =
+        { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(StoreArgument{ source, base, index, ...}) =
-            { sources=argRegs source @ [base] @ argIndex index, dests=[] }
+    |   getInstructionState(StoreArgument{ source, base, index, ...}) =
+            { sources=argRegs source @ [base] @ argIndex index, dests=[], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(LoadMemReg { dest, ...}) =
-            { sources=[], dests=[dest] }
+    |   getInstructionState(LoadMemReg { dest, ...}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(BeginFunction {regArgs, ...}) =
-            { sources=[], dests=map #1 regArgs }
+    |   getInstructionState(BeginFunction {regArgs, stackArgs, ...}) =
+            { sources=[], dests=map #1 regArgs, sStacks=[], dStacks=stackArgs, ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(FunctionCall{regArgs, stackArgs, dest, ...}) =
+    |   getInstructionState(FunctionCall{regArgs, stackArgs, dest, ...}) =
         let
             (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
-            val stackSources = List.foldl(fn (arg, srcs) => argRegs arg @ srcs) [] stackArgs
-        
-            fun regSource((arg, _), srcs) = argRegs arg @ srcs
-            val regSources = List.foldl regSource [] regArgs
+            fun getSources argSource =
+            let
+                val stackSources = List.foldl(fn (arg, srcs) => argSource arg @ srcs) [] stackArgs
+                fun regSource((arg, _), srcs) = argSource arg @ srcs
+            in
+                List.foldl regSource stackSources regArgs
+            end
         in
-            { sources=stackSources @ regSources, dests=[dest] }
+            { sources=getSources argRegs, dests=[dest], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionRegisters(TailRecursiveCall{regArgs, stackArgs, ...}) =
+    |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =
         let
             (* Tail recursive call.  References the argument sources but exits. *)
-            val stackSources = List.foldl(fn ({src, ...}, srcs) => argRegs src @ srcs) [] stackArgs
-            fun regSource((arg, _), srcs) = argRegs arg @ srcs
-            val regSources = List.foldl regSource [] regArgs
+            fun getSources argSource =
+            let
+                val stackSources = List.foldl(fn ({src, ...}, srcs) => argSource src @ srcs) [] stackArgs
+                fun regSource((arg, _), srcs) = argSource arg @ srcs
+            in
+                List.foldl regSource stackSources regArgs
+            end
         in
-            { sources=stackSources @ regSources, dests=[] }
+            { sources=getSources argRegs, dests=[], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionRegisters(AllocateMemoryOperation{dest, ...}) =
-            { sources=[], dests=[dest] }
+    |   getInstructionState(AllocateMemoryOperation{dest, ...}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(AllocateMemoryVariable{size, dest, ...}) =
-            { sources=[size], dests=[dest] }
+    |   getInstructionState(AllocateMemoryVariable{size, dest, ...}) =
+            { sources=[size], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(InitialiseMem{size, addr, init}) =
-            { sources=[size, addr, init], dests=[] }
+    |   getInstructionState(InitialiseMem{size, addr, init}) =
+            { sources=[size, addr, init], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(InitialisationComplete) =
+    |   getInstructionState(InitialisationComplete) =
             (* This is just a marker.  It doesn't actually generate any code. *)
-            { sources=[], dests=[] }
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(JumpLoop{regArgs, stackArgs, ...}) =
+    |   getInstructionState(JumpLoop{regArgs, stackArgs, ...}) =
         let
-            val regSourceAsRegs =
-                List.foldl(fn ((source, _), srcs) => argRegs source @ srcs) [] regArgs
-            val sourceAsRegs =
-                List.foldl(fn ((source, _, _), srcs) => argRegs source @ srcs) regSourceAsRegs stackArgs
+            fun getSources argSource =
+            let
+                val regSourceAsRegs =
+                    List.foldl(fn ((source, _), srcs) => argSource source @ srcs) [] regArgs
+            in
+                List.foldl(fn ((source, _, _), srcs) => argSource source @ srcs) regSourceAsRegs stackArgs
+            end
         in
-            { sources=sourceAsRegs, dests=[] }
+            { sources=getSources argRegs, dests=[], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionRegisters(RaiseExceptionPacket{packet}) =
-            { sources=argRegs packet, dests=[] }
+    |   getInstructionState(RaiseExceptionPacket{packet}) =
+            { sources=argRegs packet, dests=[], sStacks=argStacks packet, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(ReserveContainer _) =
-            { sources=[], dests=[] }
+    |   getInstructionState(ReserveContainer{container, ...}) =
+            { sources=[], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(LoadContainerAddress{dest, ...}) =
-            { sources=[], dests=[dest] }
+    |   getInstructionState(LoadContainerAddress{dest, container, ...}) =
+            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(IndexedCaseOperation{testReg, workReg, ...}) =
-            { sources=[testReg], dests=[workReg]}
+    |   getInstructionState(IndexedCaseOperation{testReg, workReg, ...}) =
+            { sources=[testReg], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(LockMutable{addr}) =
-            { sources=[addr], dests=[] }
+    |   getInstructionState(LockMutable{addr}) =
+            { sources=[addr], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(WordComparison{arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[] }
+    |   getInstructionState(WordComparison{arg1, arg2, ccRef, ...}) =
+            { sources=argRegs arg1 @ argRegs arg2, dests=[], sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(PushExceptionHandler{workReg, ...}) =
-            { sources=[], dests=[workReg]}
+    |   getInstructionState(PushExceptionHandler{workReg, ...}) =
+            { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(PopExceptionHandler{ workReg }) =
-            { sources=[], dests=[workReg]}
+    |   getInstructionState(PopExceptionHandler{ workReg }) =
+            { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(BeginHandler{ workReg, packetReg, ...}) =
-            { sources=[], dests=[packetReg, workReg]}
+    |   getInstructionState(BeginHandler{ workReg, packetReg, ...}) =
+            { sources=[], dests=[packetReg, workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(ReturnResultFromFunction{resultReg, ...}) =
-            { sources=[resultReg], dests=[] }
+    |   getInstructionState(ReturnResultFromFunction{resultReg, ...}) =
+            { sources=[resultReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(ArithmeticFunction{resultReg, operand1, operand2, ...}) =
-            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg] }
+    |   getInstructionState(ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) =
+            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg],
+              sStacks=argStacks operand1 @ argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(TestTagBit{arg, ...}) =
-            { sources=argRegs arg, dests=[] }
+    |   getInstructionState(TestTagBit{arg, ccRef, ...}) =
+            { sources=argRegs arg, dests=[], sStacks=argStacks arg, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(PushValue {arg, ...}) =
-            { sources=argRegs arg, dests=[] }
+    |   getInstructionState(PushValue {arg, container, ...}) =
+            { sources=argRegs arg, dests=[], sStacks=argStacks arg, dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }
     
-    |   getInstructionRegisters(CopyToCache{source, dest}) = { sources=[source], dests=[dest]}
+    |   getInstructionState(CopyToCache{source, dest}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged}
 
-    |   getInstructionRegisters(ResetStackPtr _) =
-            { sources=[], dests=[] }
+    |   getInstructionState(ResetStackPtr{preserveCC, ...}) =
+            { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused,
+                ccOut=if preserveCC then CCUnchanged else CCIndeterminate }
 
-    |   getInstructionRegisters(StoreToStack {source, ...}) =
-            { sources=argRegs source, dests=[] }
+    |   getInstructionState(StoreToStack {source, container, ...}) =
+        (* Although this stores into the container it must already exist. *)
+            { sources=argRegs source, dests=[], sStacks=container :: argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
-    |   getInstructionRegisters(TagValue{source, dest}) =
-            { sources=[source], dests=[dest]}
+    |   getInstructionState(TagValue{source, dest}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(UntagValue{source, dest, ...}) =
-            { sources=argRegs source, dests=[dest]}
+    |   getInstructionState(UntagValue{source, dest, ...}) =
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(LoadEffectiveAddress{base, index, dest, ...}) =
+    |   getInstructionState(LoadEffectiveAddress{base, index, dest, ...}) =
         let
             val bRegs =
                 case base of NONE => [] | SOME bReg => [bReg]
             val iRegs = argIndex index
         in
-            { sources=bRegs @ iRegs, dests=[dest] }
+            { sources=bRegs @ iRegs, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
         end
 
-    |   getInstructionRegisters(ShiftOperation{resultReg, operand, shiftAmount, ...}) =
-            { sources=argRegs operand @ argRegs shiftAmount, dests=[resultReg] }
+    |   getInstructionState(ShiftOperation{resultReg, operand, shiftAmount, ccRef, ...}) =
+            { sources=argRegs operand @ argRegs shiftAmount, dests=[resultReg],
+              sStacks=argStacks operand @ argStacks shiftAmount, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(Multiplication{resultReg, operand1, operand2, ...}) =
-            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg] }
+    |   getInstructionState(Multiplication{resultReg, operand1, operand2, ccRef, ...}) =
+            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg],
+              sStacks=argStacks operand1 @ argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(Division{dividend, divisor, quotient, remainder, ...}) =
-            { sources=dividend :: argRegs divisor, dests=[quotient, remainder] }
+    |   getInstructionState(Division{dividend, divisor, quotient, remainder, ...}) =
+            { sources=dividend :: argRegs divisor, dests=[quotient, remainder],
+              sStacks=argStacks divisor, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(AtomicExchangeAndAdd{base, source}) =
-            { sources=[base, source], dests=[] }
+    |   getInstructionState(AtomicExchangeAndAdd{base, source}) =
+            { sources=[base, source], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(BoxValue{source, dest, ...}) =
-            { sources=[source], dests=[dest] }
+    |   getInstructionState(BoxValue{source, dest, ...}) =
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) =
-            { sources=[vec1Addr, vec2Addr, length], dests=[] }
+    |   getInstructionState(CompareByteVectors{vec1Addr, vec2Addr, length, ccRef, ...}) =
+            { sources=[vec1Addr, vec2Addr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(BlockMove{srcAddr, destAddr, length, ...}) =
-            { sources=[srcAddr, destAddr, length], dests=[] }
+    |   getInstructionState(BlockMove{srcAddr, destAddr, length, ...}) =
+            { sources=[srcAddr, destAddr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(CompareFloatingPt{arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[] }
+    |   getInstructionState(CompareFloatingPt{arg1, arg2, ccRef, ...}) =
+            { sources=argRegs arg1 @ argRegs arg2, dests=[], sStacks=argStacks arg1 @ argStacks arg2,
+              dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
-    |   getInstructionRegisters(X87FPGetCondition{dest, ...}) =
-            { sources=[], dests=[dest] }
+    |   getInstructionState(X87FPGetCondition{dest, ccRef, ...}) =
+            { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(X87FPArith{resultReg, arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg] }
+    |   getInstructionState(X87FPArith{resultReg, arg1, arg2, ...}) =
+            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg],
+              sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(X87FPUnaryOps{dest, source, ...}) =
-            { sources=argRegs source, dests=[dest] }
+    |   getInstructionState(X87FPUnaryOps{dest, source, ...}) =
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(FloatFixedInt{dest, source}) =
-            { sources=argRegs source, dests=[dest] }
+    |   getInstructionState(FloatFixedInt{dest, source}) =
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionRegisters(SSE2FPArith{resultReg, arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg]}
-   
-    fun argStacks(StackLocation { container, ...}) = [container]
-    |   argStacks _ = []
-    
-    (* Get the stack loc entries that this instruction refers to.  *)
-    fun getInstructionStackLocs(LoadArgument { source, ...}) =
-        { sources=argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(StoreArgument{ source, ...}) =
-            { sources=argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(BeginFunction {stackArgs, ...}) =
-            { sources=[], dests=stackArgs}
-
-    |   getInstructionStackLocs(FunctionCall{regArgs, stackArgs, ...}) =
-        let
-            (* Non-tail-recursive.  Behaves as a normal reference to sources. *)
-            val stackSources = List.foldl(fn (arg, srcs) => argStacks arg @ srcs) [] stackArgs
-        
-            fun regSource((arg, _), srcs) = argStacks arg @ srcs
-            val regSources = List.foldl regSource [] regArgs
-        in
-            { sources=stackSources @ regSources, dests=[] }
-        end
-
-    |   getInstructionStackLocs(TailRecursiveCall{regArgs, stackArgs, ...}) =
-        let
-            (* Tail recursive call.  References the argument sources but exits. *)
-            val stackSources = List.foldl(fn ({src, ...}, srcs) => argStacks src @ srcs) [] stackArgs
-            fun regSource((arg, _), srcs) = argStacks arg @ srcs
-            val regSources = List.foldl regSource [] regArgs
-        in
-            { sources=stackSources @ regSources, dests=[] }
-        end
-
-    |   getInstructionStackLocs(JumpLoop{regArgs, stackArgs, ...}) =
-        let
-            val regSourceAsRegs =
-                List.foldl(fn ((source, _), srcs) => argStacks source @ srcs) [] regArgs
-            val sourceAsRegs =
-                List.foldl(fn ((source, _, _), srcs) => argStacks source @ srcs) regSourceAsRegs stackArgs
-        in
-            { sources=sourceAsRegs, dests=[] }
-        end
-
-    |   getInstructionStackLocs(RaiseExceptionPacket{packet}) =
-            { sources=argStacks packet, dests=[] }
-
-    |   getInstructionStackLocs(ReserveContainer{container, ...}) =
-            { sources=[], dests=[container] }
-
-    |   getInstructionStackLocs(LoadContainerAddress{container, ...}) =
-            { sources=[container], dests=[] }
-
-    |   getInstructionStackLocs(WordComparison{arg1, arg2, ...}) =
-            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
-
-    |   getInstructionStackLocs(ArithmeticFunction{operand1, operand2, ...}) =
-            { sources=argStacks operand1 @ argStacks operand2, dests=[] }
-
-    |   getInstructionStackLocs(TestTagBit{arg, ...}) =
-            { sources=argStacks arg, dests=[] }
-
-    |   getInstructionStackLocs(PushValue {arg, container, ...}) =
-            { sources=argStacks arg, dests=[container] }
-
-    |   getInstructionStackLocs(StoreToStack {source, container, ...}) =
-        (* Although this stores into the container it must already exist. *)
-            { sources=container :: argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(UntagValue{source, ...}) =
-            { sources=argStacks source, dests=[]}
-
-    |   getInstructionStackLocs(ShiftOperation{operand, shiftAmount, ...}) =
-            { sources=argStacks operand @ argStacks shiftAmount, dests=[] }
-
-    |   getInstructionStackLocs(Multiplication{operand1, operand2, ...}) =
-            { sources=argStacks operand1 @ argStacks operand2, dests=[] }
-
-    |   getInstructionStackLocs(Division{divisor, ...}) =
-            { sources=argStacks divisor, dests=[] }
-
-    |   getInstructionStackLocs(CompareFloatingPt{arg1, arg2, ...}) =
-            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
-
-    |   getInstructionStackLocs(X87FPArith{arg1, arg2, ...}) =
-            { sources=argStacks arg1 @ argStacks arg2, dests=[] }
-
-    |   getInstructionStackLocs(X87FPUnaryOps{source, ...}) =
-            { sources=argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(FloatFixedInt{source, ...}) =
-            { sources=argStacks source, dests=[] }
-
-    |   getInstructionStackLocs(SSE2FPArith{arg1, arg2, ...}) =
-            { sources=argStacks arg1 @ argStacks arg2, dests=[]}
-    
-        (* Many of the instructions take just register args. *)
-    |   getInstructionStackLocs _ = { sources=[], dests=[] } 
-    
+    |   getInstructionState(SSE2FPArith{resultReg, arg1, arg2, ...}) =
+            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg],
+              sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let
@@ -356,6 +290,9 @@ struct
         (* Contains the, possibly filtered, code for each block. *)
         val resultCode = Array.array(vectorLength, NONE)
         
+        val ccInStates = Array.array(vectorLength, CCUnused)
+        and ccOutStates = Array.array(vectorLength, CCIndeterminate)
+        
         (* First pass - for each block build up the sets of registers defined and
            used in the block.  We do this depth-first so that we can use "refs" to
            see if a register is used.  If this is an instruction that can be eliminated
@@ -366,15 +303,15 @@ struct
             else
             let
                 val () = Array.update(resultCode, blockNo, SOME []) (* Prevent looping. *)
-                val thisBlock as BasicBlock { block, ...} = Vector.sub(blockVector, blockNo)
+                val thisBlock as BasicBlock { block, flow, ...} = Vector.sub(blockVector, blockNo)
                 val successors = blockSuccessors thisBlock
                 (* Visit everything reachable first. *)
                 val () = List.app blockScan successors
                 
-                fun scanCode(instr, original as { code, decs, refs, sDecs, sRefs }) =
+                fun scanCode(instr, original as { code, decs, refs, sDecs, sRefs, occIn, occOut }) =
                 let
-                    val { sources, dests } = getInstructionRegisters instr
-                    val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
+                    val { sources, dests, sStacks=stackSrcs, dStacks=stackDests, ccIn, ccOut, ... } =
+                        getInstructionState instr
                     val eliminateable =
                         case instr of
                             LoadArgument _ => true
@@ -390,6 +327,18 @@ struct
                     and sourceRegNos = map regNo sources
                     val stackDestRegNos = map stackNo stackDests
                     and stackSourceRegNos = map stackNo stackSrcs
+                    (* Check the CC if we need one and this sets it. The input CC is the earliest required CC
+                       that is not set by this code. *)
+                    val newInCC =
+                        case (occIn, ccOut) of
+                            (CCNeeded ccRIn, CCSet ccRout) =>
+                                if ccRIn = ccRout then ccIn else raise InternalError "CCCheck failed"
+                        |   (CCNeeded _, CCIndeterminate) => raise InternalError "CCCheck failed"
+                        |   (_, CCUnchanged) => occIn
+                        |   _ => ccIn
+                    (* The output CC is the last CC set.  Tail instructions that don't change
+                       the CC state are ignored until we reach an instruction that sets it. *)
+                    val newOutCC = case occOut of CCUnchanged => ccOut | _ => occOut
                 in
                     if eliminateable andalso
                         List.all(fn dReg => Array.sub(regRefs, dReg) = 0) destRegNos
@@ -401,19 +350,27 @@ struct
                         val () = List.app incrRef sourceRegNos
                     in
                         { code = instr :: code, decs = union(listToSet destRegNos, decs), refs = union(listToSet sourceRegNos, refs),
-                          sDecs = union(listToSet stackDestRegNos, sDecs), sRefs = union(listToSet stackSourceRegNos, sRefs)}
+                          sDecs = union(listToSet stackDestRegNos, sDecs), sRefs = union(listToSet stackSourceRegNos, sRefs),
+                          occIn = newInCC, occOut = newOutCC}
                     end
                 end
                 
-                val { code, decs, refs, sDecs, sRefs } =
-                    List.foldr scanCode {code=[], decs=emptySet, refs=emptySet, sDecs=emptySet, sRefs=emptySet} block
+                (* If we have a conditional branch at the end we need the condition code.  It should either
+                   be set here or in a preceding block. *)
+                val inCC = case flow of Conditional { ccRef, ...} => CCNeeded ccRef | _ => CCUnused
+
+                val { code, decs, refs, sDecs, sRefs, occIn, occOut, ... } =
+                    List.foldr scanCode
+                        {code=[], decs=emptySet, refs=emptySet, sDecs=emptySet, sRefs=emptySet, occIn=inCC, occOut=CCUnchanged} block
             in
                 Array.update(declarationArray, blockNo, decs);
                 (* refs includes local declarations. Remove before adding to the result. *)
                 Array.update(importArray, blockNo, minus(refs, decs));
                 Array.update(stackDecArray, blockNo, sDecs);
                 Array.update(stackImportArray, blockNo, minus(sRefs, sDecs));
-                Array.update(resultCode, blockNo, SOME code)
+                Array.update(resultCode, blockNo, SOME code);
+                Array.update(ccInStates, blockNo, occIn);
+                Array.update(ccOutStates, blockNo, occOut)
             end
         in
             val () = blockScan 0 (* Start with the root block. *)
@@ -431,9 +388,12 @@ struct
         (* Exports - those of our declarations that are used in other blocks. *)
         val exportArray = Array.array(vectorLength, emptySet)
         val stackExportArray = Array.array(vectorLength, emptySet)
+        (* If any one of the successors requires the CC then this is set.
+           Otherwise we leave it as Unused. *)
+        val ccRequiredOut = Array.array(vectorLength, CCUnused)
         local
             datatype loopData =
-                Unprocessed | Processing | Processed | Looped of { regSet: intSet, stackSet: intSet }
+                Unprocessed | Processing | Processed | Looped of { regSet: intSet, stackSet: intSet, ccState: inCCState }
             
             fun reprocessLoop () =
             let
@@ -445,7 +405,8 @@ struct
                         Processed => (* Already seen this by a different route. *)
                             {
                                 regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
-                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
+                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo)),
+                                ccState = Array.sub(ccInStates, blockNo)
                             }
                     |   Looped s => s (* We've already seen this in a loop. *)
                     |   Processing => (* We have a loop. *)
@@ -454,7 +415,8 @@ struct
                             val inputs =
                             {
                                 regSet = union(Array.sub(passThroughArray, blockNo), Array.sub(importArray, blockNo)),
-                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
+                                stackSet = union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo)),
+                                ccState = Array.sub(ccInStates, blockNo)
                             }
                             val () = Array.update(loopArray, blockNo, Looped inputs)
                         in
@@ -467,9 +429,10 @@ struct
                             val ourDeclarations = Array.sub(declarationArray, blockNo)
                             and ourStackDeclarations = Array.sub(stackDecArray, blockNo)
                             val successors = blockSuccessors thisBlock
+
                             fun addSuccessor b =
                             let
-                                val {regSet=theirImports, stackSet=theirStackImports} = processBlocks b
+                                val {regSet=theirImports, stackSet=theirStackImports, ccState=theirInState} = processBlocks b
                                 (* Split the imports.  If a register is a local declaration then
                                    it becomes an export.  If it is not it becomes part of our
                                    passThrough. *)
@@ -477,6 +440,13 @@ struct
                                     INTSET.partition (fn i => member(i, ourDeclarations)) theirImports
                                 val (addToStackExp, addToStackImp) =
                                     INTSET.partition (fn i => member(i, ourStackDeclarations)) theirStackImports
+                                (* Merge the input states from each of the successors. *)
+                                val () =
+                                    case (theirInState, Array.sub(ccRequiredOut, blockNo)) of
+                                        (CCNeeded ts, CCNeeded req) =>
+                                            if ts = req then () else raise InternalError "Mismatched states"
+                                    |   (ts as CCNeeded _, _) => Array.update(ccRequiredOut, blockNo, ts)
+                                    |   _ => ()
                             in
                                 Array.update(exportArray, blockNo,
                                     union(Array.sub(exportArray, blockNo), addToExp));
@@ -493,16 +463,36 @@ struct
                             val ourStackInputs =
                                 union(Array.sub(stackPassThroughArray, blockNo), Array.sub(stackImportArray, blockNo))
                         in
-                            (* Was this block used in a loop? *)
+                            (* Check that we supply the required state. *)
+                            case (Array.sub(ccRequiredOut, blockNo), Array.sub(ccOutStates, blockNo)) of
+                                (CCNeeded ccReq, CCSet ccSet) =>
+                                    if ccReq = ccSet then () else raise InternalError "Mismatched cc states"
+                            |   (CCNeeded _, CCIndeterminate) => raise InternalError "Mismatched cc states"
+                            |   (cc as CCNeeded needOut, CCUnchanged) =>
+                                (
+                                    (* We pass through the state.  If we don't use the state then we
+                                       need to set this as the input.  If we do use the state it must be
+                                       the same. *)
+                                    case Array.sub(ccInStates, blockNo) of
+                                        CCUnused => Array.update(ccInStates, blockNo, cc)
+                                    |   CCNeeded needIn =>
+                                            if needOut = needIn then () else raise InternalError "Mismatched cc states"
+                                )
+                            |   _ => ();
+                            (* Was this block used in a loop?  If so we should not be requiring a CC. *)
                             case Array.sub(loopArray, blockNo) of
-                                Looped {regSet, stackSet} =>
+                                Looped {regSet, stackSet, ...} =>
+                                (
+                                    case Array.sub(ccInStates, blockNo) of
+                                        CCNeeded _ => raise InternalError "Looped state needs cc" | _ => ();
                                     if setToList regSet = setToList ourInputs andalso
                                         setToList stackSet = setToList ourStackInputs
                                     then ()
                                     else reprocess := true
+                                )
                             |   _ => ();
                             Array.update(loopArray, blockNo, Processed);
-                            { regSet = ourInputs, stackSet = ourStackInputs }
+                            { regSet = ourInputs, stackSet = ourStackInputs, ccState = Array.sub(ccInStates, blockNo) }
                         end
 
             in
@@ -528,9 +518,8 @@ struct
             fun createResultInstrs (passThrough, stackPassThrough)
                 (instr, (tail, activeAfterThis, stackActiveAfterThis)) =
             let
-                val { sources, dests } = getInstructionRegisters instr
+                val { sources, dests, sStacks=stackSrcs, dStacks=stackDests, ... } = getInstructionState instr
                 fun regNo(PReg i) = i
-                val {sources=stackSrcs, dests=stackDests} = getInstructionStackLocs instr
                 fun stackNo(StackLoc{rno, ...}) = rno
                 val destRegNos = map regNo dests
                 and sourceRegNos = map regNo sources
@@ -686,6 +675,10 @@ struct
                 (* Set the active count for the pass through. *)
                 val instrCount = List.length filteredCode
                 val () = List.app(addActivity instrCount) (setToList passSet)
+                val inCCState =
+                    case Array.sub(ccInStates, blockNo) of CCNeeded s => SOME s | CCUnused => NONE
+                val outCCState =
+                    case Array.sub(ccRequiredOut, blockNo) of CCNeeded s => SOME s | CCUnused => NONE
             in
                 ExtendedBasicBlock {
                     block = resultInstrs,
@@ -693,7 +686,9 @@ struct
                     locals = minus(declSet, exportSet),
                     imports = importSet,
                     exports = exportSet,
-                    passThrough = passSet
+                    passThrough = passSet,
+                    inCCState = inCCState,
+                    outCCState = outCCState
                 }
             end
         in
@@ -714,6 +709,14 @@ struct
         (resultBlocks, registerState)
     end
 
+    (* Exported for use in GetConflictSets *)
+    fun getInstructionRegisters instr =
+    let
+        val {sources, dests, ...} = getInstructionState instr
+    in
+        {sources=sources, dests=dests}
+    end
+
     structure Sharing =
     struct
         type x86ICode           = x86ICode
@@ -727,5 +730,6 @@ struct
         and argument            = argument
         and memoryIndex         = memoryIndex
         and regProperty         = regProperty
+        and ccRef               = ccRef
     end
 end;

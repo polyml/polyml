@@ -693,6 +693,7 @@ struct
         and fpOps           = fpOps
         and fpUnaryOps      = fpUnaryOps
         and sse2Operations  = sse2Operations
+        and ccRef           = ccRef
     end
 end;
 

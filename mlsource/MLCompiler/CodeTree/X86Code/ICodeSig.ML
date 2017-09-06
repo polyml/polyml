@@ -320,7 +320,7 @@ sig
         and  x86ICode       = x86ICode
         and  branchOps      = branchOps
         and  reg            = reg
-        and preg        = preg
+        and preg            = preg
         and destinations    = destinations
         and controlFlow     = controlFlow
         and basicBlock      = basicBlock
@@ -332,5 +332,6 @@ sig
         and fpOps           = fpOps
         and fpUnaryOps      = fpUnaryOps
         and sse2Operations  = sse2Operations
+        and ccRef           = ccRef
    end
 end;

@@ -18,7 +18,7 @@
 signature X86IDENTIFYREFSSIG =
 sig
     type x86ICode and reg and preg and basicBlock and controlFlow
-    and argument and memoryIndex and regProperty
+    and argument and memoryIndex and regProperty and ccRef
 
     datatype pushState = MustPush | MustNotPush | MayPush
     
@@ -38,7 +38,9 @@ sig
             locals: intSet, (* Defined and used entirely within the block. *)
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
             exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
-            passThrough: intSet (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            inCCState: ccRef option, (* The state this block assumes.  If SOME _ all predecessors must set it. *)
+            outCCState: ccRef option (* The condition code set by this block.  SOME _ if at least one successor needs it. *)
         }
 
     val identifyRegisters: basicBlock vector * regProperty vector -> extendedBasicBlock vector * regState vector
@@ -61,5 +63,6 @@ sig
         and argument            = argument
         and memoryIndex         = memoryIndex
         and regProperty         = regProperty
+        and ccRef               = ccRef
     end;
 end;
