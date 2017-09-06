@@ -1730,7 +1730,7 @@ struct
                         StoreRegToMemory{
                             toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
                         PopR wReg ::
-                        ResetStack 1 :: code)
+                        ResetStack{numWords=1, preserveCC=false} :: code)
                 end
  
             |   codeGenICode(LLBeginHandler {workReg, packetReg, ...} :: rest, code) =
@@ -1745,7 +1745,7 @@ struct
                     codeGenICode(rest,
                         StoreRegToMemory{
                             toStore=wReg, address={offset=memRegHandlerRegister, base=ebp, index=NoIndex}} ::
-                        PopR wReg :: ResetStack 1 ::
+                        PopR wReg :: ResetStack{numWords=1, preserveCC=false} ::
                         MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp } :: code)
                 end
 
@@ -1778,7 +1778,7 @@ struct
             |   codeGenICode(LLResetStackPtr {numWords} :: rest, code) =
                 (
                     numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
-                    codeGenICode(rest, ResetStack numWords :: code)
+                    codeGenICode(rest, ResetStack{numWords=numWords, preserveCC=true (* Temporarily *)} :: code)
                 )
 
             |   codeGenICode(LLTagValue _ :: _, _) =

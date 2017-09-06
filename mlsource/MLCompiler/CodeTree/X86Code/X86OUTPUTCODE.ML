@@ -1011,7 +1011,7 @@ struct
     |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
-    |   ResetStack of int
+    |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
@@ -1200,8 +1200,8 @@ struct
                 stream "RaiseException"
         |   UncondBranch(Label{labelNo, ...})=>
                 (stream "UncondBranch L"; stream(Int.toString labelNo))
-        |   ResetStack i =>
-                (stream "ResetStack "; stream(Int.toString i))
+        |   ResetStack{numWords, preserveCC} =>
+                (stream "ResetStack "; stream(Int.toString numWords); if preserveCC then stream " preserve CC" else ())
         |   JumpLabel(Label{labelNo, ...}) =>
                 (stream "L"; stream(Int.toString labelNo); stream ":")
         |   LoadLabelAddress{ label=Label{labelNo, ...}, output } =>
@@ -1729,11 +1729,16 @@ struct
 
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
-        |   cgOp(ResetStack count) =
-                (*immediateOperand(ADD, esp, Word.toLargeInt(wordsToBytes(Word.fromInt count)))*)
-            (* LEA has the advantage of not changing the condition code but the disadvantage of
-               requiring an extra byte because using esp as a base requires the sib byte. *)
-                opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp) 
+        |   cgOp(ResetStack{numWords, preserveCC}) =
+            let
+                val bytes = Word.toLargeInt(wordsToBytes(Word.fromInt numWords))
+            in
+                (* If we don't need to preserve the CC across the reset we use ADD since
+                   it's shorter. *)
+                if preserveCC
+                then opEA(LEAL, bytes, esp, esp)
+                else immediateOperand(ADD, esp, bytes)
+            end
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 

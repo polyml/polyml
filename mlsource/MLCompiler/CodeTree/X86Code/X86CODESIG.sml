@@ -143,7 +143,7 @@ sig
     |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
-    |   ResetStack of int
+    |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
