@@ -150,7 +150,7 @@ struct
         fun returnInstruction({stackPtr, ...}, target, tailCode) =
             BlockExit(ReturnResultFromFunction{resultReg=target, numStackArgs=currentStackArgs}) ::
             (if stackPtr <> 0
-            then BlockSimple(ResetStackPtr{numWords=stackPtr}) :: tailCode
+            then BlockSimple(ResetStackPtr{numWords=stackPtr, preserveCC=false}) :: tailCode
             else tailCode)
 
         fun constantAsArgument value =
@@ -433,7 +433,7 @@ struct
                         then codeExp
                         else
                             BlockSimple(LoadArgument{source=result, dest=resultReg, kind=MoveWord}) ::
-                            BlockSimple(ResetStackPtr{numWords=finalSp-initialSp}) :: codeExp
+                            BlockSimple(ResetStackPtr{numWords=finalSp-initialSp, preserveCC=false}) :: codeExp
                 in
                     (afterAdjustSp, RegisterArgument resultReg, haveExited)
                 end
@@ -938,7 +938,7 @@ struct
                 (* If we've allocated a container in the loop we have to remove it before jumping back. *)
                 val stackReset =
                     if loopSp = stackPtr then codeArgs
-                    else BlockSimple(ResetStackPtr{numWords=stackPtr-loopSp}) :: codeArgs
+                    else BlockSimple(ResetStackPtr{numWords=stackPtr-loopSp, preserveCC=false}) :: codeArgs
                 val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}
                 (* "checkInterrupt" could result in a Interrupt exception so we treat this like
                    a function call. *)

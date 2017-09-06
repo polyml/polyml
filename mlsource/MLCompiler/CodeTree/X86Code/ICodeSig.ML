@@ -212,7 +212,7 @@ sig
     |   CopyToCache of { source: preg, dest: preg }
 
         (* Remove items from the stack.  Added during translation phase. *)
-    |   ResetStackPtr of { numWords: int }
+    |   ResetStackPtr of { numWords: int, preserveCC: bool }
 
         (* Store a value into the stack. *)
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }

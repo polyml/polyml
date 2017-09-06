@@ -657,7 +657,7 @@ struct
                             (* Reset the stack to just above the two words of the handler. *)
                             val resetCode =
                                 if oldStackPtr <> nnCount+2
-                                then [ResetStackPtr{numWords=oldStackPtr-nnCount-2}]
+                                then [ResetStackPtr{numWords=oldStackPtr-nnCount-2, preserveCC=false}]
                                 else []
                         in
                             PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code
@@ -681,7 +681,7 @@ struct
                         let
                             val (resultValue, loadResult) = mapSrcReg resultReg
                             val resetCode =
-                                if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount}]
+                                if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount, preserveCC=false}]
                         in
                             ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code
                         end
@@ -720,7 +720,7 @@ struct
                             (* This was added on a previous pass.  Discard it.  If we are going to cache this again we'll
                                add new CopyToCache instructions. *)
 
-                    |   pushRegisters({instr=ResetStackPtr{numWords}, ...}, code) =
+                    |   pushRegisters({instr=ResetStackPtr{numWords, ...}, ...}, code) =
                         (* This indicates that an old entry is no longer required.  We can't actually remove
                            it because we may have pushed something since.  Instead we mark it as inactive and remove
                            it when everything above is free. *)
@@ -948,7 +948,7 @@ struct
                         else
                         let
                             val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
-                            val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput}]
+                            val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)}]
                             val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
                             val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
                             val () = extraBlocks := newBlock :: !extraBlocks
@@ -970,7 +970,7 @@ struct
                                 val resultCode =
                                     if expectedInput = outputCount
                                     then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput} :: codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)} :: codeResult
                             in
                                 (resultCode, Unconditional m)
                             end
@@ -996,7 +996,7 @@ struct
                                 val resultCode =
                                     if expectedInput = outputCount
                                     then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput} :: codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)} :: codeResult
                             in
                                 (resultCode, c)
                             end

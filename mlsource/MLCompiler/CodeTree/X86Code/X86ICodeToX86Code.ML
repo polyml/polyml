@@ -86,7 +86,7 @@ struct
     |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
     |   LLTestTagBit of { arg: reg regOrMemoryArg }
     |   LLPushValue of { arg: reg regOrMemoryArg }
-    |   LLResetStackPtr of { numWords: int }
+    |   LLResetStackPtr of { numWords: int, preserveCC: bool }
     |   LLTagValue of { source: reg, dest: reg }
     |   LLUntagValue of { source: reg regOrMemoryArg, dest: reg, isSigned: bool }
     |   LLLoadEffectiveAddress of { base: reg option, offset: int, index: indexType, dest: reg }
@@ -661,7 +661,7 @@ struct
                                                 source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = destAddr*wordSize, kind=MoveWord},
                                             LLLoadArgument{source=MemoryArg{base=esp, offset=0, index=NoIndex}, dest=workReg, kind=MoveWord},
-                                            LLResetStackPtr{numWords=1}
+                                            LLResetStackPtr{numWords=1, preserveCC=false}
                                             ]
                                         end
                             in
@@ -799,7 +799,7 @@ struct
             val adjustStack =
                 if stackAdjust = 0
                 then []
-                else [LLResetStackPtr{numWords=stackAdjust}]
+                else [LLResetStackPtr{numWords=stackAdjust, preserveCC=false}]
         in
             loadArgs @ adjustStack @ [LLTailRecursiveCall{callKind=callKind}]
         end
@@ -1253,7 +1253,8 @@ struct
                 moveIfNecessary{src=realSrcReg, dst=realDestReg} @ code
             end
 
-        |   codeExtended({instr=ResetStackPtr {numWords}, ...}, code) = LLResetStackPtr{numWords=numWords} :: code
+        |   codeExtended({instr=ResetStackPtr {numWords, preserveCC}, ...}, code) =
+                LLResetStackPtr{numWords=numWords, preserveCC=preserveCC} :: code
 
         |   codeExtended({instr=StoreToStack{ source, stackOffset, ... }, ...}, code) =
             let
@@ -1481,7 +1482,7 @@ struct
                             [
                                 LLPushValue{arg=intSource},
                                 LLFloatFixedInt{dest=fpReg, source=wordOffsetAddress(0, esp)},
-                                LLResetStackPtr {numWords=1}
+                                LLResetStackPtr {numWords=1, preserveCC=false}
                             ]
                     |   FPModeSSE2 => [LLFloatFixedInt{dest=fpReg, source=intSource}]
             in
@@ -1775,10 +1776,10 @@ struct
 
             |   codeGenICode(LLPushValue arg :: rest, code) = codeGenICode(rest, llPushValue arg :: code)
 
-            |   codeGenICode(LLResetStackPtr {numWords} :: rest, code) =
+            |   codeGenICode(LLResetStackPtr {numWords, preserveCC} :: rest, code) =
                 (
                     numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
-                    codeGenICode(rest, ResetStack{numWords=numWords, preserveCC=true (* Temporarily *)} :: code)
+                    codeGenICode(rest, ResetStack{numWords=numWords, preserveCC=preserveCC} :: code)
                 )
 
             |   codeGenICode(LLTagValue _ :: _, _) =

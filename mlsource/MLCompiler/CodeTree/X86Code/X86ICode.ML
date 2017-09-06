@@ -174,7 +174,7 @@ struct
     |   CopyToCache of { source: preg, dest: preg }
 
         (* Remove items from the stack.  Added during translation phase. *)
-    |   ResetStackPtr of { numWords: int }
+    |   ResetStackPtr of { numWords: int, preserveCC: bool }
 
         (* Store a value into the stack. *)
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
@@ -480,7 +480,12 @@ struct
         |   printICode(CopyToCache{source, dest}, stream, printReg) =
                 (stream "\tCopyToCache\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(ResetStackPtr{numWords}, stream, _) = (stream "\tResetStackPtr\t"; stream(Int.toString numWords))
+        |   printICode(ResetStackPtr{numWords, preserveCC}, stream, _) =
+            (
+                stream "\tResetStackPtr\t";
+                stream(Int.toString numWords);
+                if preserveCC then stream " preserve CC" else ()
+            )
 
         |   printICode(StoreToStack{source, container, field, stackOffset}, stream, printReg) =
             (
