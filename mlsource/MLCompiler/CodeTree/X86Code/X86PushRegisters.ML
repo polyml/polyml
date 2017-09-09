@@ -97,7 +97,8 @@ struct
         local
             (* The stack size we've assumed for the block.  Also indicates if
                a block has already been processed. *)
-            val inputStackSizes = Array.array(numberOfBlocks, NONE: int option)
+            val inputStackSizes =
+                Array.array(numberOfBlocks, NONE: {expectedInput:int, reqCC: bool} option)
 
             fun processBlocks(blockNo, lastOutputState) =
             case asub inputStackSizes blockNo of
@@ -107,7 +108,8 @@ struct
             |   NONE =>
                 let
                     (* This is the first time we've come to this block.  *)
-                    val ExtendedBasicBlock{ block, flow, imports, passThrough, ...} = vsub code blockNo
+                    val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, ...} = vsub code blockNo
+                    val requiresCC = isSome inCCState
 
                     (* Remove any items from the input state that are no longer needed for
                        this block.  They could be local to the previous block or needed by
@@ -138,7 +140,7 @@ struct
                     val stack = ref newStack
                     
                     (* Save the stack size in case we come by a different route. *)
-                    val () = Array.update(inputStackSizes, blockNo, SOME newSp)
+                    val () = Array.update(inputStackSizes, blockNo, SOME{expectedInput=newSp, reqCC=requiresCC})
                     
                     fun pushItemToStack item =
                     let
@@ -941,7 +943,7 @@ struct
                     fun matchStacks targetBlock =
                     let
                         (* Process the destination.  If it hasn't been processed. *)
-                        val expectedInput = processBlocks(targetBlock, stateResult)
+                        val {expectedInput, ...} = processBlocks(targetBlock, stateResult)
                     in
                         if expectedInput = outputCount
                         then targetBlock
@@ -966,11 +968,11 @@ struct
                                 (* Process the block.  Since we're making an unconditional jump
                                    we can include any stack adjustment needed to match the
                                    destination in here.  In particular this includes loops. *)
-                                val expectedInput = processBlocks(m, stateResult)
+                                val {expectedInput, reqCC} = processBlocks(m, stateResult)
                                 val resultCode =
                                     if expectedInput = outputCount
                                     then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)} :: codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
                             in
                                 (resultCode, Unconditional m)
                             end
@@ -992,18 +994,18 @@ struct
                         |   c as ConditionalHandle{ continue, ... } =>
                             let
                                 (* As for unconditional branch *)
-                                val expectedInput = processBlocks(continue, stateResult)
+                                val {expectedInput, reqCC} = processBlocks(continue, stateResult)
                                 val resultCode =
                                     if expectedInput = outputCount
                                     then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)} :: codeResult
+                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
                             in
                                 (resultCode, c)
                             end
                     val () =
                         Array.update(resultBlocks, blockNo, BasicBlock{block=List.rev finalCode, flow=newFlow})
                 in
-                    newSp (* Return our input stack size. *)
+                    { expectedInput=newSp, reqCC=requiresCC} (* Return our input stack size. *)
                 end
         in
             val _ = processBlocks(0, {stack=[], stackCount=0})
