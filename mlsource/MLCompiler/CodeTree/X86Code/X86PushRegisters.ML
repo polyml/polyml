@@ -138,6 +138,10 @@ struct
                        and end of a block. *)
                     val stackCount = ref newSp
                     val stack = ref newStack
+                    (* Items from the stack that have been marked as deleted but not yet
+                       removed.  We only remove items from the top of the stack to avoid
+                       quadratic behaviour with a very deep stack. *)
+                    val deletedItems = ref []
                     
                     (* Save the stack size in case we come by a different route. *)
                     val () = Array.update(inputStackSizes, blockNo, SOME{expectedInput=newSp, reqCC=requiresCC})
@@ -893,20 +897,49 @@ struct
                         let
                             val newCode = pushRegisters(instr, code)
                             (* Can we pop the stack? *)
-                            fun checkKill r =
-                                case Array.sub(pregMap, r) of
-                                    ToStack(stackLoc, container as StackLoc{size, ...}) =>
+                            val stackReset =
+                                case setToList kill of
+                                    [] => []
+                                |   killList =>
                                     let
-                                        val code =
-                                            StoreToStack{ source=IntegerConstant 1, container=container, field=0, stackOffset = !stackCount-stackLoc-size }
+                                        (* See if any of the kill items are at the top of the stack.
+                                           If they are we can pop them and perhaps items we've
+                                           previously marked for deletion but not been able to pop. *)
+                                        val oldStack = !stackCount
+                                        fun checkAndAdd(r, output) =
+                                            case Array.sub(pregMap, r) of
+                                                ToStack(stackLoc, StackLoc{size, ...}) =>
+                                                    if stackLoc < 0
+                                                    then r :: output (* We can have arguments and return address. *)
+                                                    else if !stackCount = stackLoc+size
+                                                    then
+                                                    (
+                                                        stack := tl (!stack);
+                                                        stackCount := stackLoc;
+                                                        output
+                                                    )
+                                                    else r :: output
+                                            |   _ => r :: output
+                                        val toAdd = List.foldl checkAndAdd [] killList
+                                        fun reprocess list =
+                                        let
+                                            val prevStack = !stackCount
+                                            val outlist = List.foldl checkAndAdd [] list
+                                        in
+                                            if !stackCount = prevStack
+                                            then list
+                                            else reprocess outlist
+                                        end
+                                        val () =
+                                            if !stackCount = oldStack
+                                            then deletedItems := toAdd @ !deletedItems
+                                            else deletedItems := reprocess(toAdd @ !deletedItems)
                                     in
-                                        SOME code
+                                        if !stackCount = oldStack then []
+                                        else [ResetStackPtr{numWords=oldStack - !stackCount, preserveCC=true (* In case*)}]
                                     end
-                                    
-                                |   _ => NONE
-                            val stackKills = List.mapPartial checkKill (setToList kill) 
                         in
-                            stackKills @ newCode
+                            stackReset @ newCode
                         end
                     in
                         val codeResult = List.foldl doPush [] block
