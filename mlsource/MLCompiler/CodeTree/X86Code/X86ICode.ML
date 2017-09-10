@@ -434,7 +434,7 @@ struct
 
         |   printICode(PushExceptionHandler{workReg }, stream, printReg) =
             (
-                stream "\tPushExcHandler\t with ";
+                stream "\tPushExcHandler\twith ";
                 printReg(workReg, stream)
             )
 
@@ -658,7 +658,14 @@ struct
                     |   JNP => stream "\tJumpParityClear\t";
                     stream(concat["L", Int.toString trueJump, " else L",  Int.toString falseJump, "\n"])
                 )
-            |   _ => ()
+            |   ExitCode => ()
+            |   IndexedBr _ => ()
+            |   SetHandler{handler, continue} =>
+                    stream(concat["\tSetHandler\tH", Int.toString handler, "\n",
+                                  "\tJump\tL", Int.toString continue, "\n"])
+            |   UnconditionalHandle handler => stream("\tJump\tH" ^ Int.toString handler ^ "\n")
+            |   ConditionalHandle{handler, continue} =>
+                    stream(concat["\tJump\tL", Int.toString continue, " or H", Int.toString handler, "\n"])
         )
     in
         fun printICodeAbstract(blockVec, stream) =
