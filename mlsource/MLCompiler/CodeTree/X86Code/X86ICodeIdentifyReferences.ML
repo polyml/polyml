@@ -66,8 +66,9 @@ struct
     |   blockSuccessors(BasicBlock{flow=ExitCode, ...}) = []
     |   blockSuccessors(BasicBlock{flow=IndexedBr cases, ...}) = cases
     |   blockSuccessors(BasicBlock{flow=SetHandler{handler, continue, ...}, ...}) = [handler, continue]
-    |   blockSuccessors(BasicBlock{flow=UnconditionalHandle handler, ...}) = [(*handler*)]
-    |   blockSuccessors(BasicBlock{flow=ConditionalHandle{handler, continue, ...}, ...}) = [(*handler, *)continue]
+        (* We only need "handler" in SetHandler because we may have a handler that is never actually jumped to. *)
+    |   blockSuccessors(BasicBlock{flow=UnconditionalHandle handler, ...}) = [handler]
+    |   blockSuccessors(BasicBlock{flow=ConditionalHandle{handler, continue, ...}, ...}) = [handler, continue]
 
     (* Find the registers from an argument. *)
     fun argRegs(RegisterArgument rarg) = [rarg]
@@ -639,6 +640,8 @@ struct
                     val () =
                         case instr of
                             FunctionCall _ => pushRegisters ()
+                            (* It should no longer be necessary to push across a handler but
+                               there still seem to be cases that need it. *)
                         |   BeginHandler _ => pushRegisters ()
                         
                         |   CopyToCache {source=PReg srcReg, dest=PReg dstReg} =>
