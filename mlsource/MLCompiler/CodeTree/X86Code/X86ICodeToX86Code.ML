@@ -75,7 +75,7 @@ struct
     |   LLInitialiseMem of { size: reg, addr: reg, init: reg }
     |   LLInitialisationComplete
     |   LLJumpLoop of { checkInterrupt: reg list option }
-    |   LLRaiseExceptionPacket of { packet: reg regOrMemoryArg }
+    |   LLRaiseExceptionPacket
     |   LLIndexedCaseOperation of { testReg: reg, workReg: reg }
     |   LLLockMutable of { addr: reg }
     |   LLWordComparison of { arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
@@ -330,8 +330,7 @@ struct
             |   addHints{instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...} =
                     (addRealHint(aReg, GenReg edi); addRealHint(iReg, GenReg eax); addRealHint(sReg, GenReg ecx))
         
-            |   addHints{instr=RaiseExceptionPacket{ packet }, ...} =
-                    (case decache packet of RegisterArgument(PReg preg) => addRealHint(preg, GenReg eax) | _ => ())
+            |   addHints{instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...} = addRealHint(preg, GenReg eax)
         
             |   addHints{instr=BeginHandler{packetReg=PReg pReg, workReg=_}, ...} =
                     (* The exception packet is in rax. *) addRealHint(pReg, GenReg eax)
@@ -1082,22 +1081,13 @@ struct
                     (LLJumpLoop{checkInterrupt=check} :: code)
             end
 
-        |   codeExtended({instr=RaiseExceptionPacket{ packet }, ...}, code) =
-            (
-                case decache packet of
-                    RegisterArgument(PReg preg) =>
-                    let
-                        (* The argument must be put into rax. *)
-                        val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
-                    in
-                        moveIfNecessary{src=argReg, dst=raxAsArg} @
-                            LLRaiseExceptionPacket {packet=RegisterArg raxAsArg } :: code
-                    end
-                |   packet =>
-                        (* Because we're exiting we don't have to worry about conflicts - just load it. *)
-                        LLLoadArgument{source=codeExtArgument(packet, generalRegisters), dest=raxAsArg, kind=MoveWord} ::
-                            LLRaiseExceptionPacket {packet=RegisterArg raxAsArg } :: code
-            )
+        |   codeExtended({instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...}, code) =
+            let
+                (* The argument must be put into rax. *)
+                val argReg = findRegister(preg, SOME(GenReg eax), generalRegisters)
+            in
+                moveIfNecessary{src=argReg, dst=raxAsArg} @ LLRaiseExceptionPacket :: code
+            end
 
         |   codeExtended({instr=ReserveContainer{size, ...}, ...}, code) =
             let
@@ -1149,14 +1139,14 @@ struct
             end
 
             (* Start of a handler.  Sets the address associated with PushExceptionHandler and
-               provides a register for the packet.  There is a work register but we could
-               use any register other than rax since we will have pushed anything we need. *) 
-        |   codeExtended({instr=BeginHandler{packetReg=PReg pReg, workReg=_}, ...}, code) =
+               provides a register for the packet.*) 
+        |   codeExtended({instr=BeginHandler{packetReg=PReg pReg, workReg=PReg wReg}, ...}, code) =
             let
                 (* The exception packet is in rax. *)
                 val realPktReg = findRegister(pReg, SOME(GenReg eax), generalRegisters)
+                val realWorkreg = findGeneralReg wReg
             in
-                LLBeginHandler{workReg=GenReg ebx, packetReg=GenReg eax} ::
+                LLBeginHandler{workReg=realWorkreg, packetReg=GenReg eax} ::
                     (moveIfNecessary{src=GenReg eax, dst=realPktReg } @ code)
             end
 
@@ -1664,8 +1654,7 @@ struct
                     codeGenICode(rest, checkCode @ code)
                 end
  
-            |   codeGenICode(LLRaiseExceptionPacket _ :: rest, code) =
-                    codeGenICode(rest, RaiseException :: code)
+            |   codeGenICode(LLRaiseExceptionPacket :: rest, code) = codeGenICode(rest, RaiseException :: code)
 
             |   codeGenICode(LLIndexedCaseOperation { testReg, workReg, ...} :: rest, code) =
                 let

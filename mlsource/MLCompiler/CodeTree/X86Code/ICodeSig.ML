@@ -167,7 +167,7 @@ sig
               checkInterrupt: preg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
-    |   RaiseExceptionPacket of { packet: argument }
+    |   RaiseExceptionPacket of { packetReg: preg }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, container: stackLocn }

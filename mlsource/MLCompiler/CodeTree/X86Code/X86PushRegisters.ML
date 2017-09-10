@@ -582,11 +582,11 @@ struct
                                      sourceCode @ stackArgLoads @ code
                         end
 
-                    |   pushRegisters({instr=RaiseExceptionPacket{packet}, ...}, code) =
+                    |   pushRegisters({instr=RaiseExceptionPacket{packetReg}, ...}, code) =
                         let
-                            val (packetVal, packetCode) = mapSource packet
+                            val (packetVal, packetCode) = mapSrcReg packetReg
                         in
-                            RaiseExceptionPacket{packet=packetVal} :: packetCode @ code
+                            RaiseExceptionPacket{packetReg=packetVal} :: packetCode @ code
                         end
 
                     |   pushRegisters({instr=ReserveContainer{size, container}, ...}, code) =

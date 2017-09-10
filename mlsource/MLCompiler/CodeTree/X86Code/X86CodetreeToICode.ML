@@ -955,9 +955,10 @@ struct
 
         |   codeToICodeRev(BICRaise exc, context as { currHandler, ...}, _, destination, tailCode) =
             let
-                val (code, dest, _) =
-                    codeToICodeRev(exc, context, false, Allowed allowDefer, tailCode)
-                val raiseCode = RaiseExceptionPacket{packet=dest}
+                val packetReg = newPReg()
+                val (code, _, _) =
+                    codeToICodeRev(exc, context, false, SpecificPReg packetReg, tailCode)
+                val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
                 val block =
                     case currHandler of
                         NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h)
@@ -1391,11 +1392,13 @@ struct
                 fun checkOverflow ccRef =
                 let
                     val overFlowLab = newLabel() and noOverflowLab = newLabel()
-                    val raiseCode = RaiseExceptionPacket{packet=AddressConstant(toMachineWord(Overflow))}
+                    val packetReg = newPReg()
+                    val raiseCode = RaiseExceptionPacket{packetReg=packetReg}
                 in
                     [
                         BlockFlow(Conditional{ ccRef=ccRef, condition=JNO, trueJump=noOverflowLab, falseJump=overFlowLab }),
                         BlockLabel overFlowLab,
+                        BlockSimple(LoadArgument{source=AddressConstant(toMachineWord(Overflow)), dest=packetReg, kind=MoveWord}),
                         case currHandler of NONE => BlockExit raiseCode | SOME h => BlockRaiseAndHandle(raiseCode, h),
                         BlockLabel noOverflowLab
                     ]

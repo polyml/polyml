@@ -198,6 +198,14 @@ struct
                         (* This can only put the result in rax. *)
                         reserveRegister([regNo dest], GenReg eax)
 
+                |   RaiseExceptionPacket{ packetReg } =>
+                        (* This wasn't needed previously because we always pushed the registers
+                           across an exception. *)
+                        reserveRegister([regNo packetReg], GenReg eax)
+                
+                |   BeginHandler { packetReg, ...} =>
+                        reserveRegister([regNo packetReg], GenReg eax)
+
                 |   _ => ()
         in
             ()

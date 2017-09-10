@@ -153,8 +153,8 @@ struct
             { sources=getSources argRegs, dests=[], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionState(RaiseExceptionPacket{packet}) =
-            { sources=argRegs packet, dests=[], sStacks=argStacks packet, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+    |   getInstructionState(RaiseExceptionPacket{packetReg}) =
+            { sources=[packetReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(ReserveContainer{container, ...}) =
             { sources=[], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }

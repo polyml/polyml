@@ -129,7 +129,7 @@ struct
               checkInterrupt: preg list option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
-    |   RaiseExceptionPacket of { packet: argument }
+    |   RaiseExceptionPacket of { packetReg: preg }
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, container: stackLocn }
@@ -412,7 +412,7 @@ struct
                 |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream))
             )
 
-        |   printICode(RaiseExceptionPacket{packet}, stream, printReg) = (stream "\tRaise\t"; printArg(packet, stream, printReg))
+        |   printICode(RaiseExceptionPacket{packetReg}, stream, printReg) = (stream "\tRaise\t"; printReg(packetReg, stream))
 
         |   printICode(ReserveContainer{size, container}, stream, _) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream " => "; printStackLoc(container, stream))
