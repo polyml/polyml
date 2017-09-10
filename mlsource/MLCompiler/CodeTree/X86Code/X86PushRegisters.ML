@@ -41,7 +41,7 @@ struct
        at the start of a block whichever block has jumped to it. *)
     datatype stackEntry =
         NewEntry of {pregNo: int} (* pregNo is the original preg that has been pushed here. *)
-    |   ContainerEntry of { size: int, active: bool, stackLoc: stackLocn }
+    |   OriginalEntry of { stackLoc: stackLocn }
     |   HandlerEntry
 
     fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, pregProps} =
@@ -108,7 +108,7 @@ struct
             |   NONE =>
                 let
                     (* This is the first time we've come to this block.  *)
-                    val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, ...} = vsub code blockNo
+                    val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, initialStacks, ...} = vsub code blockNo
                     val requiresCC = isSome inCCState
 
                     (* Remove any items from the input state that are no longer needed for
@@ -118,15 +118,15 @@ struct
                 
                     |   removeItems{stack=[], ...} = raise InternalError "removeItems - stack size"
 
-                    |   removeItems {stack as NewEntry{pregNo} :: rest, stackCount=newSize} =
+                    |   removeItems (thisStack as {stack=NewEntry{pregNo} :: rest, stackCount}) =
                         if member(pregNo, imports) orelse member(pregNo, passThrough)
-                        then {stackCount=newSize, stack=stack}
-                        else removeItems{stack=rest, stackCount=newSize-1}
+                        then thisStack
+                        else removeItems{stack=rest, stackCount=stackCount-1}
 
-                        (* This container has been deleted.  Its size has already been removed from
-                           the old count. *)
-                    |   removeItems {stack=ContainerEntry{active=false, size, ...} :: rest, stackCount=newSize} =
-                            removeItems{stack=rest, stackCount=newSize-size}
+                    |   removeItems (thisStack as {stack=OriginalEntry{stackLoc=StackLoc{rno, size}, ...} :: rest, stackCount}) =
+                        if member(rno, initialStacks)
+                        then thisStack
+                        else removeItems{stack=rest, stackCount=stackCount-size}
 
                     |   removeItems result = result
 
@@ -147,7 +147,7 @@ struct
                         val size =
                             case item of
                                 NewEntry _ => 1
-                            |   ContainerEntry{size, ...} => size
+                            |   OriginalEntry{stackLoc=StackLoc{size, ...}, ...} => size
                             |   HandlerEntry => 2
                     in
                         stackCount := ! stackCount+size;
@@ -592,7 +592,7 @@ struct
                     |   pushRegisters({instr=ReserveContainer{size, container}, ...}, code) =
                         let
                             val newContainer = mapDestContainer(container, !stackCount)
-                            val () = pushItemToStack(ContainerEntry{size=size, active=true, stackLoc=newContainer})
+                            val () = pushItemToStack(OriginalEntry{stackLoc=container})
                         in
                             ReserveContainer{size=size, container=newContainer} :: code
                         end
@@ -649,8 +649,7 @@ struct
                             (* Get the state after removing the handler. *)
                             fun popContext ([], _) = raise InternalError "pushRegisters - pop handler"
                             |   popContext (HandlerEntry :: tl, new) = (tl, new-2)
-                            |   popContext (ContainerEntry{active=true, ...} :: _, _) = raise InternalError "pushRegisters - pop handler - container"
-                            |   popContext (ContainerEntry{active=false, size, ...} :: tl, new) = popContext(tl, new-size)
+                            |   popContext (OriginalEntry{stackLoc=StackLoc{size, ...}, ...} :: tl, new) = popContext(tl, new-size)
                             |   popContext (NewEntry _ :: tl, new) = popContext(tl, new-1)
                             val (newStack, nnCount) = popContext(!stack, !stackCount)
                             val () = stack := newStack
@@ -713,7 +712,7 @@ struct
                             val (sourceVal, sourceCode) = mapSource arg
                             (* This was a push from a previous pass.  Treat as a container of size 1. *)
                             val newContainer = mapDestContainer(container, !stackCount)
-                            val () = pushItemToStack(ContainerEntry{size=1, active=true, stackLoc=newContainer})
+                            val () = pushItemToStack(OriginalEntry{stackLoc=container})
                         in
                             PushValue{arg=sourceVal, container=newContainer} :: sourceCode @ code
                         end
@@ -722,27 +721,8 @@ struct
                             (* This was added on a previous pass.  Discard it.  If we are going to cache this again we'll
                                add new CopyToCache instructions. *)
 
-                    |   pushRegisters({instr=ResetStackPtr{numWords, ...}, ...}, code) =
-                        (* This indicates that an old entry is no longer required.  We can't actually remove
-                           it because we may have pushed something since.  Instead we mark it as inactive and remove
-                           it when everything above is free. *)
-                        let
-                            fun removeItems(0, stack) = stack
-                            |   removeItems(_, []) = raise InternalError "removeItems - stack empty"
-                            |   removeItems(toRemove, (entry as ContainerEntry {active=false, ...}) :: tl) =
-                                    entry :: removeItems(toRemove, tl)
-                            |   removeItems(toRemove, ContainerEntry {size, active=true, stackLoc} :: tl) =
-                                    if toRemove < size then raise InternalError "removeItems - container size"
-                                    else ContainerEntry {size=size, active=false, stackLoc=stackLoc} :: removeItems(toRemove-size, tl)
-                            |   removeItems(_, HandlerEntry :: _) = raise InternalError "removeItems - handler"
-                            |   removeItems(toRemove, entry :: tl) = entry :: removeItems(toRemove, tl)
-                
-                            val () = stack := removeItems(numWords, !stack)
-                            (* This has just marked the items as free.  They haven't actually been removed
-                               from the stack yet. *)
-                        in
-                            code
-                        end
+                    |   pushRegisters({instr=ResetStackPtr _, ...}, code) = code
+                            (* Added in a previous pass - discard it. *)
 
                     |   pushRegisters({instr=StoreToStack{source, container, field, ...}, ...}, code) =
                         let
@@ -912,6 +892,7 @@ struct
                         fun doPush(instr as {kill, ...}, code) =
                         let
                             val newCode = pushRegisters(instr, code)
+                            (* Can we pop the stack? *)
                             fun checkKill r =
                                 case Array.sub(pregMap, r) of
                                     ToStack(stackLoc, container as StackLoc{size, ...}) =>

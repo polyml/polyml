@@ -54,6 +54,7 @@ struct
             imports: intSet, (* Defined outside the block, used inside it, but not needed afterwards. *)
             exports: intSet, (* Defined within the block, possibly used inside, but used outside. *)
             passThrough: intSet, (* Active throughout the block. May be referred to by it but needed afterwards. *)
+            initialStacks: intSet, (* Stack items required at the start i.e. imports+passThrough for stack items. *)
             inCCState: ccRef option, (* The state this block assumes.  If SOME _ all predecessors must set it. *)
             outCCState: ccRef option (* The condition code set by this block.  SOME _ if at least one successor needs it. *)
         }
@@ -671,6 +672,7 @@ struct
                 and passSet   = Array.sub(passThroughArray, blockNo)
                 and exportSet = Array.sub(exportArray, blockNo)
                 and stackPassSet = Array.sub(stackPassThroughArray, blockNo)
+                and stackImportSet = Array.sub(stackImportArray, blockNo)
                 and stackExportSet = Array.sub(stackExportArray, blockNo)
                 val filteredCode = getOpt(Array.sub(resultCode, blockNo), [])
                 (* At the end of the block we should have the exports active. *)
@@ -690,6 +692,7 @@ struct
                     imports = importSet,
                     exports = exportSet,
                     passThrough = passSet,
+                    initialStacks = union(stackPassSet, stackImportSet),
                     inCCState = inCCState,
                     outCCState = outCCState
                 }
