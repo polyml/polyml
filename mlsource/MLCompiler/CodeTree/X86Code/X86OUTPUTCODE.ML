@@ -2448,7 +2448,7 @@ struct
                     )
                     else ();
         
-                    if index = 0w4 (* No index. *)
+                    if index = 0w4 andalso not rexX (* No index. *)
                     then ()
                     else print (genRegRepr (mkReg(index, rexX), sz32_64) ^ 
                             (if ss = 0w0 then "*1"
