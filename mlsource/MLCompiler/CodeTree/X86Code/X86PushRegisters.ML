@@ -912,7 +912,7 @@ struct
                         fun doPush(instr as {kill, ...}, code) =
                         let
                             val newCode = pushRegisters(instr, code)
-(*                            fun checkKill r =
+                            fun checkKill r =
                                 case Array.sub(pregMap, r) of
                                     ToStack(stackLoc, container as StackLoc{size, ...}) =>
                                     let
@@ -923,9 +923,7 @@ struct
                                     end
                                     
                                 |   _ => NONE
-                            val stackKills = List.mapPartial checkKill (setToList kill) *)
-                            val stackKills = []
-                            (* *)
+                            val stackKills = List.mapPartial checkKill (setToList kill) 
                         in
                             stackKills @ newCode
                         end
