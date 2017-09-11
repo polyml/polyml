@@ -47,7 +47,7 @@ struct
         RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: preg, offset: int, index: memoryIndex } (* A memory location.  Could be the stack. *)
+    |   MemoryLocation of { base: preg, offset: int, index: memoryIndex, cache: preg option } (* A memory location.  Could be the stack. *)
         (* Offset on the stack.  The container is the stack location identifier, the field is an
            offset in a container.  cache is an optional cache register. *)
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
@@ -267,7 +267,17 @@ struct
 
     and basicBlock =
         BasicBlock of { block: x86ICode list, flow: controlFlow }
-    
+
+    (* Return the list of blocks that are the immediate successor of this. *)
+    fun successorBlocks(Unconditional l) = [l]
+    |   successorBlocks(Conditional{trueJump, falseJump, ...}) = [trueJump, falseJump]
+    |   successorBlocks ExitCode = []
+    |   successorBlocks(IndexedBr cases) = cases
+    |   successorBlocks(SetHandler{handler, continue, ...}) = [handler, continue]
+        (* We only need "handler" in SetHandler because we may have a handler that is never actually jumped to. *)
+    |   successorBlocks(UnconditionalHandle handler) = [handler]
+    |   successorBlocks(ConditionalHandle{handler, continue, ...}) = [handler, continue]
+
     datatype destinations = RegDest of reg | StackDest of int
 
     local        
@@ -283,12 +293,13 @@ struct
         fun printArg(RegisterArgument reg, stream, printReg) = printReg(reg, stream)
         |   printArg(AddressConstant m, stream, _) = stream(stringOfWord m)
         |   printArg(IntegerConstant i, stream, _) = stream(LargeInt.toString i)
-        |   printArg(MemoryLocation{base, offset, index}, stream, printReg) =
+        |   printArg(MemoryLocation{base, offset, index, cache, ...}, stream, printReg) =
             (
                 stream(Int.toString offset ^ "(");
                 printReg(base, stream);
                 stream ")";
-                printIndex(index, stream, printReg)
+                printIndex(index, stream, printReg);
+                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
         |   printArg(StackLocation{wordOffset, container, field, cache, ...}, stream, printReg) =
             (

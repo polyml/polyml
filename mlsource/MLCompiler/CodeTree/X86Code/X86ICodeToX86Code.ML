@@ -269,8 +269,9 @@ struct
         val sourceRegs = Array.array(maxPRegs, []: int list)
         and destinationRegs = Array.array(maxPRegs, []: int list)
         
-        (* Turn cached stack locations into register arguments. *)
+        (* Turn cached locations into register arguments. *)
         fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
+        |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache arg = arg
 
         local
@@ -514,8 +515,10 @@ struct
         fun codeExtArgument(RegisterArgument(PReg r), regSet) = RegisterArg(findRegister(r, NONE, regSet))
         |   codeExtArgument(AddressConstant m, _) = AddressConstArg m
         |   codeExtArgument(IntegerConstant i, _) = NonAddressConstArg i
-        |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index}, _) =
+        |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index, cache=NONE}, _) =
                 MemoryArg{base=asGenReg(findGeneralReg bReg), offset=offset, index=codeExtIndex index}
+        |   codeExtArgument(MemoryLocation{cache=SOME(PReg r), ...}, regSet) =
+                RegisterArg(findRegister(r, NONE, regSet))
         |   codeExtArgument(StackLocation{wordOffset, cache=NONE, ...}, _) =
                 MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   codeExtArgument(StackLocation{cache=SOME(PReg r), ...}, regSet) = RegisterArg(findRegister(r, NONE, regSet))

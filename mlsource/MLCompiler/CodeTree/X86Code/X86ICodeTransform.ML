@@ -186,6 +186,10 @@ struct
             val (identified, regStates) = identifyRegisters(basicBlocks, pregProps)
             val regsToSpill = spillRegisters(identified, regStates)
             val needPhase2 = Vector.exists(fn t => t) regsToSpill
+            val (needPhase2, regsToSpill) =
+                if needPhase2 orelse passes <> 0 then (needPhase2, regsToSpill)
+                else (true, Vector.tabulate(Vector.length pregProps, fn _ => false))
+                
         in
             if needPhase2
             then
