@@ -87,7 +87,7 @@ sig
         RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
     |   IntegerConstant of LargeInt.int (* A non-address constant.  Will usually be shifted and tagged. *)
-    |   MemoryLocation of { base: preg, offset: int, index: memoryIndex } (* A memory location. *)
+    |   MemoryLocation of { base: preg, offset: int, index: memoryIndex, cache: preg option } (* A memory location. *)
         (* Offset on the stack.  The container is the stack location identifier, the field is an
            offset in a container.  cache is an optional cache register. *)
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
@@ -304,6 +304,9 @@ sig
     |   ConditionalHandle of { handler: int, continue: int }
 
     and basicBlock = BasicBlock of { block: x86ICode list, flow: controlFlow }
+    
+    (* Return the successor blocks from a control flow. *)
+    val successorBlocks: controlFlow -> int list
 
     val printICodeAbstract: basicBlock vector * (string -> unit) -> unit
     

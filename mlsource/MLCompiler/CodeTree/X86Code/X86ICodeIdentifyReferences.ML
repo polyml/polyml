@@ -60,20 +60,14 @@ struct
         }
     
     exception InternalError = Misc.InternalError
-    
+
     (* Return the list of blocks that are the immediate successor of this. *)
-    fun blockSuccessors(BasicBlock{flow=Unconditional l, ...}) = [l]
-    |   blockSuccessors(BasicBlock{flow=Conditional{trueJump, falseJump, ...}, ...}) = [trueJump, falseJump]
-    |   blockSuccessors(BasicBlock{flow=ExitCode, ...}) = []
-    |   blockSuccessors(BasicBlock{flow=IndexedBr cases, ...}) = cases
-    |   blockSuccessors(BasicBlock{flow=SetHandler{handler, continue, ...}, ...}) = [handler, continue]
-        (* We only need "handler" in SetHandler because we may have a handler that is never actually jumped to. *)
-    |   blockSuccessors(BasicBlock{flow=UnconditionalHandle handler, ...}) = [handler]
-    |   blockSuccessors(BasicBlock{flow=ConditionalHandle{handler, continue, ...}, ...}) = [handler, continue]
+    fun blockSuccessors(BasicBlock{flow, ...}) = successorBlocks flow
 
     (* Find the registers from an argument. *)
     fun argRegs(RegisterArgument rarg) = [rarg]
-    |   argRegs(MemoryLocation { base, index, ...}) = base :: argIndex index
+    |   argRegs(MemoryLocation { base, index, cache=SOME cr, ...}) = cr  :: base :: argIndex index
+    |   argRegs(MemoryLocation { base, index, cache=NONE, ...}) = base :: argIndex index
     |   argRegs(StackLocation { cache=SOME rarg, ...}) = [rarg]
     |   argRegs _ = []
     
