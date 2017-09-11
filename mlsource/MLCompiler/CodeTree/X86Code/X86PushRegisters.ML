@@ -82,18 +82,18 @@ struct
             fun findCachedStack n = findCache (isStack n)
             and findCachedMemory (r, off) = findCache(isMemory (r, off))
             
-            fun removeStackCache n = removeCache (not o isStack n)
-            and removeMemoryCache (r, off) = removeCache (not o isMemory (r, off))
+            fun removeStackCache n = removeCache (isStack n)
+            and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
             
             fun setStackCache(n, new) =
                 (
-                    removeCache (not o isStack n);
+                    removeStackCache n;
                     cache := {cacheFor=CacheStack{rno=n}, cacheReg=new} :: ! cache
                 )
             
             and setMemoryCache(r, off, new) =
                 (
-                    removeCache (not o isMemory (r, off));
+                    removeMemoryCache (r, off);
                     cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new} :: ! cache
                 )
             

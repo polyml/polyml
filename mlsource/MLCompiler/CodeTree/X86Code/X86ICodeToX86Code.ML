@@ -268,13 +268,13 @@ struct
            we may be able to reuse it.  *)
         val sourceRegs = Array.array(maxPRegs, []: int list)
         and destinationRegs = Array.array(maxPRegs, []: int list)
-        
-        (* Turn cached locations into register arguments. *)
-        fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
-        |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
-        |   decache arg = arg
 
         local
+            (* Turn cached locations into register arguments. *)
+            fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
+            |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
+            |   decache arg = arg
+
             fun addRealHint(r, reg) =
                 case Array.sub(realHints, r) of
                     NONE => Array.update(realHints, r, SOME reg)
@@ -849,6 +849,14 @@ struct
                 ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
             ]
         end
+    
+        (* Return the register part of a cached item.  We must still, unfortunately, ensure that a register is
+           allocated for base registers because we're assuming that a register is allocated on the last
+           occurrence and this might be it. *)
+        fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
+        |   decache(MemoryLocation{cache=SOME r, base=PReg bReg, ...}) =
+                (findGeneralReg bReg; RegisterArgument r)
+        |   decache arg = arg
         
         fun codeExtended({instr=LoadArgument{source, dest=PReg dreg, kind}, ...}, code) =
             (
