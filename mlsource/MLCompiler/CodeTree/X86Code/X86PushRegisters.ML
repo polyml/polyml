@@ -85,6 +85,9 @@ struct
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
             
+            fun clearMemoryCache() =
+                cache := List.filter(fn {cacheFor=CacheMemory _,...} => false | _ => true) (!cache)
+
             fun setStackCache(n, new) =
                 (
                     removeStackCache n;
@@ -99,8 +102,17 @@ struct
             
             fun getCache () = ! cache
             
-            fun setCurrentCache c = cache := c
+            (* Merge the cache states *)
+            fun setCommonCacheState [] = clearCache() 
+            |   setCommonCacheState [single] =
+                let
+                    (* For some reason this fails if we allow memory items here. *)
+                    val filter = List.filter(fn {cacheFor=CacheStack _,...} => true | _ => false) single
+                in
+                    cache := filter
+                end
             
+            |   setCommonCacheState _ = clearCache()
         end
 
         val maxStack = ref 0
@@ -128,8 +140,7 @@ struct
         in
             val blockRefs = blockRefs
         end
-        
-         
+
         (* Recursive scan of the blocks.  For each block we produce an input and output state.
            The input state is the output state of the predecessor i.e. some block that jumps to
            this, but with any entries removed that are not used in this block.  It is then
@@ -140,6 +151,10 @@ struct
                a block has already been processed. *)
             val inputStackSizes =
                 Array.array(numberOfBlocks, NONE: {expectedInput:int, reqCC: bool} option)
+            
+            (* The state of the cache after a block.  Initialise to empty so that if
+               we have a loop we simply empty the cache. *)
+            val outputCacheStates = Array.array(numberOfBlocks, [])
 
             fun processBlocks(blockNo, lastOutputState) =
             case asub inputStackSizes blockNo of
@@ -522,12 +537,14 @@ struct
                             cacheCode @ sourceCodePost @ destCode :: sourceCodePre @ code
                         end
 
-                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, ...}, code) =
+                    |   pushRegisters({instr=StoreArgument{source, offset, base as PReg oldBase, index, kind}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapAndLoad source
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
                             val (baseReg, baseCode) = mapSrcReg(base)
                             val (indexValue, indexCode) = mapIndex(index)
+                            (* For the moment clear the memory cache completely here. *)
+                            val () = clearMemoryCache()
                         in
                             StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind} ::
                                     indexCode @ baseCode @ sourceCode @ code
@@ -771,6 +788,9 @@ struct
 
                     |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, ...}, code) =
                         let
+                            (* Clear the cache.  This may not be necessary if we are only handling
+                               locally generated exceptions but keep it for the moment. *)
+                            val () = clearCache()
                             (* Start of a handler.  The top active entry should be the handler. *)
                             val () =
                                 case !stack of
@@ -990,12 +1010,9 @@ struct
                         end
         
 
-                    (* Clear the cache unless we have only one predecessor. *)
-                    val () =
-                        (*case asub blockRefs blockNo of
-                            [_] => ()
-                        |   _ => *)clearCache()
-                    (* We can't adjust the stack at this point. *)
+                    (* Find the common cache state. *)
+                    val () = setCommonCacheState(List.map (asub outputCacheStates) (asub blockRefs blockNo))
+
                     local
                         fun doPush(instr as {kill, ...}, code) =
                         let
@@ -1052,6 +1069,8 @@ struct
                     val outputCount = ! stackCount
                     (* Remember these.  They will be the inputs for all the successors. *)
                     val stateResult = { stackCount= outputCount, stack= !stack }
+                    (* Save the output cache state. *)
+                    val () = Array.update(outputCacheStates, blockNo, getCache())
                     
                     (* Process the successor.  If we need a stack adjustment this will require
                        an adjustment block.  TODO: We could put a pre-adjustment if we only have one
