@@ -140,8 +140,12 @@ struct
         end
 
         val maxStack = ref 0
-         (* The result code. *)
-        val resultBlocks = Array.array(numberOfBlocks, BasicBlock{flow=ExitCode, block=[]})
+        (* The stack size we've assumed for the block.  Also indicates if
+           a block has already been processed. *)
+        val inputStackSizes =
+            Array.array(numberOfBlocks, NONE: {expectedInput:int, reqCC: bool} option)
+        (* The result of processing a block. *)
+        val blockOutput = Array.array(numberOfBlocks, {code=[], cache=[], stackCount=0})
         
         (* Extra blocks to adjust the stack are added here. *)
         val extraBlocks: basicBlock list ref = ref []
@@ -151,16 +155,24 @@ struct
         local
             val blockRefs = Array.array(numberOfBlocks, [])
             
-            fun setReferences(fromBlock, ExtendedBasicBlock{ flow, ...}) =
+            fun setReferences fromBlock =
             let
+                val ExtendedBasicBlock{ flow, ...} = vsub code fromBlock
                 val refs = successorBlocks flow
                 fun setRefs toBlock =
-                    Array.update(blockRefs, toBlock, fromBlock :: asub blockRefs toBlock)
+                let
+                    val oldRefs = asub blockRefs toBlock
+                in
+                    Array.update(blockRefs, toBlock, fromBlock :: oldRefs);
+                    if null oldRefs
+                    then setReferences toBlock
+                    else ()
+                end
             in
                 List.app setRefs refs
             end
 
-            val () = Vector.appi setReferences code
+            val () = setReferences 0
         in
             val blockRefs = blockRefs
         end
@@ -171,22 +183,22 @@ struct
            necessary to match the input state, if necessary by adding extra blocks that just
            do the matching. *)
         local
-            (* The stack size we've assumed for the block.  Also indicates if
-               a block has already been processed. *)
-            val inputStackSizes =
-                Array.array(numberOfBlocks, NONE: {expectedInput:int, reqCC: bool} option)
-            
-            (* The state of the cache after a block.  Initialise to empty so that if
-               we have a loop we simply empty the cache. *)
-            val outputCacheStates = Array.array(numberOfBlocks, [])
+            val haveProcessed = isSome o asub inputStackSizes
+        
+            fun processBlocks toDo =
+            case List.filter (fn (n, _) => not(haveProcessed n)) toDo of
+                [] => () (* Nothing left to do *)
 
-            fun processBlocks(blockNo, lastOutputState) =
-            case asub inputStackSizes blockNo of
-                SOME stackSize => stackSize
-                (* Already done.  Return the stack size it is expecting. *)
-
-            |   NONE =>
+            |   stillToDo as head :: _ =>
                 let
+                    (* Try to find a block all of whose predecessors have been processed.  That
+                       increases the chances that we will have cached items. *)
+                    fun available(dest, _) = List.all haveProcessed (Array.sub(blockRefs, dest))
+                    val (blockNo, lastOutputState) =
+                        case List.find available stillToDo of
+                            SOME c => c
+                        |   NONE => head
+                
                     (* This is the first time we've come to this block.  *)
                     val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, initialStacks, ...} = vsub code blockNo
                     val requiresCC = isSome inCCState
@@ -1035,7 +1047,7 @@ struct
         
 
                     (* Find the common cache state. *)
-                    val () = setCommonCacheState(List.map (asub outputCacheStates) (asub blockRefs blockNo))
+                    val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
 
                     local
                         fun doPush(instr as {kill, ...}, code) =
@@ -1088,90 +1100,114 @@ struct
                         end
                     in
                         val codeResult = List.foldl doPush [] block
-                    end
-                    
-                    val outputCount = ! stackCount
-                    (* Remember these.  They will be the inputs for all the successors. *)
-                    val stateResult = { stackCount= outputCount, stack= !stack }
-                    (* Save the output cache state. *)
-                    val () = Array.update(outputCacheStates, blockNo, getCache())
-                    
-                    (* Process the successor.  If we need a stack adjustment this will require
-                       an adjustment block.  TODO: We could put a pre-adjustment if we only have one
-                       branch to this block. *)
-                    fun matchStacks targetBlock =
-                    let
-                        (* Process the destination.  If it hasn't been processed. *)
-                        val {expectedInput, ...} = processBlocks(targetBlock, stateResult)
-                    in
-                        if expectedInput = outputCount
-                        then targetBlock
-                        else
-                        let
-                            val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
-                            val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)}]
-                            val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
-                            val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
-                            val () = extraBlocks := newBlock :: !extraBlocks
-                        in
-                            newBlockNo
-                        end
-                    end
-                    
-                    val (finalCode, newFlow) =
-                        case flow of
-                            ExitCode => (codeResult, ExitCode)
+                        val outputCount = ! stackCount
+                        val results = {code=codeResult, cache=getCache(), stackCount= outputCount}
+                        val stateResult = { stackCount= outputCount, stack= !stack }
                         
-                        |   Unconditional m =>
-                            let
-                                (* Process the block.  Since we're making an unconditional jump
-                                   we can include any stack adjustment needed to match the
-                                   destination in here.  In particular this includes loops. *)
-                                val {expectedInput, reqCC} = processBlocks(m, stateResult)
-                                val resultCode =
-                                    if expectedInput = outputCount
-                                    then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
-                            in
-                                (resultCode, Unconditional m)
-                            end
+                        val () = Array.update(blockOutput, blockNo,  results)
+                    end
 
-                            (* For any of these, if we need to adjust the stack we have to add an
-                               adjustment block. *)
-                        |   Conditional {trueJump, falseJump, ccRef, condition} =>
-                            (codeResult,
-                                Conditional{trueJump=matchStacks trueJump, falseJump=matchStacks falseJump,
-                                    ccRef=ccRef, condition=condition})
+                    val addSet =
+                        case flow of
+                            ExitCode => []
+                        |   IndexedBr cases => cases
+                        |   Unconditional dest => [dest]
+                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                        |   SetHandler { handler, continue } => [handler, continue]
+                        |   UnconditionalHandle _ => []
+                        |   ConditionalHandle { continue, ...} => [continue]
                         
-                        |   SetHandler{ handler, continue } =>
-                            (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
-                        
-                        |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
-                        
-                        |   u as UnconditionalHandle _ => (codeResult, u)
-                        
-                        |   c as ConditionalHandle{ continue, ... } =>
-                            let
-                                (* As for unconditional branch *)
-                                val {expectedInput, reqCC} = processBlocks(continue, stateResult)
-                                val resultCode =
-                                    if expectedInput = outputCount
-                                    then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
-                            in
-                                (resultCode, c)
-                            end
-                    val () =
-                        Array.update(resultBlocks, blockNo, BasicBlock{block=List.rev finalCode, flow=newFlow})
+                    val addItems = List.map(fn m => (m, stateResult)) addSet
                 in
-                    { expectedInput=newSp, reqCC=requiresCC} (* Return our input stack size. *)
+                    processBlocks(addItems @ stillToDo)
                 end
         in
-            val _ = processBlocks(0, {stack=[], stackCount=0})
+            val () = processBlocks([(0, {stack=[], stackCount=0})])
         end
 
+
         (* Put together the result code and blocks. *)
-        val resultBlocks = Array.vector resultBlocks
+        local
+            fun createBlock blockNo =
+            (* Skip unreferenced blocks apart from block 0. *)
+            if blockNo <> 0 andalso null (asub blockRefs blockNo)
+            then BasicBlock{block=[], flow=ExitCode}
+            else
+            let
+                val ExtendedBasicBlock{ flow, ...} = vsub code blockNo
+                val {code=codeResult, stackCount=outputCount, ...} = asub blockOutput blockNo
+                
+                (* Process the successor.  If we need a stack adjustment this will require
+                   an adjustment block.  TODO: We could put a pre-adjustment if we only have one
+                   branch to this block. *)
+                fun matchStacks targetBlock =
+                let
+                    (* Process the destination.  If it hasn't been processed. *)
+                    val {expectedInput, ...} = valOf (asub inputStackSizes targetBlock)
+                in
+                    if expectedInput = outputCount
+                    then targetBlock
+                    else
+                    let
+                        val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
+                        val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)}]
+                        val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
+                        val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
+                        val () = extraBlocks := newBlock :: !extraBlocks
+                    in
+                        newBlockNo
+                    end
+                end
+                
+                val (finalCode, newFlow) =
+                    case flow of
+                        ExitCode => (codeResult, ExitCode)
+                    
+                    |   Unconditional m =>
+                        let
+                            (* Process the block.  Since we're making an unconditional jump
+                               we can include any stack adjustment needed to match the
+                               destination in here.  In particular this includes loops. *)
+                            val {expectedInput, reqCC} = valOf (asub inputStackSizes m)
+                            val resultCode =
+                                if expectedInput = outputCount
+                                then codeResult
+                                else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
+                        in
+                            (resultCode, Unconditional m)
+                        end
+
+                        (* For any of these, if we need to adjust the stack we have to add an
+                           adjustment block. *)
+                    |   Conditional {trueJump, falseJump, ccRef, condition} =>
+                        (codeResult,
+                            Conditional{trueJump=matchStacks trueJump, falseJump=matchStacks falseJump,
+                                ccRef=ccRef, condition=condition})
+                    
+                    |   SetHandler{ handler, continue } =>
+                        (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
+                    
+                    |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
+                    
+                    |   u as UnconditionalHandle _ => (codeResult, u)
+                    
+                    |   c as ConditionalHandle{ continue, ... } =>
+                        let
+                            (* As for unconditional branch *)
+                            val {expectedInput, reqCC} = valOf (asub inputStackSizes continue)
+                            val resultCode =
+                                if expectedInput = outputCount
+                                then codeResult
+                                else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
+                        in
+                            (resultCode, c)
+                        end
+             in
+                BasicBlock{block=List.rev finalCode, flow=newFlow}
+            end
+        in
+            val resultBlocks = Vector.tabulate(numberOfBlocks, createBlock)
+        end
         
         (* Add any extra blocks to the result. *)
         val finalResult =
