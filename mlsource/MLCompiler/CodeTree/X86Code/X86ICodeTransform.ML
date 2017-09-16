@@ -197,7 +197,7 @@ struct
                 (* Push those registers we need to.  This also adds and renumbers pregs
                    and may add labels. *)
                 val {code=postPushCode, pregProps=regPropsPhase2, maxStack=maxStackPhase2} =
-                    addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps}
+                    addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=passes=0}
             in
                 (* And reprocess. *)
                 processCode(postPushCode, regPropsPhase2, maxStackPhase2, passes+1)
@@ -243,7 +243,7 @@ struct
                     let
                         val regsToSpill = selectARegisterToSpill activeSet
                         val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
-                            addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps}
+                            addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=false}
                     in
                         processCode(postPushCode, pregPropsPhase2, maxStackPhase2, passes+1)
                     end

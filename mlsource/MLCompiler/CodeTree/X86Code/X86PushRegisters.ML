@@ -44,7 +44,7 @@ struct
     |   OriginalEntry of { stackLoc: stackLocn }
     |   HandlerEntry
 
-    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, pregProps} =
+    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, pregProps, firstPass} =
     let
         val maxPRegs = Vector.length pregProps
         val numberOfBlocks = Vector.length code
@@ -104,15 +104,39 @@ struct
             
             (* Merge the cache states *)
             fun setCommonCacheState [] = clearCache() 
-            |   setCommonCacheState [single] =
-                let
-                    (* For some reason this fails if we allow memory items here. *)
-                    val filter = List.filter(fn {cacheFor=CacheStack _,...} => true | _ => false) single
-                in
-                    cache := filter
-                end
+            |   setCommonCacheState [single] = cache := single
             
-            |   setCommonCacheState _ = clearCache()
+            |   setCommonCacheState (many as first :: rest) =
+                let
+                    (* Generally we will either be unable to merge and have an empty cache or
+                       will have just one or two entries. *)
+                    (* Find the shortest.  If it's empty we're done. *)
+                    fun findShortest(_, [], _) = []
+                    |   findShortest(_, shortest, []) = shortest
+                    
+                    |   findShortest(len, shortest, hd::tl) =
+                        let
+                            val hdLen = length hd
+                        in
+                            if hdLen < len then findShortest(hdLen, hd, tl) else findShortest(len, shortest, tl)
+                        end
+                    val shortest = findShortest(length first, first, rest)
+                    
+                    (* Find the item we're caching for.  If it is in a different register we
+                       can't use it. *)
+                    fun findItem search (hd::tl) =
+                        if #cacheFor hd = #cacheFor search then #cacheReg hd = #cacheReg search
+                        else findItem search tl
+                    |   findItem _ [] = false
+                    
+                    (* It's present if it's in all the sources. *)
+                    fun present search = List.all(findItem search) many
+                    
+                    val filtered =
+                        List.foldl (fn (search, l) => if present search then search :: l else l) [] shortest
+                in
+                    cache := filtered
+                end
         end
 
         val maxStack = ref 0
@@ -393,11 +417,11 @@ struct
                     |   mapSourceEx(MemoryLocation{base as PReg breg, offset, index=NoMemIndex, cache, ...}) =
                         let
                             val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
-                            (* Was the item previously cached?  If it was but the register was marked to
-                               be cached we can't use a cache register. *)
+                            (* We can cache this if it is the first pass or if we have previously
+                               cached it and we haven't marked it as pushed. *)
                             val newCache =
                                 case cache of
-                                    NONE => findCachedMemory(breg, offset)
+                                    NONE => if firstPass then findCachedMemory(breg, offset) else NONE
                                 |   SOME (PReg c) =>
                                     if Vector.sub(pushVec, c)
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
@@ -537,7 +561,7 @@ struct
                             cacheCode @ sourceCodePost @ destCode :: sourceCodePre @ code
                         end
 
-                    |   pushRegisters({instr=StoreArgument{source, offset, base as PReg oldBase, index, kind}, ...}, code) =
+                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapAndLoad source
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)

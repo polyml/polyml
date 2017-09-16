@@ -21,7 +21,7 @@ sig
     and regProperty
 
     val addRegisterPushes :
-        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector } ->
+        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
             { code: basicBlock vector, pregProps: regProperty vector, maxStack: int }
 
     structure Sharing:
