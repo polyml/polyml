@@ -101,7 +101,12 @@ struct
                     |   IndexedCaseOperation _ => destRegNos @ sourceRegNos
                     |   ArithmeticFunction{oper=SUB, operand2, ...} =>
                             (* Special case for subtraction - we can't use the same register for the result and
-                               the second operand. *) destRegNos @ map regNo (argRegs operand2)   
+                               the second operand. *) destRegNos @ map regNo (argRegs operand2)
+                        (* TailRecursiveCall and JumpLoop may require a work register.
+                           This is the only destination but if present it must be distinct
+                           from the arguments. *)
+                    |   TailRecursiveCall _ => destRegNos @ sourceRegNos
+                    |   JumpLoop _ => destRegNos @ sourceRegNos
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)

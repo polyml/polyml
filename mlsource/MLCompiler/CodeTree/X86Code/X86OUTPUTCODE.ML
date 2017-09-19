@@ -734,39 +734,6 @@ struct
         opcodePrefix opb @ rexByte @ escapePrefix opb @ [opToInt opb]
     end
 
-    (* Generate an effective address. *)
-    fun eACode (offset: LargeInt.int, rb: Word8.word, r: Word8.word) =
-    let
-        val offsetCode =
-            (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
-            if offset = 0 andalso rb <> 0w5 
-            then Based0  (* no disp field *)
-            else if is8BitL offset
-            then Based8  (* use 8-bit disp field *)
-            else Based32 (* use 32-bit disp field *)
-        val modRmbytes =
-            if rb = 0w4 (* Code for esp and r12 *)
-            then (* Need to use s-i-b byte. *)
-            let
-                (* Normally we will have a non-zero offset for esp.  The
-                   exception is computing the maximum stack in the prelude. *)
-                val mdrmByte = modrm (offsetCode, r, 0w4 (* use SIB *))
-                val sibByte = sib(NoIndex, SOME esp)
-            in
-                [mdrmByte, sibByte]
-            end
-            else [modrm(offsetCode, r, rb)]
-
-        val offsetBytes =
-            (* generate the disp field (if any) *)
-            case offsetCode of
-                Based8  => [byteSigned(LargeInt.toInt offset)]
-            |   Based32 => int32Signed offset
-            |   _       => []
-    in
-        modRmbytes @ offsetBytes
-    end
-
     fun rexByte(opb, rrX, rbX, riX) =
     let
         (* We need a rex prefix if we need to set the length to 64-bit. *)
@@ -808,25 +775,6 @@ struct
         else []
     end
 
-    local
-        (* Generate a opcode plus a modrm byte.  *)
-        fun opEAGen(opb:opCode, offset: LargeInt.int, rb: genReg, (rrC, rrX)) =
-        let
-            val (rbC, rbX) = getReg rb
-        in
-            (* Any lock or opsize prefix comes before any REX prefix. *)
-            opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb] @
-                eACode(offset, rbC, rrC)
-        end
-    in
-        fun opEA(opb, offset, rb, r) = opEAGen(opb, offset, rb, getReg r)
-        and mMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC) =
-            opEAGen(opb, offset, rb, (rrC, false))
-        (* Generate a opcode plus a second modrm byte but where the "register" field in
-           the modrm byte is actually a code.  *)
-        and opPlus2(opb, offset, rb, op2) = opEAGen(opb, offset, rb, (op2, false))
-    end
-
     (* Register/register operation. *)
     fun opReg(opb:opCode, rd: genReg, rs: genReg) =
     let
@@ -852,6 +800,49 @@ struct
     end
 
     local
+        (* Generate an effective address. *)
+        fun eACode (offset: LargeInt.int, rb: Word8.word, r: Word8.word) =
+        let
+            val offsetCode =
+                (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
+                if offset = 0 andalso rb <> 0w5 
+                then Based0  (* no disp field *)
+                else if is8BitL offset
+                then Based8  (* use 8-bit disp field *)
+                else Based32 (* use 32-bit disp field *)
+            val modRmbytes =
+                if rb = 0w4 (* Code for esp and r12 *)
+                then (* Need to use s-i-b byte. *)
+                let
+                    (* Normally we will have a non-zero offset for esp.  The
+                       exception is computing the maximum stack in the prelude. *)
+                    val mdrmByte = modrm (offsetCode, r, 0w4 (* use SIB *))
+                    val sibByte = sib(NoIndex, SOME esp)
+                in
+                    [mdrmByte, sibByte]
+                end
+                else [modrm(offsetCode, r, rb)]
+
+            val offsetBytes =
+                (* generate the disp field (if any) *)
+                case offsetCode of
+                    Based8  => [byteSigned(LargeInt.toInt offset)]
+                |   Based32 => int32Signed offset
+                |   _       => []
+        in
+            modRmbytes @ offsetBytes
+        end
+
+        (* Generate a opcode plus a modrm byte.  *)
+        fun opEAGen(opb:opCode, offset: LargeInt.int, rb: genReg, (rrC, rrX)) =
+        let
+            val (rbC, rbX) = getReg rb
+        in
+            (* Any lock or opsize prefix comes before any REX prefix. *)
+            opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb] @
+                eACode(offset, rbC, rrC)
+        end
+
         (* Similar to genEA, but used when there is an index register.
            rb may be NONE if no base register is required (used
            with leal to tag values). *)
@@ -901,12 +892,22 @@ struct
             pref @ rex @ esc @ [opc, mdrm, sibByte] @ dispField
         end
     in
+        fun opEA(opb, offset, rb, r) = opEAGen(opb, offset, rb, getReg r)
+        and mMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC) =
+            opEAGen(opb, offset, rb, (rrC, false))
+        (* Generate a opcode plus a second modrm byte but where the "register" field in
+           the modrm byte is actually a code.  *)
+        and opPlus2(opb, offset, rb, op2) = opEAGen(opb, offset, rb, (op2, false))
+        
         fun opIndexed (opb, offset, rb, ri, rd) =
            opIndexedGen(opb, offset, rb, ri, getReg rd) 
         and mMXIndexed(opb, offset, rb, ri, SSE2Reg rrC) =
             opIndexedGen(opb, offset, SOME rb, ri, (rrC, false))
         and opIndexedPlus2(opb, offset, rb, ri, op2) =
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
+        
+        fun opAddress(opb, offset, rb, NoIndex, rd) = opEAGen(opb, offset, rb, getReg rd)
+        |   opAddress(opb, offset, rb, ri, rd) = opIndexedGen (opb, offset, SOME rb, ri, getReg rd)
     end
 
     fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int) =
@@ -1036,7 +1037,7 @@ struct
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
-    |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
@@ -1253,7 +1254,7 @@ struct
                 stream "ConvertFromInt "; printGReg source; stream " => "; printXMMReg output
             )
         |   SignExtendForDivide => stream "SignExtendForDivide"
-        |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
+        |   XChng { reg, arg } => (stream "XChng "; printGReg reg; stream " <=> "; printRegOrMemoryArg printGReg arg)
         |   Negative { output } => (stream "Negative "; printGReg output)
         |   JumpTable{cases, ...} =>
                 List.app(fn(Label{labelNo, ...}) => (stream "UncondBranch L"; stream(Int.toString labelNo); stream "\n")) cases
@@ -1933,9 +1934,12 @@ struct
         |   cgOp SignExtendForDivide =
                 opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE)
             
-        |   cgOp (XChngRegisters { regX, regY}) =
-                (* We only use register-to-register exchange.  That doesn't cause a lock. *)
-                opReg(XCHNG, regX, regY)
+        |   cgOp (XChng { reg, arg=RegisterArg regY }) = opReg(XCHNG, reg, regY)
+            
+        |   cgOp (XChng { reg, arg=MemoryArg{offset, base, index} }) =
+                opAddress(XCHNG, LargeInt.fromInt offset, base, index, reg)
+                
+        |   cgOp (XChng _) = raise InternalError "cgOp: XChng"
 
         |   cgOp (Negative {output}) =
                 opRegPlus2(Group3_A, output, 0w3 (* neg *))

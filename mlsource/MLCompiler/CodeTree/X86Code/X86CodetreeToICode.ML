@@ -629,7 +629,7 @@ struct
                             {src=StackLocation{wordOffset=stackPtr, container=returnAddressEntry, field=0, cache=NONE}, stack=stackAdjust}
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
-                                  stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind})
+                                  stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind, workReg=newPReg()})
                     end
                     else
                     let
@@ -939,7 +939,7 @@ struct
                 val stackReset =
                     if loopSp = stackPtr then codeArgs
                     else BlockSimple(ResetStackPtr{numWords=stackPtr-loopSp, preserveCC=false}) :: codeArgs
-                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[]}
+                val jumpLoop = JumpLoop{regArgs=jumpArgs, stackArgs=[], checkInterrupt=SOME[], workReg=NONE}
                 (* "checkInterrupt" could result in a Interrupt exception so we treat this like
                    a function call. *)
                 val code =

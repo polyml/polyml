@@ -136,11 +136,11 @@ sig
            stackAdjust is the number of words to remove (positive) or add
            (negative) to the stack before the call.
            stackOffset is a temporary addition.  It contains the number of items
-           currently on the stack.  *)
+           currently on the stack. *)
     |   TailRecursiveCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
               stackArgs: {src: argument, stack: int} list,
-              stackAdjust: int, stackOffset: int }
+              stackAdjust: int, stackOffset: int, workReg: preg }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.
@@ -164,7 +164,7 @@ sig
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
             { regArgs: (argument * preg) list, stackArgs: (argument * int * stackLocn) list,
-              checkInterrupt: preg list option }
+              checkInterrupt: preg list option, workReg: preg option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packetReg: preg }

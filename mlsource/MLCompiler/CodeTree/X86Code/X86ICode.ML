@@ -98,11 +98,11 @@ struct
            stackAdjust is the number of words to remove (positive) or add
            (negative) to the stack before the call.
            stackOffset is a temporary addition.  It contains the number of items
-           currently on the stack.  *)
+           currently on the stack. *)
     |   TailRecursiveCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
               stackArgs: {src: argument, stack: int} list,
-              stackAdjust: int, stackOffset: int }
+              stackAdjust: int, stackOffset: int, workReg: preg }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.
@@ -126,7 +126,7 @@ struct
         (* Set up the registers for a jump back to the start of a loop. *)
     |   JumpLoop of
             { regArgs: (argument * preg) list, stackArgs: (argument * int * stackLocn) list,
-              checkInterrupt: preg list option }
+              checkInterrupt: preg list option, workReg: preg option }
 
         (* Raise an exception.  The packet is always loaded into rax. *)
     |   RaiseExceptionPacket of { packetReg: preg }
@@ -368,7 +368,7 @@ struct
                 stream "=> "; printReg(dest, stream)
             )
 
-        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, stackOffset}, stream, printReg) =
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, stackOffset, workReg}, stream, printReg) =
             (
                 stream "\tTailCall\t";
                 case callKind of
@@ -379,7 +379,8 @@ struct
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printReg); stream " ")) stackArgs;
                 stream "adj="; stream(Int.toString stackAdjust);
-                stream "offset="; stream(Int.toString stackOffset)
+                stream "offset="; stream(Int.toString stackOffset);
+                stream " work reg="; printReg(workReg, stream)
             )
 
         |   printICode(AllocateMemoryOperation{size, flags, dest, saveRegs}, stream, printReg) =
@@ -408,7 +409,7 @@ struct
 
         |   printICode(InitialisationComplete, stream, _) = stream "\tInitComplete"
 
-        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, ... }, stream, printReg) =
+        |   printICode(JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ... }, stream, printReg) =
             (
                 stream "\tJumpLoop\t";
                 List.app(
@@ -420,7 +421,8 @@ struct
                     ) stackArgs;
                 case checkInterrupt of
                     NONE => ()
-                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream))
+                |   SOME saveRegs => (stream " Check:save="; printSaves(saveRegs, printReg, stream));
+                case workReg of NONE => () | SOME r => (stream " work reg="; printReg(r, stream))
             )
 
         |   printICode(RaiseExceptionPacket{packetReg}, stream, printReg) = (stream "\tRaise\t"; printReg(packetReg, stream))

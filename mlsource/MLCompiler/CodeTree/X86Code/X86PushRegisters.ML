@@ -645,8 +645,10 @@ struct
                                         regArgLoads @ stackArgLoads @ code
                         end
 
-                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, ...}, ...}, code) =
+                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, workReg, ...}, ...}, code) =
                         let
+                            val newWorkReg = mapWorkReg workReg
+                            
                             fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
                             let
                                 val (argVal, loadCode) = mapSource src
@@ -668,7 +670,8 @@ struct
                             val newStackOffset = !stackCount
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
-                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, stackOffset=newStackOffset} ::
+                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, stackOffset=newStackOffset,
+                                    workReg=newWorkReg} ::
                                         regArgLoads @ stackArgLoads @ code
                         end
 
@@ -698,7 +701,7 @@ struct
 
                     |   pushRegisters({instr=InitialisationComplete, ...}, code) = InitialisationComplete :: code
 
-                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...}, code) =
+                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
                         let
                             (* Normally JumpLoop will be the last item in a block but it is possible that we've
                                added a reset-stack after it. *)
@@ -735,8 +738,15 @@ struct
                 
                             val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
                             val check = case checkInterrupt of NONE => NONE | SOME _ => SOME []
+                            (* Map the work reg if it exists already but get a new one if
+                               we now have stack args. *)
+                            val newWorkReg =
+                                case (workReg, newStackArgs) of
+                                    (SOME r, _) => SOME(mapWorkReg r)
+                                |   (NONE, []) => NONE
+                                |   _ => SOME(newPReg RegPropGeneral)
                         in
-                            JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
+                            JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check, workReg=newWorkReg} ::
                                      sourceCode @ stackArgLoads @ code
                         end
 

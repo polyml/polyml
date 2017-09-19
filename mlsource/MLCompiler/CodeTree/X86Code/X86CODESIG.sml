@@ -168,7 +168,7 @@ sig
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
-    |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }

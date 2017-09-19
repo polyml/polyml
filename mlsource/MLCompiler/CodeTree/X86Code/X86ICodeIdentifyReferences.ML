@@ -109,7 +109,7 @@ struct
             { sources=getSources argRegs, dests=[dest], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
-    |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, ...}) =
+    |   getInstructionState(TailRecursiveCall{regArgs, stackArgs, workReg, ...}) =
         let
             (* Tail recursive call.  References the argument sources but exits. *)
             fun getSources argSource =
@@ -120,7 +120,7 @@ struct
                 List.foldl regSource stackSources regArgs
             end
         in
-            { sources=getSources argRegs, dests=[], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=getSources argRegs, dests=[workReg], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(AllocateMemoryOperation{dest, ...}) =
@@ -136,7 +136,7 @@ struct
             (* This is just a marker.  It doesn't actually generate any code. *)
             { sources=[], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(JumpLoop{regArgs, stackArgs, ...}) =
+    |   getInstructionState(JumpLoop{regArgs, stackArgs, workReg, ...}) =
         let
             fun getSources argSource =
             let
@@ -145,8 +145,9 @@ struct
             in
                 List.foldl(fn ((source, _, _), srcs) => argSource source @ srcs) regSourceAsRegs stackArgs
             end
+            val dests = case workReg of SOME r => [r] | NONE => []
         in
-            { sources=getSources argRegs, dests=[], sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=getSources argRegs, dests=dests, sStacks=getSources argStacks, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
         end
 
     |   getInstructionState(RaiseExceptionPacket{packetReg}) =
@@ -594,7 +595,7 @@ struct
                                 BoxValue{source=source, dest=dest, boxKind=boxKind,
                                     saveRegs=getSaveSet(regNo dest)}
                         
-                        |   JumpLoop{regArgs, stackArgs, checkInterrupt, ...} =>
+                        |   JumpLoop{regArgs, stackArgs, checkInterrupt, workReg, ...} =>
                             let
                                 (* If we have to check for interrupts we must preserve registers across
                                    the RTS call. *)
@@ -609,7 +610,7 @@ struct
                                         NONE => NONE
                                     |   SOME _ => SOME(List.mapPartial getSave (setToList currentRegs))
                             in
-                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check}
+                                JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
                             end
 
                         |   _ => instr
