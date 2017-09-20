@@ -285,6 +285,11 @@ struct
                 (BlockSimple(LoadArgument{source=arg, dest=target, kind=MoveWord}) :: code, RegisterArgument target, false)
             end
 
+        (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
+        and loadAddress{base, offset=0, index=NoMemIndex, dest} =
+                LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord}
+        |   loadAddress args = LoadEffectiveAddress args
+
         and codeToICodeTarget(instr, context: context, isTail, target) =
         (* This is really for backwards compatibility.  *)
         let
@@ -2096,8 +2101,8 @@ struct
 
                 val code =
                     leftCode @ rightCode @ lengthCode @
-                    leftUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
-                    rightUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
+                    leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                    rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
                     lengthUntag @
                     [BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }),
                      (* N.B. These are unsigned comparisons. *)
@@ -2129,8 +2134,8 @@ struct
                     codeAddress(destRight, isByteMove, context)
                 val code =
                     leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
-                    leftUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
-                    rightUntag @ [BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
+                    leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                    rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
                     [BlockSimple(UntagValue{source=RegisterArgument lengthReg, dest=lenReg, isSigned=false}),
                      BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
             in
@@ -2409,8 +2414,8 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(CompareByteVectors{ vec1Addr=vec1Reg, vec2Addr=vec2Reg, length=lengthArg, ccRef=ccRef }) ::
-                lengthUntag @ BlockSimple(LoadEffectiveAddress{base=SOME rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
-                rightUntag @ BlockSimple(LoadEffectiveAddress{base=SOME leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
+                lengthUntag @ BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg}) ::
+                rightUntag @ BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg}) ::
                 leftUntag @ lengthCode
             end
 

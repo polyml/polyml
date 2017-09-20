@@ -1241,18 +1241,13 @@ struct
 
         |   codeExtended({instr=UntagValue _, ...}, _) = raise InternalError "UntagValue"
 
-        |   codeExtended({instr=LoadEffectiveAddress{base=SOME base, offset=0, index=NoMemIndex, dest}, active, current, kill}, code) =
-                (* This should be handled at the higher level. *)
-                codeExtended({instr=LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord},
-                              active=active, current=current, kill=kill}, code)
-
-        |   codeExtended({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
+        |   codeExtended({instr=LoadEffectiveAddress{base=PReg br, offset, index, dest=PReg dReg}, ...}, code) =
             let
                 val destReg = findGeneralReg dReg
-                val bReg = case base of SOME(PReg br) => SOME(findGeneralReg br) | NONE => NONE
+                val bReg = findGeneralReg br
                 val iReg = codeExtIndex index
             in
-                LLLoadEffectiveAddress{base=bReg, offset=offset, index=iReg, dest=destReg} :: code
+                LLLoadEffectiveAddress{base=SOME bReg, offset=offset, index=iReg, dest=destReg} :: code
             end
 
         |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=RegisterArgument(PReg operReg), shiftAmount=IntegerConstant i, ...}, ...}, code) =
