@@ -311,6 +311,7 @@ struct
                         |   LoadEffectiveAddress _ => true
                         |   BoxValue _ => true
                         |   CopyToCache _ => true
+                        |   LoadMemReg _ => true
                         |   _ => false
                     fun regNo(PReg i) = i
                     and stackNo(StackLoc{rno, ...}) = rno
