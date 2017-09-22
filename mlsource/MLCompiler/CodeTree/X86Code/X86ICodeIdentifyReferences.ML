@@ -23,12 +23,10 @@ functor X86ICodeIdentifyReferences(
 struct
     open ICODE
     open INTSET
-    
-    datatype pushState = MustPush | MustNotPush | MayPush
 
     type regState =
     { 
-        active: int, refs: int, pushState: pushState, prop: regProperty
+        active: int, refs: int, pushState: bool, prop: regProperty
     }
 
     and conflictState =
@@ -190,7 +188,7 @@ struct
     |   getInstructionState(PushValue {arg, container, ...}) =
             { sources=argRegs arg, dests=[], sStacks=argStacks arg, dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }
     
-    |   getInstructionState(CopyToCache{source, dest}) =
+    |   getInstructionState(CopyToCache{source, dest, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged}
 
     |   getInstructionState(ResetStackPtr{preserveCC, ...}) =
@@ -271,10 +269,9 @@ struct
            actually used and also included in the result which uses it as
            part of the choice of which register to spill. *)
         val regRefs = Array.array(maxPRegs, 0)
-        (* Whether the register must be saved on the stack, must not or could be. *)
-        and regPushState =
-            Array.tabulate(maxPRegs,
-                fn i => case Vector.sub(pregProps, i) of RegPropGeneral => MayPush | RegPropCache => MayPush | _ => MustNotPush)
+        (* Registers that must be pushed because they are required after
+           a function call.  For cache registers this means "discard". *)
+        and requirePushOrDiscard = Array.array(maxPRegs, false)
 
         fun incrRef r = Array.update(regRefs, r, Array.sub(regRefs, r)+1)
         
@@ -571,10 +568,10 @@ struct
                         fun getSave i =
                             if i = dReg
                             then NONE
-                            else case Array.sub(regPushState, i) of
-                                MustNotPush => NONE
-                            |   MustPush => NONE (* Already on the stack. *)
-                            |   _ => SOME(PReg i)
+                            else case Vector.sub(pregProps, i) of
+                                RegPropGeneral => SOME(PReg i)
+                            |   RegPropCacheTagged => SOME(PReg i)
+                            |   _ => NONE
                     in
                         List.mapPartial getSave (setToList activeAfter)
                     end
@@ -599,10 +596,10 @@ struct
                                 (* If we have to check for interrupts we must preserve registers across
                                    the RTS call. *)
                                 fun getSave i =
-                                    case Array.sub(regPushState, i) of
-                                        MustNotPush => NONE
-                                    |   MustPush => NONE (* Already on the stack. *)
-                                    |   _ => SOME(PReg i)
+                                    case Vector.sub(pregProps, i) of
+                                    RegPropGeneral => SOME(PReg i)
+                                |   RegPropCacheTagged => SOME(PReg i)
+                                |   _ => NONE
                                 val currentRegs = union(activeAfterThis, passThrough)
                                 val check =
                                     case checkInterrupt of
@@ -624,8 +621,9 @@ struct
                             if List.exists(fn j => i=j) destRegNos
                             then ()
                             else case Vector.sub(pregProps, i) of
-                                RegPropCache => raise InternalError "pushRegisters: cache reg"
-                            |  _ => Array.update(regPushState, i, MustPush)
+                                RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
+                            |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
+                            |  _ => Array.update(requirePushOrDiscard, i, true)
                     in
                         (* We need to push everything active after this
                            except the result register. *)
@@ -639,13 +637,14 @@ struct
                                there still seem to be cases that need it. *)
                         |   BeginHandler _ => pushRegisters ()
                         
-                        |   CopyToCache {source=PReg srcReg, dest=PReg dstReg} =>
+                        |   CopyToCache {source=PReg srcReg, dest=PReg dstReg, ...} =>
                             (* If the source is a cache register marked as "must push" i.e. discard,
                                the destination must also be discarded i.e. not available. 
                                Note: the source could be a non-cache register marked for pushing. *)
                             (
-                                case (Vector.sub(pregProps, srcReg), Array.sub(regPushState, srcReg)) of
-                                    (RegPropCache, MustPush) => Array.update(regPushState, dstReg, MustPush)
+                                case (Vector.sub(pregProps, srcReg), Array.sub(requirePushOrDiscard, srcReg)) of
+                                    (RegPropCacheTagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
+                                |   (RegPropCacheUntagged, true) => Array.update(requirePushOrDiscard, dstReg, true)
                                 |   _ => ()
                             )
                         |   _ => ()
@@ -701,7 +700,7 @@ struct
                 fn i => {
                     active = Array.sub(regActive, i),
                     refs = Array.sub(regRefs, i),
-                    pushState = Array.sub(regPushState, i),
+                    pushState = Array.sub(requirePushOrDiscard, i),
                     prop = Vector.sub(pregProps, i)
                 }
             )
@@ -721,7 +720,6 @@ struct
     struct
         type x86ICode           = x86ICode
         and reg                 = reg
-        and pushState           = pushState
         and preg                = preg
         and intSet              = intSet
         and basicBlock          = basicBlock

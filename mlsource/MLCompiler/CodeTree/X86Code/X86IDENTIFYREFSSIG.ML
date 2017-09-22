@@ -19,14 +19,12 @@ signature X86IDENTIFYREFSSIG =
 sig
     type x86ICode and reg and preg and basicBlock and controlFlow
     and argument and memoryIndex and regProperty and ccRef
-
-    datatype pushState = MustPush | MustNotPush | MayPush
     
     type intSet
 
     type regState =
     { 
-        active: int, refs: int, pushState: pushState, prop: regProperty
+        active: int, refs: int, pushState: bool, prop: regProperty
     }
     
     (* Simple basic block with register usage information. *)
@@ -55,7 +53,6 @@ sig
     sig
         type x86ICode           = x86ICode
         and reg                 = reg
-        and pushState           = pushState
         and preg                = preg
         and intSet              = intSet
         and basicBlock          = basicBlock

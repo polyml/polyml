@@ -258,10 +258,10 @@ struct
         |   codeExtIndex(MemIndex4(PReg r)) = Index4(asGenReg(getAllocatedReg r))
         |   codeExtIndex(MemIndex8(PReg r)) = Index8(asGenReg(getAllocatedReg r))
 
-        fun moveRR{src, dst} = LLLoadArgument{source=RegisterArg src, dest=dst, kind=MoveWord}
+        fun moveRR{src, dst, kind} = LLLoadArgument{source=RegisterArg src, dest=dst, kind=kind}
 
-        fun moveIfNecessary{src, dst} =
-            if src = dst then [] else [moveRR{src=src, dst=dst}]
+        fun moveIfNecessary{src, dst, kind} =
+            if src = dst then [] else [moveRR{src=src, dst=dst, kind=kind}]
        
         datatype llsource =
             StackSource of int
@@ -558,7 +558,7 @@ struct
                     (* Register to register move.  Try to use the same register for the source as the destination
                        to eliminate the instruction. *)
                         (* If the source is the same as the destination we don't need to do anything. *)
-                        moveIfNecessary{src=getAllocatedReg sreg, dst=realDestReg} @ code
+                        moveIfNecessary{src=getAllocatedReg sreg, dst=realDestReg, kind=kind} @ code
 
                 |   source => (* Loads of constants or from an address. *)
                         LLLoadArgument{source=codeExtArgument source, dest=realDestReg, kind=kind} :: code
@@ -580,7 +580,7 @@ struct
                         val realStoreReg = getAllocatedReg sReg
                         val (moveCode, storeReg) =
                             if realStoreReg = GenReg edi orelse realStoreReg = GenReg esi
-                            then (moveIfNecessary{src=realStoreReg, dst=GenReg ecx}, GenReg ecx)
+                            then (moveIfNecessary{src=realStoreReg, dst=GenReg ecx, kind=MoveWord}, GenReg ecx)
                             else ([], realStoreReg)
                     in
                         moveCode @
@@ -678,7 +678,7 @@ struct
             in
                 pushedArgs @ loadRegArgs @ loadConstArgs @
                     (LLFunctionCall{callKind=callKind} ::
-                        moveIfNecessary{dst=destReg, src=GenReg eax}) @ code
+                        moveIfNecessary{dst=destReg, src=GenReg eax, kind=MoveWord}) @ code
             end
 
         |   codeExtended({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =
@@ -733,7 +733,7 @@ struct
                 (* The argument must be put into rax. *)
                 val argReg = getAllocatedReg preg
             in
-                moveIfNecessary{src=argReg, dst=raxAsArg} @ LLRaiseExceptionPacket :: code
+                moveIfNecessary{src=argReg, dst=raxAsArg, kind=MoveWord} @ LLRaiseExceptionPacket :: code
             end
 
         |   codeExtended({instr=ReserveContainer{size, ...}, ...}, code) =
@@ -794,14 +794,14 @@ struct
                 val realWorkreg = getAllocatedReg wReg
             in
                 LLBeginHandler{workReg=realWorkreg, packetReg=GenReg eax} ::
-                    (moveIfNecessary{src=GenReg eax, dst=realPktReg } @ code)
+                    (moveIfNecessary{src=GenReg eax, dst=realPktReg, kind=MoveWord } @ code)
             end
 
         |   codeExtended({instr=ReturnResultFromFunction { resultReg=PReg resReg, numStackArgs }, ...}, code) =
             let
                 val resultReg = getAllocatedReg resReg
                 (* If for some reason it's not in the right register we have to move it there. *)
-                val moveCode = moveIfNecessary{src=resultReg, dst=raxAsArg}
+                val moveCode = moveIfNecessary{src=resultReg, dst=raxAsArg, kind=MoveWord}
             in
                 moveCode @
                     (LLReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs} :: code)
@@ -818,7 +818,7 @@ struct
                 val op2Arg = codeExtArgument operand2
                 (* If we couldn't put it in the result register we have to copy it there. *)
             in
-                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
                     (LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
             end
 
@@ -838,7 +838,7 @@ struct
                     then (realOp2Reg, [])
                     else if realOp2Reg = realDestReg
                     then (realOp1Reg, [])
-                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg}])
+                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg, kind=MoveWord}])
             in
                 moveInstr @
                     (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg,
@@ -857,7 +857,7 @@ struct
                    between the result register and the arguments.  What if the second argument is a memory
                    location with the result reg as a base or index? *)
             in
-                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
                     (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
             end
 
@@ -869,7 +869,7 @@ struct
                 val realOp2Reg = getAllocatedReg op2Reg
                 val op1Arg = codeExtArgument operand1
             in
-                moveIfNecessary{src=realOp2Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp2Reg, dst=realDestReg, kind=MoveWord} @
                     (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op1Arg} :: code)
             end
 
@@ -880,14 +880,14 @@ struct
 
         |   codeExtended({instr=PushValue {arg, ...}, ...}, code) = LLPushValue {arg=codeExtArgument arg} :: code
 
-        |   codeExtended({instr=CopyToCache{source=PReg sreg, dest=PReg dreg}, ...}, code) =
+        |   codeExtended({instr=CopyToCache{source=PReg sreg, dest=PReg dreg, kind}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg dreg
                 (* Get the source register using the current destination as a preference. *)
                 val realSrcReg = getAllocatedReg sreg
             in
                 (* If the source is the same as the destination we don't need to do anything. *)
-                moveIfNecessary{src=realSrcReg, dst=realDestReg} @ code
+                moveIfNecessary{src=realSrcReg, dst=realDestReg, kind=kind} @ code
             end
 
         |   codeExtended({instr=ResetStackPtr {numWords, preserveCC}, ...}, code) =
@@ -916,7 +916,7 @@ struct
                 val regResult = getAllocatedReg dReg
                 val realSReg = getAllocatedReg sReg
             in
-                moveIfNecessary{src=realSReg, dst=regResult} @
+                moveIfNecessary{src=realSReg, dst=regResult, kind=MoveWord} @
                     (LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult, operand=RegisterArg regResult,
                         shiftAmount=NonAddressConstArg 1} :: code)
             end
@@ -937,7 +937,7 @@ struct
                 val realDestReg = getAllocatedReg resReg
                 val realOpReg = getAllocatedReg operReg
             in
-                 moveIfNecessary{src=realOpReg, dst=realDestReg} @
+                 moveIfNecessary{src=realOpReg, dst=realDestReg, kind=MoveWord} @
                     (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
                                     shiftAmount=NonAddressConstArg i} :: code)
             end
@@ -951,7 +951,7 @@ struct
                 (* We want the shift in ecx.  We may not have got it there but the register
                    should be free. *)
             in
-                 moveIfNecessary{src=realOpReg, dst=realDestReg} @ moveIfNecessary{src=realShiftReg, dst=GenReg ecx} @
+                 moveIfNecessary{src=realOpReg, dst=realDestReg, kind=MoveWord} @ moveIfNecessary{src=realShiftReg, dst=GenReg ecx, kind=MoveWord} @
                     (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
                                     shiftAmount=RegisterArg(GenReg ecx)} :: code)
             end
@@ -972,7 +972,7 @@ struct
                     then (realOp2Reg, [])
                     else if realOp2Reg = realDestReg
                     then (realOp1Reg, [])
-                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg}])
+                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg, kind=MoveWord}])
             in
                 moveInstr @
                     (LLMultiplication{resultReg=realDestReg, operand1=RegisterArg realDestReg,
@@ -995,7 +995,7 @@ struct
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
                    quotient will actually be used. *)
-                moveIfNecessary{src=realDiviReg, dst=GenReg eax} @
+                moveIfNecessary{src=realDiviReg, dst=GenReg eax, kind=MoveWord} @
                     LLDivision{isSigned=isSigned, dividend=GenReg eax, divisor=divisorArg,
                               quotient=GenReg eax, remainder=GenReg edx} ::
                     moveMultipleRegisters[{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}] @ code
@@ -1038,8 +1038,9 @@ struct
                    is two bytes in 32-bit but three in 64-bit.
                    If we knew the length was non-zero (e.g. a constant) we could avoid this. *)
             in
-                moveIfNecessary{src=realV1Reg, dst=GenReg esi} @ moveIfNecessary{src=realV2Reg, dst=GenReg edi} @
-                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx} @
+                moveIfNecessary{src=realV1Reg, dst=GenReg esi, kind=MoveWord} @
+                    moveIfNecessary{src=realV2Reg, dst=GenReg edi, kind=MoveWord} @
+                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx, kind=MoveWord} @
                     (LLWordComparison {arg1=RegisterArg rcxAsArg, arg2=RegisterArg rcxAsArg} ::
                      LLCompareByteVectors{vec1Addr=GenReg esi, vec2Addr=GenReg edi, length=GenReg ecx} :: code)
             end
@@ -1050,8 +1051,9 @@ struct
                 val realDestReg = getAllocatedReg dReg
                 val realLengthReg = getAllocatedReg lReg
             in
-                moveIfNecessary{src=realSrcReg, dst=GenReg esi} @ moveIfNecessary{src=realDestReg, dst=GenReg edi} @
-                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx} @
+                moveIfNecessary{src=realSrcReg, dst=GenReg esi, kind=MoveWord} @
+                    moveIfNecessary{src=realDestReg, dst=GenReg edi, kind=MoveWord} @
+                    moveIfNecessary{src=realLengthReg, dst=GenReg ecx, kind=MoveWord} @
                     (LLBlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove} :: code)
             end
 
@@ -1066,7 +1068,7 @@ struct
                 val destReg = getAllocatedReg dReg
             in
                 LLX87FPGetCondition{dest=raxAsArg} ::
-                    moveIfNecessary{dst=destReg, src=GenReg eax} @ code
+                    moveIfNecessary{dst=destReg, src=GenReg eax, kind=MoveWord} @ code
             end
 
         |   codeExtended({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), arg2}, ...}, code) =
@@ -1075,7 +1077,7 @@ struct
                 val realOp1Reg = getAllocatedReg op1Reg
                 val op2Arg = codeExtArgument arg2
             in
-                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
                     (LLX87FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
             end
 
@@ -1086,7 +1088,7 @@ struct
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
             in
-                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
                     (LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArg realDestReg} :: code)
             end
 
@@ -1118,7 +1120,7 @@ struct
                 val realOp1Reg = getAllocatedReg op1Reg
                 val op2Arg = codeExtArgument arg2
             in
-                moveIfNecessary{src=realOp1Reg, dst=realDestReg} @
+                moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
                     (LLSSE2FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
             end
     

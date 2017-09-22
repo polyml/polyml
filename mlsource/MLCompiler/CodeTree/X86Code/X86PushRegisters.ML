@@ -61,8 +61,11 @@ struct
         local
             (* The number of active cache entries is likely to be small and is
                at most proportional to the number of instructions in the block.
-               Any function call will clear it.  *)
-            val cache: {cacheFor: cacheType, cacheReg: preg } list ref = ref []
+               Any function call will clear it.
+               For memory entries we need to know if the value is tagged and
+               what kind of move we're using.
+               Stack entries always will be tagged and MoveWord. *)
+            val cache: {cacheFor: cacheType, cacheReg: preg, isTagged: bool, kind: moveKind } list ref = ref []
            
             fun isStack n {cacheFor=CacheStack{rno}, ...} = rno = n
             |   isStack _ {cacheFor=CacheMemory _, ...} = false
@@ -70,17 +73,15 @@ struct
             fun isMemory (r, off) {cacheFor=CacheMemory{rno, offset}, ...} = rno = r andalso offset=off
             |   isMemory _ {cacheFor=CacheStack _, ...} = false
             
-            fun findCache f =
-                case List.find f (! cache) of
-                    NONE => NONE
-                |   SOME {cacheReg, ...} => SOME cacheReg
+            fun findCache f = List.find f (! cache)
             
             fun removeCache f = cache := List.filter (not o f) (! cache)
         in
             fun clearCache() = cache := []
              
-            fun findCachedStack n = findCache (isStack n)
-            and findCachedMemory (r, off) = findCache(isMemory (r, off))
+            fun findCachedStack n = Option.map (#cacheReg) (findCache (isStack n))
+            and findCachedMemory (r, off) =
+                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off))) 
             
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
@@ -91,13 +92,13 @@ struct
             fun setStackCache(n, new) =
                 (
                     removeStackCache n;
-                    cache := {cacheFor=CacheStack{rno=n}, cacheReg=new} :: ! cache
+                    cache := {cacheFor=CacheStack{rno=n}, cacheReg=new, isTagged=true, kind=MoveWord} :: ! cache
                 )
             
-            and setMemoryCache(r, off, new) =
+            and setMemoryCache(r, off, new, isTagged, kind) =
                 (
                     removeMemoryCache (r, off);
-                    cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new} :: ! cache
+                    cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
                 )
             
             fun getCache () = ! cache
@@ -281,10 +282,12 @@ struct
                                 val stackSource =
                                     StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
                                 (* Because this is in a register we can copy it to a cache register. *)
-                                val newCacheReg = newPReg RegPropCache
+                                val newCacheReg = newPReg RegPropCacheTagged
                                 val () = setStackCache(n, newCacheReg)
                             in
-                                (newReg, [LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}], [CopyToCache{source=newReg, dest=newCacheReg}])
+                                (newReg,
+                                    [LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}],
+                                    [CopyToCache{source=newReg, dest=newCacheReg, kind=MoveWord}])
                             end
 
                     fun mapSrcReg srcReg =
@@ -413,10 +416,10 @@ struct
                                             NONE => []
                                         |   SOME cacheR =>
                                             let
-                                                val newCacheReg = newPReg RegPropCache
+                                                val newCacheReg = newPReg RegPropCacheTagged
                                                 val () = setStackCache(r, newCacheReg)
                                             in
-                                                [CopyToCache{source=cacheR, dest=newCacheReg}]
+                                                [CopyToCache{source=cacheR, dest=newCacheReg, kind=MoveWord}]
                                             end
                                 in
                                     (stackLoc, [], cacheCode)
@@ -439,16 +442,19 @@ struct
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
                                     else findCachedMemory(breg, offset)
                             val memLoc =
-                                MemoryLocation{base=baseReg, offset=offset, index=NoMemIndex, cache=newCache}
+                                MemoryLocation{base=baseReg, offset=offset, index=NoMemIndex, cache=Option.map #1 newCache}
                             val cacheCode =
                                 case newCache of
                                     NONE => (removeMemoryCache(breg, offset); [])
-                                |   SOME oldCacheReg =>
+                                |   SOME (oldCacheReg, isTagged, kind) =>
                                     let
-                                        val newCacheReg = newPReg RegPropCache
-                                        val () = setMemoryCache(breg, offset, newCacheReg)
+                                        (* Set the cache kind.  If this is the first pass we will have a
+                                           general or untagged register. *)
+                                        val cacheKind = if isTagged then RegPropCacheTagged else RegPropCacheUntagged
+                                        val newCacheReg = newPReg cacheKind
+                                        val () = setMemoryCache(breg, offset, newCacheReg, isTagged, kind)
                                     in
-                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg}]
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=kind}]
                                     end
                         in
                             (memLoc, baseCodePre, baseCodePost @ cacheCode)
@@ -482,10 +488,10 @@ struct
                                     NONE => (removeStackCache rno; [])
                                 |   SOME oldCacheReg =>
                                     let
-                                        val newCacheReg = newPReg RegPropCache
+                                        val newCacheReg = newPReg RegPropCacheTagged
                                         val () = setStackCache(rno, newCacheReg)
                                     in
-                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg}]
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=MoveWord}]
                                     end
                         in
                             (stackLoc, [], cacheCode)
@@ -509,11 +515,11 @@ struct
                                 stack as StackLocation _ =>
                                 let
                                     val newReg = newPReg RegPropUntagged
-                                    val newCacheReg = newPReg RegPropCache
+                                    val newCacheReg = newPReg RegPropCacheTagged
                                     val _ = setStackCache(r, newCacheReg)
                                 in
                                     (RegisterArgument newReg,
-                                        CopyToCache{source=newReg, dest=newCacheReg} :: sourceCodePost @
+                                        CopyToCache{source=newReg, dest=newCacheReg, kind=MoveWord} :: sourceCodePost @
                                             LoadArgument{source=stack, dest=newReg, kind=MoveWord} :: sourceCodePre)
                                 end
                             |   _ => (sourceVal, sourceCodePost @ sourceCodePre)
@@ -541,11 +547,11 @@ struct
                         else (* We're not going to push this. *)
                         let
                             val (sourceVal, sourceCodePre, sourceCodePost) = mapSourceEx source
+                            val dKind = Vector.sub(pregProps, dReg)
                             val destReg =
                                 case Array.sub(pregMap, dReg) of
                                     Unset =>
                                     let
-                                        val dKind = Vector.sub(pregProps, dReg)
                                         val newReg = newPReg dKind
                                         val () = Array.update(pregMap, dReg, ToPReg newReg)
                                     in
@@ -554,17 +560,23 @@ struct
                                 |   ToPReg preg => preg
                                 |   ToStack _ => raise InternalError "LoadArgument - already on stack"
                             
-                            (* Can we cache this?  For the moment only cache full-words.  We could very usefully
-                               cache real values since they are loaded in exactly this way but just for
-                               the moment don't do that. *)
+                            (* Can we cache this? . *)
                             val cacheCode =
-                                case (source, kind) of
-                                    (MemoryLocation{base=PReg breg, offset, index=NoMemIndex, ...}, MoveWord) =>
+                                case source of
+                                    MemoryLocation{base=PReg breg, offset, index=NoMemIndex, ...} =>
                                     let
-                                        val newCacheReg = newPReg RegPropCache
-                                        val _ = setMemoryCache(breg, offset, newCacheReg)
+                                        (* The cache kind must match the kind of register we're loading.
+                                           If the value is untagged it must not be marked to be examined
+                                           by the GC if we allocate anything. *)
+                                        val cacheType =
+                                            case dKind of
+                                                RegPropGeneral => RegPropCacheTagged
+                                            |   RegPropUntagged => RegPropCacheUntagged
+                                            |   _ => raise InternalError "cacheKind"
+                                        val newCacheReg = newPReg cacheType
+                                        val _ = setMemoryCache(breg, offset, newCacheReg, cacheType = RegPropGeneral, kind)
                                     in 
-                                        [CopyToCache{source=destReg, dest=newCacheReg}]
+                                        [CopyToCache{source=destReg, dest=newCacheReg, kind=kind}]
                                     end
                                 |   _ => []
 

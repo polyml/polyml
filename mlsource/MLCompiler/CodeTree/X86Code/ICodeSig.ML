@@ -81,8 +81,9 @@ sig
         RegPropGeneral      (* A general register. *)
     |   RegPropUntagged     (* An untagged general register. *)
     |   RegPropStack of int (* A stack location or container. *)
-    |   RegPropCache
-
+    |   RegPropCacheTagged
+    |   RegPropCacheUntagged
+ 
     datatype argument =
         RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
@@ -209,7 +210,7 @@ sig
     
         (* Copy a value to a cache register.  LoadArgument could be used for this
            but it may be better to keep it separate. *)
-    |   CopyToCache of { source: preg, dest: preg }
+    |   CopyToCache of { source: preg, dest: preg, kind: moveKind }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int, preserveCC: bool }

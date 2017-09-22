@@ -41,8 +41,9 @@ struct
         RegPropGeneral      (* A general register. *)
     |   RegPropUntagged     (* An untagged general register. *)
     |   RegPropStack of int (* A stack location or container. *)
-    |   RegPropCache
-
+    |   RegPropCacheTagged
+    |   RegPropCacheUntagged
+ 
     datatype argument =
         RegisterArgument of preg
     |   AddressConstant of machineWord (* A constant that is an address. *)
@@ -171,7 +172,7 @@ struct
 
         (* Copy a value to a cache register.  LoadArgument could be used for this
            but it may be better to keep it separate. *)
-    |   CopyToCache of { source: preg, dest: preg }
+    |   CopyToCache of { source: preg, dest: preg, kind: moveKind }
 
         (* Remove items from the stack.  Added during translation phase. *)
     |   ResetStackPtr of { numWords: int, preserveCC: bool }
@@ -312,16 +313,17 @@ struct
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
         |   printSaves(areg::more, printReg, stream) =
                 (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
+        
+        fun printKind(MoveWord, stream) = stream "Word"
+        |   printKind(MoveByte, stream) = stream "Byte"
+        |   printKind(Move16Bit, stream) = stream "16Bit"
+        |   printKind(Move32Bit, stream) = stream "32Bit"
+        |   printKind(MoveFloat, stream) = stream "Float"
+        |   printKind(MoveDouble, stream) = stream "Double";
 
         fun printICode(LoadArgument{source, dest, kind}, stream, printReg) =
             (
-                case kind of
-                    MoveWord => stream "\tLoadWord\t"
-                |   MoveByte => stream "\tLoadByte\t"
-                |   Move16Bit => stream "\tLoad16Bit\t"
-                |   Move32Bit => stream "\tLoad32Bit\t"
-                |   MoveFloat => stream "\tLoadFloat\t"
-                |   MoveDouble => stream "\tLoadDouble\t";
+                stream "\tLoad"; printKind(kind, stream); stream "\t";
                 printArg(source,  stream, printReg);
                 stream " => ";
                 printReg(dest, stream)
@@ -489,8 +491,8 @@ struct
         |   printICode(PushValue{arg, container}, stream, printReg) =
                 (stream "\tPushValue\t"; printArg(arg, stream, printReg); stream " => "; printStackLoc(container, stream))
 
-        |   printICode(CopyToCache{source, dest}, stream, printReg) =
-                (stream "\tCopyToCache\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
+        |   printICode(CopyToCache{source, dest, kind}, stream, printReg) =
+                (stream "\tCopyToCache"; printKind(kind, stream); stream "\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(ResetStackPtr{numWords, preserveCC}, stream, _) =
             (

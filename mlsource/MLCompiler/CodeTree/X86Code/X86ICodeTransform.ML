@@ -55,8 +55,7 @@ struct
 
         (* Mark anything already marked as "must push" unless it's already on the stack *)
         local
-            fun checkPush(i, {pushState=MustPush, prop=RegPropGeneral, ...}) =
-                Array.update(pushArray, i, true)
+            fun checkPush(i, {pushState=true, ...}) = Array.update(pushArray, i, true)
             |   checkPush _ = ()
         in
             val () = Vector.appi checkPush regStates
@@ -106,10 +105,11 @@ struct
                 val regCount = List.length currentActive
                 fun addCosts r =
                 let
-                    val {active, pushState, refs, ...} = Vector.sub(regStates, r)
+                    val {active, refs, prop, ...} = Vector.sub(regStates, r)
                 in
-                    case pushState of
-                        MustNotPush => (r, ~1, ~1)
+                    case prop of
+                        RegPropUntagged => (r, ~1, ~1)
+                    |   RegPropStack _ => (r, ~1, ~1)
                     |   _ => (r, Array.sub(activeIn, r), if refs = 0 then 0 else Int.quot(active, refs))
                 end
                 val withCosts = List.map addCosts currentActive
@@ -125,8 +125,7 @@ struct
                     then ()
                     else
                     let
-                        val {pushState, prop, ...} = Vector.sub(regStates, reg)
-                        val _ = case pushState of MustNotPush => raise InternalError "markAsPush" | _ => ()
+                        val {prop, ...} = Vector.sub(regStates, reg)
                         val _ = case prop of RegPropStack _ => raise InternalError "markAsPush" | _ => ()
                     in
                         Array.update(pushArray, reg, true);
@@ -233,13 +232,13 @@ struct
                             fun chooseReg([], bestReg, _) = bestReg
                             |   chooseReg(reg::regs, bestReg, bestCost) =
                                 let
-                                    val {active, pushState, refs, prop, ...} = Vector.sub(regStates, reg)
+                                    val {active, refs, prop, ...} = Vector.sub(regStates, reg)
                                     val cost = if refs = 0 then 0 else Int.quot(active, refs)
                                 in
-                                    case (pushState, prop) of
-                                        (MustNotPush, _) => chooseReg(regs, bestReg, bestCost)
-                                    |   (_, RegPropStack _) => chooseReg(regs, bestReg, bestCost)
-                                    |   (_, RegPropCache) => reg (* Pick the first cache reg. *)
+                                    case prop of
+                                        RegPropStack _ => chooseReg(regs, bestReg, bestCost)
+                                    |   RegPropCacheUntagged => reg (* Pick the first cache reg. *)
+                                    |   RegPropCacheTagged => reg (* Pick the first cache reg. *)
                                     |   _ =>
                                         if cost >= bestCost
                                         then chooseReg(regs, reg, active)

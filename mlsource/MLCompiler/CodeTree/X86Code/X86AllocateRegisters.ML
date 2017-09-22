@@ -150,7 +150,7 @@ struct
             |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op2Reg}
         
-            |   addHints{instr=CopyToCache{source=PReg sreg, dest=PReg dreg}, ...} =
+            |   addHints{instr=CopyToCache{source=PReg sreg, dest=PReg dreg, ...}, ...} =
                     addSourceAndDestinationHint {src=sreg, dst=dreg}
         
             |   addHints{instr=UntagValue{source=RegisterArgument(PReg sReg), dest=PReg dReg, ...}, ...} =
@@ -546,12 +546,17 @@ struct
 
         |   registerAllocate({instr=PushValue {arg, ...}, ...}) = allocateArgGeneral arg
 
-        |   registerAllocate({instr=CopyToCache{source=PReg sreg, dest=PReg dreg}, ...}) =
+        |   registerAllocate({instr=CopyToCache{source=PReg sreg, dest=PReg dreg, kind}, ...}) =
             let
-                val realDestReg = findRegister(dreg, NONE, generalRegisters)
+                val regSet =
+                    case kind of
+                        MoveFloat => floatingPtRegisters
+                    |   MoveDouble => floatingPtRegisters
+                    |   _ => generalRegisters
+                val realDestReg = findRegister(dreg, NONE, regSet)
             in
                 (* Get the source register using the current destination as a preference. *)
-                allocateRegister(sreg, SOME realDestReg, generalRegisters)
+                allocateRegister(sreg, SOME realDestReg, regSet)
             end
             
         |   registerAllocate({instr=ResetStackPtr _, ...}) = ()
