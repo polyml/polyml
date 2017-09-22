@@ -543,7 +543,11 @@ struct
                 val activeForInstr =
                     case instr of
                         FunctionCall _ => sourceSet (* Is this still needed? *)
-                    |   TailRecursiveCall _ => sourceSet (* Is this still needed? *)
+                    |   TailRecursiveCall _ =>
+                            (* Set the active set to the total set of registers we require including
+                               the work register.  This ensures that we will spill as many registers
+                               as we require when we look at the size of the active set. *)
+                            union(sourceSet, destSet)
                     |   AllocateMemoryVariable _ => (* We can only set the size after the memory is allocated. *)
                             union(activeAfterThis, union(sourceSet, destSet))
                     |   BoxValue _ => (* We can only store the value in the box after the box is allocated. *)

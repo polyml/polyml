@@ -181,6 +181,8 @@ struct
 
         fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes) =
         let
+            (* This should only require a few passes. *)
+            val _ = passes < 10 orelse raise InternalError "Too many passes"
             val () =
                 if wantPrintCode
                 then printCode basicBlocks
@@ -208,28 +210,49 @@ struct
             else
             let
                 val maxPRegs = Vector.length regStates
-                fun selectARegisterToSpill active =
+                
+                fun spillFromConflictSets conflictSets =
                 let
-                    fun chooseReg([], bestReg, _) = bestReg
-                    |   chooseReg(reg::regs, bestReg, bestCost) =
+                    val maxPRegs = Vector.length regStates
+                    val pushArray = Array.array(maxPRegs, false)
+                    
+                    fun selectARegisterToSpill active =
+                    let
+                        val regsToPick = setToList active
+                    in
+                        (* If we have already marked one of these to be pushed we don't
+                           need to do anything here. *)
+                        if List.exists (fn r => Array.sub(pushArray, r)) regsToPick
+                        then ()
+                        else (* Choose something to push. *)
                         let
-                            val {active, pushState, refs, prop, ...} = Vector.sub(regStates, reg)
-                            val cost = if refs = 0 then 0 else Int.quot(active, refs)
+                            fun chooseReg([], bestReg, _) = bestReg
+                            |   chooseReg(reg::regs, bestReg, bestCost) =
+                                let
+                                    val {active, pushState, refs, prop, ...} = Vector.sub(regStates, reg)
+                                    val cost = if refs = 0 then 0 else Int.quot(active, refs)
+                                in
+                                    case (pushState, prop) of
+                                        (MustNotPush, _) => chooseReg(regs, bestReg, bestCost)
+                                    |   (_, RegPropStack _) => chooseReg(regs, bestReg, bestCost)
+                                    |   (_, RegPropCache) => reg (* Pick the first cache reg. *)
+                                    |   _ =>
+                                        if cost >= bestCost
+                                        then chooseReg(regs, reg, active)
+                                        else chooseReg(regs, bestReg, bestCost)
+                                end
+                            val choice = chooseReg(regsToPick, ~1, 0)
+                            val _ = choice >= 0 orelse raise InternalError "chooseReg"
                         in
-                            case (pushState, prop) of
-                                (MustNotPush, _) => chooseReg(regs, bestReg, bestCost)
-                            |   (_, RegPropStack _) => chooseReg(regs, bestReg, bestCost)
-                            |   (_, RegPropCache) => reg (* Pick the first cache reg. *)
-                            |   _ =>
-                                if cost >= bestCost
-                                then chooseReg(regs, reg, active)
-                                else chooseReg(regs, bestReg, bestCost)
+                            Array.update(pushArray, choice, true)
                         end
-                    val choice = chooseReg(setToList active, ~1, 0)
-                    val _ = choice >= 0 orelse raise InternalError "chooseReg"
+                    end
+                    
+                    val () = List.app selectARegisterToSpill conflictSets
                 in
-                    Vector.tabulate(maxPRegs, fn i => i = choice)
+                    Array.vector pushArray
                 end
+                
                 (* Now get the conflict sets. *)
                 val conflictSets = getConflictStates(identified, maxPRegs)
                 local
@@ -246,8 +269,7 @@ struct
                                        stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
                |    AllocateFailure fails =>
                     let
-                        val activeSet = hd fails
-                        val regsToSpill = selectARegisterToSpill activeSet
+                        val regsToSpill = spillFromConflictSets fails
                         val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
                             addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=false}
                     in
