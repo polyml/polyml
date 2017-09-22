@@ -121,6 +121,8 @@
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\IntSet.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\INTSETSIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\ml_bind.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86AllocateRegisters.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86ALLOCATEREGISTERSSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CODESIG.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86CodetreeToICode.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\X86Code\X86FOREIGNCALL.sml" />

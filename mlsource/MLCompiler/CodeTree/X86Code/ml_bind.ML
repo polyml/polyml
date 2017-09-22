@@ -61,13 +61,19 @@ local
             structure IDENTIFY      = X86ICodeIdentify
         )
 
+    structure X86IAllocate =
+        X86AllocateRegisters (
+            structure ICODE         = X86ICode
+            structure IDENTIFY      = X86ICodeIdentify
+            structure CONFLICTSETS  = X86ICodeConflicts
+            structure INTSET        = IntSet
+        )
+
     structure X86ICodeGenerate =
         X86ICodeToX86Code (
             structure DEBUG         = Debug
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
-            structure CONFLICTSETS  = X86ICodeConflicts
-            structure PUSHREGISTERS = X86PushRegs
             structure PRETTY        = Pretty
             structure INTSET        = IntSet
             structure X86CODE       = X86OutputCode
@@ -81,6 +87,7 @@ local
             structure ICODE         = X86ICode
             structure IDENTIFY      = X86ICodeIdentify
             structure CONFLICTSETS  = X86ICodeConflicts
+            structure ALLOCATE      = X86IAllocate
             structure PUSHREGISTERS = X86PushRegs
             structure PRETTY        = Pretty
             structure INTSET        = IntSet

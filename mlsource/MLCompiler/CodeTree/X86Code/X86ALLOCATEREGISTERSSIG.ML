@@ -15,18 +15,26 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86ICODEGENERATESIG =
+signature X86ALLOCATEREGISTERSSIG =
 sig
     type intSet and extendedBasicBlock and regProperty and reg
     type address = Address.address 
     
-    val icodeToX86Code :
-        {
-            blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
-            stackRequired: int, argRegsUsed: reg list, hasFullClosure: bool, debugSwitches: Universal.universal list
-        } -> address
+    type conflictState =
+    {
+        conflicts: intSet, realConflicts: reg list
+    }
+
+    datatype allocateResult =
+        AllocateSuccess of reg vector
+    |   AllocateFailure of intSet list
     
-    val nGenRegs: int (* Number of general registers. *)
+    val allocateRegisters :
+        {
+            blocks: extendedBasicBlock vector,
+            regStates: conflictState vector,
+            regProps: regProperty vector
+        } -> allocateResult
     
     structure Sharing:
     sig
@@ -34,5 +42,6 @@ sig
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and reg                 = reg
+        and allocateResult      = allocateResult
     end
 end;

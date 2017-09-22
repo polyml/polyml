@@ -19,12 +19,14 @@ functor X86ICodeTransform(
     structure ICODE: ICodeSig
     structure DEBUG: DEBUGSIG
     structure CODEGEN: X86ICODEGENERATESIG
+    structure ALLOCATE: X86ALLOCATEREGISTERSSIG
     structure IDENTIFY: X86IDENTIFYREFSSIG
     structure CONFLICTSETS: X86GETCONFLICTSETSIG
     structure PUSHREGISTERS: X86PUSHREGISTERSIG
     structure PRETTY: PRETTYSIG
     structure INTSET: INTSETSIG
-    sharing ICODE.Sharing = CODEGEN.Sharing = IDENTIFY.Sharing = CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET
+    sharing ICODE.Sharing = CODEGEN.Sharing = ALLOCATE.Sharing = IDENTIFY.Sharing =
+            CONFLICTSETS.Sharing = PUSHREGISTERS.Sharing = INTSET
 ) : X86ICODETRANSFORMSIG
 =
 struct
@@ -35,6 +37,7 @@ struct
     open PUSHREGISTERS
     open INTSET
     open CODEGEN
+    open ALLOCATE
     
     exception InternalError = Misc.InternalError
     
@@ -237,10 +240,13 @@ struct
                         if wantPrintCode then (printCode(Vector.map mapFromExtended identified); printConflicts conflictSets) else ()
                 end
             in
-                icodeToX86Code{blocks=identified, functionName=functionName, regStates=conflictSets, regProps=pregProps,
-                               stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
-                    handle RegisterOverflow activeSet =>
+                case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
+                    AllocateSuccess allocatedRegs =>
+                        icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
+                                       stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
+               |    AllocateFailure fails =>
                     let
+                        val activeSet = hd fails
                         val regsToSpill = selectARegisterToSpill activeSet
                         val {code=postPushCode, pregProps=pregPropsPhase2, maxStack=maxStackPhase2} =
                             addRegisterPushes{code=identified, pushVec=regsToSpill, pregProps=pregProps, firstPass=false}
