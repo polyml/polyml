@@ -541,24 +541,37 @@ struct
             ]
         end
     
-        (* Return the register part of a cached item.  We must still, unfortunately, ensure that a register is
-           allocated for base registers because we're assuming that a register is allocated on the last
-           occurrence and this might be it. *)
+        (* Return the register part of a cached item. *)
         fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
-        |   decache(MemoryLocation{cache=SOME r, base=PReg bReg, ...}) =
-                (getAllocatedReg bReg; RegisterArgument r)
+        |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache arg = arg
         
         fun codeExtended({instr=LoadArgument{source, dest=PReg dreg, kind}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg dreg
             in
-                case decache source of
+                case source of
                     RegisterArgument(PReg sreg) =>
                     (* Register to register move.  Try to use the same register for the source as the destination
                        to eliminate the instruction. *)
                         (* If the source is the same as the destination we don't need to do anything. *)
                         moveIfNecessary{src=getAllocatedReg sreg, dst=realDestReg, kind=kind} @ code
+
+                |   MemoryLocation{cache=SOME(PReg sreg), ...} =>
+                    (* This is also a register to register move but because the original load is from
+                       memory it could be a byte or short precision value. *)
+                    let
+                        val moveKind =
+                            case kind of
+                                MoveWord => MoveWord
+                            |   MoveByte => MoveWord
+                            |   Move16Bit => MoveWord
+                            |   Move32Bit => MoveWord
+                            |   MoveFloat => MoveDouble
+                            |   MoveDouble => MoveDouble
+                    in
+                        moveIfNecessary{src=getAllocatedReg sreg, dst=realDestReg, kind=moveKind} @ code
+                    end
 
                 |   source => (* Loads of constants or from an address. *)
                         LLLoadArgument{source=codeExtArgument source, dest=realDestReg, kind=kind} :: code

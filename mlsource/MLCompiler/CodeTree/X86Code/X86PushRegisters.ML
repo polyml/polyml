@@ -567,16 +567,25 @@ struct
                                     let
                                         (* The cache kind must match the kind of register we're loading.
                                            If the value is untagged it must not be marked to be examined
-                                           by the GC if we allocate anything. *)
+                                           by the GC if we allocate anything.
+                                           The move kind has to be suitable for a register to register move. *)
+                                        val moveKind =
+                                            case kind of
+                                                MoveWord => MoveWord
+                                            |   MoveByte => MoveWord
+                                            |   Move16Bit => MoveWord
+                                            |   Move32Bit => MoveWord
+                                            |   MoveFloat => MoveDouble
+                                            |   MoveDouble => MoveDouble
                                         val cacheType =
                                             case dKind of
                                                 RegPropGeneral => RegPropCacheTagged
                                             |   RegPropUntagged => RegPropCacheUntagged
                                             |   _ => raise InternalError "cacheKind"
                                         val newCacheReg = newPReg cacheType
-                                        val _ = setMemoryCache(breg, offset, newCacheReg, cacheType = RegPropGeneral, kind)
+                                        val _ = setMemoryCache(breg, offset, newCacheReg, cacheType = RegPropGeneral, moveKind)
                                     in 
-                                        [CopyToCache{source=destReg, dest=newCacheReg, kind=kind}]
+                                        [CopyToCache{source=destReg, dest=newCacheReg, kind=moveKind}]
                                     end
                                 |   _ => []
 
