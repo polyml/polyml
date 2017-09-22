@@ -211,6 +211,10 @@ struct
             let
                 val maxPRegs = Vector.length regStates
                 
+                (* If we have been unable to allocate a register we need to spill something.
+                   Choose a single register from each conflict set.  Since we've already checked
+                   that the active sets are small enough this is really only required to deal
+                   with special requirements e.g. esi/edi in block moves. *)
                 fun spillFromConflictSets conflictSets =
                 let
                     val maxPRegs = Vector.length regStates
