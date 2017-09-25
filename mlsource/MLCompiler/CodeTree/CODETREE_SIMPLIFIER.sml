@@ -1040,8 +1040,37 @@ struct
             if isShort v2 andalso toShort v2 = 0w0
             then (arg1, decArgs, EnvSpecNone)
             else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordLogical logOp, Constnt(v1, _), Constnt(v2, _)) =>
+            if not(isShort v1) orelse not(isShort v2)
+            then (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+            else
+            let
+                val () = reprocess := true
+                val v1S = toShort v1
+                and v2S = toShort v2
+                fun asConstnt v = Constnt(toMachineWord v, [])
+                val resultCode =
+                    case logOp of
+                        LogicalAnd => asConstnt(Word.andb(v1S,v2S))
+                    |   LogicalOr => asConstnt(Word.orb(v1S,v2S))
+                    |   LogicalXor => asConstnt(Word.xorb(v1S,v2S))
+            in
+               (resultCode, decArgs, EnvSpecNone)
+            end
+
+        |   (WordLogical logop, arg1, arg2 as Constnt(v2, _)) =>
+            (* Return the zero if we are anding with zero otherwise the original arg *)
+            if isShort v2 andalso toShort v2 = 0w0
+            then (case logop of LogicalAnd => arg2 | _ => arg1, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+
+        |   (WordLogical logop, Constnt(v1, _), arg2) =>
+            if isShort v1 andalso toShort v1 = 0w0
+            then (case logop of LogicalAnd => arg2 | _ => arg2, decArgs, EnvSpecNone)
+            else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
         
-            (* TODO: Constant folding of logical operations. *)
+            (* TODO: Constant folding of shifts. *)
 
         |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
     end
