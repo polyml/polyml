@@ -540,13 +540,115 @@ struct
                 ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
             ]
         end
+        
+        local
+            val numRegisters = Vector.length allocatedRegisters
+            val uses = Array.array(numRegisters, false)
+            fun used(PReg r) = Array.update(uses, r, true)
+            fun isUsed(PReg r) = Array.sub(uses, r)
+
+            (* Set the registers used by the sources.  This differs from getInstructionState in that we don't set
+               the base register of a memory location to "used" if we can use the cache. *)
+            fun argUses(RegisterArgument rarg) = used rarg
+            |   argUses(MemoryLocation { cache=SOME cr, ...}) = used cr
+            |   argUses(MemoryLocation { base, index, cache=NONE, ...}) = (used base; indexUses index)
+            |   argUses(StackLocation { cache=SOME rarg, ...}) = used rarg
+            |   argUses _ = ()
     
+            and indexUses NoMemIndex = ()
+            |   indexUses(MemIndex1 arg) = used arg
+            |   indexUses(MemIndex2 arg) = used arg
+            |   indexUses(MemIndex4 arg) = used arg
+            |   indexUses(MemIndex8 arg) = used arg
+
+            (* LoadArgument, TagValue, CopyToCache, UntagValue and BoxValue are eliminated if their destination
+               is not used.  In that case their source are not used either. *)
+            fun instructionUses(LoadArgument { source, dest, ...}) = if isUsed dest then argUses source else ()
+            |   instructionUses(StoreArgument{ source, base, index, ...}) = (argUses source; used base; indexUses index)
+            |   instructionUses(LoadMemReg _) = ()
+            |   instructionUses(BeginFunction _) = ()
+            |   instructionUses(FunctionCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app argUses stackArgs)
+            |   instructionUses(TailRecursiveCall{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #src) stackArgs)
+            |   instructionUses(AllocateMemoryOperation _) = ()
+            |   instructionUses(AllocateMemoryVariable{size, ...}) = used size
+            |   instructionUses(InitialiseMem{size, addr, init}) = (used size; used addr; used init)
+            |   instructionUses(InitialisationComplete) = ()
+            |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #1) stackArgs)
+            |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
+            |   instructionUses(ReserveContainer _) = ()
+            |   instructionUses(LoadContainerAddress _) = ()
+            |   instructionUses(IndexedCaseOperation{testReg, ...}) = used testReg
+            |   instructionUses(LockMutable{addr}) = used addr
+            |   instructionUses(WordComparison{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(PushExceptionHandler _) = ()
+            |   instructionUses(PopExceptionHandler _) = ()
+            |   instructionUses(BeginHandler _) = ()
+            |   instructionUses(ReturnResultFromFunction{resultReg, ...}) = used resultReg
+            |   instructionUses(ArithmeticFunction{operand1, operand2, ...}) = (argUses operand1; argUses operand2)
+            |   instructionUses(TestTagBit{arg, ...}) = argUses arg
+            |   instructionUses(PushValue {arg, ...}) = argUses arg
+            |   instructionUses(CopyToCache{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(ResetStackPtr _) = ()
+            |   instructionUses(StoreToStack {source, ...}) = argUses source
+            |   instructionUses(TagValue{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(UntagValue{source, dest, ...}) = if isUsed dest then argUses source else ()
+            |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (used base; indexUses index)
+            |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (argUses operand; argUses shiftAmount)
+            |   instructionUses(Multiplication{operand1, operand2, ...}) = (argUses operand1; argUses operand2)
+            |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
+            |   instructionUses(AtomicExchangeAndAdd{base, source}) = (used base; used source)
+            |   instructionUses(BoxValue{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) = (used vec1Addr; used vec2Addr; used length)
+            |   instructionUses(BlockMove{srcAddr, destAddr, length, ...}) = (used srcAddr; used destAddr; used length)
+            |   instructionUses(CompareFloatingPt{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(X87FPGetCondition _) = ()
+            |   instructionUses(X87FPArith{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(X87FPUnaryOps{source, ...}) = argUses source
+            |   instructionUses(FloatFixedInt{source, ...}) = argUses source
+            |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            
+            
+           (* Depth-first scan. *)
+            val visited = Array.array(numBlocks, false)
+
+            fun processBlocks blockNo =
+            if Array.sub(visited, blockNo)
+            then ()  (* Done or currently being done. *)
+            else
+            let
+                val () = Array.update(visited, blockNo, true)
+                val ExtendedBasicBlock { flow, block,...} = Vector.sub(blocks, blockNo)
+                val () =
+                    (* Process the dependencies first. *)
+                    case flow of
+                        ExitCode => ()
+                    |   Unconditional m => processBlocks m
+                    |   Conditional {trueJump, falseJump, ...} =>
+                            (processBlocks trueJump; processBlocks falseJump)
+                    |   IndexedBr cases => List.app processBlocks cases
+                    |   SetHandler{ handler, continue } =>
+                            (processBlocks handler; processBlocks continue)
+                    |   UnconditionalHandle _ => ()
+                    |   ConditionalHandle { continue, ...} => processBlocks continue
+                (* Now this block. *)
+            in
+                List.foldr(fn ({instr, ...}, ()) => instructionUses instr) () block
+            end
+
+        in
+            val () = processBlocks 0
+            val isUsed = isUsed
+        end
+        
         (* Return the register part of a cached item. *)
         fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache arg = arg
         
-        fun codeExtended({instr=LoadArgument{source, dest=PReg dreg, kind}, ...}, code) =
+        fun codeExtended({instr=LoadArgument{source, dest as PReg dreg, kind}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
             let
                 val realDestReg = getAllocatedReg dreg
             in
@@ -893,7 +995,10 @@ struct
 
         |   codeExtended({instr=PushValue {arg, ...}, ...}, code) = LLPushValue {arg=codeExtArgument arg} :: code
 
-        |   codeExtended({instr=CopyToCache{source=PReg sreg, dest=PReg dreg, kind}, ...}, code) =
+        |   codeExtended({instr=CopyToCache{source=PReg sreg, dest as PReg dreg, kind}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
             let
                 val realDestReg = getAllocatedReg dreg
                 (* Get the source register using the current destination as a preference. *)
@@ -915,7 +1020,10 @@ struct
                         :: code
             end
 
-        |   codeExtended({instr=TagValue{source=PReg srcReg, dest=PReg dReg}, ...}, code) =
+        |   codeExtended({instr=TagValue{source=PReg srcReg, dest as PReg dReg}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
             let
                 val regResult = getAllocatedReg(dReg)
                 val realSReg = asGenReg(getAllocatedReg(srcReg))
@@ -923,8 +1031,11 @@ struct
                 LLLoadEffectiveAddress { base=NONE, offset=1, index=Index2 realSReg, dest=regResult }  :: code
             end
 
-        |   codeExtended({instr=UntagValue{source=RegisterArgument(PReg sReg), dest=PReg dReg, isSigned}, ...}, code) =
+        |   codeExtended({instr=UntagValue{source=RegisterArgument(PReg sReg), dest as PReg dReg, isSigned}, ...}, code) =
             (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
+            if not (isUsed dest)
+            then code
+            else
             let
                 val regResult = getAllocatedReg dReg
                 val realSReg = getAllocatedReg sReg
@@ -1022,7 +1133,10 @@ struct
                 LLAtomicExchangeAndAdd{base=baseReg, source=srcReg} :: code
             end
 
-        |   codeExtended({instr=BoxValue{boxKind, source=PReg sReg, dest=PReg dReg, saveRegs}, ...}, code) =
+        |   codeExtended({instr=BoxValue{boxKind, source=PReg sReg, dest as PReg dReg, saveRegs}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else
             let
                 val preserve = List.map(fn (PReg r) => getAllocatedReg r) saveRegs
                 val (srcReg, boxSize, moveKind) =
