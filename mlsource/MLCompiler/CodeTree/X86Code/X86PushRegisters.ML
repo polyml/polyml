@@ -577,13 +577,13 @@ struct
                                             |   Move32Bit => MoveWord
                                             |   MoveFloat => MoveDouble
                                             |   MoveDouble => MoveDouble
-                                        val cacheType =
+                                        val (cacheType, isTagged) =
                                             case dKind of
-                                                RegPropGeneral => RegPropCacheTagged
-                                            |   RegPropUntagged => RegPropCacheUntagged
+                                                RegPropGeneral => (RegPropCacheTagged, true)
+                                            |   RegPropUntagged => (RegPropCacheUntagged, false)
                                             |   _ => raise InternalError "cacheKind"
                                         val newCacheReg = newPReg cacheType
-                                        val _ = setMemoryCache(breg, offset, newCacheReg, cacheType = RegPropGeneral, moveKind)
+                                        val _ = setMemoryCache(breg, offset, newCacheReg, isTagged, moveKind)
                                     in 
                                         [CopyToCache{source=destReg, dest=newCacheReg, kind=moveKind}]
                                     end
@@ -993,12 +993,23 @@ struct
                             AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code
                         end
 
-                    |   pushRegisters({instr=BoxValue{boxKind, source, dest, ...}, ...}, code) =
+                    |   pushRegisters({instr=BoxValue{boxKind, source, dest as PReg dReg, ...}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
+                            (* We can cache the boxed value. *)
+                            val cacheCode =
+                                if Vector.sub(pushVec, dReg) then []
+                                else
+                                let
+                                    val newCacheReg = newPReg RegPropCacheUntagged
+                                    val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxFloat => MoveDouble
+                                    val _ = setMemoryCache(dReg, 0, newCacheReg, true, moveKind)
+                                in
+                                    [CopyToCache{source=sourceVal, dest=newCacheReg, kind=moveKind}]
+                                end
                         in
-                            destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                            cacheCode @ destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, ...}, code) =
