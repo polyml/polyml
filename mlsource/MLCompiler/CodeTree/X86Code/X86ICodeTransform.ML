@@ -178,6 +178,14 @@ struct
                 Vector.appi printRegData regStates
             end
 
+        fun printRegisters(regAlloc: reg vector) =
+        let
+            val printStream = PRETTY.getSimplePrinter(debugSwitches, icodeTabs)
+            fun printRegAlloc(i, reg) = printStream (Int.toString i ^ "\t=> " ^ regRepr reg ^ "\n");
+        in
+            Vector.appi printRegAlloc regAlloc
+        end
+
         fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes) =
         let
             (* This should only require a few passes. *)
@@ -268,8 +276,11 @@ struct
             in
                 case allocateRegisters {blocks=identified, regStates=conflictSets, regProps=pregProps } of
                     AllocateSuccess allocatedRegs =>
-                        icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
+                        (
+                            if wantPrintCode then printRegisters allocatedRegs else ();
+                            icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
                                        stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
+                        )
                |    AllocateFailure fails =>
                     let
                         val regsToSpill = spillFromConflictSets fails
