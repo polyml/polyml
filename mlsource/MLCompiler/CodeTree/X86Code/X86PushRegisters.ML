@@ -812,10 +812,7 @@ struct
  
                     |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...}, code) =
                         let
-                            (* codeExtended expects the first argument to be in a register.
-                               We may be able to do something clever if the second is actually in the
-                               register but for the moment just force a load. *)
-                            val (loadedOp1, op1Code) = mapAndLoad arg1
+                            val (loadedOp1, op1Code) = mapSrcReg arg1
                             val (op2Val, op2Code) = mapSource arg2
                         in
                             WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
@@ -881,10 +878,7 @@ struct
 
                     |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, ...}, code) =
                         let
-                            (* codeExtended expects the first argument to be in a register.
-                               We may be able to do something clever if the second is actually in the
-                               register but for the moment just force a load. *)
-                            val (loadedOp1, op1Code) = mapAndLoad operand1
+                            val (loadedOp1, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSource operand2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
@@ -936,7 +930,7 @@ struct
 
                     |   pushRegisters({instr=UntagValue{source, dest, isSigned}, ...}, code) =
                         let
-                            val (loadedSource, sourceCode) = mapAndLoad source
+                            val (loadedSource, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: sourceCode @ code
@@ -953,7 +947,7 @@ struct
 
                     |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, ...}, code) =
                         let
-                            val (opVal, opCode) = mapSource operand
+                            val (opVal, opCode) = mapSrcReg operand
                             val (shiftVal, shiftCode) = mapSource shiftAmount
                             val (destVal, destCode) = mapDestReg resultReg
                         in
@@ -963,7 +957,7 @@ struct
 
                     |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, ...}, code) =
                         let
-                            val (op1Val, op1Code) = mapSource operand1
+                            val (op1Val, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSource operand2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
@@ -1034,7 +1028,7 @@ struct
 
                     |   pushRegisters({instr=CompareFloatingPt{arg1, arg2, ccRef}, ...}, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource arg1
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
                             CompareFloatingPt{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
@@ -1049,7 +1043,7 @@ struct
 
                     |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource arg1
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
@@ -1059,7 +1053,7 @@ struct
     
                     |   pushRegisters({instr=X87FPUnaryOps{fpOp, dest, source}, ...}, code) =
                         let
-                            val (sourceVal, sourceCode) = mapSource source
+                            val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code
@@ -1075,7 +1069,7 @@ struct
     
                     |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
                         let
-                            val (arg1Val, arg1Code) = mapSource arg1
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                             val (destVal, destCode) = mapDestReg resultReg
                         in

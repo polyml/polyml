@@ -144,8 +144,8 @@ struct
         (* Lock a mutable cell by turning off the mutable bit. *)
     |   LockMutable of { addr: preg }
 
-        (* Compare two word values. *)
-    |   WordComparison of { arg1: argument, arg2: argument, ccRef: ccRef }
+        (* Compare two word values.  The first argument must be a register. *)
+    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
@@ -162,7 +162,7 @@ struct
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
-            { oper: arithOp, resultReg: preg, operand1: argument, operand2: argument, ccRef: ccRef }
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
     |   TestTagBit of { arg: argument, ccRef: ccRef }
@@ -184,18 +184,18 @@ struct
     |   TagValue of { source: preg, dest: preg }
 
         (* Shift a value to remove the tag bit. *)
-    |   UntagValue of { source: argument, dest: preg, isSigned: bool }
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
     |   LoadEffectiveAddress of { base: preg, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
-    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: argument, shiftAmount: argument, ccRef: ccRef }
+    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
 
         (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
            multiplication.  There are various forms of the instruction including a three-operand
            version. *)
-    |   Multiplication of { resultReg: preg, operand1: argument, operand2: argument, ccRef: ccRef }
+    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
@@ -227,23 +227,23 @@ struct
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPt of { arg1: argument, arg2: argument, ccRef: ccRef }
+    |   CompareFloatingPt of { arg1: preg, arg2: argument, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
     |   X87FPGetCondition of { ccRef: ccRef, dest: preg }
 
         (* Binary floating point operations on the X87. *)
-    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: argument, arg2: argument }
+    |   X87FPArith of { opc: fpOps, resultReg: preg, arg1: preg, arg2: argument }
 
         (* Floating point operations: negate and set sign positive. *)
-    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: argument }
+    |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
 
         (* Load a fixed point value as a floating point value. *)
     |   FloatFixedInt of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
-    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: argument, arg2: argument }
+    |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
 
         (* Destinations at the end of a basic block. *)
     and controlFlow =
@@ -444,7 +444,7 @@ struct
         |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
 
         |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tWordComparison\t"; printArg(arg1, stream, printReg); stream ","; printArg(arg2, stream, printReg))
+                (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
 
         |   printICode(PushExceptionHandler{workReg }, stream, printReg) =
             (
@@ -479,7 +479,7 @@ struct
                 |   SUB => stream "\tSubtract\t"
                 |   XOR => stream "\tExclusiveOrBits\t"
                 |   CMP => stream "\tCompare\t";
-                printArg(operand1, stream, printReg);
+                printReg(operand1, stream);
                 stream ",";
                 printArg(operand2, stream, printReg);
                 stream " => ";
@@ -513,9 +513,9 @@ struct
                 (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(UntagValue{source, dest, isSigned=true}, stream, printReg) =
-                (stream "\tUntagSigned\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+                (stream "\tUntagSigned\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
         |   printICode(UntagValue{source, dest, isSigned=false}, stream, printReg) =
-                (stream "\tUntagSigned\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+                (stream "\tUntagSigned\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream, printReg) =
             (
@@ -534,7 +534,7 @@ struct
                     SHL => stream "\tShiftLeft\t"
                 |   SHR => stream "\tShiftRLogical\t"
                 |   SAR => stream "\tShiftRArith\t";
-                printArg(operand, stream, printReg); stream ",";
+                printReg(operand, stream); stream ",";
                 printArg(shiftAmount, stream, printReg); stream " => ";
                 printReg(resultReg, stream)
             )
@@ -542,7 +542,7 @@ struct
         |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream, printReg) =
             (
                 stream "\tMultiplication\t";
-                printArg(operand1, stream, printReg);
+                printReg(operand1, stream);
                 stream ",";
                 printArg(operand2, stream, printReg);
                 stream " => ";
@@ -591,7 +591,7 @@ struct
             )
 
         |   printICode(CompareFloatingPt{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tCompareFloatingPt\t"; printArg(arg1, stream, printReg); stream ","; printArg(arg2, stream, printReg))
+                (stream "\tCompareFloatingPt\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
 
         |   printICode(X87FPGetCondition{dest, ...}, stream, printReg) = (stream "\tX87FPGetCondition\t => "; printReg(dest, stream))
 
@@ -606,7 +606,7 @@ struct
                 |   FSUBR => stream "\tX87FPRevSub\t"
                 |   FDIV => stream "\tX87FPDiv\t"
                 |   FDIVR => stream "\tX87FPRevDiv\t";
-                printArg(arg1, stream, printReg); stream ",";
+                printReg(arg1, stream); stream ",";
                 printArg(arg2, stream, printReg); stream " => ";
                 printReg(resultReg, stream)
             )
@@ -618,7 +618,7 @@ struct
                 |   FCHS => stream "\tX87FPNegate\t"
                 |   FLD1 => stream "\tX87FPLoad1\t"
                 |   FLDZ => stream "\tX87FPLoad0\t";
-                printArg(source, stream, printReg); stream " => ";
+                printReg(source, stream); stream " => ";
                 printReg(dest, stream)
             )
         
@@ -638,7 +638,7 @@ struct
                 |   SSE2And => stream "\tSSE2FPAnd\t"
                 |   SSE2MoveSingle => stream "\tSSE2FPMoveSingle\t"
                 |   SSE2DoubleToFloat => stream "\tSSE2FPDoubleToFloat\t";
-                printArg(arg1, stream, printReg); stream ",";
+                printReg(arg1, stream); stream ",";
                 printArg(arg2, stream, printReg); stream " => ";
                 printReg(resultReg, stream)
             )

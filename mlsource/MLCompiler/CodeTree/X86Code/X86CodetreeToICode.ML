@@ -195,6 +195,13 @@ struct
             |   testAsBranch(TestGreater,       false,  false)      = JNA
             |   testAsBranch(TestGreaterEqual,  false,  true)       = JNB
             |   testAsBranch(TestGreaterEqual,  false,  false)      = JB
+            
+            (* Switch the direction of a test if we turn  c op x into x op c. *)
+            fun leftRightTest TestEqual         = TestEqual
+            |   leftRightTest TestLess          = TestGreater
+            |   leftRightTest TestLessEqual     = TestGreaterEqual
+            |   leftRightTest TestGreater       = TestLess
+            |   leftRightTest TestGreaterEqual  = TestLessEqual
         end
 
         (* Generally we have an offset in words and no index register. *)
@@ -818,7 +825,7 @@ struct
                         let
                             val newTestReg = newPReg()
                             val subtract =
-                                BlockSimple(ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=RegisterArgument initialTestReg,
+                                BlockSimple(ArithmeticFunction{oper=SUB, resultReg=newTestReg, operand1=initialTestReg,
                                                    operand2=IntegerConstant(semitag(Word.toLargeInt firstIndex)), ccRef=newCCRef()})
                         in
                             (subtract :: testCode, newTestReg)
@@ -843,7 +850,7 @@ struct
                         val testCode2 =
                                 BlockLabel continueLab ::
                                 BlockFlow(Conditional{ccRef=ccRef1, condition=JNB, trueJump=defLab1, falseJump=continueLab}) ::
-                                BlockSimple(WordComparison{arg1=RegisterArgument tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1}) ::
+                                BlockSimple(WordComparison{arg1=tReg1, arg2=IntegerConstant(tag numberOfCases), ccRef=ccRef1}) ::
                                 BlockSimple(LoadArgument {source=RegisterArgument testReg, dest=tReg1, kind=MoveWord}) :: testCode
                     in
                         (testCode2, [defLab1])
@@ -1233,7 +1240,7 @@ struct
                 val (argCode, tReg) = codeToPReg(arg1, context)
             in
                 (argCode @
-                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=target, operand1=RegisterArgument tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef})],
+                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=target, operand1=tReg, operand2=IntegerConstant(semitag 1), ccRef=ccRef})],
                         RegisterArgument target, false)
             end
 
@@ -1253,9 +1260,9 @@ struct
             in
                 (argCode @
                 [BlockSimple(LoadArgument{source=wordOffsetAddress(~1, addrReg), dest=argReg1, kind=MoveWord}),
-                 BlockSimple(ShiftOperation{shift=SHL, resultReg=argReg2, operand=RegisterArgument argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 }),
-                 BlockSimple(ShiftOperation{shift=SHR, resultReg=argReg3, operand=RegisterArgument argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 }),
-                 BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument argReg3, operand2=IntegerConstant 1, ccRef=ccRef3})], RegisterArgument target, false)
+                 BlockSimple(ShiftOperation{shift=SHL, resultReg=argReg2, operand=argReg1, shiftAmount=IntegerConstant 8, ccRef=ccRef1 }),
+                 BlockSimple(ShiftOperation{shift=SHR, resultReg=argReg3, operand=argReg2, shiftAmount=IntegerConstant 7 (* 8-tagshift*), ccRef=ccRef2 }),
+                 BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=argReg3, operand2=IntegerConstant 1, ccRef=ccRef3})], RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.MemoryCellFlags, arg1}, context, _, destination) =
@@ -1287,7 +1294,7 @@ struct
                  [BlockSimple(LoadArgument{source=IntegerConstant(semitag 1), dest=incrReg, kind=MoveWord}),
                   BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
                   (* We want the result to be the new value but we've returned the old value. *)
-                  BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
+                  BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
                     RegisterArgument target, false)
             end
 
@@ -1300,7 +1307,7 @@ struct
                 (argCode @
                  [BlockSimple(LoadArgument{source=IntegerConstant(semitag ~1), dest=incrReg, kind=MoveWord}),
                   BlockSimple(AtomicExchangeAndAdd{ base=addrReg, source=incrReg }),
-                  BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
+                  BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=incrReg, operand2=IntegerConstant(semitag 1), ccRef=newCCRef()})],
                     RegisterArgument target, false)
             end
 
@@ -1336,7 +1343,7 @@ struct
                 val (argCode, argReg1) = codeToPReg(arg1, context)
                 val code =
                     argCode @
-                    [BlockSimple(UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=true}),
+                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
@@ -1348,7 +1355,7 @@ struct
                 val (argCode, argReg1) = codeToPReg(arg1, context)
                 val code =
                     argCode @
-                    [BlockSimple(UntagValue{source=RegisterArgument argReg1, dest=untagArg, isSigned=false}),
+                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
@@ -1366,10 +1373,10 @@ struct
                 val code =
                     case fpMode of
                         FPModeX87 =>
-                            [BlockSimple(X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=RegisterArgument fpRegSrc})]
+                            [BlockSimple(X87FPUnaryOps{ fpOp=FCHS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
                             [BlockSimple(LoadArgument{source=AddressConstant realSignBit, dest=sse2ConstReg, kind=MoveDouble}),
-                             BlockSimple(SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
+                             BlockSimple(SSE2FPArith{opc=SSE2Xor, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
@@ -1383,10 +1390,10 @@ struct
                 val load = BlockSimple(LoadArgument{source=wordAt aReg1, dest=fpRegSrc, kind=MoveDouble})
                 val code =
                     case fpMode of
-                        FPModeX87 => [BlockSimple(X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=RegisterArgument fpRegSrc})]
+                        FPModeX87 => [BlockSimple(X87FPUnaryOps{ fpOp=FABS, dest=fpRegDest, source=fpRegSrc})]
                     |   FPModeSSE2 =>
                             [BlockSimple(LoadArgument{source=AddressConstant realAbsMask, dest=sse2ConstReg, kind=MoveDouble}),
-                             BlockSimple(SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
+                             BlockSimple(SSE2FPArith{opc=SSE2And, resultReg=fpRegDest, arg1=fpRegSrc, arg2=RegisterArgument sse2ConstReg})]
             in
                 (argCode @
                  load :: code @ [BlockSimple(BoxValue{boxKind=BoxFloat, source=fpRegDest, dest=target, saveRegs=[]})], RegisterArgument target, false)
@@ -1399,7 +1406,7 @@ struct
                 val (argCode, aReg1) = codeToPReg(arg1, context)
             in
                 (argCode @
-                 [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=untagReg, isSigned=true}),
+                 [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true}),
                   BlockSimple(FloatFixedInt{ dest=fpReg, source=RegisterArgument untagReg}),
                   BlockSimple(BoxValue{boxKind=BoxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
@@ -1441,7 +1448,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1456,7 +1463,7 @@ struct
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
                 (arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef = newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1469,8 +1476,8 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=RegisterArgument aReg3, ccRef=newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1485,7 +1492,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1499,8 +1506,8 @@ struct
                 (arg1Code @ arg2Code @
                     (* Do the subtraction and add in the tag bit.  This could be reordered if we have cascaded operations
                        since we don't need to check for overflow. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=RegisterArgument aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
@@ -1514,10 +1521,10 @@ struct
                 (arg1Code @ arg2Code @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
-                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
-                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})],
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1531,8 +1538,8 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
-                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
                      BlockSimple(TagValue { source=quotient, dest=target })], RegisterArgument target, false)
@@ -1549,8 +1556,8 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=false}),
-                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=false}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
                      BlockSimple(TagValue { source=remainder, dest=target })], RegisterArgument target, false)
@@ -1571,7 +1578,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
             in
                 (arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=RegisterArgument arg1Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg1Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1587,7 +1594,7 @@ struct
                 val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
             in
                 (arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=RegisterArgument arg2Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
+                    [BlockSimple(ArithmeticFunction{oper=oper, resultReg=target, operand1=arg2Reg, operand2=IntegerConstant constVal, ccRef=newCCRef()})],
                         RegisterArgument target, false)
             end
 
@@ -1599,7 +1606,7 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Or-ing preserves the tag bit. *)
-                    [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
@@ -1610,7 +1617,7 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Since they're both tagged the result will be tagged. *)
-                    [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=RegisterArgument arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=AND, resultReg=target, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
@@ -1622,8 +1629,8 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* We need to restore the tag bit after the operation. *)
-                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
+                    [BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=arg1Reg, operand2=RegisterArgument arg2Reg, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
@@ -1642,7 +1649,7 @@ struct
                 (arg1Code @ arg2Code @ untag1Code @ untag2Code @
                  (* There are better ways of doing this but it will do for the moment.  We don't need to
                     remove the tag for right shifts provided we OR in a tag afterwards. *)
-                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=RegisterArgument arg1Reg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
+                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=arg1Reg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
                   BlockSimple(TagValue{source=resRegUntagged, dest=target})], RegisterArgument target, false)
             end
 
@@ -1674,7 +1681,7 @@ struct
             in
                 (arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1688,7 +1695,7 @@ struct
             in
                 (arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1702,7 +1709,7 @@ struct
             in
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1716,7 +1723,7 @@ struct
             in
                 (arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1730,7 +1737,7 @@ struct
             in
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1746,7 +1753,7 @@ struct
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord}),
                      BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg2, kind=MoveWord}),
-                     BlockSimple(Multiplication{resultReg=resValue, operand1=RegisterArgument argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resValue, operand1=argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1798,7 +1805,7 @@ struct
             in
                 (arg1Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1813,7 +1820,7 @@ struct
             in
                 (arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1828,7 +1835,7 @@ struct
             in
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1845,7 +1852,7 @@ struct
                 val argReg = newUReg()
             in
                 (arg1Code @ arg2Code @ [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord})] @ untag2Code @
-                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=RegisterArgument argReg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
+                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=aReg3, operand=argReg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
                   BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1869,7 +1876,7 @@ struct
                                 |   ArithDiv => FDIV
                                 |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
-                            BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
+                            BlockSimple(X87FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
                         end
                     |   FPModeSSE2 =>
                         let
@@ -1881,7 +1888,7 @@ struct
                                 |   ArithDiv => SSE2Div
                                 |   _ => raise InternalError "codeToICodeNonRev: RealArith - unimplemented operation"
                         in
-                            BlockSimple(SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=RegisterArgument fpRegSrc, arg2=wordAt aReg2})
+                            BlockSimple(SSE2FPArith{ opc=fpOp, resultReg=fpRegDest, arg1=fpRegSrc, arg2=wordAt aReg2})
                         end
             in
                 (arg1Code @ arg2Code @
@@ -2126,7 +2133,7 @@ struct
                     case fpMode of
                         FPModeSSE2 =>
                             (float2Reg,
-                                [BlockSimple(SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=RegisterArgument floatReg, arg2=RegisterArgument floatReg})])
+                                [BlockSimple(SSE2FPArith{opc=SSE2DoubleToFloat, resultReg=float2Reg, arg1=floatReg, arg2=RegisterArgument floatReg})])
                     |   FPModeX87 => (floatReg, [])
                 val code =
                     codeBaseIndex @ valueCode @ codeUntag @
@@ -2180,7 +2187,7 @@ struct
                         in
                             (RegisterArgument valueReg1,
                                 codeToICodeTarget(value, context, false, valueReg) @
-                                [BlockSimple(UntagValue{dest=valueReg1, source=RegisterArgument valueReg, isSigned=false })])
+                                [BlockSimple(UntagValue{dest=valueReg1, source=valueReg, isSigned=false })])
                         end
                 val code =
                     codeBaseIndex @ valCode @ codeUntag @
@@ -2243,7 +2250,7 @@ struct
                     leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
                     leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
                     rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
-                    [BlockSimple(UntagValue{source=RegisterArgument lengthReg, dest=lenReg, isSigned=false}),
+                    [BlockSimple(UntagValue{source=lengthReg, dest=lenReg, isSigned=false}),
                      BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
@@ -2270,7 +2277,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef}) ::
+                BlockSimple(WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef}) ::
                     testCode
             end
 
@@ -2306,21 +2313,23 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
+                BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
             end
-
-(*        |   codeCondition(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
-                    context, jumpOn, jumpLabel) =
+            
+        |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
+                    context, jumpOn, jumpLabel, tailCode) =
             let
-                val testReg = newPReg() and ccRef = newCCRef()
-                val testCode = codeToICodeTarget(arg2, context, false, testReg)
+                (* If we have the constant first we need to reverse the test so the first argument is a register. *)
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
                 val arg1Arg = constantAsArgument arg1Value
+                val noJumpLabel = newLabel()
             in
-                testCode @
-                    [WordComparison{arg1=arg1Arg, arg2=testReg, ccRef=ccRef},
-                     BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, isSigned, jumpOn), label=jumpLabel}]
-            end*)
+                BlockLabel noJumpLabel ::
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=testAsBranch(leftRightTest test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef}) :: testCode
+            end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
@@ -2333,7 +2342,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
+                BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2=BICConstnt(value, _)},
@@ -2348,7 +2357,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=IntegerConstant constantValue, ccRef=ccRef}) ::
+                BlockSimple(WordComparison{arg1=argReg, arg2=IntegerConstant constantValue, ccRef=ccRef}) ::
                 BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg1Code
             end
 
@@ -2364,7 +2373,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
+                BlockSimple(WordComparison{arg1=argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
                 BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg2Code
             end
 
@@ -2385,7 +2394,7 @@ struct
                (* If this is X87 we get the condition into RAX and test it there.  If
                    it is SSE2 we have to treat the unordered result (parity set) specially. *)
                 val testCode =
-                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
+                    BlockSimple(CompareFloatingPt{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) ::
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 val noJumpLabel = newLabel()
             in
@@ -2394,9 +2403,9 @@ struct
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=XOR, resultReg=testReg3, operand1=RegisterArgument testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 }) ::
+                            oper=XOR, resultReg=testReg3, operand1=testReg2, operand2=IntegerConstant 0x4000, ccRef=ccRef2 }) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() }) ::
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4400, ccRef=newCCRef() }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   (FPModeSSE2, true) =>
                     let
@@ -2427,7 +2436,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val testCode =
-                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                    BlockSimple(CompareFloatingPt{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
                     BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 val noJumpLabel = newLabel()
             in
@@ -2436,7 +2445,7 @@ struct
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
@@ -2452,7 +2461,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val testCode =
-                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                    BlockSimple(CompareFloatingPt{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 val noJumpLabel = newLabel()
             in
@@ -2461,7 +2470,7 @@ struct
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x4500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
@@ -2477,7 +2486,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val testCode =
-                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
+                    BlockSimple(CompareFloatingPt{arg1=fpReg, arg2=wordAt arg1Reg, ccRef=ccRef1}) :: (* Reverse *)
                     BlockSimple(LoadArgument{source=wordAt arg2Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 val noJumpLabel = newLabel()
             in
@@ -2486,7 +2495,7 @@ struct
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
@@ -2502,7 +2511,7 @@ struct
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
                 val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
                 val testCode =
-                    BlockSimple(CompareFloatingPt{arg1=RegisterArgument fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
+                    BlockSimple(CompareFloatingPt{arg1=fpReg, arg2=wordAt arg2Reg, ccRef=ccRef1}) :: (* Not reversed. *)
                     BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=fpReg, kind=MoveDouble}) :: arg2Code
                 val noJumpLabel = newLabel()
             in
@@ -2511,7 +2520,7 @@ struct
                         BlockLabel noJumpLabel ::
                         BlockFlow(Conditional{ccRef=ccRef2, condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                         BlockSimple(ArithmeticFunction{
-                            oper=AND, resultReg=testReg2, operand1=RegisterArgument testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
+                            oper=AND, resultReg=testReg2, operand1=testReg1, operand2=IntegerConstant 0x500, ccRef=ccRef2 }) ::
                         BlockSimple(X87FPGetCondition { ccRef=ccRef1, dest=testReg1 }) :: testCode
                 |   FPModeSSE2 =>
                         BlockLabel noJumpLabel ::
@@ -2574,7 +2583,7 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=RegisterArgument testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
+                BlockSimple(WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
                 testCode
             end
 
@@ -2610,7 +2619,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2625,7 +2634,7 @@ struct
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
             in
                 arg2Code @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg2, operand2=IntegerConstant constVal, ccRef=ccRef})] @
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg2, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2639,8 +2648,8 @@ struct
                     (* Subtract the tag bit from the second argument, do the addition and check for overflow. *)
                     (* TODO: We should really do the detagging in the transform phase.  It can make a better choice of
                        the argument if one of the arguments is already untagged or if we have a constant argument. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef})] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=RegisterArgument aReg3, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2656,7 +2665,7 @@ struct
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
             in
                 arg1Code @
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=RegisterArgument aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=aReg1, operand2=IntegerConstant constVal, ccRef=ccRef})] @
                     onOverflow ccRef
             end
 
@@ -2669,9 +2678,9 @@ struct
             in
                 arg1Code @ arg2Code @
                     (* Do the subtraction, test for overflow and afterwards add in the tag bit. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef})] @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef})] @
                     onOverflow ccRef @
-                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+                    [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithMult, arg1, arg2, context, target, onOverflow) =
@@ -2684,11 +2693,11 @@ struct
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)}),
-                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=RegisterArgument aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
-                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=RegisterArgument arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} )] @
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} )] @
                      onOverflow mulCC @
-                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=RegisterArgument resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithQuot, arg1, arg2, context, target, _) =
@@ -2699,8 +2708,8 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true}),
-                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
                      BlockSimple(TagValue { source=quotient, dest=target })]
@@ -2715,8 +2724,8 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags. *)
-                    [BlockSimple(UntagValue{source=RegisterArgument aReg1, dest=arg1Untagged, isSigned=true}),
-                     BlockSimple(UntagValue{source=RegisterArgument aReg2, dest=arg2Untagged, isSigned=true}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
                      BlockSimple(TagValue { source=remainder, dest=target })]
@@ -2732,7 +2741,7 @@ struct
                 val indexReg1 = newUReg()
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
-                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false })]
+                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false })]
                 val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeIndex, untagCode, memResult)
@@ -2777,7 +2786,7 @@ struct
                 and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode =
                     [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}),
-                     BlockSimple(UntagValue{dest=indexReg1, source=RegisterArgument indexReg, isSigned=false })]
+                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false })]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeBase @ codeIndex, untagCode, memResult)
@@ -2828,7 +2837,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, srcReg) = codeToPRegRev(arg, context, tailCode)
-                val untag = [BlockSimple(UntagValue{source=RegisterArgument srcReg, dest=untagReg, isSigned=isSigned})]
+                val untag = [BlockSimple(UntagValue{source=srcReg, dest=untagReg, isSigned=isSigned})]
             in
                 (code, untag, untagReg)
             end
@@ -2857,7 +2866,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, argReg) = codeToPReg(arg, context)
-                val untag = [BlockSimple(UntagValue{source=RegisterArgument argReg, dest=untagReg, isSigned=isSigned})]
+                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned})]
             in
                 (code, untag, RegisterArgument untagReg)
             end
@@ -2889,7 +2898,7 @@ struct
               [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord}),
-              BlockSimple(UntagValue{source=RegisterArgument sizeReg2, dest=untagSizeReg, isSigned=false}),
+              BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=MoveWord}),
               BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),
               BlockSimple InitialisationComplete,

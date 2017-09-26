@@ -139,31 +139,28 @@ struct
         
             |   addHints{instr=ReturnResultFromFunction { resultReg=PReg resReg, ... }, ...} = addRealHint(resReg, GenReg eax)
         
-            |   addHints{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg), ...}, ...} =
+            |   addHints{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg, ...}, ...} =
                     (* Can only be one way round. *)
                     addSourceAndDestinationHint {dst=resReg, src=op1Reg}
 
-            |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+            |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
                                                 operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
                     (addSourceAndDestinationHint {dst=resReg, src=op1Reg}; addSourceAndDestinationHint {dst=resReg, src=op2Reg})
-        
-            |   addHints{instr=ArithmeticFunction{resultReg=PReg resReg, operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
-                    addSourceAndDestinationHint{dst=resReg, src=op2Reg}
-        
+         
             |   addHints{instr=CopyToCache{source=PReg sreg, dest=PReg dreg, ...}, ...} =
                     addSourceAndDestinationHint {src=sreg, dst=dreg}
         
-            |   addHints{instr=UntagValue{source=RegisterArgument(PReg sReg), dest=PReg dReg, ...}, ...} =
+            |   addHints{instr=UntagValue{source=PReg sReg, dest=PReg dReg, ...}, ...} =
                     addSourceAndDestinationHint{src=sReg, dst=dReg}
 
-            |   addHints{instr=ShiftOperation{resultReg=PReg resReg, operand=RegisterArgument(PReg operReg), shiftAmount=IntegerConstant _, ...}, ...} =
+            |   addHints{instr=ShiftOperation{resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant _, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=operReg}
         
-            |   addHints{instr=ShiftOperation{resultReg=PReg resReg, operand=RegisterArgument(PReg operReg),
+            |   addHints{instr=ShiftOperation{resultReg=PReg resReg, operand=PReg operReg,
                                             shiftAmount=RegisterArgument(PReg shiftReg), ...}, ...} =
                     (addSourceAndDestinationHint{dst=resReg, src=operReg}; addRealHint(shiftReg, GenReg ecx))
 
-            |   addHints{instr=Multiplication{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+            |   addHints{instr=Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
                                    operand2=RegisterArgument(PReg op2Reg), ...}, ...} =
                     (addSourceAndDestinationHint{dst=resReg, src=op1Reg}; addSourceAndDestinationHint{dst=resReg, src=op2Reg})
             
@@ -178,13 +175,13 @@ struct
         
             |   addHints{instr=X87FPGetCondition{dest=PReg dReg, ...}, ...} = addRealHint(dReg, GenReg eax)
         
-            |   addHints{instr=X87FPArith{resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), ...}, ...} =
+            |   addHints{instr=X87FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
         
-            |   addHints{instr=X87FPUnaryOps{dest=PReg resReg, source=RegisterArgument(PReg op1Reg), ...}, ...} =
+            |   addHints{instr=X87FPUnaryOps{dest=PReg resReg, source=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
         
-            |   addHints{instr=SSE2FPArith{resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), ...}, ...} =
+            |   addHints{instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, ...}, ...} =
                     addSourceAndDestinationHint{dst=resReg, src=op1Reg}
 
             |   addHints _ = ()
@@ -470,9 +467,9 @@ struct
 
         |   registerAllocate({instr=LockMutable{addr=PReg pr}, ...}) = allocateRegister(pr, NONE, generalRegisters)
 
-        |   registerAllocate({instr=WordComparison{ arg1, arg2, ... }, ...}) =
+        |   registerAllocate({instr=WordComparison{ arg1=PReg arg1Reg, arg2, ... }, ...}) =
             (
-                allocateArgGeneral arg1;
+                allocateRegister(arg1Reg, NONE, generalRegisters);
                 allocateArgGeneral arg2
             )
 
@@ -495,7 +492,7 @@ struct
         |   registerAllocate({instr=ReturnResultFromFunction { resultReg=PReg resReg, ... }, ...}) =
                 allocateRegister(resReg, SOME(GenReg eax), generalRegisters)
 
-        |   registerAllocate{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   registerAllocate{instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...} =
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
@@ -507,9 +504,7 @@ struct
                 allocateArgGeneral operand2
             end
 
-        |   registerAllocate({instr=ArithmeticFunction{oper=SUB, ...}, ...}) = raise InternalError "registerAllocate - ArithmeticFunction"
-
-        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2=RegisterArgument(PReg op2Reg), ...}, ...}) =
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
@@ -520,7 +515,7 @@ struct
                 allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
             end
 
-        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...}) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
@@ -529,18 +524,6 @@ struct
                 allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
                 allocateArgGeneral operand2
             end
-
-        |   registerAllocate({instr=ArithmeticFunction{resultReg=PReg resReg, operand1,
-                                            operand2=RegisterArgument(PReg op2Reg), ...}, ...}) =
-            (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
-            let
-                val realDestReg = findRegister(resReg, NONE, generalRegisters)
-            in
-                allocateRegister(op2Reg, SOME realDestReg, generalRegisters);
-                allocateArgGeneral operand1
-            end
-
-        |   registerAllocate({instr=ArithmeticFunction _, ...}) = raise InternalError "registerAllocate - ArithmeticFunction"
 
         |   registerAllocate({instr=TestTagBit{arg, ...}, ...}) = allocateArgGeneral arg
 
@@ -570,15 +553,12 @@ struct
                 allocateRegister(srcReg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=UntagValue{source=RegisterArgument(PReg sReg), dest=PReg dReg, ...}, ...}) =
-            (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
+        |   registerAllocate({instr=UntagValue{source=PReg sReg, dest=PReg dReg, ...}, ...}) =
             let
                 val regResult = findRegister(dReg, NONE, generalRegisters)
             in
                 allocateRegister(sReg, SOME regResult, generalRegisters)
             end
-
-        |   registerAllocate{instr=UntagValue _, ...} = raise InternalError "registerAllocate: UntagValue"
 
         |   registerAllocate({instr=LoadEffectiveAddress{base=PReg br, index, dest=PReg dReg, ...}, ...}) =
             (
@@ -587,14 +567,14 @@ struct
                 allocateArgIndex index
             )
 
-        |   registerAllocate({instr=ShiftOperation{resultReg=PReg resReg, operand=RegisterArgument(PReg operReg), shiftAmount=IntegerConstant _, ...}, ...}) =
+        |   registerAllocate({instr=ShiftOperation{resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant _, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
             in
                 allocateRegister(operReg, SOME realDestReg, generalRegisters)
             end
 
-        |   registerAllocate({instr=ShiftOperation{resultReg=PReg resReg, operand=RegisterArgument(PReg operReg),
+        |   registerAllocate({instr=ShiftOperation{resultReg=PReg resReg, operand=PReg operReg,
                                         shiftAmount=RegisterArgument(PReg shiftReg), ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, generalRegisters)
@@ -606,7 +586,7 @@ struct
         |   registerAllocate{instr=ShiftOperation _, ...} = raise InternalError "registerAllocate - ShiftOperation"
 
         |   registerAllocate({instr=
-                Multiplication{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+                Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
                                operand2=RegisterArgument(PReg op2Reg), ...}, ...}) =
             let
                 (* Treat exactly the same as ArithmeticFunction. *)
@@ -656,16 +636,14 @@ struct
                 allocateRegister(lReg, SOME(GenReg ecx), generalRegisters)
             )
 
-        |   registerAllocate{instr=CompareFloatingPt{arg1 as RegisterArgument _, arg2, ...}, ...} =
-                (allocateArgFloat arg1; allocateArgFloat arg2)
-
-        |   registerAllocate{instr=CompareFloatingPt _, ...} = raise InternalError "registerAllocate - CompareFloatingPt"
+        |   registerAllocate{instr=CompareFloatingPt{arg1=PReg arg1Reg, arg2, ...}, ...} =
+                (allocateRegister(arg1Reg, NONE, floatingPtRegisters); allocateArgFloat arg2)
 
         |   registerAllocate({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}) =
                 (* We can only use RAX here. *)
                 allocateRegister(dReg, SOME(GenReg eax), generalRegisters)
 
-        |   registerAllocate({instr=X87FPArith{resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), arg2, ...}, ...}) =
+        |   registerAllocate({instr=X87FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
             in
@@ -673,29 +651,23 @@ struct
                 allocateArgFloat arg2
             end
 
-        |   registerAllocate({instr=X87FPArith _, ...}) = raise InternalError "registerAllocate - X87FPArith"
-
-        |   registerAllocate({instr=X87FPUnaryOps{dest=PReg resReg, source=RegisterArgument(PReg op1Reg), ...}, ...}) =
+        |   registerAllocate({instr=X87FPUnaryOps{dest=PReg resReg, source=PReg op1Reg, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
             in
                 allocateRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
             end
-            
-        |   registerAllocate{instr=X87FPUnaryOps _, ...} = raise InternalError "registerAllocate - X87FPUnaryOps"
 
         |   registerAllocate({instr=FloatFixedInt{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
-        |   registerAllocate({instr=SSE2FPArith{resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), arg2, ...}, ...}) =
+        |   registerAllocate({instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =
             let
                 val realDestReg = findRegister(resReg, NONE, floatingPtRegisters)
             in
                 allocateRegister(op1Reg, SOME realDestReg, floatingPtRegisters);
                 allocateArgFloat arg2
             end
-
-        |   registerAllocate{instr=SSE2FPArith _, ...} = raise InternalError "registerAllocate - SSE2FPArith"
     
         (* Depth-first scan. *)
         val visited = Array.array(numBlocks, false)

@@ -164,7 +164,7 @@ struct
             { sources=[addr], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(WordComparison{arg1, arg2, ccRef, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[], sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+            { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
@@ -179,8 +179,8 @@ struct
             { sources=[resultReg], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(ArithmeticFunction{resultReg, operand1, operand2, ccRef, ...}) =
-            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg],
-              sStacks=argStacks operand1 @ argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+            { sources=operand1 :: argRegs operand2, dests=[resultReg],
+              sStacks=argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(TestTagBit{arg, ccRef, ...}) =
             { sources=argRegs arg, dests=[], sStacks=argStacks arg, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
@@ -203,18 +203,18 @@ struct
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(UntagValue{source, dest, ...}) =
-            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(LoadEffectiveAddress{base, index, dest, ...}) =
             { sources=base :: argIndex index, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(ShiftOperation{resultReg, operand, shiftAmount, ccRef, ...}) =
-            { sources=argRegs operand @ argRegs shiftAmount, dests=[resultReg],
-              sStacks=argStacks operand @ argStacks shiftAmount, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+            { sources=operand :: argRegs shiftAmount, dests=[resultReg],
+              sStacks=argStacks shiftAmount, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(Multiplication{resultReg, operand1, operand2, ccRef, ...}) =
-            { sources=argRegs operand1 @ argRegs operand2, dests=[resultReg],
-              sStacks=argStacks operand1 @ argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+            { sources=operand1 :: argRegs operand2, dests=[resultReg],
+              sStacks=argStacks operand2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(Division{dividend, divisor, quotient, remainder, ...}) =
             { sources=dividend :: argRegs divisor, dests=[quotient, remainder],
@@ -233,25 +233,25 @@ struct
             { sources=[srcAddr, destAddr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(CompareFloatingPt{arg1, arg2, ccRef, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[], sStacks=argStacks arg1 @ argStacks arg2,
+            { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2,
               dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
     |   getInstructionState(X87FPGetCondition{dest, ccRef, ...}) =
             { sources=[], dests=[dest], sStacks=[], dStacks=[], ccIn=CCNeeded ccRef, ccOut=CCIndeterminate }
 
     |   getInstructionState(X87FPArith{resultReg, arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg],
-              sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=arg1 :: argRegs arg2, dests=[resultReg],
+              sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(X87FPUnaryOps{dest, source, ...}) =
-            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(FloatFixedInt{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SSE2FPArith{resultReg, arg1, arg2, ...}) =
-            { sources=argRegs arg1 @ argRegs arg2, dests=[resultReg],
-              sStacks=argStacks arg1 @ argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+            { sources=arg1 :: argRegs arg2, dests=[resultReg],
+              sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     fun identifyRegisters(blockVector, pregProps): extendedBasicBlock vector * regState vector =
     let

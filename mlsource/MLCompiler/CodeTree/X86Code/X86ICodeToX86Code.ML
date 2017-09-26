@@ -75,27 +75,27 @@ struct
     |   LLRaiseExceptionPacket
     |   LLIndexedCaseOperation of { testReg: reg, workReg: reg }
     |   LLLockMutable of { addr: reg }
-    |   LLWordComparison of { arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
+    |   LLWordComparison of { arg1: reg, arg2: reg regOrMemoryArg }
     |   LLPushExceptionHandler of { workReg: reg }
     |   LLPopExceptionHandler of { workReg: reg }
     |   LLBeginHandler of { packetReg: reg, workReg: reg }
     |   LLReturnResultFromFunction of { resultReg: reg, numStackArgs: int }
-    |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
+    |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand: reg regOrMemoryArg }
     |   LLTestTagBit of { arg: reg regOrMemoryArg }
     |   LLPushValue of { arg: reg regOrMemoryArg }
     |   LLResetStackPtr of { numWords: int, preserveCC: bool }
     |   LLTagValue of { source: reg, dest: reg }
-    |   LLUntagValue of { source: reg regOrMemoryArg, dest: reg, isSigned: bool }
+    |   LLUntagValue of { source: reg, dest: reg, isSigned: bool }
     |   LLLoadEffectiveAddress of { base: reg option, offset: int, index: indexType, dest: reg }
-    |   LLShiftOperation of { shift: shiftType, resultReg: reg, operand: reg regOrMemoryArg, shiftAmount: reg regOrMemoryArg }
+    |   LLShiftOperation of { shift: shiftType, resultReg: reg, shiftAmount: reg regOrMemoryArg }
     |   LLMultiplication of { resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
     |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
     |   LLAtomicExchangeAndAdd of { base: reg, source: reg }
     |   LLCompareByteVectors of { vec1Addr: reg, vec2Addr: reg, length: reg }
     |   LLBlockMove of { srcAddr: reg, destAddr: reg, length: reg, isByteMove: bool }
-    |   LLCompareFloatingPt of { arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
+    |   LLCompareFloatingPt of { arg1: reg, arg2: reg regOrMemoryArg }
     |   LLX87FPGetCondition of { dest: reg }
-    |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
+    |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg: reg regOrMemoryArg }
     |   LLX87FPUnaryOps of { fpOp: fpUnaryOps, dest: reg, source: reg regOrMemoryArg }
     |   LLFloatFixedInt of { dest: reg, source: reg regOrMemoryArg }
     |   LLSSE2FPArith of { opc: sse2Operations, resultReg: reg, arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
@@ -579,33 +579,33 @@ struct
             |   instructionUses(LoadContainerAddress _) = ()
             |   instructionUses(IndexedCaseOperation{testReg, ...}) = used testReg
             |   instructionUses(LockMutable{addr}) = used addr
-            |   instructionUses(WordComparison{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
             |   instructionUses(ReturnResultFromFunction{resultReg, ...}) = used resultReg
-            |   instructionUses(ArithmeticFunction{operand1, operand2, ...}) = (argUses operand1; argUses operand2)
+            |   instructionUses(ArithmeticFunction{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(TestTagBit{arg, ...}) = argUses arg
             |   instructionUses(PushValue {arg, ...}) = argUses arg
             |   instructionUses(CopyToCache{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(ResetStackPtr _) = ()
             |   instructionUses(StoreToStack {source, ...}) = argUses source
             |   instructionUses(TagValue{source, dest, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(UntagValue{source, dest, ...}) = if isUsed dest then argUses source else ()
+            |   instructionUses(UntagValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (used base; indexUses index)
-            |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (argUses operand; argUses shiftAmount)
-            |   instructionUses(Multiplication{operand1, operand2, ...}) = (argUses operand1; argUses operand2)
+            |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (used operand; argUses shiftAmount)
+            |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
             |   instructionUses(AtomicExchangeAndAdd{base, source}) = (used base; used source)
             |   instructionUses(BoxValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) = (used vec1Addr; used vec2Addr; used length)
             |   instructionUses(BlockMove{srcAddr, destAddr, length, ...}) = (used srcAddr; used destAddr; used length)
-            |   instructionUses(CompareFloatingPt{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(CompareFloatingPt{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(X87FPGetCondition _) = ()
-            |   instructionUses(X87FPArith{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
-            |   instructionUses(X87FPUnaryOps{source, ...}) = argUses source
+            |   instructionUses(X87FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(X87FPUnaryOps{source, ...}) = used source
             |   instructionUses(FloatFixedInt{source, ...}) = argUses source
-            |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (argUses arg1; argUses arg2)
+            |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
             
             
            (* Depth-first scan. *)
@@ -885,10 +885,8 @@ struct
         |   codeExtended({instr=LockMutable{addr=PReg pr}, ...}, code) =
                 LLLockMutable{addr=getAllocatedReg(pr)} :: code
 
-        |   codeExtended({instr=WordComparison{ arg1 as RegisterArgument _, arg2, ... }, ...}, code) =
-                LLWordComparison{ arg1=codeExtArgument arg1, arg2=codeExtArgument arg2 } :: code
-
-        |   codeExtended({instr=WordComparison _, ...}, _) = raise InternalError "codeExtended - WordComparison"
+        |   codeExtended({instr=WordComparison{ arg1=PReg pr, arg2, ... }, ...}, code) =
+                LLWordComparison{ arg1=getAllocatedReg pr, arg2=codeExtArgument arg2 } :: code
 
             (* Set up an exception handler. *)
         |   codeExtended({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
@@ -925,7 +923,7 @@ struct
                     (LLReturnResultFromFunction{resultReg=raxAsArg, numStackArgs=numStackArgs} :: code)
             end
 
-        |   codeExtended({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   codeExtended({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...}, code) =
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
@@ -937,12 +935,10 @@ struct
                 (* If we couldn't put it in the result register we have to copy it there. *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
-                    (LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
+                    (LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand=op2Arg} :: code)
             end
 
-        |   codeExtended({instr=ArithmeticFunction{oper=SUB, ...}, ...}, _) = raise InternalError "codeExtended - ArithmeticFunction"
-
-        |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
@@ -959,11 +955,10 @@ struct
                     else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg, kind=MoveWord}])
             in
                 moveInstr @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg,
-                                        operand2=RegisterArg operandReg} :: code)
+                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand=RegisterArg operandReg} :: code)
             end
 
-        |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+        |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...}, code) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
@@ -976,23 +971,8 @@ struct
                    location with the result reg as a base or index? *)
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op2Arg} :: code)
+                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand=op2Arg} :: code)
             end
-
-        |   codeExtended({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1,
-                                            operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
-            (* Arithemtic operation with the second argument in a register and the first a constant or memory location. *)
-            let
-                val realDestReg = getAllocatedReg resReg
-                val realOp2Reg = getAllocatedReg op2Reg
-                val op1Arg = codeExtArgument operand1
-            in
-                moveIfNecessary{src=realOp2Reg, dst=realDestReg, kind=MoveWord} @
-                    (LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand1=RegisterArg realDestReg, operand2=op1Arg} :: code)
-            end
-
-        |   codeExtended({instr=ArithmeticFunction _, ...}, _) =
-                raise InternalError "codeExtended - ArithmeticFunction"
 
         |   codeExtended({instr=TestTagBit{arg, ...}, ...}, code) = LLTestTagBit{ arg=codeExtArgument arg } :: code
 
@@ -1034,7 +1014,7 @@ struct
                 LLLoadEffectiveAddress { base=NONE, offset=1, index=Index2 realSReg, dest=regResult }  :: code
             end
 
-        |   codeExtended({instr=UntagValue{source=RegisterArgument(PReg sReg), dest as PReg dReg, isSigned}, ...}, code) =
+        |   codeExtended({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned}, ...}, code) =
             (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
             if not (isUsed dest)
             then code
@@ -1044,11 +1024,9 @@ struct
                 val realSReg = getAllocatedReg sReg
             in
                 moveIfNecessary{src=realSReg, dst=regResult, kind=MoveWord} @
-                    (LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult, operand=RegisterArg regResult,
+                    (LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult,
                         shiftAmount=NonAddressConstArg 1} :: code)
             end
-
-        |   codeExtended({instr=UntagValue _, ...}, _) = raise InternalError "UntagValue"
 
         |   codeExtended({instr=LoadEffectiveAddress{base=PReg br, offset, index, dest=PReg dReg}, ...}, code) =
             let
@@ -1059,17 +1037,16 @@ struct
                 LLLoadEffectiveAddress{base=SOME bReg, offset=offset, index=iReg, dest=destReg} :: code
             end
 
-        |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=RegisterArgument(PReg operReg), shiftAmount=IntegerConstant i, ...}, ...}, code) =
+        |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant i, ...}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOpReg = getAllocatedReg operReg
             in
                  moveIfNecessary{src=realOpReg, dst=realDestReg, kind=MoveWord} @
-                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
-                                    shiftAmount=NonAddressConstArg i} :: code)
+                    (LLShiftOperation{shift=shift, resultReg=realDestReg, shiftAmount=NonAddressConstArg i} :: code)
             end
 
-        |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=RegisterArgument(PReg operReg),
+        |   codeExtended({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg,
                                         shiftAmount=RegisterArgument(PReg shiftReg), ...}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
@@ -1079,14 +1056,13 @@ struct
                    should be free. *)
             in
                  moveIfNecessary{src=realOpReg, dst=realDestReg, kind=MoveWord} @ moveIfNecessary{src=realShiftReg, dst=GenReg ecx, kind=MoveWord} @
-                    (LLShiftOperation{shift=shift, resultReg=realDestReg, operand=RegisterArg realDestReg,
-                                    shiftAmount=RegisterArg(GenReg ecx)} :: code)
+                    (LLShiftOperation{shift=shift, resultReg=realDestReg, shiftAmount=RegisterArg(GenReg ecx)} :: code)
             end
 
         |   codeExtended({instr=ShiftOperation _, ...}, _) = raise InternalError "codeExtended - ShiftOperation"
 
         |   codeExtended({instr=
-                Multiplication{resultReg=PReg resReg, operand1=RegisterArgument(PReg op1Reg),
+                Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
                                operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
             let
                 (* Treat exactly the same as ArithmeticFunction. *)
@@ -1171,7 +1147,7 @@ struct
                 moveIfNecessary{src=realV1Reg, dst=GenReg esi, kind=MoveWord} @
                     moveIfNecessary{src=realV2Reg, dst=GenReg edi, kind=MoveWord} @
                     moveIfNecessary{src=realLengthReg, dst=GenReg ecx, kind=MoveWord} @
-                    (LLWordComparison {arg1=RegisterArg rcxAsArg, arg2=RegisterArg rcxAsArg} ::
+                    (LLWordComparison {arg1=rcxAsArg, arg2=RegisterArg rcxAsArg} ::
                      LLCompareByteVectors{vec1Addr=GenReg esi, vec2Addr=GenReg edi, length=GenReg ecx} :: code)
             end
 
@@ -1187,10 +1163,8 @@ struct
                     (LLBlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove} :: code)
             end
 
-        |   codeExtended({instr=CompareFloatingPt{arg1 as RegisterArgument _, arg2, ...}, ...}, code) =
-                LLCompareFloatingPt{ arg1=codeExtArgument arg1, arg2=codeExtArgument arg2 } :: code
-
-        |   codeExtended({instr=CompareFloatingPt _, ...}, _) = raise InternalError "codeExtended - CompareFloatingPt"
+        |   codeExtended({instr=CompareFloatingPt{arg1=PReg argReg, arg2, ...}, ...}, code) =
+                LLCompareFloatingPt{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 } :: code
 
         |   codeExtended({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
             let
@@ -1201,19 +1175,17 @@ struct
                     moveIfNecessary{dst=destReg, src=GenReg eax, kind=MoveWord} @ code
             end
 
-        |   codeExtended({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), arg2}, ...}, code) =
+        |   codeExtended({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
                 val op2Arg = codeExtArgument arg2
             in
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
-                    (LLX87FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
+                    (LLX87FPArith{opc=opc, resultReg=realDestReg, arg=op2Arg} :: code)
             end
-
-        |   codeExtended({instr=X87FPArith _, ...}, _) = raise InternalError "codeExtended - X87FPArith"
     
-        |   codeExtended({instr=X87FPUnaryOps{fpOp, dest=PReg resReg, source=RegisterArgument(PReg op1Reg)}, ...}, code) =
+        |   codeExtended({instr=X87FPUnaryOps{fpOp, dest=PReg resReg, source=PReg op1Reg}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
@@ -1221,8 +1193,6 @@ struct
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
                     (LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArg realDestReg} :: code)
             end
-
-        |   codeExtended({instr=X87FPUnaryOps _, ...}, _) = raise InternalError "codeExtended - X87FPArith"
 
         |   codeExtended({instr=FloatFixedInt{dest=PReg resReg, source}, ...}, code) =
             let
@@ -1244,7 +1214,7 @@ struct
                 floatCode @ code
             end
     
-        |   codeExtended({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=RegisterArgument(PReg op1Reg), arg2}, ...}, code) =
+        |   codeExtended({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
@@ -1253,8 +1223,6 @@ struct
                 moveIfNecessary{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
                     (LLSSE2FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg} :: code)
             end
-    
-        |   codeExtended({instr=SSE2FPArith _, ...}, _) = raise InternalError "codeExtended - SSE2FPArith"
         
         
         (* We now have the code with concrete registers. *)
@@ -1396,7 +1364,7 @@ struct
             |   codeGenICode(LLLockMutable { addr } :: rest, code) =
                     codeGenICode(rest, LockMutableSegment (asGenReg addr) :: code)
 
-            |   codeGenICode(LLWordComparison {arg1=RegisterArg(GenReg r), arg2, ...} :: rest, code) =
+            |   codeGenICode(LLWordComparison {arg1=GenReg r, arg2, ...} :: rest, code) =
                     codeGenICode(rest, ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
 
             |   codeGenICode(LLWordComparison _ :: _, _) =
@@ -1456,15 +1424,8 @@ struct
             |   codeGenICode(LLReturnResultFromFunction { numStackArgs, ... } :: rest, code) =
                     codeGenICode(rest, ReturnFromFunction numStackArgs :: code)
 
-            |   codeGenICode(
-                    LLArithmeticFunction{
-                        oper, resultReg=(GenReg resReg), operand1=RegisterArg(GenReg op1Reg),
-                        operand2, ...} :: rest, code) =
-                let
-                    val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: ArithmeticFunction"
-                in
-                    codeGenICode(rest, ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand2 } :: code)
-                end
+            |   codeGenICode(LLArithmeticFunction{oper, resultReg=(GenReg resReg), operand, ...} :: rest, code) =
+                    codeGenICode(rest, ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand } :: code)
 
             |   codeGenICode(LLArithmeticFunction _ :: _, _) =
                     raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
@@ -1500,18 +1461,16 @@ struct
                 end
 
             |   codeGenICode(
-                    LLShiftOperation{ shift, resultReg, operand, shiftAmount=NonAddressConstArg shiftValue, ...} :: rest, code) =
+                    LLShiftOperation{ shift, resultReg, shiftAmount=NonAddressConstArg shiftValue, ...} :: rest, code) =
                 let
-                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
-                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
+                    val resReg = asGenReg resultReg
                 in
                     codeGenICode(rest, ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
                 end
 
-            |   codeGenICode(LLShiftOperation { shift, resultReg, operand, shiftAmount, ...} :: rest, code) =
+            |   codeGenICode(LLShiftOperation { shift, resultReg, shiftAmount, ...} :: rest, code) =
                 let
-                    val resReg = asGenReg resultReg and opReg = argAsGenReg operand
-                    val _ = resReg = opReg orelse raise InternalError "codeGenICode: ShiftOperation"
+                    val resReg = asGenReg resultReg
                     (* The amount to shift must be in ecx.  The shift is masked to 5 or 6 bits so we have to
                        check for larger shift values at a higher level. *)
                     val _ = argAsGenReg shiftAmount = ecx orelse raise InternalError "codeGenICode: ShiftOperation"
@@ -1580,9 +1539,7 @@ struct
                 end
 
             |   codeGenICode(
-                    LLCompareFloatingPt {
-                        arg1=RegisterArg(FPReg fpReg),
-                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
+                    LLCompareFloatingPt {arg1=FPReg fpReg, arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... } :: rest, code) =
                 let
                     val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                     (* This currently pops the value. *)
@@ -1591,7 +1548,7 @@ struct
                     codeGenICode(rest, FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code)
                 end
 
-            |   codeGenICode(LLCompareFloatingPt {arg1=RegisterArg(XMMReg xmmReg), arg2, ... } :: rest, code) =
+            |   codeGenICode(LLCompareFloatingPt {arg1=XMMReg xmmReg, arg2, ... } :: rest, code) =
                     codeGenICode(rest, XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
 
             |   codeGenICode(LLCompareFloatingPt _ :: _, _) =
@@ -1608,11 +1565,10 @@ struct
 
             |   codeGenICode(
                     LLX87FPArith {
-                        opc, resultReg=(FPReg fpResReg), arg1=RegisterArg(FPReg fpArgReg),
-                        arg2=MemoryArg{offset, base=baseReg, index=NoIndex} } :: rest, code) =
+                        opc, resultReg=(FPReg fpResReg),
+                        arg=MemoryArg{offset, base=baseReg, index=NoIndex} } :: rest, code) =
                 let
                     val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
-                    val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
                 in
                     codeGenICode(rest, FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
                 end
