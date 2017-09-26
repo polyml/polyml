@@ -74,6 +74,18 @@ struct
         and realAbsMask: machineWord = makeRealConst [0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wxff, 0wx7f]
     end
 
+    (* Check that a large-word constant looks right and get the value as a large int*)
+    fun largeWordConstant value =
+        if isShort value then raise InternalError "largeWordConstant: invalid"
+        else
+        let
+            val addr = toAddress value
+        in
+            if length addr <> 0w1 orelse flags addr <> F_bytes
+            then raise InternalError "largeWordConstant: invalid"
+            else ();
+            LargeWord.toLargeInt(RunCall.unsafeCast addr)
+        end
 
     fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
     let
@@ -1652,6 +1664,34 @@ struct
         |   codeToICodeBinary(instr as {oper=BuiltIns.LargeWordComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
 
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val aReg3 = newUReg()
+                val argReg = newUReg()
+                val constantValue = largeWordConstant value
+            in
+                (arg1Code @
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                val aReg3 = newUReg()
+                val argReg = newUReg()
+                val constantValue = largeWordConstant value
+            in
+                (arg2Code @
+                    [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
         |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
@@ -1663,6 +1703,20 @@ struct
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordArith BuiltIns.ArithSub, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val aReg3 = newUReg()
+                val argReg = newUReg()
+                val constantValue = largeWordConstant value
+            in
+                (arg1Code @
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1733,45 +1787,48 @@ struct
         |   codeToICodeBinary({oper=BuiltIns.LargeWordArith _, ...}, _, _, _) =
                 raise InternalError "codeToICodeNonRev: LargeWordArith - unimplemented operation"
 
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalOr, arg1, arg2}, context, _, destination) =
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (arg1Code, aReg1) = codeToPReg(arg1, context)
+                val aReg3 = newUReg()
+                val argReg = newUReg()
+                val constantValue = largeWordConstant value
+                val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+            in
+                (arg1Code @
+                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+            let
+                val target = asTarget destination
+                val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                val aReg3 = newUReg()
+                val argReg = newUReg()
+                val constantValue = largeWordConstant value
+                val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
+            in
+                (arg2Code @
+                    [BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg, kind=MoveWord}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=IntegerConstant constantValue, ccRef=newCCRef()}),
+                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
+            end
+
+        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical logOp, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
                 val aReg3 = newUReg()
                 val argReg = newUReg()
+               val oper = case logOp of BuiltIns.LogicalOr => OR | BuiltIns.LogicalAnd => AND | BuiltIns.LogicalXor => XOR
             in
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=OR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
-            end
-
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalAnd, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                val (arg2Code, aReg2) = codeToPReg(arg2, context)
-                val aReg3 = newUReg()
-                val argReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
-                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=AND, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
-                     BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
-            end
-
-        |   codeToICodeBinary({oper=BuiltIns.LargeWordLogical BuiltIns.LogicalXor, arg1, arg2}, context, _, destination) =
-            let
-                val target = asTarget destination
-                val (arg1Code, aReg1) = codeToPReg(arg1, context)
-                and (arg2Code, aReg2) = codeToPReg(arg2, context)
-                val aReg3 = newUReg()
-                val argReg = newUReg()
-            in
-                (arg1Code @ arg2Code @
-                    [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg, kind=MoveWord}),
-                     BlockSimple(ArithmeticFunction{oper=XOR, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
+                     BlockSimple(ArithmeticFunction{oper=oper, resultReg=aReg3, operand1=RegisterArgument argReg, operand2=wordAt aReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=aReg3, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -2277,6 +2334,22 @@ struct
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
                 BlockSimple(WordComparison{arg1=RegisterArgument arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
+            end
+
+        |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2=BICConstnt(value, _)},
+                    context, jumpOn, jumpLabel, tailCode) =
+            let
+                val ccRef = newCCRef()
+                val argReg = newUReg()
+                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
+                val noJumpLabel = newLabel()
+                val constantValue = largeWordConstant value
+            in
+                BlockLabel noJumpLabel ::
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                BlockSimple(WordComparison{arg1=RegisterArgument argReg, arg2=IntegerConstant constantValue, ccRef=ccRef}) ::
+                BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg1Code
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
