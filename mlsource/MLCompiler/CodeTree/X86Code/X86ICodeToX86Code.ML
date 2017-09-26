@@ -645,6 +645,9 @@ struct
         |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache arg = arg
         
+        (* Only get the registers that are actually used. *)
+        val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedReg r) else NONE)
+        
         fun codeExtended({instr=LoadArgument{source, dest as PReg dreg, kind}, ...}, code) =
             if not (isUsed dest)
             then code
@@ -798,7 +801,7 @@ struct
 
         |   codeExtended({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =
             let
-                val preserve = List.map(fn (PReg r) => getAllocatedReg r) saveRegs
+                val preserve = getSaveRegs saveRegs
             in
                 LLAllocateMemoryOperation{ size=size, flags=flags, dest=getAllocatedReg dReg, saveRegs=preserve} :: code
             end
@@ -806,7 +809,7 @@ struct
         |   codeExtended({instr=AllocateMemoryVariable{size=PReg sReg, dest=PReg dReg, saveRegs}, ...}, code) =
             let
                 (* Simple case - no initialiser. *)
-                val preserve = List.map(fn (PReg r) => getAllocatedReg r) saveRegs
+                val preserve = getSaveRegs saveRegs
                 val destReg = getAllocatedReg dReg
             in
                 LLAllocateMemoryVariable{size=getAllocatedReg sReg, dest=destReg, saveRegs=preserve} :: code
@@ -837,7 +840,7 @@ struct
                 |   codeArg arg = OtherSource(codeExtArgument arg)
                 val extStackArgs = map (fn (src, stack, _) => {dst=StackDest stack, src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, PReg r) => {src=codeArg a, dst=RegDest(getAllocatedReg r)}) regArgs
-                val check = Option.map(List.map(fn (PReg r) => getAllocatedReg r)) checkInterrupt
+                val check = Option.map getSaveRegs checkInterrupt
             in
                 moveMultipleValues(extStackArgs @ extRegArgs, workReg) @
                     (LLJumpLoop{checkInterrupt=check} :: code)
@@ -1138,7 +1141,7 @@ struct
             then code
             else
             let
-                val preserve = List.map(fn (PReg r) => getAllocatedReg r) saveRegs
+                val preserve = getSaveRegs saveRegs
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
                         BoxLargeWord => (getAllocatedReg sReg, 1, MoveWord)
