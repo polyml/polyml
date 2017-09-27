@@ -2081,10 +2081,11 @@ struct
             let
                 (* Store a 16-bit value to C memory. *)
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeCAddress(address, 0w2, context)
-                val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
+                (* We don't currently implement 16-bit constant moves so this must always be in a reg. *)
+                val (valueCode, untagValue, valueArg) = codeAsUntaggedToReg(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                    [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=Move16Bit})]
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move16Bit})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2098,10 +2099,11 @@ struct
                     if isX64
                     then
                     let
-                        val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
+                        (* We don't currently implement 32-bit constant moves so this must always be in a reg. *)
+                        val (valueCode, untagValue, valueArg) = codeAsUntaggedToReg(value, false, context)
                     in
                         codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                        [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=Move32Bit})]
+                        [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move32Bit})]
                     end
                     else
                     let
