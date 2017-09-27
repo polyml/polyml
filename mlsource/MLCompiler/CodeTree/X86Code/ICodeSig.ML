@@ -55,7 +55,7 @@ sig
     and      arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
 
-    datatype boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
 
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
     and      fpUnaryOps = FABS | FCHS | FLD1 | FLDZ
@@ -265,7 +265,10 @@ sig
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPt of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+
+        (* Floating point comparison. *)
+    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
@@ -278,7 +281,10 @@ sig
     |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
 
         (* Load a fixed point value as a floating point value. *)
-    |   FloatFixedInt of { dest: preg, source: argument }
+    |   X87Float of { dest: preg, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }

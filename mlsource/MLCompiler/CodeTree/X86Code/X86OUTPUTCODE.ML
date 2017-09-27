@@ -370,6 +370,8 @@ struct
             then listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi, r8, r9, r10, r11, r12, r13, r14])
             else listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi])
         
+        (* The floating point stack.  Note that this excludes one item so it is always
+           possible to load a value onto the top of the FP stack. *)
         val floatingPtRegisters =
             listToSet(map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)])
 

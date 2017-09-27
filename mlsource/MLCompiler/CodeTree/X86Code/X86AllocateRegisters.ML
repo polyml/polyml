@@ -42,7 +42,11 @@ struct
     val floatingPtRegisters =
         case fpMode of
             FPModeSSE2 => List.map XMMReg [xmm6, xmm5, xmm4, xmm3, xmm2, xmm1, xmm0]
-        |   FPModeX87 => List.map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6, fp7]
+            (* We can't include fp7 because we need one spare. *)
+            (* For the moment we only have FP0 here.  There are problems with using the
+               others because we need to ensure the stack is empty if we call any
+               non-ML function and we don't currently manage it properly. *)
+        |   FPModeX87 => List.map FPReg [fp0(*, fp1, fp2, fp3, fp4, fp5, fp6*)]
 
     datatype allocateResult =
         AllocateSuccess of reg vector
@@ -618,7 +622,8 @@ struct
                 List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
                 case boxKind of
                     BoxLargeWord => allocateGeneralReg sReg
-                |   BoxFloat => allocateFloatReg sReg;
+                |   BoxX87 => allocateFloatReg sReg
+                |   BoxSSE2 => allocateFloatReg sReg;
                 allocateGeneralReg dReg
             )
 
@@ -636,7 +641,10 @@ struct
                 allocateRegister(lReg, SOME(GenReg ecx), generalRegisters)
             )
 
-        |   registerAllocate{instr=CompareFloatingPt{arg1=PReg arg1Reg, arg2, ...}, ...} =
+        |   registerAllocate{instr=X87Compare{arg1=PReg arg1Reg, arg2, ...}, ...} =
+                (allocateRegister(arg1Reg, NONE, floatingPtRegisters); allocateArgFloat arg2)
+
+        |   registerAllocate{instr=SSE2Compare{arg1=PReg arg1Reg, arg2, ...}, ...} =
                 (allocateRegister(arg1Reg, NONE, floatingPtRegisters); allocateArgFloat arg2)
 
         |   registerAllocate({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}) =
@@ -658,7 +666,10 @@ struct
                 allocateRegister(op1Reg, SOME realDestReg, floatingPtRegisters)
             end
 
-        |   registerAllocate({instr=FloatFixedInt{dest=PReg resReg, source}, ...}) =
+        |   registerAllocate({instr=X87Float{dest=PReg resReg, source}, ...}) =
+                (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
+
+        |   registerAllocate({instr=SSE2Float{dest=PReg resReg, source}, ...}) =
                 (allocateArgGeneral source; allocateRegister(resReg, NONE, floatingPtRegisters))
 
         |   registerAllocate({instr=SSE2FPArith{resultReg=PReg resReg, arg1=PReg op1Reg, arg2, ...}, ...}) =

@@ -232,7 +232,11 @@ struct
     |   getInstructionState(BlockMove{srcAddr, destAddr, length, ...}) =
             { sources=[srcAddr, destAddr, length], dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(CompareFloatingPt{arg1, arg2, ccRef, ...}) =
+    |   getInstructionState(X87Compare{arg1, arg2, ccRef, ...}) =
+            { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2,
+              dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
+    |   getInstructionState(SSE2Compare{arg1, arg2, ccRef, ...}) =
             { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2,
               dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
@@ -246,7 +250,10 @@ struct
     |   getInstructionState(X87FPUnaryOps{dest, source, ...}) =
             { sources=[source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
-    |   getInstructionState(FloatFixedInt{dest, source}) =
+    |   getInstructionState(X87Float{dest, source}) =
+            { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
+
+    |   getInstructionState(SSE2Float{dest, source}) =
             { sources=argRegs source, dests=[dest], sStacks=argStacks source, dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(SSE2FPArith{resultReg, arg1, arg2, ...}) =

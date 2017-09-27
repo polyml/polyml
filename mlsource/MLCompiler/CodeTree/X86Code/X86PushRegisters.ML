@@ -997,7 +997,7 @@ struct
                                 else
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
-                                    val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxFloat => MoveDouble
+                                    val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
                                     val _ = setMemoryCache(dReg, 0, newCacheReg, true, moveKind)
                                 in
                                     [CopyToCache{source=sourceVal, dest=newCacheReg, kind=moveKind}]
@@ -1026,12 +1026,20 @@ struct
                                     lengthCode @ destCode @ srcCode @ code
                         end
 
-                    |   pushRegisters({instr=CompareFloatingPt{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=X87Compare{arg1, arg2, ccRef}, ...}, code) =
                         let
                             val (arg1Val, arg1Code) = mapSrcReg arg1
                             val (arg2Val, arg2Code) = mapSource arg2
                         in
-                            CompareFloatingPt{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                            X87Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, ccRef}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSource arg2
+                        in
+                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
                         end
 
                     |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, ...}, code) =
@@ -1059,12 +1067,20 @@ struct
                             destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=FloatFixedInt{dest, source}, ...}, code) =
+                    |   pushRegisters({instr=X87Float{dest, source}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSource source
                             val (destVal, destCode) = mapDestReg dest
                         in
-                            destCode @ FloatFixedInt{dest=destVal, source=sourceVal} :: sourceCode @ code
+                            destCode @ X87Float{dest=destVal, source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2Float{dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
                         end
     
                     |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...}, code) =

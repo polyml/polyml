@@ -77,7 +77,8 @@ struct
     |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
     |   LLCompareByteVectors of { vec1Addr: reg, vec2Addr: reg, length: reg }
     |   LLBlockMove of { srcAddr: reg, destAddr: reg, length: reg, isByteMove: bool }
-    |   LLCompareFloatingPt of { arg1: reg, arg2: reg regOrMemoryArg }
+    |   LLX87Compare of { arg1: reg, arg2: reg regOrMemoryArg }
+    |   LLSSE2Compare of { arg1: reg, arg2: reg regOrMemoryArg }
     |   LLX87FPGetCondition of { dest: reg }
     |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg: reg regOrMemoryArg }
     |   LLX87FPUnaryOps of { fpOp: fpUnaryOps, dest: reg, source: reg regOrMemoryArg }
@@ -140,22 +141,14 @@ struct
 
                 (* Load a floating point value. *)
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble}, code) =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-            in
-                FPLoadFromMemory{ address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision } :: code
-            end
+                moveToOutputFP(fpReg,
+                   FPLoadFromMemory{ address={base=baseReg, offset=offset, index=index}, precision=DoublePrecision } :: code)
         
         |   llLoadArgument({source=RegisterArg(FPReg fpSrc), dest=FPReg fpDest, kind=MoveDouble}, code) =
-            let
-                (* TODO: See if we no longer require the source register. *)
-                val loadToStack =
-                    if fpSrc = fp0 then code else FPLoadFromFPReg{source=fpSrc, lastRef=false} :: code
-                val storeFromStack =
-                    if fpDest = fp0 then loadToStack else FPStoreToFPReg{output=fpDest, andPop=fpSrc<>fp0} :: loadToStack
-            in
-                storeFromStack
-            end
+                (* Moving from one FP reg to another.  Even if we are moving from FP0 we still do a load
+                   because FPStoreToFPReg adds one to the register number to account for one value on the
+                   stack. *)
+                moveToOutputFP(fpDest, FPLoadFromFPReg{source=fpSrc, lastRef=false} :: code)
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveDouble}, code) =
@@ -163,11 +156,8 @@ struct
 
                 (* Load a floating point value. *)
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveFloat}, code) =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: Load FPReg <> fp0"
-            in
-                FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=index }, precision=SinglePrecision } :: code
-            end
+                moveToOutputFP(fpReg,
+                    FPLoadFromMemory{ address={ base=baseReg, offset=offset, index=index }, precision=SinglePrecision } :: code)
 
                 (* Load or move from an XMM reg. *)
         |   llLoadArgument({source, dest=XMMReg xmmRegReg, kind=MoveFloat}, code) =
@@ -175,6 +165,11 @@ struct
 
             (* Any other combinations are not allowed. *)
         |   llLoadArgument _ = raise InternalError "codeGenICode: LoadArgument"
+        
+        (* Unless the destination is FP0 we need to store and pop. *)
+        and moveToOutputFP(fpDest, code) =
+            if fpDest = fp0 then code
+            else FPStoreToFPReg{output=fpDest, andPop=true} :: code
 
                 (* Store to memory *)
         fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} =
@@ -635,11 +630,13 @@ struct
             |   instructionUses(BoxValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(CompareByteVectors{vec1Addr, vec2Addr, length, ...}) = (used vec1Addr; used vec2Addr; used length)
             |   instructionUses(BlockMove{srcAddr, destAddr, length, ...}) = (used srcAddr; used destAddr; used length)
-            |   instructionUses(CompareFloatingPt{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(X87Compare{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(SSE2Compare{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(X87FPGetCondition _) = ()
             |   instructionUses(X87FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
             |   instructionUses(X87FPUnaryOps{source, ...}) = used source
-            |   instructionUses(FloatFixedInt{source, ...}) = argUses source
+            |   instructionUses(X87Float{source, ...}) = argUses source
+            |   instructionUses(SSE2Float{source, ...}) = argUses source
             |   instructionUses(SSE2FPArith{arg1, arg2, ...}) = (used arg1; argUses arg2)
             
             
@@ -804,7 +801,7 @@ struct
             end
 
         |   codeGenICode(
-                LLCompareFloatingPt {arg1=FPReg fpReg, arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... }, _, code) =
+                LLX87Compare {arg1=FPReg fpReg, arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... }, _, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                 (* This currently pops the value. *)
@@ -813,7 +810,7 @@ struct
             end
 
         |   codeGenICode(
-                LLCompareFloatingPt {arg1=FPReg fpReg, arg2=RegisterArg(FPReg fpReg2), ... }, _, code) =
+                LLX87Compare {arg1=FPReg fpReg, arg2=RegisterArg(FPReg fpReg2), ... }, _, code) =
             let
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
                 (* This currently pops the value. *)
@@ -821,10 +818,13 @@ struct
                 FPArithR{opc=FCOMP, source=fpReg2} :: code
             end
 
-        |   codeGenICode(LLCompareFloatingPt {arg1=XMMReg xmmReg, arg2, ... }, _, code) =
+        |   codeGenICode(LLX87Compare _, _, _) =
+                raise InternalError "codeGenICode: CompareFloatingPt: TODO"
+
+        |   codeGenICode(LLSSE2Compare {arg1=XMMReg xmmReg, arg2, ... }, _, code) =
                 (XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
 
-        |   codeGenICode(LLCompareFloatingPt _, _, _) =
+        |   codeGenICode(LLSSE2Compare _, _, _) =
                 raise InternalError "codeGenICode: CompareFloatingPt: TODO"
 
         |   codeGenICode(LLX87FPGetCondition { dest, ... }, _, code) =
@@ -1417,7 +1417,8 @@ struct
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
                         BoxLargeWord => (getAllocatedReg sReg, 1, MoveWord)
-                    |   BoxFloat => (getAllocatedReg sReg, Int.quot(8, wordSize), MoveDouble)
+                    |   BoxX87 => (getAllocatedReg sReg, Int.quot(8, wordSize), MoveDouble)
+                    |   BoxSSE2 => (getAllocatedReg sReg, Int.quot(8, wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
             in
                 StoreInitialised ::
@@ -1459,8 +1460,11 @@ struct
                     [LLBlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove}], {flow=flow}, code)
             end
 
-        |   codeExtended {flow} ({instr=CompareFloatingPt{arg1=PReg argReg, arg2, ...}, ...}, code) =
-                codeGenICode(LLCompareFloatingPt{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 }, {flow=flow}, code)
+        |   codeExtended {flow} ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+                codeGenICode(LLX87Compare{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 }, {flow=flow}, code)
+
+        |   codeExtended {flow} ({instr=SSE2Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+                codeGenICode(LLSSE2Compare{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 }, {flow=flow}, code)
 
         |   codeExtended {flow} ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
             let
@@ -1490,28 +1494,25 @@ struct
                     [LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArg realDestReg}], {flow=flow}, code)
             end
 
-        |   codeExtended _ ({instr=FloatFixedInt{dest=PReg resReg, source}, ...}, code) =
+        |   codeExtended _ ({instr=X87Float{dest=PReg resReg, source}, ...}, code) =
             let
                 val intSource = codeExtArgument source
+                val fpReg = getAllocatedFPReg resReg
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
             in
-                case fpMode of
-                    FPModeX87 =>
-                    let
-                        val fpReg = getAllocatedFPReg resReg
-                        val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
-                    in
-                        (* This is complicated.  The integer value has to be in memory not in a
-                           register so we have to push it to the stack and then make sure it is
-                           popped afterwards.  Because it is untagged it is unsafe to leave it. *)
-                        ResetStack{numWords=1, preserveCC=false} :: FPLoadInt{ base=esp, offset=0 } :: llPushValue {arg=intSource} :: code
-                    end
-                |   FPModeSSE2 =>
-                    let
-                        val xmmResReg = getAllocatedXMMReg resReg
-                        val srcReg = case intSource of RegisterArg(GenReg srcReg) => srcReg | _ => raise InternalError "FloatFixedInt: not reg"
-                    in
-                        XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code
-                    end
+                (* This is complicated.  The integer value has to be in memory not in a
+                   register so we have to push it to the stack and then make sure it is
+                   popped afterwards.  Because it is untagged it is unsafe to leave it. *)
+                ResetStack{numWords=1, preserveCC=false} :: FPLoadInt{ base=esp, offset=0 } :: llPushValue {arg=intSource} :: code
+            end
+
+        |   codeExtended _ ({instr=SSE2Float{dest=PReg resReg, source}, ...}, code) =
+            let
+                val intSource = codeExtArgument source
+                val xmmResReg = getAllocatedXMMReg resReg
+                val srcReg = case intSource of RegisterArg(GenReg srcReg) => srcReg | _ => raise InternalError "FloatFixedInt: not reg"
+            in
+                XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code
             end
 
         |   codeExtended {flow} ({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =

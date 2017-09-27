@@ -69,7 +69,7 @@ struct
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
 
-    datatype boxKind = BoxLargeWord | BoxFloat
+    datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -227,7 +227,10 @@ struct
     |   BlockMove of { srcAddr: preg, destAddr: preg, length: preg, isByteMove: bool }
 
         (* Floating point comparison. *)
-    |   CompareFloatingPt of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   X87Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
+
+        (* Floating point comparison. *)
+    |   SSE2Compare of { arg1: preg, arg2: argument, ccRef: ccRef }
 
         (* The X87 FP unit does not generate condition codes directly.  We have to
            load the cc into RAX and test it there. *)
@@ -240,7 +243,10 @@ struct
     |   X87FPUnaryOps of { fpOp: fpUnaryOps, dest: preg, source: preg }
 
         (* Load a fixed point value as a floating point value. *)
-    |   FloatFixedInt of { dest: preg, source: argument }
+    |   X87Float of { dest: preg, source: argument }
+
+        (* Load a fixed point value as a floating point value. *)
+    |   SSE2Float of { dest: preg, source: argument }
 
         (* Binary floating point operations using SSE2 instructions. *)
     |   SSE2FPArith of { opc: sse2Operations, resultReg: preg, arg1: preg, arg2: argument }
@@ -567,7 +573,7 @@ struct
 
         |   printICode(BoxValue{boxKind, source, dest, saveRegs}, stream, printReg) =
             (
-                case boxKind of BoxLargeWord => stream "\tBoxLarge\t" | BoxFloat => stream "\tBoxFloat\t";
+                stream(case boxKind of BoxLargeWord => "\tBoxLarge\t" | BoxX87 => "\tBoxX87\t" | BoxSSE2 => "\tBoxSSE2\t");
                 printReg(source, stream);
                 stream " => ";
                 printReg(dest, stream);
@@ -590,8 +596,11 @@ struct
                 stream ",len="; printReg(length, stream)
             )
 
-        |   printICode(CompareFloatingPt{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tCompareFloatingPt\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+        |   printICode(X87Compare{arg1, arg2, ...}, stream, printReg) =
+                (stream "\tX87Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+
+        |   printICode(SSE2Compare{arg1, arg2, ...}, stream, printReg) =
+                (stream "\tSSE2Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
 
         |   printICode(X87FPGetCondition{dest, ...}, stream, printReg) = (stream "\tX87FPGetCondition\t => "; printReg(dest, stream))
 
@@ -621,9 +630,12 @@ struct
                 printReg(source, stream); stream " => ";
                 printReg(dest, stream)
             )
-        
-        |   printICode(FloatFixedInt{dest, source}, stream, printReg) =
-                (stream "\tFloatFixedInt\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+
+        |   printICode(X87Float{dest, source}, stream, printReg) =
+                (stream "\tX87Float\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
+
+        |   printICode(SSE2Float{dest, source}, stream, printReg) =
+                (stream "\tSSE2Float\t"; printArg(source, stream, printReg); stream " => "; printReg(dest, stream))
         
         |   printICode(SSE2FPArith{opc, resultReg, arg1, arg2}, stream, printReg) =
             (
