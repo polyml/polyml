@@ -472,7 +472,8 @@ struct
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
                 |   PregLocation pr => moveIfNotAllowedRev(destination, tailCode, RegisterArgument pr)
                 |   ContainerLocation{container, stackOffset} =>
-                       (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
+                        (* This always returns a ContainerAddr whatever the "allowed". *)
+                        (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =
@@ -506,14 +507,15 @@ struct
                         [] => AddressConstant(toMachineWord(valOf closureOpt))
                     |   _ => RegisterArgument closureRegAddr)
 
-        |   codeToICodeRev(BICField{base=BICExtract(BICLoadLocal l), offset}, { stackPtr, ...}, _, destination, tailCode) =
-            (* If this happens to be a local container we can extract the field directly. *)
-            (
-                case Array.sub(locToPregArray, l) of
-                    NoLocation => raise InternalError "codeToICodeRev - local unset"
-                |   PregLocation baseR =>
-                        moveIfNotAllowedRev(destination, tailCode, wordOffsetAddress(offset, baseR))
-                |   ContainerLocation{container, stackOffset} =>
+        |   codeToICodeRev(BICField{base, offset}, context as { stackPtr, ...}, _, destination, tailCode) =
+            let
+                val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, Allowed allowInPReg, tailCode)
+            in
+                (* If this is a local container we extract the field. *)
+                case baseEntry of
+                    RegisterArgument baseR =>
+                        moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset, baseR))
+                |   ContainerAddr{container, stackOffset} =>
                     let
                         val target = asTarget destination
                         val finalOffset = stackPtr-stackOffset+offset
@@ -524,13 +526,7 @@ struct
                             dest=target, kind=MoveWord}) :: tailCode,
                         RegisterArgument target, false)
                     end
-            )
-
-        |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
-            let
-                val (codeBase, baseR) = codeToPRegRev(base, context, tailCode)
-            in
-                moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset, baseR))
+                |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
             end
 
         |   codeToICodeRev(BICEval{function, argList, ...}, context as { currHandler, ...}, isTail, destination, tailCode) =
