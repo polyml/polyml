@@ -180,10 +180,11 @@ struct
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: preg, dest: preg }
+    |   TagValue of { source: preg, dest: preg, isSigned: bool }
 
-        (* Shift a value to remove the tag bit. *)
-    |   UntagValue of { source: preg, dest: preg, isSigned: bool }
+        (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
+           value that has previously been tagged. *)
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
     |   LoadEffectiveAddress of { base: preg, offset: int, index: memoryIndex, dest: preg }
@@ -516,13 +517,15 @@ struct
                 stream(Int.toString stackOffset); stream ")"
             )
 
-        |   printICode(TagValue{source, dest}, stream, printReg) =
+        |   printICode(TagValue{source, dest, ...}, stream, printReg) =
                 (stream "\tTagValue\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
 
-        |   printICode(UntagValue{source, dest, isSigned=true}, stream, printReg) =
-                (stream "\tUntagSigned\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
-        |   printICode(UntagValue{source, dest, isSigned=false}, stream, printReg) =
-                (stream "\tUntagSigned\t"; printReg(source, stream); stream " => "; printReg(dest, stream))
+        |   printICode(UntagValue{source, dest, isSigned, cache}, stream, printReg) =
+            (
+                stream "\tUntag"; stream(if isSigned then "Signed\t" else "Unsigned\t");
+                printReg(source, stream); stream " => "; printReg(dest, stream);
+                case cache of NONE => () | SOME c => (stream " cache "; printReg(c, stream))
+            )
 
         |   printICode(LoadEffectiveAddress{base, offset, index, dest}, stream, printReg) =
             (

@@ -1264,7 +1264,7 @@ struct
             in
                 (argCode @
                 [BlockSimple(LoadArgument{source=MemoryLocation{offset= ~1, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveByte}),
-                 BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
+                 BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false })], RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.ClearMutableFlag, arg1}, context, _, destination) =
@@ -1325,7 +1325,8 @@ struct
             in
                 (argCode @
                 [BlockSimple(LoadArgument{source=MemoryLocation{offset=0, base=addrReg, index=NoMemIndex, cache=NONE}, dest=argReg1, kind=MoveWord}),
-                 BlockSimple(TagValue{ source=argReg1, dest=target })], RegisterArgument target, false)
+                 (* Is this signed or unsigned? *)
+                 BlockSimple(TagValue{ source=argReg1, dest=target, isSigned=false })], RegisterArgument target, false)
             end
 
         |   codeToICodeUnary({oper=BuiltIns.SignedToLongWord, arg1}, context, _, destination) =
@@ -1334,7 +1335,7 @@ struct
                 val (argCode, argReg1) = codeToPReg(arg1, context)
                 val code =
                     argCode @
-                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true}),
+                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=true, cache=NONE}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
@@ -1346,7 +1347,7 @@ struct
                 val (argCode, argReg1) = codeToPReg(arg1, context)
                 val code =
                     argCode @
-                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false}),
+                    [BlockSimple(UntagValue{source=argReg1, dest=untagArg, isSigned=false, cache=NONE}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord,  source=untagArg, dest=addrReg, saveRegs=[]})]
             in
                 moveIfNotAllowed(destination, code, RegisterArgument addrReg)
@@ -1401,7 +1402,7 @@ struct
                 val boxFloat = case fpMode of FPModeX87 => BoxX87 | FPModeSSE2 => BoxSSE2
             in
                 (argCode @
-                 [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true}),
+                 [BlockSimple(UntagValue{source=aReg1, dest=untagReg, isSigned=true, cache=NONE}),
                   BlockSimple(floatOp{ dest=fpReg, source=RegisterArgument untagReg}),
                   BlockSimple(BoxValue{boxKind=boxFloat, source=fpReg, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
@@ -1516,7 +1517,7 @@ struct
                 (arg1Code @ arg2Code @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
                      BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=newCCRef()}),
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})],
@@ -1533,11 +1534,11 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=quotient, dest=target })], RegisterArgument target, false)
+                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=false })], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMod, arg1, arg2}, context, _, destination) =
@@ -1551,11 +1552,11 @@ struct
             in
                 (arg1Code @ arg2Code @
                     (* Shift both of the arguments to remove the tags. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=false, cache=NONE}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=false, cache=NONE}),
                      BlockSimple(Division { isSigned = false, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=remainder, dest=target })], RegisterArgument target, false)
+                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=false })], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordArith _, ...}, _, _, _) =
@@ -1645,7 +1646,7 @@ struct
                  (* There are better ways of doing this but it will do for the moment.  We don't need to
                     remove the tag for right shifts provided we OR in a tag afterwards. *)
                  [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=arg1Reg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
-                  BlockSimple(TagValue{source=resRegUntagged, dest=target})], RegisterArgument target, false)
+                  BlockSimple(TagValue{source=resRegUntagged, dest=target, isSigned=(shift=ShiftRightArithmetic)})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
@@ -1939,7 +1940,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC8, address}, context, _, destination) =
@@ -1952,7 +1953,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveByte}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC16, address}, context, _, destination) =
@@ -1964,7 +1965,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=Move16Bit}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
             end
 
         |   codeToICodeLoad({kind=LoadStoreC32, address}, context, _, destination) =
@@ -1976,7 +1977,7 @@ struct
                 val untaggedResReg = newUReg()
                 val (boxTagCode, moveKind) =
                     if isX64
-                    then (BlockSimple(TagValue {source=untaggedResReg, dest=target}), Move32Bit)
+                    then (BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false}), Move32Bit)
                     else (BlockSimple(BoxValue{boxKind=BoxLargeWord, source=untaggedResReg, dest=target, saveRegs=[]}), MoveWord)
             in
                 (codeBaseIndex @ codeUntag @
@@ -2029,7 +2030,7 @@ struct
             in
                 (codeBaseIndex @ codeUntag @
                     [BlockSimple(LoadArgument { source=MemoryLocation memLoc, dest=untaggedResReg, kind=MoveWord}),
-                     BlockSimple(TagValue {source=untaggedResReg, dest=target})], RegisterArgument target, false)
+                     BlockSimple(TagValue {source=untaggedResReg, dest=target, isSigned=false})], RegisterArgument target, false)
             end
 
 
@@ -2187,7 +2188,7 @@ struct
                         in
                             (RegisterArgument valueReg1,
                                 codeToICodeTarget(value, context, false, valueReg) @
-                                [BlockSimple(UntagValue{dest=valueReg1, source=valueReg, isSigned=false })])
+                                [BlockSimple(UntagValue{dest=valueReg1, source=valueReg, isSigned=false, cache=NONE })])
                         end
                 val code =
                     codeBaseIndex @ valCode @ codeUntag @
@@ -2250,7 +2251,7 @@ struct
                     leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
                     leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
                     rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
-                    [BlockSimple(UntagValue{source=lengthReg, dest=lenReg, isSigned=false}),
+                    [BlockSimple(UntagValue{source=lengthReg, dest=lenReg, isSigned=false, cache=NONE}),
                      BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
@@ -2702,7 +2703,7 @@ struct
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift one argument and subtract the tag from the other.  It's possible this could be reordered
                        if we have a value that is already untagged. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *)}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true (* Signed shift here. *), cache=NONE}),
                      BlockSimple(ArithmeticFunction{oper=SUB, resultReg=arg2Untagged, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
                      BlockSimple(Multiplication{resultReg=resUntagged, operand1=arg1Untagged, operand2=RegisterArgument arg2Untagged, ccRef=mulCC} )] @
                      onOverflow mulCC @
@@ -2717,11 +2718,11 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags.  We don't test for zero here - that's done explicitly. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true, cache=NONE}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true, cache=NONE}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=quotient, dest=target })]
+                     BlockSimple(TagValue { source=quotient, dest=target, isSigned=true })]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithRem, arg1, arg2, context, target, _) =
@@ -2733,11 +2734,11 @@ struct
             in
                 codeToICodeTarget(arg1, context, false, aReg1) @ codeToICodeTarget(arg2, context, false, aReg2) @
                     (* Shift both of the arguments to remove the tags. *)
-                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true}),
-                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true}),
+                    [BlockSimple(UntagValue{source=aReg1, dest=arg1Untagged, isSigned=true, cache=NONE}),
+                     BlockSimple(UntagValue{source=aReg2, dest=arg2Untagged, isSigned=true, cache=NONE}),
                      BlockSimple(Division { isSigned = true, dividend=arg1Untagged, divisor=RegisterArgument arg2Untagged,
                                 quotient=quotient, remainder=remainder }),
-                     BlockSimple(TagValue { source=remainder, dest=target })]
+                     BlockSimple(TagValue { source=remainder, dest=target, isSigned=true })]
             end
 
         |   codeFixedPrecisionArith(_, _, _, _, _, _) =
@@ -2750,7 +2751,7 @@ struct
                 val indexReg1 = newUReg()
                 val (codeBase, baseReg) = codeToPRegRev(base, context, tailCode)
                 val (codeIndex, indexReg) = codeToPRegRev(index, context, codeBase)
-                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false })]
+                val untagCode = [BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE })]
                 val memResult = {base=baseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeIndex, untagCode, memResult)
@@ -2795,7 +2796,7 @@ struct
                 and (codeIndex, indexReg) = codeToPReg(index, context)
                 val untagCode =
                     [BlockSimple(LoadArgument{source=wordAt baseReg, dest=untaggedBaseReg, kind=MoveWord}),
-                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false })]
+                     BlockSimple(UntagValue{dest=indexReg1, source=indexReg, isSigned=false, cache=NONE })]
                 val memResult = {base=untaggedBaseReg, offset=Word.toInt offset, index=MemIndex1 indexReg1, cache=NONE}
             in
                 (codeBase @ codeIndex, untagCode, memResult)
@@ -2846,7 +2847,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, srcReg) = codeToPRegRev(arg, context, tailCode)
-                val untag = [BlockSimple(UntagValue{source=srcReg, dest=untagReg, isSigned=isSigned})]
+                val untag = [BlockSimple(UntagValue{source=srcReg, dest=untagReg, isSigned=isSigned, cache=NONE})]
             in
                 (code, untag, untagReg)
             end
@@ -2875,7 +2876,7 @@ struct
             let
                 val untagReg = newUReg()
                 val (code, argReg) = codeToPReg(arg, context)
-                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned})]
+                val untag = [BlockSimple(UntagValue{source=argReg, dest=untagReg, isSigned=isSigned, cache=NONE})]
             in
                 (code, untag, RegisterArgument untagReg)
             end
@@ -2907,7 +2908,7 @@ struct
               [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord}),
-              BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false}),
+              BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE}),
               BlockSimple(LoadArgument{source=initResult, dest=initReg, kind=MoveWord}),
               BlockSimple(InitialiseMem{size=untagSizeReg, init=initReg, addr=initAddrReg}),
               BlockSimple InitialisationComplete,

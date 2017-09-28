@@ -218,10 +218,11 @@ sig
     |   StoreToStack of { source: argument, container: stackLocn, field: int, stackOffset: int }
 
         (* Tag a value by shifting and setting the tag bit. *)
-    |   TagValue of { source: preg, dest: preg }
+    |   TagValue of { source: preg, dest: preg, isSigned: bool }
 
-        (* Shift a value to remove the tag bit. *)
-    |   UntagValue of { source: preg, dest: preg, isSigned: bool }
+        (* Shift a value to remove the tag bit.  The cache is used if this is untagging a
+           value that has previously been tagged. *)
+    |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
     |   LoadEffectiveAddress of { base: preg, offset: int, index: memoryIndex, dest: preg }

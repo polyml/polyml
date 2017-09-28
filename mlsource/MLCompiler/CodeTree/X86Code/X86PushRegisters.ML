@@ -57,6 +57,9 @@ struct
         datatype cacheType =
             CacheStack of { rno: int }(* Original preg or stack loc. *)
         |   CacheMemory of { rno: int, offset: int } (* Base offset *)
+            (* CacheTagged is used if we tag a value to see if we can use the
+               original untagged value somewhere. *)
+        |   CacheTagged of { rno: int, isSigned: bool }
 
         local
             (* The number of active cache entries is likely to be small and is
@@ -68,10 +71,13 @@ struct
             val cache: {cacheFor: cacheType, cacheReg: preg, isTagged: bool, kind: moveKind } list ref = ref []
            
             fun isStack n {cacheFor=CacheStack{rno}, ...} = rno = n
-            |   isStack _ {cacheFor=CacheMemory _, ...} = false
+            |   isStack _ _ = false
             
             fun isMemory (r, off) {cacheFor=CacheMemory{rno, offset}, ...} = rno = r andalso offset=off
-            |   isMemory _ {cacheFor=CacheStack _, ...} = false
+            |   isMemory _ _ = false
+            
+            fun isTagCache(r, s) {cacheFor=CacheTagged{rno, isSigned}, ...} = rno = r andalso s = isSigned
+            |   isTagCache _ _ = false
             
             fun findCache f = List.find f (! cache)
             
@@ -81,10 +87,12 @@ struct
              
             fun findCachedStack n = Option.map (#cacheReg) (findCache (isStack n))
             and findCachedMemory (r, off) =
-                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off))) 
+                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off)))
+            and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
             
             fun removeStackCache n = removeCache (isStack n)
             and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
+            and removeTagCache (r, s) = removeCache (isTagCache (r, s))
             
             fun clearMemoryCache() =
                 cache := List.filter(fn {cacheFor=CacheMemory _,...} => false | _ => true) (!cache)
@@ -101,6 +109,12 @@ struct
                     cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
                 )
             
+            and setTagCache(r, s, new) =
+                (
+                    removeTagCache (r, s);
+                    cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=MoveWord} :: ! cache
+                )
+
             fun getCache () = ! cache
             
             (* Merge the cache states *)
@@ -919,20 +933,22 @@ struct
                                     sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=TagValue{source, dest}, ...}, code) =
+                    |   pushRegisters({instr=TagValue{source, dest as PReg dReg, isSigned}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
+                            val _ = setTagCache(dReg, isSigned, sourceVal)
                         in
-                            destCode @ TagValue{source=sourceVal, dest=destVal} :: sourceCode @ code
+                            destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UntagValue{source, dest, isSigned}, ...}, code) =
+                    |   pushRegisters({instr=UntagValue{source as PReg srcReg, dest, isSigned, ...}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
+                            val cache = findCachedTagged(srcReg, isSigned)
                         in
-                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: sourceCode @ code
+                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=cache} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...}, code) =

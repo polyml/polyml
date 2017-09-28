@@ -613,7 +613,8 @@ struct
             |   instructionUses(ResetStackPtr _) = ()
             |   instructionUses(StoreToStack {source, ...}) = argUses source
             |   instructionUses(TagValue{source, dest, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(UntagValue{source, dest, ...}) = if isUsed dest then used source else ()
+            |   instructionUses(UntagValue{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
+            |   instructionUses(UntagValue{source, dest, cache=NONE, ...}) = if isUsed dest then used source else ()
             |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (used base; indexUses index)
             |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (used operand; argUses shiftAmount)
             |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
@@ -1177,7 +1178,7 @@ struct
                 llStoreArgument{
                     source=codeExtArgument source, base=esp, offset=stackOffset*wordSize, index=NoIndex, kind=MoveWord} :: code
 
-        |   codeExtended _ ({instr=TagValue{source=PReg srcReg, dest as PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=TagValue{source=PReg srcReg, dest as PReg dReg, ...}, ...}, code) =
             if not (isUsed dest)
             then code
             else
@@ -1188,8 +1189,12 @@ struct
                 LoadAddress{ output=regResult, offset=1, base=NONE, index=Index2 realSReg } :: code
             end
 
-        |   codeExtended {flow} ({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned}, ...}, code) =
-            (* Always generates register argument at the moment.  TODO: This should really just take a single register arg. *)
+        |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
+            if not (isUsed dest)
+            then code
+            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=MoveWord}, code)
+
+        |   codeExtended _ ({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned, ...}, ...}, code) =
             if not (isUsed dest)
             then code
             else
@@ -1197,9 +1202,8 @@ struct
                 val regResult = getAllocatedReg dReg
                 val realSReg = getAllocatedReg sReg
             in
-                nextPhase(moveIfNecessaryOld{src=realSReg, dst=regResult, kind=MoveWord} @
-                    [LLShiftOperation{shift=if isSigned then SAR else SHR, resultReg=regResult,
-                        shiftAmount=NonAddressConstArg 1}], {flow=flow}, code)
+                ShiftConstant{ shiftType=if isSigned then SAR else SHR, output=asGenReg regResult, shift=0w1 } ::
+                    moveIfNecessary({src=realSReg, dst=regResult, kind=MoveWord}, code)
             end
 
         |   codeExtended _ ({instr=LoadEffectiveAddress{base=PReg br, offset, index, dest=PReg dReg}, ...}, code) =

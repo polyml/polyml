@@ -547,16 +547,20 @@ struct
 
         |   registerAllocate({instr=StoreToStack{ source, ... }, ...}) = allocateArgument(source, generalRegisters)
 
-        |   registerAllocate({instr=TagValue{source=PReg srcReg, dest=PReg dReg}, ...}) =
+        |   registerAllocate({instr=TagValue{source=PReg srcReg, dest=PReg dReg, ...}, ...}) =
             (
                 (* Since we're using LEA to tag there's no cost to using a different reg. *)
                 allocateRegister(dReg, NONE, generalRegisters);
                 allocateRegister(srcReg, NONE, generalRegisters)
             )
 
-        |   registerAllocate({instr=UntagValue{source=PReg sReg, dest=PReg dReg, ...}, ...}) =
+        |   registerAllocate({instr=UntagValue{source=PReg sReg, dest=PReg dReg, cache, ...}, ...}) =
             let
                 val regResult = findRegister(dReg, NONE, generalRegisters)
+                val () =
+                    case cache of
+                        SOME(PReg cReg) => allocateRegister(cReg, SOME regResult, generalRegisters)
+                    |   NONE => ()
             in
                 allocateRegister(sReg, SOME regResult, generalRegisters)
             end
