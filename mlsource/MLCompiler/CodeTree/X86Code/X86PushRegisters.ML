@@ -496,6 +496,13 @@ struct
                         in
                             (stackLoc, [], cacheCode)
                         end
+                    
+                    |   mapSourceEx(ContainerAddr{container, ...}) =
+                        let
+                            val (newOffset, newContainer) = mapContainerAndStack(container, 0)
+                        in
+                            (ContainerAddr{container=newContainer, stackOffset=newOffset}, [], [])
+                        end
 
                     fun mapSource src =
                     let
@@ -784,14 +791,6 @@ struct
                             val () = pushItemToStack(OriginalEntry{stackLoc=container})
                         in
                             ReserveContainer{size=size, container=newContainer} :: code
-                        end
-
-                    |   pushRegisters({instr=LoadContainerAddress{container, dest, ...}, ...}, code) =
-                        let
-                            val (newStackOffset, newContainer) = mapContainerAndStack(container, 0)
-                            val (destVal, destCode) = mapDestReg dest
-                        in
-                            destCode @ LoadContainerAddress{container=newContainer, dest=destVal, stackOffset=newStackOffset} :: code
                         end
 
                     |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...}, code) =

@@ -92,6 +92,8 @@ sig
         (* Offset on the stack.  The container is the stack location identifier, the field is an
            offset in a container.  cache is an optional cache register. *)
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
+        (* Address of a container. *)
+    |   ContainerAddr of { container: stackLocn, stackOffset: int }
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -172,9 +174,6 @@ sig
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, container: stackLocn }
-    
-        (* Load the address of a container. *)
-    |   LoadContainerAddress of { container: stackLocn, dest: preg, stackOffset: int }
 
         (* Indexed case. *)
     |   IndexedCaseOperation of { testReg: preg, workReg: preg }

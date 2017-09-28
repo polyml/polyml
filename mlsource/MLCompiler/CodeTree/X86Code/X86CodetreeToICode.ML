@@ -472,12 +472,7 @@ struct
                     NoLocation => raise InternalError "codeToICodeRev - local unset"
                 |   PregLocation pr => moveIfNotAllowedRev(destination, tailCode, RegisterArgument pr)
                 |   ContainerLocation{container, stackOffset} =>
-                    let
-                        val target = asTarget destination
-                    in
-                       (BlockSimple(LoadContainerAddress{container=container, dest=target, stackOffset=stackPtr-stackOffset}) :: tailCode,
-                        RegisterArgument target, false)
-                    end
+                       (tailCode, ContainerAddr{container=container, stackOffset=stackPtr-stackOffset}, false)
             )
 
         |   codeToICodeRev(BICExtract(BICLoadArgument a), {stackPtr, ...}, _, destination, tailCode) =

@@ -245,6 +245,7 @@ struct
         |   codeExtArgument(StackLocation{wordOffset, cache=NONE, ...}) =
                 MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
         |   codeExtArgument(StackLocation{cache=SOME(PReg r), ...}) = RegisterArg(getAllocatedReg r)
+        |   codeExtArgument(ContainerAddr _) = raise InternalError "codeExtArgument - ContainerAddr"
 
         and codeExtIndex NoMemIndex = NoIndex
         |   codeExtIndex(MemIndex1(PReg r)) = Index1(getAllocatedGenReg r)
@@ -606,7 +607,6 @@ struct
             |   instructionUses(JumpLoop{regArgs, stackArgs, ...}) = (List.app(argUses o #1) regArgs; List.app(argUses o #1) stackArgs)
             |   instructionUses(RaiseExceptionPacket{packetReg}) = used packetReg
             |   instructionUses(ReserveContainer _) = ()
-            |   instructionUses(LoadContainerAddress _) = ()
             |   instructionUses(IndexedCaseOperation{testReg, ...}) = used testReg
             |   instructionUses(LockMutable{addr}) = used addr
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
@@ -980,20 +980,35 @@ struct
                 
                 val destReg = getAllocatedReg dReg
                 
-                fun pushStackArgs ([], _) = []
-                |   pushStackArgs (arg ::args, argNum) =
+                
+                fun pushStackArgs ([], _, code) = code
+                
+                |   pushStackArgs (ContainerAddr {stackOffset, ...} ::args, argNum, code) =
+                    let
+                        val adjustedAddr = stackOffset+argNum
+                        (* If there is an offset relative to rsp we need to add this in. *)
+                        val addOffset =
+                            if adjustedAddr = 0
+                            then []
+                            else [ArithMemConst{opc=ADD, offset=0, base=esp, source=LargeInt.fromInt(adjustedAddr*wordSize)}]
+                    in
+                        pushStackArgs(args, argNum+1, addOffset @ PushToStack(RegisterArg esp) :: code)
+                    end
+                    
+                |   pushStackArgs (StackLocation {wordOffset, container, field, ...} ::args, argNum, code) =
                     let
                         (* Have to adjust the offsets of stack arguments. *)
                         val adjusted =
-                            case arg of
-                                StackLocation {wordOffset, container, field, ...} =>
-                                    StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum,
+                            StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum,
                                                   cache=NONE}
-                            |   arg => arg
                     in
-                        LLPushValue {arg=codeExtArgument adjusted} :: pushStackArgs(args, argNum+1)
+                        pushStackArgs(args, argNum+1, llPushValue {arg=codeExtArgument adjusted} :: code)
                     end
-                val pushedArgs = pushStackArgs(stackArgs, 0)
+
+                |   pushStackArgs (arg::args, argNum, code) =
+                        pushStackArgs(args, argNum+1, llPushValue {arg=codeExtArgument arg} :: code)
+
+                val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
                 (* We have to adjust any stack offset to account for the arguments we've pushed. *)
                 val numStackArgs = List.length stackArgs
                 
@@ -1006,24 +1021,29 @@ struct
                         SOME{dst=reg, src=getAllocatedReg pr}
                 |   getRegArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - MemoryLocation"
                 |   getRegArgs _ = NONE
-                val loadRegArgs = moveMultipleRegisters(List.mapPartial getRegArgs regArgs)
+                
+                val loadRegArgs =
+                    nextPhase(moveMultipleRegisters(List.mapPartial getRegArgs regArgs), {flow=flow}, pushedArgs)
 
                 (* These are all items we can load without requiring a source register.
                    That includes loading from the stack. *)
-                fun getConstArgs(AddressConstant m, reg) =
-                        SOME(LLLoadArgument{source=AddressConstArg m, dest=reg, kind=MoveWord})
-                |   getConstArgs(IntegerConstant i, reg) =
-                        SOME(LLLoadArgument{source=NonAddressConstArg i, dest=reg, kind=MoveWord})
-                |   getConstArgs(StackLocation { wordOffset, ...}, reg) =
-                        SOME(LLLoadArgument{source=MemoryArg{offset=(wordOffset+numStackArgs)*wordSize, base=esp, index=NoIndex},
-                                          dest=reg, kind=MoveWord})
-                |   getConstArgs(RegisterArgument _, _) = NONE
-                |   getConstArgs(MemoryLocation _, _) = NONE
-                val loadConstArgs = List.mapPartial getConstArgs regArgs
+                fun getConstArgs((AddressConstant m, reg), code) =
+                        llLoadArgument({source=AddressConstArg m, dest=reg, kind=MoveWord}, code)
+                |   getConstArgs((IntegerConstant i, reg), code) =
+                        llLoadArgument({source=NonAddressConstArg i, dest=reg, kind=MoveWord}, code)
+                |   getConstArgs((StackLocation { cache=SOME _, ...}, _), code) = code
+                |   getConstArgs((StackLocation { wordOffset, ...}, reg), code) =
+                        llLoadArgument({source=MemoryArg{offset=(wordOffset+numStackArgs)*wordSize, base=esp, index=NoIndex},
+                                          dest=reg, kind=MoveWord}, code)
+                |   getConstArgs((ContainerAddr {stackOffset, ...}, reg), code) =
+                        if stackOffset+numStackArgs = 0
+                        then llLoadArgument({source=RegisterArg(GenReg esp), dest=reg, kind=MoveWord}, code)
+                        else LoadAddress{ output=asGenReg reg, offset=(stackOffset+numStackArgs)*wordSize, base=SOME esp, index=NoIndex } :: code
+                |   getConstArgs((RegisterArgument _, _), code) = code
+                |   getConstArgs((MemoryLocation _, _), code) = code
+                val loadConstArgs = List.foldl getConstArgs loadRegArgs regArgs
             in
-                nextPhase(pushedArgs @ loadRegArgs @ loadConstArgs @
-                    (LLFunctionCall{callKind=callKind} ::
-                        moveIfNecessaryOld{dst=destReg, src=GenReg eax, kind=MoveWord}), {flow=flow}, code)
+                moveIfNecessary({dst=destReg, src=GenReg eax, kind=MoveWord}, CallFunction callKind :: loadConstArgs) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =
@@ -1109,12 +1129,6 @@ struct
             in
                 nextPhase(pushAll, {flow=flow}, code)
             end
-
-        |   codeExtended _ ({instr=LoadContainerAddress{stackOffset=0, dest=PReg aReg, ...}, ...}, code) =
-                llLoadArgument({source=RegisterArg(GenReg esp), dest=getAllocatedReg aReg, kind=MoveWord}, code)
-
-        |   codeExtended _ ({instr=LoadContainerAddress{stackOffset, dest=PReg aReg, ...}, ...}, code) =
-                LoadAddress{ output=asGenReg(getAllocatedReg aReg), offset=stackOffset*wordSize, base=SOME esp, index=NoIndex } :: code
 
         |   codeExtended {flow} ({instr=IndexedCaseOperation{testReg=PReg tReg, workReg=PReg wReg}, ...}, code) =
             let

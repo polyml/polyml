@@ -52,6 +52,8 @@ struct
         (* Offset on the stack.  The container is the stack location identifier, the field is an
            offset in a container.  cache is an optional cache register. *)
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
+        (* Address of a container. *)
+    |   ContainerAddr of { container: stackLocn, stackOffset: int }
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -134,9 +136,6 @@ struct
 
         (* Reserve a contiguous area on the stack to receive a result tuple. *)
     |   ReserveContainer of { size: int, container: stackLocn }
-    
-        (* Load the address of a container. *)
-    |   LoadContainerAddress of { container: stackLocn, dest: preg, stackOffset: int }
 
         (* Indexed case. *)
     |   IndexedCaseOperation of { testReg: preg, workReg: preg }
@@ -314,6 +313,11 @@ struct
                 stream " (";  stream(Int.toString wordOffset); stream ")";
                 case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
+        |   printArg(ContainerAddr{stackOffset, container}, stream, _) =
+            (
+                stream "@"; printStackLoc(container, stream);
+                stream " (";  stream(Int.toString stackOffset); stream ")"
+            )
             
         fun printSaves([], _, _) = ()
         |   printSaves([areg], printReg, stream) = printReg(areg, stream)
@@ -436,9 +440,6 @@ struct
 
         |   printICode(ReserveContainer{size, container}, stream, _) =
             (stream "\tReserveContainer\t"; stream(Int.toString size); stream " => "; printStackLoc(container, stream))
-
-        |   printICode(LoadContainerAddress{container, dest, ...}, stream, printReg) =
-            (stream "\tLoadContainerAddr\t"; printStackLoc(container, stream); stream " => "; printReg(dest, stream))
 
         |   printICode(IndexedCaseOperation{testReg, workReg}, stream, printReg) =
             (

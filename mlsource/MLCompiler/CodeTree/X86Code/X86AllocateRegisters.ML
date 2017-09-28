@@ -460,9 +460,6 @@ struct
 
         |   registerAllocate{instr=ReserveContainer _, ...} = ()
 
-        |   registerAllocate({instr=LoadContainerAddress{dest=PReg aReg, ...}, ...}) =
-                allocateRegister(aReg, NONE, generalRegisters)
-
         |   registerAllocate({instr=IndexedCaseOperation{testReg=PReg tReg, workReg=PReg wReg}, ...}) =
             (
                 allocateRegister(tReg, NONE, generalRegisters);

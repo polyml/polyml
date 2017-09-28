@@ -76,6 +76,7 @@ struct
     |   argIndex(MemIndex8 arg) = [arg]
 
     fun argStacks(StackLocation { container, ...}) = [container]
+    |   argStacks(ContainerAddr { container, ...}) = [container]
     |   argStacks _ = []
 
     (* Return the set of registers used by the instruction.
@@ -153,9 +154,6 @@ struct
 
     |   getInstructionState(ReserveContainer{container, ...}) =
             { sources=[], dests=[], sStacks=[], dStacks=[container], ccIn=CCUnused, ccOut=CCUnchanged }
-
-    |   getInstructionState(LoadContainerAddress{dest, container, ...}) =
-            { sources=[], dests=[dest], sStacks=[container], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
 
     |   getInstructionState(IndexedCaseOperation{testReg, workReg, ...}) =
             { sources=[testReg], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
