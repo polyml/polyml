@@ -65,24 +65,13 @@ struct
         LLLoadArgument of { source: reg regOrMemoryArg, dest: reg, kind: moveKind }
     |   LLStoreArgument of { source: reg regOrMemoryArg, base: genReg, offset: int, index: indexType, kind: moveKind }
     |   LLExchange of { reg: reg, arg: reg regOrMemoryArg }
-    |   LLFunctionCall of { callKind: callKinds}
     |   LLTailRecursiveCall of { callKind: callKinds }
-    |   LLInitialiseMem of { size: reg, addr: reg, init: reg }
-    |   LLWordComparison of { arg1: reg, arg2: reg regOrMemoryArg }
     |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand: reg regOrMemoryArg }
     |   LLPushValue of { arg: reg regOrMemoryArg }
     |   LLResetStackPtr of { numWords: int, preserveCC: bool }
     |   LLShiftOperation of { shift: shiftType, resultReg: reg, shiftAmount: reg regOrMemoryArg }
     |   LLMultiplication of { resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
     |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
-    |   LLCompareByteVectors of { vec1Addr: reg, vec2Addr: reg, length: reg }
-    |   LLBlockMove of { srcAddr: reg, destAddr: reg, length: reg, isByteMove: bool }
-    |   LLX87Compare of { arg1: reg, arg2: reg regOrMemoryArg }
-    |   LLSSE2Compare of { arg1: reg, arg2: reg regOrMemoryArg }
-    |   LLX87FPGetCondition of { dest: reg }
-    |   LLX87FPArith of { opc: fpOps, resultReg: reg, arg: reg regOrMemoryArg }
-    |   LLX87FPUnaryOps of { fpOp: fpUnaryOps, dest: reg, source: reg regOrMemoryArg }
-    |   LLSSE2FPArith of { opc: sse2Operations, resultReg: reg, arg1: reg regOrMemoryArg, arg2: reg regOrMemoryArg }
     
     and llBasicBlock = LLBasicBlock of { block: llIcode list, flow: ICODE.controlFlow }
     
@@ -97,9 +86,6 @@ struct
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
-
-    val raxAsArg = (GenReg eax)
-    and rcxAsArg = (GenReg ecx)
     
     val generalRegisters =
         List.map GenReg
@@ -235,23 +221,29 @@ struct
         and getAllocatedFPReg = asFPReg o getAllocatedReg
         and getAllocatedXMMReg = asXMMReg o getAllocatedReg
 
-        fun codeExtArgument(RegisterArgument(PReg r)) = RegisterArg(getAllocatedReg r)
-        |   codeExtArgument(AddressConstant m) = AddressConstArg m
-        |   codeExtArgument(IntegerConstant i) = NonAddressConstArg i
-        |   codeExtArgument(MemoryLocation{base=PReg bReg, offset, index, cache=NONE}) =
-                MemoryArg{base=getAllocatedGenReg bReg, offset=offset, index=codeExtIndex index}
-        |   codeExtArgument(MemoryLocation{cache=SOME(PReg r), ...}) =
-                RegisterArg(getAllocatedReg r)
-        |   codeExtArgument(StackLocation{wordOffset, cache=NONE, ...}) =
-                MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
-        |   codeExtArgument(StackLocation{cache=SOME(PReg r), ...}) = RegisterArg(getAllocatedReg r)
-        |   codeExtArgument(ContainerAddr _) = raise InternalError "codeExtArgument - ContainerAddr"
-
-        and codeExtIndex NoMemIndex = NoIndex
+        fun codeExtIndex NoMemIndex = NoIndex
         |   codeExtIndex(MemIndex1(PReg r)) = Index1(getAllocatedGenReg r)
         |   codeExtIndex(MemIndex2(PReg r)) = Index2(getAllocatedGenReg r)
         |   codeExtIndex(MemIndex4(PReg r)) = Index4(getAllocatedGenReg r)
         |   codeExtIndex(MemIndex8(PReg r)) = Index8(getAllocatedGenReg r)
+
+        local
+            fun codeExtArgument getReg (RegisterArgument(PReg r)) = RegisterArg(getReg r)
+            |   codeExtArgument _ (AddressConstant m) = AddressConstArg m
+            |   codeExtArgument _ (IntegerConstant i) = NonAddressConstArg i
+            |   codeExtArgument _ (MemoryLocation{base=PReg bReg, offset, index, cache=NONE}) =
+                    MemoryArg{base=getAllocatedGenReg bReg, offset=offset, index=codeExtIndex index}
+            |   codeExtArgument getReg (MemoryLocation{cache=SOME(PReg r), ...}) = RegisterArg(getReg r)
+            |   codeExtArgument _ (StackLocation{wordOffset, cache=NONE, ...}) =
+                    MemoryArg{base=esp, offset=wordOffset*wordSize, index=NoIndex}
+            |   codeExtArgument getReg (StackLocation{cache=SOME(PReg r), ...}) = RegisterArg(getReg r)
+            |   codeExtArgument _ (ContainerAddr _) = raise InternalError "codeExtArgument - ContainerAddr"
+        in
+            val codeExtArgument = codeExtArgument getAllocatedReg
+            and codeExtArgumentAsGenReg = codeExtArgument getAllocatedGenReg
+            and codeExtArgumentAsFPReg = codeExtArgument getAllocatedFPReg
+            and codeExtArgumentAsXMMReg = codeExtArgument getAllocatedXMMReg
+        end
 
         fun moveRR{src, dst, kind} = LLLoadArgument{source=RegisterArg src, dest=dst, kind=kind}
 
@@ -692,28 +684,8 @@ struct
         |   codeGenICode(LLExchange{reg, arg}, _, code) =
                 (XChng { reg=asGenReg reg, arg=sourceAsGenRegOrMem arg } :: code)
 
-        |   codeGenICode(LLFunctionCall {callKind, ...}, _, code) =
-                (CallFunction callKind :: code)
-
         |   codeGenICode(LLTailRecursiveCall {callKind, ...}, _, code) =
                 (JumpToFunction callKind :: code)
-
-        |   codeGenICode(LLInitialiseMem{size, addr, init}, _, code) =
-            let
-                val sReg = asGenReg size and iReg = asGenReg init and aReg = asGenReg addr
-                (* Initialise the memory.  This requires that sReg = ecx, iReg = eax and aReg = edi. *)
-                val _ = sReg = ecx orelse raise InternalError "codeGenICode: InitialiseMem"
-                val _ = iReg = eax orelse raise InternalError "codeGenICode: InitialiseMem"
-                val _ = aReg = edi orelse raise InternalError "codeGenICode: InitialiseMem"
-            in
-                (RepeatOperation STOSL :: code)
-            end
-
-        |   codeGenICode(LLWordComparison {arg1=GenReg r, arg2, ...}, _, code) =
-                (ArithToGenReg {opc=CMP, output=r, source=sourceAsGenRegOrMem arg2} :: code)
-
-        |   codeGenICode(LLWordComparison _ , _, _) =
-                raise InternalError "codeGenICode: TODO WordComparison"
 
         |   codeGenICode(LLArithmeticFunction{oper, resultReg=(GenReg resReg), operand, ...}, _, code) =
                 (ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand } :: code)
@@ -779,106 +751,6 @@ struct
             in
                 (DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
             end
-
-        |   codeGenICode(LLCompareByteVectors { vec1Addr, vec2Addr, length, ... }, _, code) =
-            let
-                (* The arguments must be in specific registers. *)
-                val _ = asGenReg vec1Addr = esi orelse raise InternalError "CompareByteVectors: esi"
-                val _ = asGenReg vec2Addr = edi orelse raise InternalError "CompareByteVectors: edi"
-                val _ = asGenReg length = ecx orelse raise InternalError "CompareByteVectors: ecx"
-            in
-                (RepeatOperation CMPSB :: code)
-            end
-
-        |   codeGenICode(LLBlockMove { srcAddr, destAddr, length, isByteMove }, _, code) =
-            let
-                (* The arguments must be in specific registers. *)
-                val _ = asGenReg srcAddr = esi orelse raise InternalError "BlockMove: esi"
-                val _ = asGenReg destAddr = edi orelse raise InternalError "BlockMove: edi"
-                val _ = asGenReg length = ecx orelse raise InternalError "BlockMove: ecx"
-            in
-                (RepeatOperation(if isByteMove then MOVSB else MOVSL) :: code)
-            end
-
-        |   codeGenICode(
-                LLX87Compare {arg1=FPReg fpReg, arg2=MemoryArg{offset, base=baseReg, index=NoIndex}, ... }, _, code) =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
-                (* This currently pops the value. *)
-            in
-                FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code
-            end
-
-        |   codeGenICode(
-                LLX87Compare {arg1=FPReg fpReg, arg2=RegisterArg(FPReg fpReg2), ... }, _, code) =
-            let
-                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
-                (* This currently pops the value. *)
-            in
-                FPArithR{opc=FCOMP, source=fpReg2} :: code
-            end
-
-        |   codeGenICode(LLX87Compare _, _, _) =
-                raise InternalError "codeGenICode: CompareFloatingPt: TODO"
-
-        |   codeGenICode(LLSSE2Compare {arg1=XMMReg xmmReg, arg2, ... }, _, code) =
-                (XMMArith { opc= SSE2Comp, output=xmmReg, source=sourceAsXMMRegOrMem arg2} :: code)
-
-        |   codeGenICode(LLSSE2Compare _, _, _) =
-                raise InternalError "codeGenICode: CompareFloatingPt: TODO"
-
-        |   codeGenICode(LLX87FPGetCondition { dest, ... }, _, code) =
-            let
-                val _ = asGenReg dest = eax orelse raise InternalError "codeGenICode: GetFloatingPtCondition not eax"
-                (* This currently pops the value. *)
-                (*val _ = fpMode = FPModeX87 orelse raise InternalError "codeGenICode: FPStatusToEAX in SSE2 mode"*)
-            in
-                (FPStatusToEAX :: code)
-            end
-
-        |   codeGenICode(
-                LLX87FPArith {
-                    opc, resultReg=(FPReg fpResReg),
-                    arg=MemoryArg{offset, base=baseReg, index=NoIndex} }, _, code) =
-            let
-                val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
-            in
-                (FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code)
-            end
-
-        |   codeGenICode(LLX87FPArith _ , _, _) =
-                raise InternalError "codeGenICode: X87FPArith: TODO"
-
-        |   codeGenICode(
-                LLSSE2FPArith {
-                    opc, resultReg=(XMMReg xmmResReg), arg1=RegisterArg(XMMReg xmmArgReg), arg2 }, _, code) =
-            let
-                val _ = xmmResReg = xmmArgReg orelse raise InternalError "codeGenICode: FloatingPointArith - different regs"
-                (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
-                val _ =
-                    case (opc, arg2) of
-                        (SSE2Xor, RegisterArg _) => ()
-                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
-                    |   (SSE2And, RegisterArg _) => ()
-                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
-                    |   _ => ()
-            in
-                (XMMArith{ opc=opc, output=xmmResReg, source=sourceAsXMMRegOrMem arg2} :: code)
-            end
-
-        |   codeGenICode(LLSSE2FPArith _,_, _) =
-                raise InternalError "codeGenICode: SSE2FPArith: TODO"
-
-        |   codeGenICode(LLX87FPUnaryOps {fpOp, dest=(FPReg fpResReg), source=RegisterArg(FPReg fpArgReg)}, _, code) =
-            let
-                val _ = fpResReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
-                val _ = fpArgReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
-            in
-                (FPUnary fpOp :: code)
-            end
-
-        |   codeGenICode(LLX87FPUnaryOps _ , _, _) =
-                raise InternalError "codeGenICode: FloatingPointNeg: TODO"
 
         fun nextPhase(nextCode, {flow=flow}, code) = List.foldl(fn (n, c) => codeGenICode(n, {flow=flow}, c)) code nextCode
         
@@ -1002,11 +874,11 @@ struct
                             StackLocation{wordOffset=wordOffset+argNum, container=container, field=field+argNum,
                                                   cache=NONE}
                     in
-                        pushStackArgs(args, argNum+1, llPushValue {arg=codeExtArgument adjusted} :: code)
+                        pushStackArgs(args, argNum+1, PushToStack(codeExtArgumentAsGenReg adjusted) :: code)
                     end
 
                 |   pushStackArgs (arg::args, argNum, code) =
-                        pushStackArgs(args, argNum+1, llPushValue {arg=codeExtArgument arg} :: code)
+                        pushStackArgs(args, argNum+1, PushToStack(codeExtArgumentAsGenReg arg) :: code)
 
                 val pushedArgs = pushStackArgs(stackArgs, 0, code (* Initial code *))
                 (* We have to adjust any stack offset to account for the arguments we've pushed. *)
@@ -1081,19 +953,14 @@ struct
                 allocCode @ code
             end
 
-        |   codeExtended {flow} ({instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...}, code) =
-            let
+        |   codeExtended _ ({instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...}, code) =
                 (* We are going to use rep stosl/q to set the memory.
                    That requires the length to be in ecx, the initialiser to be in eax and
                    the destination to be edi. *)
-                val realAddrReg = getAllocatedReg aReg
-                val realInitReg = getAllocatedReg iReg
-                val realSizeReg = getAllocatedReg sReg
-            in
-                nextPhase(moveMultipleRegisters[
-                    {src=realInitReg, dst=GenReg eax}, {src=realSizeReg, dst=GenReg ecx}, {src=realAddrReg, dst=GenReg edi}] @
-                    [LLInitialiseMem{size=GenReg ecx, addr=GenReg edi, init=GenReg eax}], {flow=flow}, code)
-            end
+                RepeatOperation STOSL ::
+                    moveIfNecessary({src=getAllocatedReg iReg, dst=GenReg eax, kind=MoveWord},
+                        moveIfNecessary({src=getAllocatedReg aReg, dst=GenReg edi, kind=MoveWord},
+                            moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg ecx, kind=MoveWord}, code)))
 
         |   codeExtended _ ({instr=InitialisationComplete, ...}, code) = StoreInitialised :: code
 
@@ -1117,18 +984,14 @@ struct
         |   codeExtended _ ({instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...}, code) =
             let
                 (* The argument must be put into rax. *)
-                val argReg = getAllocatedReg preg
+                val _ = getAllocatedGenReg preg = eax orelse raise InternalError "codeExtended: RaiseExceptionPacket"
             in
-                RaiseException :: moveIfNecessary({src=argReg, dst=raxAsArg, kind=MoveWord}, code)
+                RaiseException :: code
             end
 
-        |   codeExtended {flow} ({instr=ReserveContainer{size, ...}, ...}, code) =
-            let
+        |   codeExtended _ ({instr=ReserveContainer{size, ...}, ...}, code) =
                 (* The memory must be cleared in case we have a GC. *)
-                val pushAll = List.tabulate(size, fn _ => LLPushValue{arg=NonAddressConstArg(tag 0)})
-            in
-                nextPhase(pushAll, {flow=flow}, code)
-            end
+                List.tabulate(size, fn _ => PushToStack(NonAddressConstArg(tag 0))) @ code
 
         |   codeExtended {flow} ({instr=IndexedCaseOperation{testReg=PReg tReg, workReg=PReg wReg}, ...}, code) =
             let
@@ -1158,7 +1021,7 @@ struct
                 LockMutableSegment (asGenReg(getAllocatedReg pr)) :: code
 
         |   codeExtended _ ({instr=WordComparison{ arg1=PReg pr, arg2, ... }, ...}, code) =
-                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=sourceAsGenRegOrMem(codeExtArgument arg2)} :: code
+                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2} :: code
 
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
@@ -1225,7 +1088,7 @@ struct
                 val resultReg = getAllocatedReg resReg
                 (* If for some reason it's not in the right register we have to move it there. *)
             in
-                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=raxAsArg, kind=MoveWord}, code)
+                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=GenReg eax, kind=MoveWord}, code)
             end
 
         |   codeExtended {flow} ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1289,7 +1152,7 @@ struct
                 |   _ => raise InternalError "codeGenICode: TestTagBit"
             end
 
-        |   codeExtended _ ({instr=PushValue {arg, ...}, ...}, code) = llPushValue {arg=codeExtArgument arg} :: code
+        |   codeExtended _ ({instr=PushValue {arg, ...}, ...}, code) = PushToStack(codeExtArgumentAsGenReg arg) :: code
 
         |   codeExtended _ ({instr=CopyToCache{source=PReg sreg, dest as PReg dreg, kind}, ...}, code) =
             if not (isUsed dest)
@@ -1440,11 +1303,7 @@ struct
                         llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
             end
 
-        |   codeExtended {flow} ({instr=CompareByteVectors{vec1Addr=PReg v1Reg, vec2Addr=PReg v2Reg, length=PReg lReg, ...}, ...}, code) =
-            let
-                val realV1Reg = getAllocatedReg v1Reg
-                val realV2Reg = getAllocatedReg v2Reg
-                val realLengthReg = getAllocatedReg lReg
+        |   codeExtended _ ({instr=CompareByteVectors{vec1Addr=PReg v1Reg, vec2Addr=PReg v2Reg, length=PReg lReg, ...}, ...}, code) =
                 (* There's a complication here.  CompareByteVectors generates REPE CMPSB to compare
                    the vectors but the condition code is only set if CMPSB is executed at least
                    once.  If the value in RCX/ECX is zero it will never be executed and the
@@ -1454,89 +1313,106 @@ struct
                    case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
                    is two bytes in 32-bit but three in 64-bit.
                    If we knew the length was non-zero (e.g. a constant) we could avoid this. *)
+                RepeatOperation CMPSB :: ArithToGenReg {opc=CMP, output=ecx, source=RegisterArg ecx} ::
+                    moveIfNecessary({src=getAllocatedReg v1Reg, dst=GenReg esi, kind=MoveWord},
+                        moveIfNecessary({src=getAllocatedReg v2Reg, dst=GenReg edi, kind=MoveWord},
+                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))
+
+        |   codeExtended _ ({instr=BlockMove{srcAddr=PReg sReg, destAddr=PReg dReg, length=PReg lReg, isByteMove}, ...}, code) =
+                (* We may need to move these into the appropriate registers.  They have been reserved but it's
+                   still possible the values could be in something else. *)
+                RepeatOperation(if isByteMove then MOVSB else MOVSL) ::
+                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg esi, kind=MoveWord},
+                        moveIfNecessary({src=getAllocatedReg dReg, dst=GenReg edi, kind=MoveWord},
+                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))
+
+        |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
+            let
+                val fpReg = getAllocatedFPReg argReg
+                val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: CompareFloatingPt not fp0"
+                (* This currently pops the value. *)
             in
-                nextPhase(moveIfNecessaryOld{src=realV1Reg, dst=GenReg esi, kind=MoveWord} @
-                    moveIfNecessaryOld{src=realV2Reg, dst=GenReg edi, kind=MoveWord} @
-                    moveIfNecessaryOld{src=realLengthReg, dst=GenReg ecx, kind=MoveWord} @
-                    [LLWordComparison {arg1=rcxAsArg, arg2=RegisterArg rcxAsArg},
-                     LLCompareByteVectors{vec1Addr=GenReg esi, vec2Addr=GenReg edi, length=GenReg ecx}], {flow=flow}, code)
+                case codeExtArgumentAsFPReg arg2 of
+                    RegisterArg fpReg2 => FPArithR{opc=FCOMP, source=fpReg2} :: code
+                |   MemoryArg{offset, base=baseReg, index=NoIndex} => FPArithMemory{opc=FCOMP, base=baseReg, offset=offset} :: code
+                |   _ => raise InternalError "codeGenICode: CompareFloatingPt: TODO"
             end
 
-        |   codeExtended {flow} ({instr=BlockMove{srcAddr=PReg sReg, destAddr=PReg dReg, length=PReg lReg, isByteMove}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
             let
-                val realSrcReg = getAllocatedReg sReg
-                val realDestReg = getAllocatedReg dReg
-                val realLengthReg = getAllocatedReg lReg
+                val xmmReg = getAllocatedXMMReg argReg
+                val arg2Code = codeExtArgumentAsXMMReg arg2
             in
-                nextPhase(moveIfNecessaryOld{src=realSrcReg, dst=GenReg esi, kind=MoveWord} @
-                    moveIfNecessaryOld{src=realDestReg, dst=GenReg edi, kind=MoveWord} @
-                    moveIfNecessaryOld{src=realLengthReg, dst=GenReg ecx, kind=MoveWord} @
-                    [LLBlockMove{srcAddr=GenReg esi, destAddr=GenReg edi, length=GenReg ecx, isByteMove=isByteMove}], {flow=flow}, code)
+                XMMArith { opc= SSE2Comp, output=xmmReg, source=arg2Code} :: code
             end
 
-        |   codeExtended {flow} ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
-                codeGenICode(LLX87Compare{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 }, {flow=flow}, code)
+        |   codeExtended _ ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
+                moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=MoveWord},
+                    FPStatusToEAX :: code)
 
-        |   codeExtended {flow} ({instr=SSE2Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
-                codeGenICode(LLSSE2Compare{ arg1=getAllocatedReg argReg, arg2=codeExtArgument arg2 }, {flow=flow}, code)
-
-        |   codeExtended {flow} ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
+        |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
-                (* We can only use RAX here. *)
-                val destReg = getAllocatedReg dReg
+                val realDestReg = getAllocatedFPReg resReg
+                val realOp1Reg = getAllocatedFPReg op1Reg
+                val _ = realDestReg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+                val _ = realOp1Reg = fp0 orelse raise InternalError "codeGenICode: FloatingPointArith not fp0"
+                val op2Arg = codeExtArgumentAsFPReg arg2
             in
-                nextPhase(LLX87FPGetCondition{dest=raxAsArg} ::
-                    moveIfNecessaryOld{dst=destReg, src=GenReg eax, kind=MoveWord}, {flow=flow}, code)
-            end
-
-        |   codeExtended {flow} ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
-            let
-                val realDestReg = getAllocatedReg resReg
-                val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgument arg2
-            in
-                nextPhase(moveIfNecessaryOld{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
-                    [LLX87FPArith{opc=opc, resultReg=realDestReg, arg=op2Arg}], {flow=flow}, code)
+                case op2Arg of
+                    MemoryArg{offset, base=baseReg, index=NoIndex} =>
+                        FPArithMemory{opc=opc, base=baseReg, offset=offset} :: code
+                |   _ => raise InternalError "codeGenICode: X87FPArith: TODO"
             end
     
-        |   codeExtended {flow} ({instr=X87FPUnaryOps{fpOp, dest=PReg resReg, source=PReg op1Reg}, ...}, code) =
+        |   codeExtended _ ({instr=X87FPUnaryOps{fpOp, dest=PReg resReg, source=PReg op1Reg}, ...}, code) =
             let
-                val realDestReg = getAllocatedReg resReg
-                val realOp1Reg = getAllocatedReg op1Reg
+                val realDestReg = getAllocatedFPReg resReg
+                val realOp1Reg = getAllocatedFPReg op1Reg
+                val _ = realDestReg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
+                val _ = realOp1Reg = fp0 orelse raise InternalError "codeGenICode: X87FPUnaryOps not fp0"
             in
-                nextPhase(moveIfNecessaryOld{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
-                    [LLX87FPUnaryOps{fpOp=fpOp, dest=realDestReg, source=RegisterArg realDestReg}], {flow=flow}, code)
+                FPUnary fpOp :: code
             end
 
         |   codeExtended _ ({instr=X87Float{dest=PReg resReg, source}, ...}, code) =
             let
-                val intSource = codeExtArgument source
+                val intSource = codeExtArgumentAsGenReg source
                 val fpReg = getAllocatedFPReg resReg
                 val _ = fpReg = fp0 orelse raise InternalError "codeGenICode: FloatFixedInt not fp0"
             in
                 (* This is complicated.  The integer value has to be in memory not in a
                    register so we have to push it to the stack and then make sure it is
                    popped afterwards.  Because it is untagged it is unsafe to leave it. *)
-                ResetStack{numWords=1, preserveCC=false} :: FPLoadInt{ base=esp, offset=0 } :: llPushValue {arg=intSource} :: code
+                ResetStack{numWords=1, preserveCC=false} :: FPLoadInt{ base=esp, offset=0 } :: PushToStack intSource :: code
             end
 
         |   codeExtended _ ({instr=SSE2Float{dest=PReg resReg, source}, ...}, code) =
             let
-                val intSource = codeExtArgument source
                 val xmmResReg = getAllocatedXMMReg resReg
-                val srcReg = case intSource of RegisterArg(GenReg srcReg) => srcReg | _ => raise InternalError "FloatFixedInt: not reg"
+                val srcReg = case codeExtArgumentAsGenReg source of RegisterArg srcReg => srcReg | _ => raise InternalError "FloatFixedInt: not reg"
             in
                 XMMConvertFromInt{ output=xmmResReg, source=srcReg} :: code
             end
 
-        |   codeExtended {flow} ({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
+        |   codeExtended _ ({instr=SSE2FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
             let
-                val realDestReg = getAllocatedReg resReg
-                val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgument arg2
+                val realDestReg = getAllocatedXMMReg resReg
+                val realOp1Reg = getAllocatedXMMReg op1Reg
+                val op2Arg = codeExtArgumentAsXMMReg arg2
+                (* xorpd and andpd require 128-bit arguments with 128-bit alignment. *)
+                val _ =
+                    case (opc, op2Arg) of
+                        (SSE2Xor, RegisterArg _) => ()
+                    |   (SSE2Xor, _) => raise InternalError "codeGenICode - SSE2Xor not in register"
+                    |   (SSE2And, RegisterArg _) => ()
+                    |   (SSE2And, _) => raise InternalError "codeGenICode - SSE2And not in register"
+                    |   _ => ()
+                val doMove =
+                    if realDestReg = realOp1Reg
+                    then code
+                    else XMMArith { opc=SSE2Move, source=RegisterArg realOp1Reg, output=realDestReg } :: code
             in
-                nextPhase(moveIfNecessaryOld{src=realOp1Reg, dst=realDestReg, kind=MoveDouble} @
-                    [LLSSE2FPArith{opc=opc, resultReg=realDestReg, arg1=RegisterArg realDestReg, arg2=op2Arg}], {flow=flow}, code)
+                XMMArith{ opc=opc, output=realDestReg, source=op2Arg} :: doMove
             end
         
         
