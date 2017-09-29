@@ -678,22 +678,6 @@ struct
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
-    (* Put together the three fields which make up the s-i-b byte. *)
-    fun sib (s : indexType, b : genReg option) : Word8.word =
-    let
-        val sizeField =
-            case s of
-                NoIndex  => 0w4 <<- 0w3 (* No index reg. *)
-            |   Index1 i => (0w0 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index2 i => (0w1 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index4 i => (0w2 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index8 i => (0w3 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-        val baseField =
-            case b of SOME r => #1 (getReg r) | NONE => 0w5 (* No base *)
-    in
-       sizeField orb8 baseField
-    end
-
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
     fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
     |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
@@ -802,88 +786,53 @@ struct
     end
 
     local
-        (* Generate an effective address. *)
-        fun eACode (offset: LargeInt.int, rb: Word8.word, r: Word8.word) =
-        let
-            val offsetCode =
-                (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
-                if offset = 0 andalso rb <> 0w5 
-                then Based0  (* no disp field *)
-                else if is8BitL offset
-                then Based8  (* use 8-bit disp field *)
-                else Based32 (* use 32-bit disp field *)
-            val modRmbytes =
-                if rb = 0w4 (* Code for esp and r12 *)
-                then (* Need to use s-i-b byte. *)
-                let
-                    (* Normally we will have a non-zero offset for esp.  The
-                       exception is computing the maximum stack in the prelude. *)
-                    val mdrmByte = modrm (offsetCode, r, 0w4 (* use SIB *))
-                    val sibByte = sib(NoIndex, SOME esp)
-                in
-                    [mdrmByte, sibByte]
-                end
-                else [modrm(offsetCode, r, rb)]
-
-            val offsetBytes =
-                (* generate the disp field (if any) *)
-                case offsetCode of
-                    Based8  => [byteSigned(LargeInt.toInt offset)]
-                |   Based32 => int32Signed offset
-                |   _       => []
-        in
-            modRmbytes @ offsetBytes
-        end
-
-        (* Generate a opcode plus a modrm byte.  *)
-        fun opEAGen(opb:opCode, offset: LargeInt.int, rb: genReg, (rrC, rrX)) =
-        let
-            val (rbC, rbX) = getReg rb
-        in
-            (* Any lock or opsize prefix comes before any REX prefix. *)
-            opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb] @
-                eACode(offset, rbC, rrC)
-        end
-
-        (* Similar to genEA, but used when there is an index register.
-           rb may be NONE if no base register is required (used
-           with leal to tag values). *)
+        (* General instruction form with modrm and optional sib bytes.  rb is an option since the
+           base register may be omitted.  This is used with LEA to tag integers. *)
         fun opIndexedGen (opb:opCode, offset: LargeInt.int, rb: genReg option, ri: indexType, (rrC, rrX)) =
         let
-            val (rbC, rbX) = case rb of NONE => (0w0, false) | SOME rb => getReg rb
-
-            val (_, riX) = 
-                case ri of
-                    (* We should call a non-indexed function if there is no index. *)
-                    NoIndex  => raise InternalError "opIndexedGen: No index"
-                |   Index1 i => getReg i
-                |   Index2 i => getReg i
-                |   Index4 i => getReg i
-                |   Index8 i => getReg i
-
-            val (offsetCode, basefield) =
+            (* Base encoding.  (Based0, 0w5) means "no base" so if we need ebp as the
+               base we have to use Based8 at least. *)
+            val (offsetCode, rbC, rbX) =
                 case rb of
-                    NONE => (Based0, NONE (* no base register *))
+                    NONE => (Based0, 0w5 (* no base register *), false)
                 |   SOME rb =>
                     let
+                        val (rbC, rbX) = getReg rb
                         val base =
-                            if offset = 0 andalso rbC <> 0wx5
+                            if offset = 0 andalso rbC <> 0wx5 (* Can't use ebp with Based0 *)
                             then Based0    (* no disp field *)
                             else if is8BitL offset
                             then Based8   (* use 8-bit disp field *)
-                            else Based32; (* use 32-bit disp field *)
+                            else Based32 (* use 32-bit disp field *)
                     in
-                        (base, SOME rb)
+                        (base, rbC, rbX)
                     end
 
-            val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
-            val rex = rexByte(opb, rrX, rbX, riX);
-            val esc = escapePrefix opb
-            val opc = opToInt opb
-            val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
-            val sibByte = sib(ri, basefield)
+            (* Index coding.  esp can't be used as an index so (0w4, false) means "no index".
+               But r12 (0w4, true) CAN be. *)
+            val ((riC, riX), scaleFactor) =
+                case ri of
+                    NoIndex  => ((0w4, false), 0w0)
+                |   Index1 i => (getReg i, 0w0)
+                |   Index2 i => (getReg i, 0w1)
+                |   Index4 i => (getReg i, 0w2)
+                |   Index8 i => (getReg i, 0w3)
+            
+            (* If the base register is esp or r12 we have to use a sib byte even if
+               there's no index.  That's because 0w4 as a base register means "there's
+               a SIB byte". *)
+            val modRmAndOptionalSib =
+                if rbC = 0w4  (* Code for esp and r12 *) orelse riC <> 0w4 orelse riX
+                then
+                let
+                    val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
+                    val sibByte = (scaleFactor <<- 0w6) orb8 (riC <<- 0w3) orb8 rbC
+                in
+                    [mdrm, sibByte]
+                end
+                else [modrm(offsetCode, rrC, rbC)]
     
-            (* generate the disp field (if any) *)
+            (* Generate the disp field (if any) *)
             val dispField =
                 case (offsetCode, rb) of
                     (Based8, _)  => [Word8.fromLargeInt offset]
@@ -891,15 +840,16 @@ struct
                 |   (_, NONE)    => (* 32 bit absolute used as base *) int32Signed offset
                 |    _ => []
         in
-            pref @ rex @ esc @ [opc, mdrm, sibByte] @ dispField
+            opcodePrefix opb @ rexByte(opb, rrX, rbX, riX) @ escapePrefix opb @
+                opToInt opb :: modRmAndOptionalSib @ dispField
         end
     in
-        fun opEA(opb, offset, rb, r) = opEAGen(opb, offset, rb, getReg r)
+        fun opEA(opb, offset, rb, r) = opIndexedGen(opb, offset, SOME rb, NoIndex, getReg r)
         and mMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC) =
-            opEAGen(opb, offset, rb, (rrC, false))
+            opIndexedGen(opb, offset, SOME rb, NoIndex, (rrC, false))
         (* Generate a opcode plus a second modrm byte but where the "register" field in
            the modrm byte is actually a code.  *)
-        and opPlus2(opb, offset, rb, op2) = opEAGen(opb, offset, rb, (op2, false))
+        and opPlus2(opb, offset, rb, op2) = opIndexedGen(opb, offset, SOME rb, NoIndex, (op2, false))
         
         fun opIndexed (opb, offset, rb, ri, rd) =
            opIndexedGen(opb, offset, rb, ri, getReg rd) 
@@ -908,8 +858,7 @@ struct
         and opIndexedPlus2(opb, offset, rb, ri, op2) =
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
         
-        fun opAddress(opb, offset, rb, NoIndex, rd) = opEAGen(opb, offset, rb, getReg rd)
-        |   opAddress(opb, offset, rb, ri, rd) = opIndexedGen (opb, offset, SOME rb, ri, getReg rd)
+        fun opAddress(opb, offset, rb, ri, rd) = opIndexedGen (opb, offset, SOME rb, ri, getReg rd)
     end
 
     fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int) =
