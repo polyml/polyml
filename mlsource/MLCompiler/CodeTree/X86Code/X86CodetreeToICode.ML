@@ -387,7 +387,9 @@ struct
                                 then [BlockSimple(AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
-                                        [BlockSimple(StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex, kind=MoveWord})])
+                                        [BlockSimple(
+                                            StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex,
+                                                          kind=MoveWord, isMutable=false})])
                         in
                             c @ clear 0 @ [BlockSimple InitialisationComplete]
                         end
@@ -409,7 +411,7 @@ struct
                                     val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
                                     val restAndAlloc = loadFields(rest, n+1)
                                     val storeValue =
-                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord })]
+                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord, isMutable=false })]
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
@@ -1063,7 +1065,7 @@ struct
                         val (code1, source1, _) = codeToICodeRev(f, context, false, Allowed allowDefer, tlCode)
                         val restAndAlloc = loadFields(rest, n+1, code1)
                         val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
-                        val storeValue = BlockSimple(StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord})
+                        val storeValue = BlockSimple(StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
                     in
                         storeValue :: code2
                     end
@@ -1083,7 +1085,7 @@ struct
             let
                 local
                     fun createStore containerReg (source, destWord) =
-                        StoreArgument{source=source, offset=destWord*wordSize, base=containerReg, index=NoMemIndex, kind=MoveWord}
+                        StoreArgument{source=source, offset=destWord*wordSize, base=containerReg, index=NoMemIndex, kind=MoveWord, isMutable=false}
                 in
                     val (codeContainer, storeInstr) =
                         case container of
@@ -1310,7 +1312,8 @@ struct
                    the hardware guarantees that an assignment of a word will be atomic. *)
                 val (argCode, addrReg) = codeToPReg(arg1, context)
                 (* Store tagged 1 in the mutex.  This is the unlocked value. *)
-                val code = argCode @ [BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord})]
+                val code = argCode @
+                    [BlockSimple(StoreArgument{source=IntegerConstant(tag 1), base=addrReg, index=NoMemIndex, offset=0, kind=MoveWord, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -1659,7 +1662,7 @@ struct
                 (sizeCode @ flagsCode @
                  [BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=baseReg, saveRegs=[]})] @
                   flagUntag @
-                  [BlockSimple(StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
+                  [BlockSimple(StoreArgument{ source=flagArg, base=baseReg, offset= ~1, index=NoMemIndex, kind=MoveByte, isMutable=false}),
                   BlockSimple InitialisationComplete,
                   BlockSimple(LoadArgument{ source=RegisterArgument baseReg, dest=target, kind=MoveWord})], RegisterArgument target, false)
             end
@@ -1906,7 +1909,7 @@ struct
                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                 val memAddr = newPReg() and valueReg = newPReg()
                 fun initialise n =
-                    BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord})
+                    BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
                     [BlockSimple(AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]})] @
@@ -2040,7 +2043,7 @@ struct
                 val (codeBaseIndex, codeUntag, {base, offset, index, ...}) = codeAddress(address, false, context)
                 val code =
                     codeBaseIndex @ sourceCode @ codeUntag @
-                        [BlockSimple(StoreArgument {source=source, base=base, offset=offset, index=index, kind=MoveWord})]
+                        [BlockSimple(StoreArgument {source=source, base=base, offset=offset, index=index, kind=MoveWord, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2052,7 +2055,7 @@ struct
                 val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                    [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte})]
+                    [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2064,7 +2067,7 @@ struct
                 val (valueCode, untagValue, valueArg) = codeAsUntaggedValue(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                    [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte})]
+                    [BlockSimple(StoreArgument {source=valueArg, base=base, offset=offset, index=index, kind=MoveByte, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2077,7 +2080,7 @@ struct
                 val (valueCode, untagValue, valueArg) = codeAsUntaggedToReg(value, false, context)
                 val code =
                     codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                    [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move16Bit})]
+                    [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move16Bit, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2095,7 +2098,7 @@ struct
                         val (valueCode, untagValue, valueArg) = codeAsUntaggedToReg(value, false, context)
                     in
                         codeBaseIndex @ valueCode @ untagValue @ codeUntag @
-                        [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move32Bit})]
+                        [BlockSimple(StoreArgument {source=RegisterArgument valueArg, base=base, offset=offset, index=index, kind=Move32Bit, isMutable=true})]
                     end
                     else
                     let
@@ -2103,7 +2106,7 @@ struct
                         val valueReg1 = newUReg()
                     in
                         codeBaseIndex @ valueCode @ BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}) :: codeUntag @
-                        [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit})]
+                        [BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=Move32Bit, isMutable=true})]
                     end
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
@@ -2119,7 +2122,7 @@ struct
                 val code =
                     codeBaseIndex @ valueCode @ codeUntag @
                     [BlockSimple(LoadArgument{source=wordAt valueReg, dest=valueReg1, kind=MoveWord}),
-                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveWord})]
+                     BlockSimple(StoreArgument {source=RegisterArgument valueReg1, base=base, offset=offset, index=index, kind=MoveWord, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2139,7 +2142,7 @@ struct
                 val code =
                     codeBaseIndex @ valueCode @ codeUntag @
                     BlockSimple(LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble}) :: cvtCode @
-                    [BlockSimple(StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat})]
+                    [BlockSimple(StoreArgument {source=RegisterArgument storeReg, base=base, offset=offset, index=index, kind=MoveFloat, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2152,7 +2155,7 @@ struct
                 val code =
                     codeBaseIndex @ valueCode @ codeUntag @
                     [BlockSimple(LoadArgument{source=wordAt valueReg, dest=floatReg, kind=MoveDouble}),
-                     BlockSimple(StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble})]
+                     BlockSimple(StoreArgument {source=RegisterArgument floatReg, base=base, offset=offset, index=index, kind=MoveDouble, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2192,7 +2195,7 @@ struct
                         end
                 val code =
                     codeBaseIndex @ valCode @ codeUntag @
-                    [BlockSimple(StoreArgument {source=storeVal, base=base, offset=offset, index=index, kind=MoveWord})]
+                    [BlockSimple(StoreArgument {source=storeVal, base=base, offset=offset, index=index, kind=MoveWord, isMutable=true})]
             in
                 moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
             end
@@ -2905,7 +2908,7 @@ struct
               BlockSimple(LoadArgument{source=RegisterArgument sizeReg, dest=sizeReg2, kind=MoveWord}),
               BlockSimple(AllocateMemoryVariable{size=sizeReg, dest=allocReg, saveRegs=[]})] @
               flagUntag @
-              [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte}),
+              [BlockSimple(StoreArgument{ source=flagArg, base=allocReg, offset= ~1, index=NoMemIndex, kind=MoveByte, isMutable=false}),
               (* We need to copy the address here because InitialiseMem modifies all its arguments. *)
               BlockSimple(LoadArgument{source=RegisterArgument allocReg, dest=initAddrReg, kind=MoveWord}),
               BlockSimple(UntagValue{source=sizeReg2, dest=untagSizeReg, isSigned=false, cache=NONE}),

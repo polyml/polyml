@@ -116,8 +116,10 @@ sig
         LoadArgument of { source: argument, dest: preg, kind: moveKind }
         
         (* Store a value into memory.  The source will usually be a register but could be
-           a constant depending on the value. *)
-    |   StoreArgument of { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind }
+           a constant depending on the value.  If isMutable is true we're assigning to
+           a ref and we need to flush the memory cache. *)
+    |   StoreArgument of
+            { source: argument, base: preg, offset: int, index: memoryIndex, kind: moveKind, isMutable: bool }
 
         (* Load an entry from the "memory registers".  Used just for ThreadSelf. *)
     |   LoadMemReg of { offset: int, dest: preg }

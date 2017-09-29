@@ -615,16 +615,18 @@ struct
                             cacheCode @ sourceCodePost @ destCode :: sourceCodePre @ code
                         end
 
-                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, ...}, code) =
+                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind, isMutable}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapAndLoad source
                             (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
                             val (baseReg, baseCode) = mapSrcReg(base)
                             val (indexValue, indexCode) = mapIndex(index)
-                            (* For the moment clear the memory cache completely here. *)
-                            val () = clearMemoryCache()
+                            (* If we're assigning to a mutable we can no longer rely on
+                               the memory cache.  Clear it completely in that case although
+                               we could be more selective. *)
+                            val () = if isMutable then clearMemoryCache() else ()
                         in
-                            StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind} ::
+                            StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind, isMutable=isMutable} ::
                                     indexCode @ baseCode @ sourceCode @ code
                         end
 
@@ -1036,6 +1038,8 @@ struct
                             val (srcVal, srcCode) = mapSrcReg srcAddr
                             val (destVal, destCode) = mapSrcReg destAddr
                             val (lengthVal, lengthCode) = mapSrcReg length
+                            (* For safety clear the memory cache here.  That may not be necessary. *)
+                            val () = clearMemoryCache()
                         in
                             BlockMove{srcAddr=srcVal, destAddr=destVal, length=lengthVal, isByteMove=isByteMove} ::
                                     lengthCode @ destCode @ srcCode @ code

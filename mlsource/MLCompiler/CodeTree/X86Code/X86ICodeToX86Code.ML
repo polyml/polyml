@@ -789,7 +789,7 @@ struct
                         llLoadArgument({source=codeExtArgument source, dest=realDestReg, kind=kind}, code)
             end
 
-        |   codeExtended _ ({instr=StoreArgument{ source, base=PReg bReg, offset, index, kind }, ...}, code) =
+        |   codeExtended _ ({instr=StoreArgument{ source, base=PReg bReg, offset, index, kind, ... }, ...}, code) =
             (
                 case (decache source, kind) of
                     (RegisterArgument(PReg sReg), MoveByte) =>
