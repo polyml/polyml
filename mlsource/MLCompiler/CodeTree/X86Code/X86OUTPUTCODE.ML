@@ -762,10 +762,8 @@ struct
     end
 
     (* Register/register operation. *)
-    fun opReg(opb:opCode, rd: genReg, rs: genReg) =
+    fun opReg(opb:opCode, (*dest*)GeneralReg(rrC, rrX), (*source*)GeneralReg(rbC, rbX)) =
     let
-        val (rbC, rbX) = getReg rs
-        val (rrC, rrX) = getReg rd
         val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
         val rex = rexByte(opb, rrX, rbX, false)
         val esc = escapePrefix opb (* Generate the ESCAPE code if needed. *)
@@ -775,14 +773,16 @@ struct
         pref @ rex @ esc @ [opc, mdrm]
     end
 
+    (* Operations on a register where the second "register" is actually an operation code. *)
     fun opRegPlus2(opb:opCode, rd: genReg, op2: Word8.word) =
     let
         val (rrC, rrX) = getReg rd
+        val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
         val rex = rexByte(opb, false, rrX, false)
         val opc = opToInt opb
         val mdrm = modrm(Register, op2, rrC)
     in
-        rex @ [opc, mdrm]
+        pref @ rex @ [opc, mdrm]
     end
 
     local
@@ -845,20 +845,17 @@ struct
         end
     in
         fun opEA(opb, offset, rb, r) = opIndexedGen(opb, offset, SOME rb, NoIndex, getReg r)
-        and mMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC) =
-            opIndexedGen(opb, offset, SOME rb, NoIndex, (rrC, false))
         (* Generate a opcode plus a second modrm byte but where the "register" field in
            the modrm byte is actually a code.  *)
         and opPlus2(opb, offset, rb, op2) = opIndexedGen(opb, offset, SOME rb, NoIndex, (op2, false))
         
         fun opIndexed (opb, offset, rb, ri, rd) =
-           opIndexedGen(opb, offset, rb, ri, getReg rd) 
-        and mMXIndexed(opb, offset, rb, ri, SSE2Reg rrC) =
-            opIndexedGen(opb, offset, SOME rb, ri, (rrC, false))
-        and opIndexedPlus2(opb, offset, rb, ri, op2) =
-            opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
+            opIndexedGen(opb, offset, rb, ri, getReg rd) 
         
         fun opAddress(opb, offset, rb, ri, rd) = opIndexedGen (opb, offset, SOME rb, ri, getReg rd)
+        and mMXAddress(opb, offset, rb, ri, SSE2Reg rrC) = opIndexedGen(opb, offset, SOME rb, ri, (rrC, false))
+        and opAddressPlus2(opb, offset, rb, ri, op2) =
+            opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
     fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int) =
@@ -1298,42 +1295,21 @@ struct
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVL_A_R, LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVL_A_R, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVZB, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVZB, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVZW, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVZW, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVL_A_R32, LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVL_A_R32, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadAddress{ offset, base, index, output }) =
-            (
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
-                case (index, base) of
-                    (NoIndex, SOME base) => opEA(LEAL, LargeInt.fromInt offset, base, output)
-                |   (NoIndex, NONE) => raise InternalError "LoadAddress: no base or index"
-                |   _ => opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
-            )
+                opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source }) =
                 arithOpReg (opc, output, source)
@@ -1363,10 +1339,8 @@ struct
                 end
             end
 
-        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index=NoIndex} }) =
-                opEA(Arith (opc, 0w3), LargeInt.fromInt offset, base, output)
-
-        |   cgOp(ArithToGenReg _) = raise InternalError "cgOp: ArithToGenReg"
+        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index} }) =
+                opAddress(Arith (opc, 0w3), LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(ArithMemConst{ opc, offset, base, source }) =
                 if is8BitL source
@@ -1473,11 +1447,8 @@ struct
                 opCodeBytes(PUSH_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
             end
 
-        |   cgOp(PushToStack(MemoryArg{base, offset, index=NoIndex})) =
-                opPlus2(Group5, LargeInt.fromInt offset, base, 0w6 (* push *))
-
         |   cgOp(PushToStack(MemoryArg{base, offset, index})) =
-                opIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false))
+                opAddressPlus2(Group5, LargeInt.fromInt offset, base, index, 0w6 (* push *))
 
         |   cgOp(PushToStack(NonAddressConstArg constnt)) = 
                 if is8BitL constnt
@@ -1511,11 +1482,8 @@ struct
                     opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
                 end
 
-        |   cgOp(StoreRegToMemory{toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A, LargeInt.fromInt offset, base, toStore) 
-          
         |   cgOp(StoreRegToMemory{toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore)
+                opAddress(MOVL_R_A, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} }) =
             (
@@ -1525,11 +1493,7 @@ struct
                    memory. *)
                 isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
-                case index of
-                    NoIndex =>
-                        opPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed toStore
-                |   index =>
-                        opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
             )
 
@@ -1537,14 +1501,9 @@ struct
                 (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
                 if isX64
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
-                else
-                (
-                    case index of
-                        NoIndex => opPlus2 (MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed (tag 0)
-                    |   ri => opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, ri, mkReg(0w0, false)) @ int32Signed (tag 0)
-                )
+                else opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
-        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address }) =
+        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address={offset, base, index} }) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
@@ -1552,30 +1511,17 @@ struct
                 val opcode = MOVB_R_A{forceRex= rrC >= 0w4}
                 val _ = isX64 orelse rrC < 0w4 orelse raise InternalError "High byte register"
             in
-                case address of
-                    {offset, base, index=NoIndex} =>
-                        opEA(opcode, LargeInt.fromInt offset, base, toStore) 
-                |   {offset, base, index} =>
-                        opIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore)
+                opAddress(opcode, LargeInt.fromInt offset, base, index, toStore)
             end
 
-        |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore) 
-
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore)
-
-        |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore) 
+                opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
             
         |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore)
-
-        |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index=NoIndex}}) =
-                opPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0) @ [Word8.fromLargeInt toStore]
+                opAddress(MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
-                opIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
         |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
@@ -1595,11 +1541,8 @@ struct
                 opCodeBytes (CALL_32, NONE) @ int32Signed 0
      
         |   cgOp(CallFunction FullCall) =
-            let
-                val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
-            in
-                opCodeBytes (Group5, NONE) @ [mdrm]
-            end
+                (* Indirect call to the address held in the first word of the closure. *)
+                opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w2 (* call *))
 
         |   cgOp(CallFunction(ConstantCode _)) =
             if isX64
@@ -1616,26 +1559,13 @@ struct
                be the last instruction. *)
             else opCodeBytes (CALL_32, NONE) @ int32Signed ~5
             
-        |   cgOp(CallFunction(DirectReg reg)) =
-            let
-                val (rc, rx) = getReg reg
-                val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
-                val mdrm = modrm(Register, 0w2 (* call *), rc)
-            in
-                opb @ [mdrm]
-            end
+        |   cgOp(CallFunction(DirectReg reg)) = opRegPlus2(Group5, reg, 0w2 (* call *))
 
         |   cgOp(JumpToFunction Recursive) =
                 (* Jump to the start of the current function.  Offset is patched in later. *)
                 opCodeBytes (JMP_32, NONE) @ int32Signed 0
            
-        |   cgOp(JumpToFunction FullCall) =
-            let (* Full closure call *)
-                val opb = opCodeBytes (Group5, NONE)
-                val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
-            in
-                opb @ [mdrm]
-            end
+        |   cgOp(JumpToFunction FullCall) = opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w4 (* jmp *))
 
         |   cgOp(JumpToFunction (ConstantCode _)) =
             if isX64
@@ -1650,13 +1580,7 @@ struct
             
         |   cgOp(JumpToFunction (DirectReg reg)) =
             (* Used as part of indexed case - not for entering a function. *)
-            let
-                val (rc, rx) = getReg reg
-                val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
-                val mdrm = modrm(Register, 0w4 (* jmp *), rc)
-            in
-                opb @ [mdrm]
-            end
+                opRegPlus2(Group5, reg, 0w4 (* jmp *))
     
         |   cgOp(ReturnFromFunction args) =
             if args = 0
@@ -1721,9 +1645,7 @@ struct
                         DoublePrecision => FPESC 0w5
                     |   SinglePrecision => FPESC 0w1
             in
-                case index of
-                    NoIndex => opPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0)
-                |   index => opIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0)
+                opAddressPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0)
             end
 
         |   cgOp (FPLoadFromFPReg{source=FloatingPtReg fp, ...}) =
@@ -1774,9 +1696,7 @@ struct
                     |   SinglePrecision => FPESC 0w1
                 val subInstr = if andPop then 0wx3 else 0wx2
             in
-                case index of
-                    NoIndex => opPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr)
-                |   index => opIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr)
+                opAddressPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr)
             end
 
         |   cgOp (FPArithR{ opc, source = FloatingPtReg src}) =
@@ -1828,11 +1748,8 @@ struct
                    but we only ever want the low-order half. *)
                 opEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
 
-        |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index=NoIndex}, output }) =
-                mMXEA(SSE2Ops opc, LargeInt.fromInt offset, base, output)
-
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
-                mMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
+                mMXAddress(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp (XMMArith { opc, source=AddressConstArg _, output=SSE2Reg rrC }) =
             let
@@ -1867,18 +1784,17 @@ struct
                         DoublePrecision => SSE2StoreDouble
                     |   SinglePrecision => SSE2StoreSingle
             in
-                case index of
-                    NoIndex => mMXEA(oper, LargeInt.fromInt offset, base, toStore)
-                |   index => mMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore)
+                mMXAddress(oper, LargeInt.fromInt offset, base, index, toStore)
             end
 
         |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC }) =
             let
                 (* The source is a general register and the output a XMM register. *)
+                (* TODO: The source can be a memory location. *)
                 val (rbC, rbX) = getReg source
             in
-                
-                    opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
+                (* This is a special case with both an XMM and general register. *)
+                opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
                     escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)]
             end
 
@@ -1909,7 +1825,7 @@ struct
                 jumpSize = JumpSize8 orelse raise InternalError "cgOp: IndexedJumpCalc";
                 (* Should currently be JumpSize8 which requires a multiplier of 4 and
                    4 to be subtracted to remove the shifted tag. *)
-                opIndexed(LEAL, ~4, SOME addrReg, Index4 indexReg, addrReg)
+                opAddress(LEAL, ~4, addrReg, Index4 indexReg, addrReg)
             )
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
@@ -2065,7 +1981,7 @@ struct
             (* If we've shortened a jump table we have to change the indexing. *)
         |   fixupAddress(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref JumpSize2 }, _, _, list) =
                 (* On x86/32 it might be shorter to use DEC addrReg; ADD addrReg, indexReg. *)
-                Word8Vector.fromList(opIndexed(LEAL, ~1, SOME addrReg, Index1 indexReg, addrReg)) :: list
+                Word8Vector.fromList(opAddress(LEAL, ~1, addrReg, Index1 indexReg, addrReg)) :: list
 
         |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let
