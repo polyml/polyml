@@ -66,11 +66,8 @@ struct
     |   LLStoreArgument of { source: reg regOrMemoryArg, base: genReg, offset: int, index: indexType, kind: moveKind }
     |   LLExchange of { reg: reg, arg: reg regOrMemoryArg }
     |   LLTailRecursiveCall of { callKind: callKinds }
-    |   LLArithmeticFunction of { oper: arithOp, resultReg: reg, operand: reg regOrMemoryArg }
     |   LLPushValue of { arg: reg regOrMemoryArg }
     |   LLResetStackPtr of { numWords: int, preserveCC: bool }
-    |   LLShiftOperation of { shift: shiftType, resultReg: reg, shiftAmount: reg regOrMemoryArg }
-    |   LLMultiplication of { resultReg: reg, operand1: reg regOrMemoryArg, operand2: reg regOrMemoryArg }
     |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
     
     and llBasicBlock = LLBasicBlock of { block: llIcode list, flow: ICODE.controlFlow }
@@ -244,11 +241,6 @@ struct
             and codeExtArgumentAsFPReg = codeExtArgument getAllocatedFPReg
             and codeExtArgumentAsXMMReg = codeExtArgument getAllocatedXMMReg
         end
-
-        fun moveRR{src, dst, kind} = LLLoadArgument{source=RegisterArg src, dest=dst, kind=kind}
-
-        fun moveIfNecessaryOld{src, dst, kind} =
-            if src = dst then [] else [moveRR{src=src, dst=dst, kind=kind}]
         
         (* Move unless the registers are the same. *)
         fun moveIfNecessary({src, dst, kind}, code) =
@@ -688,12 +680,6 @@ struct
         |   codeGenICode(LLTailRecursiveCall {callKind, ...}, _, code) =
                 (JumpToFunction callKind :: code)
 
-        |   codeGenICode(LLArithmeticFunction{oper, resultReg=(GenReg resReg), operand, ...}, _, code) =
-                (ArithToGenReg { opc=oper, output=resReg, source=sourceAsGenRegOrMem operand } :: code)
-
-        |   codeGenICode(LLArithmeticFunction _, _, _) =
-                raise InternalError "codeGenICode: TODO codeGenICode - ArithmeticFunction"
-
         |   codeGenICode(LLPushValue arg, _, code) = (llPushValue arg :: code)
 
         |   codeGenICode(LLResetStackPtr {numWords, preserveCC}, _, code) =
@@ -701,40 +687,6 @@ struct
                 numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
                 (ResetStack{numWords=numWords, preserveCC=preserveCC} :: code)
             )
-
-        |   codeGenICode(
-                LLShiftOperation{ shift, resultReg, shiftAmount=NonAddressConstArg shiftValue, ...}, _, code) =
-            let
-                val resReg = asGenReg resultReg
-            in
-                (ShiftConstant{ shiftType=shift, output=resReg, shift=Word8.fromLargeInt shiftValue } :: code)
-            end
-
-        |   codeGenICode(LLShiftOperation { shift, resultReg, shiftAmount, ...}, _, code) =
-            let
-                val resReg = asGenReg resultReg
-                (* The amount to shift must be in ecx.  The shift is masked to 5 or 6 bits so we have to
-                   check for larger shift values at a higher level. *)
-                val _ = argAsGenReg shiftAmount = ecx orelse raise InternalError "codeGenICode: ShiftOperation"
-            in
-                (ShiftVariable{ shiftType=shift, output=resReg } :: code)
-            end
-
-        |   codeGenICode(LLMultiplication { resultReg, operand1, operand2=MemoryArg{offset, base, index=NoIndex}, ... }, _, code) =
-            let
-                val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and baseReg = base
-                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
-            in
-                (MultiplyRM { base=baseReg, offset=offset, output=resReg } :: code)
-            end
-
-        |   codeGenICode(LLMultiplication { resultReg, operand1, operand2, ... }, _, code) =
-            let
-                val resReg = asGenReg resultReg and op1Reg = argAsGenReg operand1 and op2Reg = argAsGenReg operand2
-                val _ = resReg = op1Reg orelse raise InternalError "codeGenICode: Multiplication"
-            in
-                (MultiplyRR { source=op2Reg, output=resReg } :: code)
-            end
 
         |   codeGenICode(LLDivision { isSigned, dividend, divisor, quotient, remainder }, _, code) =
             let
@@ -1092,55 +1044,50 @@ struct
                 ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=GenReg eax, kind=MoveWord}, code)
             end
 
-        |   codeExtended {flow} ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
+        |   codeExtended _ ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...}, code) =
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
             let
                 val realDestReg = getAllocatedReg resReg
-                (* Try to put the argument into the same register as the result. *)
                 val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgument operand2
-                (* If we couldn't put it in the result register we have to copy it there. *)
             in
-                nextPhase(moveIfNecessaryOld{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
-                    [LLArithmeticFunction{oper=SUB, resultReg=realDestReg, operand=op2Arg}], {flow=flow}, code)
+                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2 } ::
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
             end
 
-        |   codeExtended {flow} ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
+        |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
             let
-               val realDestReg = getAllocatedReg resReg
-                
-                val realOp1Reg = getAllocatedReg op1Reg
-                and realOp2Reg = getAllocatedReg op2Reg
+                val realDestReg = getAllocatedGenReg resReg
+                val realOp1Reg = getAllocatedGenReg op1Reg
+                and realOp2Reg = getAllocatedGenReg op2Reg
                 val (operandReg, moveInstr) =
                     if realOp1Reg = realDestReg
-                    then (realOp2Reg, [])
+                    then (realOp2Reg, code)
                     else if realOp2Reg = realDestReg
-                    then (realOp1Reg, [])
-                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg, kind=MoveWord}])
+                    then (realOp1Reg, code)
+                    else (realOp2Reg, MoveToRegister{source=RegisterArg realOp1Reg, output=realDestReg} :: code)
             in
-                nextPhase(moveInstr @
-                    [LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand=RegisterArg operandReg}], {flow=flow}, code)
+                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg } :: moveInstr
             end
 
-        |   codeExtended {flow} ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
+        |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
                                             operand2, ...}, ...}, code) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
-                val op2Arg = codeExtArgument operand2
+                val op2Arg = codeExtArgumentAsGenReg operand2
                 (* If we couldn't put it in the result register we have to copy it there. *)
                 (* TODO: Is there the potential for a problem?  We don't worry about a conflict
                    between the result register and the arguments.  What if the second argument is a memory
                    location with the result reg as a base or index? *)
             in
-                nextPhase(moveIfNecessaryOld{src=realOp1Reg, dst=realDestReg, kind=MoveWord} @
-                    [LLArithmeticFunction{oper=oper, resultReg=realDestReg, operand=op2Arg}], {flow=flow}, code)
+                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg } ::
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
             end
 
         |   codeExtended _ ({instr=TestTagBit{arg, ...}, ...}, code) =
@@ -1215,71 +1162,88 @@ struct
                 LoadAddress{ output=destReg, offset=offset, base=SOME bReg, index=indexR } :: code
             end
 
-        |   codeExtended {flow} ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant i, ...}, ...}, code) =
+        |   codeExtended _ ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant i, ...}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOpReg = getAllocatedReg operReg
             in
-                 nextPhase(moveIfNecessaryOld{src=realOpReg, dst=realDestReg, kind=MoveWord} @
-                    [LLShiftOperation{shift=shift, resultReg=realDestReg, shiftAmount=NonAddressConstArg i}], {flow=flow}, code)
+                ShiftConstant{ shiftType=shift, output=asGenReg realDestReg, shift=Word8.fromLargeInt i } ::
+                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=MoveWord}, code)
             end
 
-        |   codeExtended {flow} ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg,
+        |   codeExtended _ ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg,
                                         shiftAmount=RegisterArgument(PReg shiftReg), ...}, ...}, code) =
             let
                 val realDestReg = getAllocatedReg resReg
                 val realShiftReg = getAllocatedReg shiftReg
                 val realOpReg = getAllocatedReg operReg
                 (* We want the shift in ecx.  We may not have got it there but the register
-                   should be free. *)
+                   should be free.  The shift is masked to 5 or 6 bits so we have to
+                   check for larger shift values at a higher level.*)
             in
-                 nextPhase(moveIfNecessaryOld{src=realOpReg, dst=realDestReg, kind=MoveWord} @ moveIfNecessaryOld{src=realShiftReg, dst=GenReg ecx, kind=MoveWord} @
-                    [LLShiftOperation{shift=shift, resultReg=realDestReg, shiftAmount=RegisterArg(GenReg ecx)}], {flow=flow}, code)
+                ShiftVariable{ shiftType=shift, output=asGenReg realDestReg } ::
+                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=MoveWord},
+                        moveIfNecessary({src=realShiftReg, dst=GenReg ecx, kind=MoveWord}, code))
             end
 
         |   codeExtended _ ({instr=ShiftOperation _, ...}, _) = raise InternalError "codeExtended - ShiftOperation"
 
-        |   codeExtended {flow} ({instr=
+        |   codeExtended _ ({instr=
                 Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
                                operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
             let
                 (* Treat exactly the same as ArithmeticFunction. *)
-                val realDestReg = getAllocatedReg resReg
-                
-                val realOp1Reg = getAllocatedReg op1Reg
-                and realOp2Reg = getAllocatedReg op2Reg
+                val realDestReg = getAllocatedGenReg resReg
+                val realOp1Reg = getAllocatedGenReg op1Reg
+                and realOp2Reg = getAllocatedGenReg op2Reg
                 val (operandReg, moveInstr) =
                     if realOp1Reg = realDestReg
-                    then (realOp2Reg, [])
+                    then (realOp2Reg, code)
                     else if realOp2Reg = realDestReg
-                    then (realOp1Reg, [])
-                    else (realOp2Reg, [moveRR{src=realOp1Reg, dst=realDestReg, kind=MoveWord}])
+                    then (realOp1Reg, code)
+                    else (realOp2Reg, MoveToRegister{source=RegisterArg realOp1Reg, output=realDestReg} :: code)
             in
-                nextPhase(moveInstr @
-                    [LLMultiplication{resultReg=realDestReg, operand1=RegisterArg realDestReg,
-                                        operand2=RegisterArg operandReg}], {flow=flow}, code)
+                MultiplyR { source=RegisterArg operandReg, output=realDestReg } :: moveInstr
             end
 
-            (* We currently only generate the register/register case. *)
-        |   codeExtended _ ({instr=Multiplication _, ...}, _) = raise InternalError "codeExtended - multiplication TODO"
+        |   codeExtended _ ({instr=Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg,
+                                            operand2, ...}, ...}, code) =
+            (* Multiply operation with the first argument in a register and the second a constant or memory location. *)
+            let
+                val realDestReg = getAllocatedReg resReg
+                val realOp1Reg = getAllocatedReg op1Reg
+                val op2Arg = codeExtArgumentAsGenReg operand2
+            in
+                MultiplyR { output=asGenReg realDestReg, source=op2Arg } ::
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
+            end
 
         |   codeExtended {flow} ({instr=Division{isSigned, dividend=PReg regDivid, divisor, quotient=PReg regQuot,
                                   remainder=PReg regRem}, ...}, code) =
             let
+                (* TODO: This currently only supports the dividend in a register.  LargeWord division will
+                   generally load the argument from a box so we could support a memory argument for that
+                   case.  Word and integer values will always have to be detagged. *)
                 (* Division is specific as to the registers.  The dividend must be eax, quotient is
                    eax and the remainder is edx. *)
                 val realDiviReg = getAllocatedReg regDivid
                 val realQuotReg = getAllocatedReg regQuot
                 val realRemReg = getAllocatedReg regRem
                 val divisorArg = codeExtArgument divisor
+                val divisorReg = argAsGenReg divisorArg
+                val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
+                (* rdx needs to be set to the high order part of the dividend.  For signed
+                   division that means sign-extending rdx, for unsigned division we clear it. *)
+                val setRDX =
+                    if isSigned then SignExtendForDivide
+                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
             in
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
                    quotient will actually be used. *)
-                nextPhase(moveIfNecessaryOld{src=realDiviReg, dst=GenReg eax, kind=MoveWord} @
-                    LLDivision{isSigned=isSigned, dividend=GenReg eax, divisor=divisorArg,
-                              quotient=GenReg eax, remainder=GenReg edx} ::
-                    moveMultipleRegisters[{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}], {flow=flow}, code)
+                nextPhase(moveMultipleRegisters[{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}], {flow=flow},
+                    DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX ::
+                        moveIfNecessary({src=realDiviReg, dst=GenReg eax, kind=MoveWord}, code))
             end
 
         |   codeExtended _ ({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}, code) =

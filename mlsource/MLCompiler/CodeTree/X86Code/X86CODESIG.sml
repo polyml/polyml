@@ -162,8 +162,7 @@ sig
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
-    |   MultiplyRR of { source: genReg, output: genReg }
-    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }

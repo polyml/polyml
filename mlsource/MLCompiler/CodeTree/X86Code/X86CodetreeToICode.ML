@@ -1469,14 +1469,14 @@ struct
         |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithAdd, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
-                val aReg3 = newPReg()
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
+                (* Use LEA to do the addition since we're not concerned with overflow.  This is shorter than
+                   subtracting the tag and adding the values and also moves the result into the
+                   appropriate register. *)
             in
                 (arg1Code @ arg2Code @
-                    (* Subtract the tag bit from the second argument and do the addition.  No need for overflow check. *)
-                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg2, operand2=IntegerConstant 1, ccRef=newCCRef()}),
-                     BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg1, operand2=RegisterArgument aReg3, ccRef=newCCRef()})],
+                    [BlockSimple(LoadEffectiveAddress{base=aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})],
                         RegisterArgument target, false)
             end
 

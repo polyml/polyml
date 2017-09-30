@@ -979,8 +979,7 @@ struct
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
-    |   MultiplyRR of { source: genReg, output: genReg }
-    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
@@ -1183,8 +1182,7 @@ struct
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadInt { base, offset} => (stream "FPLoadInt "; printBaseOffset(base, NoIndex, offset))
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
-        |   MultiplyRR {source, output } => (stream "MultiplyRR"; stream " "; printGReg source; stream " *=>"; printGReg output)
-        |   MultiplyRM {base, offset, output } => (stream "MultiplyRM"; stream " "; printBaseOffset(base, NoIndex, offset); stream " *=>"; printGReg output)
+        |   MultiplyR {source, output } => (stream "MultiplyR"; stream " "; printRegOrMemoryArg printGReg source; stream " *=>"; printGReg output)
         |   XMMArith { opc, source, output } =>
             (
                 stream (sse2OpRepr opc ^ "RM "); printXMMReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
@@ -1734,19 +1732,27 @@ struct
                 then opPlus2(FPESC 0w7, LargeInt.fromInt offset, base, 0w5)
                 else opPlus2(FPESC 0w3, LargeInt.fromInt offset, base, 0w0)
 
-        |   cgOp (MultiplyRR {source, output}) =
+        |   cgOp (MultiplyR {source=RegisterArg srcReg, output}) =
                 (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                opReg(IMUL (* 2 byte opcode *), output, source)
+                opReg(IMUL (* 2 byte opcode *), output, srcReg)
 
-        |   cgOp (MultiplyRM {base, offset, output}) =
-                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
-                   because the former allows us to specify the destination register.
-                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
-                   but we only ever want the low-order half. *)
-                opEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
+        |   cgOp (MultiplyR {source=MemoryArg{base, offset, index}, output}) =
+                (* This may be used for large-word multiplication. *)
+                opAddress(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, index, output)
+        
+        |   cgOp(MultiplyR {source=NonAddressConstArg constnt, output}) =
+                if is8BitL constnt
+                then raise InternalError "TODO: multiply 0wx6B"
+                else if is32bit constnt
+                then raise InternalError "TODO: multiply 0wx69"
+                else raise InternalError "TODO: multiply 0wxF 0wxAF with constant in non-address area"
+
+        |   cgOp(MultiplyR {source=AddressConstArg _, ...}) =
+                raise InternalError "Multiply - address constant"
+
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
                 mMXAddress(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
@@ -2103,6 +2109,11 @@ struct
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
+
+        |   getConstant(MultiplyR{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
+                if is32bit source
+                then l
+                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
 
         |   getConstant(_, _, _, l) = l        
     in
