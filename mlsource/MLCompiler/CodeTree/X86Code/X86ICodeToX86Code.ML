@@ -188,12 +188,6 @@ struct
                  XMMStoreToMemory { toStore=xmmRegReg, address={base=baseReg, offset=offset, index=index}, precision=SinglePrecision }
 
         |   llStoreArgument _ = raise InternalError "llStoreArgument: StoreArgument"
-
-        fun llPushValue{ arg = RegisterArg reg, ... } = PushToStack(RegisterArg(asGenReg reg))
-        |   llPushValue{ arg = NonAddressConstArg v, ... } = PushToStack(NonAddressConstArg v)
-        |   llPushValue{ arg = AddressConstArg v, ... } = PushToStack(AddressConstArg v)
-        |   llPushValue{ arg = MemoryArg {offset, base, index}, ... } =
-                PushToStack(MemoryArg{base=base, offset=offset, index=index})
         
         val numBlocks = Vector.length blocks
 
@@ -701,7 +695,6 @@ struct
                 (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
                    That means storing the arguments in the right order to avoid overwriting a
                    value that we are using for a different argument. *)
-
                 fun codeTailCall(arguments: {dst: destinations, src: llsource} list, stackAdjust, code) =
                 if stackAdjust < 0
                 then
@@ -723,7 +716,8 @@ struct
                             {dst=newDest, src=newSrc} :: renumberArgs args
                         end
                 in
-                    codeTailCall(renumberArgs arguments, stackAdjust+1, llPushValue{arg=sourceToX86Code argM1} :: code)
+                    codeTailCall(renumberArgs arguments, stackAdjust+1,
+                        PushToStack(sourceAsGenRegOrMem(sourceToX86Code argM1)) :: code)
                 end
                 else
                 let
