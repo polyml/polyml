@@ -58,19 +58,6 @@ struct
     open Address
     
     exception InternalError = Misc.InternalError
-
-    (* Temporary datatype to bridge the gap between the concrete icode and the
-       direct generation of the low-level assembly code. *)
-    datatype llIcode =
-        LLLoadArgument of { source: reg regOrMemoryArg, dest: reg, kind: moveKind }
-    |   LLStoreArgument of { source: reg regOrMemoryArg, base: genReg, offset: int, index: indexType, kind: moveKind }
-    |   LLExchange of { reg: reg, arg: reg regOrMemoryArg }
-    |   LLTailRecursiveCall of { callKind: callKinds }
-    |   LLPushValue of { arg: reg regOrMemoryArg }
-    |   LLResetStackPtr of { numWords: int, preserveCC: bool }
-    |   LLDivision of { isSigned: bool, dividend: reg, divisor: reg regOrMemoryArg, quotient: reg, remainder: reg }
-    
-    and llBasicBlock = LLBasicBlock of { block: llIcode list, flow: ICODE.controlFlow }
     
     fun asGenReg(GenReg r) = r
     |   asGenReg _ = raise InternalError "asGenReg"
@@ -209,9 +196,7 @@ struct
                 PushToStack(MemoryArg{base=base, offset=offset, index=index})
         
         val numBlocks = Vector.length blocks
-        
 
-        
         fun getAllocatedReg r = Vector.sub(allocatedRegisters, r)
         
         val getAllocatedGenReg = asGenReg o getAllocatedReg
@@ -280,14 +265,14 @@ struct
         (* This is a general function for moving values into registers or to the stack
            where it is possible that the source values might also be in use as destinations.
            The stack is used for destinations only for tail recursive calls. *)
-        fun moveMultipleValues(moves, workReg: reg option) =
+        fun moveMultipleValues(moves, workReg: reg option, code) =
         let
             val _ =
                 if List.exists(fn {dst=StackDest _, ...} => true | _ => false) moves andalso not(isSome workReg) then raise InternalError "no work reg" else ()
 
-            fun moveValues [] = [] (* We're done. *)
+            fun moveValues ([], code) = code (* We're done. *)
 
-            |   moveValues arguments =
+            |   moveValues (arguments, code) =
                 let
                     (* stronglyConnectedComponents does two things.  It detects loops where
                        it's not possible to move items without breaking the loop but more
@@ -297,44 +282,42 @@ struct
                     
                     val ordered = stronglyConnected arguments
                     
-                    fun moveEachValue [] = []
+                    fun moveEachValue ([], code) = code
 
-                    |   moveEachValue ([{dst=RegDest reg, src as OtherSource(RegisterArg r)}] :: rest) =
+                    |   moveEachValue ([{dst=RegDest reg, src as OtherSource(RegisterArg r)}] :: rest, code) =
                             (* Source and dest are both regs - only move if they're different. *)
                             if r = reg
-                            then moveEachValue rest
-                            else LLLoadArgument{source=sourceToX86Code src, dest=reg, kind=MoveWord} ::
-                                    moveEachValue rest
+                            then moveEachValue(rest, code)
+                            else moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=MoveWord}, code))
 
-                    |   moveEachValue ([{dst=RegDest reg, src}] :: rest) =
+                    |   moveEachValue ([{dst=RegDest reg, src}] :: rest, code) =
                             (* Load from store or a constant. *)
-                            LLLoadArgument{source=sourceToX86Code src, dest=reg, kind=MoveWord} ::
-                                moveEachValue rest
+                            moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=MoveWord}, code))
 
-                    |   moveEachValue ([{dst=StackDest _, src=OtherSource(MemoryArg _ )}] :: _) =
+                    |   moveEachValue ([{dst=StackDest _, src=OtherSource(MemoryArg _ )}] :: _, _) =
                             raise InternalError "moveEachValue - MemoryArgument"
 
-                    |   moveEachValue ([{dst=StackDest addr, src as StackSource wordOffset}] :: rest) =
+                    |   moveEachValue ([{dst=StackDest addr, src as StackSource wordOffset}] :: rest, code) =
                             (* Copy a stack location - needs a load and store unless the address is the same. *)
                             if addr = wordOffset
-                            then moveEachValue rest
+                            then moveEachValue(rest, code)
                             else
                             let
                                 val workReg = valOf workReg
                             in
-                                LLLoadArgument{source=sourceToX86Code src, dest=workReg, kind=MoveWord} ::
-                                LLStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                moveEachValue(rest,
+                                    llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
                                                 offset = addr*wordSize, kind=MoveWord} ::
-                                moveEachValue rest
+                                       llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=MoveWord}, code))
                             end
 
-                    |   moveEachValue ([{dst=StackDest addr, src}] :: rest) =
+                    |   moveEachValue ([{dst=StackDest addr, src}] :: rest, code) =
                             (* Store from a register or a constant. *)
-                            LLStoreArgument{
-                                source=sourceToX86Code src, base=esp, index=NoIndex, offset = addr*wordSize, kind=MoveWord} ::
-                                    moveEachValue rest
+                            moveEachValue(rest,
+                                llStoreArgument{
+                                    source=sourceToX86Code src, base=esp, index=NoIndex, offset = addr*wordSize, kind=MoveWord} :: code)
 
-                    |   moveEachValue((cycle as first :: _ :: _) :: rest) =
+                    |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
                         (* We have a cycle. *)
                         let
                             (* We need to exchange some of the arguments.  Doing an exchange here will
@@ -375,22 +358,23 @@ struct
                                 else if match(src, destAsSource) then {src=selectSrc, dst=dst}
                                 else {src=src, dst=dst}
                             
+                            fun llExchange{reg, arg} = XChng { reg=asGenReg reg, arg=sourceAsGenRegOrMem arg }
                             (* Try to use register to register exchange if we can.
                                A register-to-memory exchange involves a bus lock and we'd
                                like to avoid that. *)
                             val exchangeCode =
                                 case (selectDst, selectSrc) of
                                     (RegDest regA, OtherSource(RegisterArg regB)) =>
-                                        [LLExchange{reg=regA, arg=RegisterArg regB}]
+                                        llExchange{reg=regA, arg=RegisterArg regB} :: code
 
                                 |   (RegDest regA, src as StackSource addr) =>
                                     let
                                         val workReg = valOf workReg
                                     in
-                                        [LLLoadArgument{source=sourceToX86Code src, dest=workReg, kind=MoveWord},
-                                        LLExchange{reg=regA, arg=RegisterArg workReg},
-                                        LLStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
-                                                offset = addr*wordSize, kind=MoveWord}]
+                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                                offset = addr*wordSize, kind=MoveWord} ::
+                                            llExchange{reg=regA, arg=RegisterArg workReg} ::
+                                                llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=MoveWord}, code)
                                     end
 
                                 |   (StackDest addr, OtherSource(RegisterArg regA)) =>
@@ -398,87 +382,48 @@ struct
                                         (* This doesn't actually occur because we always find the case above. *)
                                         val workReg = valOf workReg
                                     in
-                                        [LLLoadArgument{
-                                            source=MemoryArg{base=esp, offset=addr*wordSize, index=NoIndex}, dest=workReg, kind=MoveWord},
-                                        LLExchange{reg=regA, arg=RegisterArg workReg},
-                                        LLStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
-                                                offset = addr*wordSize, kind=MoveWord}]
+                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                                offset = addr*wordSize, kind=MoveWord} ::
+                                            llExchange{reg=regA, arg=RegisterArg workReg} ::
+                                                llLoadArgument({
+                                                    source=MemoryArg{base=esp, offset=addr*wordSize, index=NoIndex}, dest=workReg, kind=MoveWord}, code)
                                     end
 
                                 |   (StackDest addr1, StackSource addr2) =>
                                     let
                                         val workReg = valOf workReg
                                     in
-                                        [LLLoadArgument{
-                                            source=MemoryArg{base=esp, offset=addr1*wordSize, index=NoIndex}, dest=workReg, kind=MoveWord},
-                                         LLExchange{reg=workReg, arg=MemoryArg{base=esp, offset=addr2*wordSize, index=NoIndex}},
-                                         LLStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
-                                                offset = addr1*wordSize, kind=MoveWord}]
+                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                                offset = addr1*wordSize, kind=MoveWord} ::
+                                            llExchange{reg=workReg, arg=MemoryArg{base=esp, offset=addr2*wordSize, index=NoIndex}} ::
+                                                llLoadArgument({
+                                                    source=MemoryArg{base=esp, offset=addr1*wordSize, index=NoIndex}, dest=workReg, kind=MoveWord}, code)
                                     end
                                 
                                 |   _ => raise InternalError "moveEachValue: cycle"
                                     
                         in
-                            exchangeCode @ moveValues(List.map swapSources flattened)
+                            moveValues(List.map swapSources flattened, exchangeCode)
                         end
 
-                    |   moveEachValue(([]) :: _) = (* This should not happen - avoid warning. *)
+                    |   moveEachValue(([]) :: _, _) = (* This should not happen - avoid warning. *)
                             raise InternalError "moveEachValue - empty set"
                 in
-                    moveEachValue ordered
+                    moveEachValue(ordered, code)
                 end
         in
-            moveValues moves
+            moveValues(moves, code)
         end
 
         (* Where we have multiple specific registers as either source or
            destination there is the potential that a destination register
            if currently in use as a source. *) 
-        fun moveMultipleRegisters regPairList =
+        fun moveMultipleRegisters(regPairList, code) =
         let
             val regPairsAsDests =
                 List.map(fn {src, dst} => {src=OtherSource(RegisterArg src), dst=RegDest dst}) regPairList
         in
-            moveMultipleValues(regPairsAsDests, NONE)
-        end
-
-        (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
-           That means storing the arguments in the right order to avoid overwriting a
-           value that we are using for a different argument. *)
-
-        fun codeTailCall(callKind, arguments: {dst: destinations, src: llsource} list, stackAdjust, workReg) =
-        if stackAdjust < 0
-        then
-        let
-            (* If the function we're calling takes more arguments on the stack than the
-               current function we will have to extend the stack.  Do that by pushing the
-               argument whose offset is at -1.  Then adjust all the offsets and repeat. *)
-            val {src=argM1, ...} = valOf(List.find(fn {dst=StackDest ~1, ...} => true | _ => false) arguments)
-            fun renumberArgs [] = []
-            |   renumberArgs ({dst=StackDest ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
-            |   renumberArgs ({dst, src} :: args) =
-                let
-                    val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
-                    val newSrc =
-                        case src of
-                            StackSource wordOffset => StackSource(wordOffset+1)
-                        |   other => other
-                in
-                    {dst=newDest, src=newSrc} :: renumberArgs args
-                end
-        in
-            LLPushValue{arg=sourceToX86Code argM1} :: codeTailCall(callKind, renumberArgs arguments, stackAdjust+1, workReg)
-        end
-        else
-        let
-            val loadArgs = moveMultipleValues(arguments, SOME workReg)
-
-            val adjustStack =
-                if stackAdjust = 0
-                then []
-                else [LLResetStackPtr{numWords=stackAdjust, preserveCC=false}]
-        in
-            loadArgs @ adjustStack @ [LLTailRecursiveCall{callKind=callKind}]
+            moveMultipleValues(regPairsAsDests, NONE, code)
         end
 
         val outputLabelCount = ref 0
@@ -664,49 +609,7 @@ struct
         
         (* Only get the registers that are actually used. *)
         val getSaveRegs = List.mapPartial(fn (reg as PReg r) => if isUsed reg then SOME(getAllocatedGenReg r) else NONE)
-        
- 
-        (* Turn the icode into machine code.  This produces the code in reverse. *)
-        fun codeGenICode(LLLoadArgument args, _, code) = llLoadArgument(args, code)
-
-                (* Store to memory *)
-        |   codeGenICode(LLStoreArgument args, _, code) =
-                (llStoreArgument args :: code)
-
-            (* Exchange two general registers. *)
-        |   codeGenICode(LLExchange{reg, arg}, _, code) =
-                (XChng { reg=asGenReg reg, arg=sourceAsGenRegOrMem arg } :: code)
-
-        |   codeGenICode(LLTailRecursiveCall {callKind, ...}, _, code) =
-                (JumpToFunction callKind :: code)
-
-        |   codeGenICode(LLPushValue arg, _, code) = (llPushValue arg :: code)
-
-        |   codeGenICode(LLResetStackPtr {numWords, preserveCC}, _, code) =
-            (
-                numWords >= 0 orelse raise InternalError "codeGenICode: ResetStackPtr - negative offset";
-                (ResetStack{numWords=numWords, preserveCC=preserveCC} :: code)
-            )
-
-        |   codeGenICode(LLDivision { isSigned, dividend, divisor, quotient, remainder }, _, code) =
-            let
-                val dividendReg = asGenReg dividend and divisorReg = argAsGenReg divisor
-                and quotientReg = asGenReg quotient and remainderReg = asGenReg remainder
-                val _ = dividendReg = eax orelse raise InternalError "codeGenICode: Division"
-                val _ = divisorReg <> eax andalso divisorReg <> edx orelse raise InternalError "codeGenICode: Division"
-                val _ = quotientReg = eax orelse raise InternalError "codeGenICode: Division"
-                val _ = remainderReg = edx orelse raise InternalError "codeGenICode: Division"
-                (* rdx needs to be set to the high order part of the dividend.  For signed
-                   division that means sign-extending rdx, for unsigned division we clear it. *)
-                val setRDX =
-                    if isSigned then SignExtendForDivide
-                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
-            in
-                (DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX :: code)
-            end
-
-        fun nextPhase(nextCode, {flow=flow}, code) = List.foldl(fn (n, c) => codeGenICode(n, {flow=flow}, c)) code nextCode
-        
+                
         fun codeExtended _ ({instr=LoadArgument{source, dest as PReg dreg, kind}, ...}, code) =
             if not (isUsed dest)
             then code
@@ -773,16 +676,16 @@ struct
             (* Load from the "memory registers" pointed at by ebp. *)
                 llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=MoveWord}, code)
 
-        |   codeExtended {flow} ({instr=BeginFunction{regArgs, ...}, ...}, code) =
+        |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
                 fun mkPair(PReg pr, rr) =
                     {src=rr,dst=getAllocatedReg pr}
                 val regPairs = List.map mkPair regArgs
             in
-                nextPhase(moveMultipleRegisters regPairs, {flow=flow}, code)
+                moveMultipleRegisters(regPairs, code)
             end
 
-        |   codeExtended {flow} ({instr=TailRecursiveCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, stackAdjust, stackOffset, workReg=PReg wReg}, ...}, code) =
+        |   codeExtended _ ({instr=TailRecursiveCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, stackAdjust, stackOffset, workReg=PReg wReg}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map(fn {src, stack } => {src=decache src, stack=stack}) oStackArgs
@@ -794,11 +697,48 @@ struct
 
                 val extStackArgs = map (fn {stack, src} => {dst=StackDest(stack+stackOffset), src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=codeArg a, dst=RegDest r}) regArgs
+
+                (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
+                   That means storing the arguments in the right order to avoid overwriting a
+                   value that we are using for a different argument. *)
+
+                fun codeTailCall(arguments: {dst: destinations, src: llsource} list, stackAdjust, code) =
+                if stackAdjust < 0
+                then
+                let
+                    (* If the function we're calling takes more arguments on the stack than the
+                       current function we will have to extend the stack.  Do that by pushing the
+                       argument whose offset is at -1.  Then adjust all the offsets and repeat. *)
+                    val {src=argM1, ...} = valOf(List.find(fn {dst=StackDest ~1, ...} => true | _ => false) arguments)
+                    fun renumberArgs [] = []
+                    |   renumberArgs ({dst=StackDest ~1, ...} :: args) = renumberArgs args (* Remove the one we've done. *)
+                    |   renumberArgs ({dst, src} :: args) =
+                        let
+                            val newDest = case dst of StackDest d => StackDest(d+1) | regDest => regDest
+                            val newSrc =
+                                case src of
+                                    StackSource wordOffset => StackSource(wordOffset+1)
+                                |   other => other
+                        in
+                            {dst=newDest, src=newSrc} :: renumberArgs args
+                        end
+                in
+                    codeTailCall(renumberArgs arguments, stackAdjust+1, llPushValue{arg=sourceToX86Code argM1} :: code)
+                end
+                else
+                let
+                    val loadArgs = moveMultipleValues(arguments, SOME workReg, code)
+                in
+                    if stackAdjust = 0
+                    then loadArgs
+                    else ResetStack{numWords=stackAdjust, preserveCC=false} :: loadArgs
+                end
             in
-                nextPhase(codeTailCall(callKind, extStackArgs @ extRegArgs, stackAdjust+stackOffset, workReg), {flow=flow}, code)
+                JumpToFunction callKind ::
+                    codeTailCall(extStackArgs @ extRegArgs, stackAdjust+stackOffset, code)
             end
 
-        |   codeExtended {flow} ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
@@ -848,7 +788,7 @@ struct
                 |   getRegArgs _ = NONE
                 
                 val loadRegArgs =
-                    nextPhase(moveMultipleRegisters(List.mapPartial getRegArgs regArgs), {flow=flow}, pushedArgs)
+                    moveMultipleRegisters(List.mapPartial getRegArgs regArgs, pushedArgs)
 
                 (* These are all items we can load without requiring a source register.
                    That includes loading from the stack. *)
@@ -917,7 +857,7 @@ struct
 
         |   codeExtended _ ({instr=InitialisationComplete, ...}, code) = StoreInitialised :: code
 
-        |   codeExtended {flow} ({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
+        |   codeExtended _ ({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
             let
                 val workReg = Option.map (fn PReg r => getAllocatedReg r) workReg
                 (* TODO: Make the sources and destinations "friends". *)
@@ -931,7 +871,7 @@ struct
                         NONE => []
                     |   SOME saveRegs => testRegAndTrap (esp, StackOverflowCall, getSaveRegs saveRegs)
             in
-                checkCode @ nextPhase(moveMultipleValues(extStackArgs @ extRegArgs, workReg), {flow=flow}, code)
+                checkCode @ moveMultipleValues(extStackArgs @ extRegArgs, workReg, code)
             end
 
         |   codeExtended _ ({instr=RaiseExceptionPacket{ packetReg=PReg preg }, ...}, code) =
@@ -1156,7 +1096,7 @@ struct
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
-                val bReg = case base of SOME(PReg br) => SOME( asGenReg(getAllocatedReg br)) | NONE => NONE
+                val bReg = case base of SOME(PReg br) => SOME(asGenReg(getAllocatedReg br)) | NONE => NONE
                 val indexR = codeExtIndex index
             in
                 LoadAddress{ output=destReg, offset=offset, base=bReg, index=indexR } :: code
@@ -1218,7 +1158,7 @@ struct
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
             end
 
-        |   codeExtended {flow} ({instr=Division{isSigned, dividend=PReg regDivid, divisor, quotient=PReg regQuot,
+        |   codeExtended _ ({instr=Division{isSigned, dividend=PReg regDivid, divisor, quotient=PReg regQuot,
                                   remainder=PReg regRem}, ...}, code) =
             let
                 (* TODO: This currently only supports the dividend in a register.  LargeWord division will
@@ -1241,7 +1181,7 @@ struct
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
                    quotient will actually be used. *)
-                nextPhase(moveMultipleRegisters[{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}], {flow=flow},
+                moveMultipleRegisters([{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}],
                     DivideAccR {arg=divisorReg, isSigned=isSigned} :: setRDX ::
                         moveIfNecessary({src=realDiviReg, dst=GenReg eax, kind=MoveWord}, code))
             end
