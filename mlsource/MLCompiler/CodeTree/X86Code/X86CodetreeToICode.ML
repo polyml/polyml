@@ -307,7 +307,7 @@ struct
         (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
         and loadAddress{base, offset=0, index=NoMemIndex, dest} =
                 LoadArgument{source=RegisterArgument base, dest=dest, kind=MoveWord}
-        |   loadAddress args = LoadEffectiveAddress args
+        |   loadAddress{base, offset, index, dest} = LoadEffectiveAddress{base=SOME base, offset=offset, dest=dest, index=index}
 
         and codeToICodeTarget(instr, context: context, isTail, target) =
         (* This is really for backwards compatibility.  *)
@@ -1476,7 +1476,7 @@ struct
                    appropriate register. *)
             in
                 (arg1Code @ arg2Code @
-                    [BlockSimple(LoadEffectiveAddress{base=aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})],
+                    [BlockSimple(LoadEffectiveAddress{base=SOME aReg1, offset= ~1, index=MemIndex1 aReg2, dest=target})],
                         RegisterArgument target, false)
             end
 
@@ -1906,6 +1906,8 @@ struct
         |   codeToICodeBinary(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
         
+        (* Multiply tagged word by a constant.  We're not concerned with overflow so it's possible to use
+           various short cuts. *)
         and codeMultiplyConstantWord(arg, context, destination, multiplier) =
         let
             val target = asTarget destination
@@ -1915,11 +1917,12 @@ struct
                 case multiplier of
                     0w0 => [BlockSimple(LoadArgument{source=IntegerConstant 1, dest=target, kind=MoveWord})]
                 |   0w1 => [BlockSimple(LoadArgument{source=RegisterArgument aReg, dest=target, kind=MoveWord})]
-                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~1, index=MemIndex1 aReg, dest=target})]
-                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~2, index=MemIndex2 aReg, dest=target})]
-                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~4, index=MemIndex4 aReg, dest=target})]
-                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~8, index=MemIndex8 aReg, dest=target})]
-                    (* We could do 4 or 8 if we allowed the base register to be optional. *)
+                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~1, index=MemIndex1 aReg, dest=target})]
+                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~2, index=MemIndex2 aReg, dest=target})]
+                |   0w4 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~3, index=MemIndex4 aReg, dest=target})]
+                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~4, index=MemIndex4 aReg, dest=target})]
+                |   0w8 => [BlockSimple(LoadEffectiveAddress{base=NONE, offset= ~7, index=MemIndex8 aReg, dest=target})]
+                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=SOME aReg, offset= ~8, index=MemIndex8 aReg, dest=target})]
                 
                 |   _ =>
                     let

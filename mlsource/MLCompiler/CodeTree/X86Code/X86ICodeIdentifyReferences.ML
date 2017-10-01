@@ -204,7 +204,13 @@ struct
             { sources=case cache of NONE => [source] | SOME cr => [cr, source], dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 
     |   getInstructionState(LoadEffectiveAddress{base, index, dest, ...}) =
-            { sources=base :: argIndex index, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+        let
+            val bRegs =
+                case base of NONE => [] | SOME bReg => [bReg]
+            val iRegs = argIndex index
+        in
+            { sources=bRegs @ iRegs, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }
+        end
 
     |   getInstructionState(ShiftOperation{resultReg, operand, shiftAmount, ccRef, ...}) =
             { sources=operand :: argRegs shiftAmount, dests=[resultReg],

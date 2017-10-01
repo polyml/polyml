@@ -607,7 +607,7 @@ struct
             |   instructionUses(TagValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(UntagValue{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
             |   instructionUses(UntagValue{source, dest, cache=NONE, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (used base; indexUses index)
+            |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (case base of SOME bReg => used bReg | NONE => (); indexUses index)
             |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (used operand; argUses shiftAmount)
             |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
@@ -1153,13 +1153,13 @@ struct
                     moveIfNecessary({src=realSReg, dst=regResult, kind=MoveWord}, code)
             end
 
-        |   codeExtended _ ({instr=LoadEffectiveAddress{base=PReg br, offset, index, dest=PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
-                val bReg = asGenReg(getAllocatedReg br)
+                val bReg = case base of SOME(PReg br) => SOME( asGenReg(getAllocatedReg br)) | NONE => NONE
                 val indexR = codeExtIndex index
             in
-                LoadAddress{ output=destReg, offset=offset, base=SOME bReg, index=indexR } :: code
+                LoadAddress{ output=destReg, offset=offset, base=bReg, index=indexR } :: code
             end
 
         |   codeExtended _ ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg, shiftAmount=IntegerConstant i, ...}, ...}, code) =

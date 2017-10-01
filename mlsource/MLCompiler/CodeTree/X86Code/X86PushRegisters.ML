@@ -955,7 +955,11 @@ struct
 
                     |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...}, code) =
                         let
-                            val (baseVal, baseCode) = mapSrcReg base
+                            val (baseVal, baseCode) =
+                                case base of
+                                    NONE => (NONE, [])
+                                |   SOME bReg =>
+                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (SOME newBReg, regCode) end
                             val (indexVal, indexCode) = mapIndex index
                             val (destVal, destCode) = mapDestReg dest
                         in

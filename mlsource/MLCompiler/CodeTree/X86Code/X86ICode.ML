@@ -188,8 +188,9 @@ struct
            value that has previously been tagged. *)
     |   UntagValue of { source: preg, dest: preg, isSigned: bool, cache: preg option }
 
-        (* This provides the LEA instruction which can be used for various sorts of arithmetic. *)
-    |   LoadEffectiveAddress of { base: preg, offset: int, index: memoryIndex, dest: preg }
+        (* This provides the LEA instruction which can be used for various sorts of arithmetic.
+           The base register is optional in this case. *)
+    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
     |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
@@ -533,7 +534,7 @@ struct
             (
                 stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
-                printReg(base, stream);
+                case base of NONE => stream "_" | SOME b => printReg(b, stream);
                 stream ")";
                 printIndex(index, stream, printReg);
                 stream " => ";

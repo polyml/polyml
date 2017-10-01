@@ -565,10 +565,10 @@ struct
                 allocateRegister(sReg, SOME regResult, generalRegisters)
             end
 
-        |   registerAllocate({instr=LoadEffectiveAddress{base=PReg br, index, dest=PReg dReg, ...}, ...}) =
+        |   registerAllocate({instr=LoadEffectiveAddress{base, index, dest=PReg dReg, ...}, ...}) =
             (
                 allocateGeneralReg dReg;
-                allocateGeneralReg br;
+                case base of SOME(PReg br) => allocateGeneralReg br | NONE => ();
                 allocateArgIndex index
             )
 
