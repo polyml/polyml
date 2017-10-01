@@ -714,7 +714,7 @@ struct
                             val newStackOffset = !stackCount
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
-                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, stackOffset=newStackOffset,
+                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, currStackSize=newStackOffset,
                                     workReg=newWorkReg} ::
                                         regArgLoads @ stackArgLoads @ code
                         end

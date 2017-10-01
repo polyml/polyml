@@ -140,12 +140,11 @@ sig
            address need to be overwritten.
            stackAdjust is the number of words to remove (positive) or add
            (negative) to the stack before the call.
-           stackOffset is a temporary addition.  It contains the number of items
-           currently on the stack. *)
+           currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
               stackArgs: {src: argument, stack: int} list,
-              stackAdjust: int, stackOffset: int, workReg: preg }
+              stackAdjust: int, currStackSize: int, workReg: preg }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.

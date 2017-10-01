@@ -679,7 +679,7 @@ struct
                 moveMultipleRegisters(regPairs, code)
             end
 
-        |   codeExtended _ ({instr=TailRecursiveCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, stackAdjust, stackOffset, workReg=PReg wReg}, ...}, code) =
+        |   codeExtended _ ({instr=TailRecursiveCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, stackAdjust, currStackSize, workReg=PReg wReg}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map(fn {src, stack } => {src=decache src, stack=stack}) oStackArgs
@@ -689,7 +689,7 @@ struct
                 fun codeArg(StackLocation{wordOffset, cache=NONE, ...}) = StackSource wordOffset
                 |   codeArg arg = OtherSource(codeExtArgument arg)
 
-                val extStackArgs = map (fn {stack, src} => {dst=StackDest(stack+stackOffset), src=codeArg src}) stackArgs
+                val extStackArgs = map (fn {stack, src} => {dst=StackDest(stack+currStackSize), src=codeArg src}) stackArgs
                 val extRegArgs = map (fn (a, r) => {src=codeArg a, dst=RegDest r}) regArgs
 
                 (* Tail recursive calls are complicated because we generally have to overwrite the existing stack.
@@ -729,7 +729,7 @@ struct
                 end
             in
                 JumpToFunction callKind ::
-                    codeTailCall(extStackArgs @ extRegArgs, stackAdjust+stackOffset, code)
+                    codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
             end
 
         |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg}, ...}, code) =

@@ -645,7 +645,7 @@ struct
                             {src=StackLocation{wordOffset=stackPtr, container=returnAddressEntry, field=0, cache=NONE}, stack=stackAdjust}
                     in
                         BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
-                                  stackAdjust = stackAdjust, stackOffset=stackOffset, callKind=callKind, workReg=newPReg()})
+                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind, workReg=newPReg()})
                     end
                     else
                     let

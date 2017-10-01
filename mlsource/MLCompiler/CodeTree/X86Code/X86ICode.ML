@@ -102,12 +102,11 @@ struct
            address need to be overwritten.
            stackAdjust is the number of words to remove (positive) or add
            (negative) to the stack before the call.
-           stackOffset is a temporary addition.  It contains the number of items
-           currently on the stack. *)
+           currStackSize contains the number of items currently on the stack. *)
     |   TailRecursiveCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
               stackArgs: {src: argument, stack: int} list,
-              stackAdjust: int, stackOffset: int, workReg: preg }
+              stackAdjust: int, currStackSize: int, workReg: preg }
 
         (* Allocate a fixed sized piece of memory.  The size is the number of words
            required.  This sets the length word including the flags bits.
@@ -383,7 +382,7 @@ struct
                 stream "=> "; printReg(dest, stream)
             )
 
-        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, stackOffset, workReg}, stream, printReg) =
+        |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, workReg}, stream, printReg) =
             (
                 stream "\tTailCall\t";
                 case callKind of
@@ -393,8 +392,8 @@ struct
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn {src, stack} => (stream (Int.toString stack); stream "<="; printArg(src, stream, printReg); stream " ")) stackArgs;
-                stream "adj="; stream(Int.toString stackAdjust);
-                stream "offset="; stream(Int.toString stackOffset);
+                stream "adjust="; stream(Int.toString stackAdjust);
+                stream "stackSize="; stream(Int.toString currStackSize);
                 stream " work reg="; printReg(workReg, stream)
             )
 
