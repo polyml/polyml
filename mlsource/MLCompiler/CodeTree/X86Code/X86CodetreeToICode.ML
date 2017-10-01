@@ -1639,7 +1639,8 @@ struct
             end
 
         |   codeToICodeBinary({oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
-                (* Use the general case multiplication code.  This will use a shift except for small values. *)
+                (* Use the general case multiplication code.  This will use a shift except for small values.
+                   It does detect special cases such as multiplication by 4 and 8 which can be implemented with LEA. *)
                 codeMultiplyConstantWord(arg1, context, destination, if isShort value then Word.<<(0w1, toShort value) else 0w1)
 
         |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
@@ -1648,18 +1649,42 @@ struct
             let
                 open BuiltIns
                 val target = asTarget destination
-                (* Even if the value we're shifting is a constant we need it in a register. *)
-                val (arg1Code, untag1Code, arg1Reg) = codeAsUntaggedToReg(arg1, shift=ShiftRightArithmetic, context)
+                (* Load the value into an untagged register.  If this is a left shift we
+                   need to clear the tag bit.  We don't need to do that for right shifts.  *)
+                val argRegUntagged = newUReg()
+                val arg1Code =
+                    case arg1 of
+                        BICConstnt(value, _) =>
+                        let
+                            (* Remove the tag bit.  This isn't required for right shifts. *)
+                            val cnstntVal = if isShort value then semitag(Word.toLargeInt(toShort value)) else 1
+                        in
+                            [BlockSimple(LoadArgument{source=IntegerConstant cnstntVal, dest=argRegUntagged, kind=MoveWord})]
+                        end
+                    |   _ =>
+                        let
+                            val (arg1Code, arg1Reg) = codeToPReg(arg1, context)
+                            val removeTag =
+                                case shift of
+                                    ShiftLeft =>
+                                        ArithmeticFunction{oper=SUB, resultReg=argRegUntagged, operand1=arg1Reg,
+                                                        operand2=IntegerConstant 1, ccRef=newCCRef()}
+                                |   _ => LoadArgument{source=RegisterArgument arg1Reg, dest=argRegUntagged, kind=MoveWord}
+                        in
+                            arg1Code @ [BlockSimple removeTag]
+                        end
+
                 (* The shift amount can usefully be a constant. *)
                 val (arg2Code, untag2Code, arg2Arg) = codeAsUntaggedValue(arg2, false, context)
                 val resRegUntagged = newUReg()
                 val shiftOp = case shift of ShiftLeft => SHL | ShiftRightLogical => SHR | ShiftRightArithmetic => SAR
             in
-                (arg1Code @ arg2Code @ untag1Code @ untag2Code @
-                 (* There are better ways of doing this but it will do for the moment.  We don't need to
-                    remove the tag for right shifts provided we OR in a tag afterwards. *)
-                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=arg1Reg, shiftAmount=arg2Arg, ccRef=newCCRef() }),
-                  BlockSimple(TagValue{source=resRegUntagged, dest=target, isSigned=(shift=ShiftRightArithmetic)})], RegisterArgument target, false)
+                (arg1Code @ arg2Code @ untag2Code @
+                 [BlockSimple(ShiftOperation{ shift=shiftOp, resultReg=resRegUntagged, operand=argRegUntagged, shiftAmount=arg2Arg, ccRef=newCCRef() }),
+                  (* Set the tag by ORing it in.  This will work whether or not a right shift has shifted a 1 into this position. *)
+                  BlockSimple(
+                    ArithmeticFunction{oper=OR, resultReg=target, operand1=resRegUntagged,
+                                       operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
         |   codeToICodeBinary({oper=BuiltIns.AllocateByteMemory, arg1, arg2}, context, _, destination) =
