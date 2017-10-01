@@ -1509,6 +1509,12 @@ struct
                      BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+                codeMultiplyConstantWord(arg1, context, destination, if isShort value then toShort value else 0w0)
+
+        |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1=BICConstnt(value, _), arg2}, context, _, destination) =
+                codeMultiplyConstantWord(arg2, context, destination, if isShort value then toShort value else 0w0)
+
         |   codeToICodeBinary({oper=BuiltIns.WordArith BuiltIns.ArithMult, arg1, arg2}, context, _, destination) =
             let
                 val target = asTarget destination
@@ -1632,6 +1638,10 @@ struct
                      BlockSimple(ArithmeticFunction{oper=OR, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})], RegisterArgument target, false)
             end
 
+        |   codeToICodeBinary({oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
+                (* Use the general case multiplication code.  This will use a shift except for small values. *)
+                codeMultiplyConstantWord(arg1, context, destination, if isShort value then Word.<<(0w1, toShort value) else 0w1)
+
         |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
                 (* N.B.  X86 shifts of greater than the word length mask the higher bits.  That isn't what ML wants
                    but that is dealt with at a higher level *)
@@ -1746,13 +1756,11 @@ struct
                 val resValue = newUReg()
                 val (arg1Code, aReg1) = codeToPReg(arg1, context)
                 val (arg2Code, aReg2) = codeToPReg(arg2, context)
-                val argReg1 = newUReg() and argReg2 = newUReg()
-                (* Temporarily load both arguments into untagged regs.  It's simpler. *)
+                val argReg1 = newUReg()
             in
                 (arg1Code @ arg2Code @
                     [BlockSimple(LoadArgument{source=wordAt aReg1, dest=argReg1, kind=MoveWord}),
-                     BlockSimple(LoadArgument{source=wordAt aReg2, dest=argReg2, kind=MoveWord}),
-                     BlockSimple(Multiplication{resultReg=resValue, operand1=argReg1, operand2=RegisterArgument argReg2, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resValue, operand1=argReg1, operand2=wordAt aReg2, ccRef=newCCRef()}),
                      BlockSimple(BoxValue{boxKind=BoxLargeWord, source=resValue, dest=target, saveRegs=[]})], RegisterArgument target, false)
             end
 
@@ -1898,6 +1906,52 @@ struct
         |   codeToICodeBinary(instr as {oper=BuiltIns.RealComparison _, ...}, context, isTail, destination) =
                 codeAsConditional(BICBinary instr, context, isTail, destination)
         
+        and codeMultiplyConstantWord(arg, context, destination, multiplier) =
+        let
+            val target = asTarget destination
+            val (argCode, aReg) = codeToPReg(arg, context)
+            
+            val doMultiply =
+                case multiplier of
+                    0w0 => [BlockSimple(LoadArgument{source=IntegerConstant 1, dest=target, kind=MoveWord})]
+                |   0w1 => [BlockSimple(LoadArgument{source=RegisterArgument aReg, dest=target, kind=MoveWord})]
+                |   0w2 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~1, index=MemIndex1 aReg, dest=target})]
+                |   0w3 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~2, index=MemIndex2 aReg, dest=target})]
+                |   0w5 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~4, index=MemIndex4 aReg, dest=target})]
+                |   0w9 => [BlockSimple(LoadEffectiveAddress{base=aReg, offset= ~8, index=MemIndex8 aReg, dest=target})]
+                    (* We could do 4 or 8 if we allowed the base register to be optional. *)
+                
+                |   _ =>
+                    let
+                        val tReg = newUReg()
+                        val tagCorrection = Word.toLargeInt multiplier - 1
+                        fun getPower2 n =
+                        let
+                            fun p2 (n, l) =
+                                if n = 0w1 then SOME l
+                                else if Word.andb(n, 0w1) = 0w1 then NONE
+                                else p2(Word.>>(n, 0w1), l+0w1)
+                        in
+                            if n = 0w0 then NONE else p2(n,0w0)
+                        end
+                        val multiply =
+                            case getPower2 multiplier of
+                                SOME power =>
+                                    (* Shift it including the tag. *)
+                                    BlockSimple(ShiftOperation{ shift=SHL, resultReg=tReg, operand=aReg,
+                                        shiftAmount=IntegerConstant(Word.toLargeInt power), ccRef=newCCRef() })
+                            |   NONE => (* Multiply including the tag. *)
+                                    BlockSimple(Multiplication{resultReg=tReg, operand1=aReg,
+                                        operand2=IntegerConstant(Word.toLargeInt multiplier), ccRef=newCCRef()})
+                    in
+                        [multiply,
+                            BlockSimple(ArithmeticFunction{oper=SUB, resultReg=target, operand1=tReg,
+                                operand2=IntegerConstant tagCorrection, ccRef=newCCRef()})]
+                    end
+        in
+            
+            (argCode @ doMultiply, RegisterArgument target, false)
+        end
 
         and codeToICodeAllocate({numWords as BICConstnt(length, _), flags as BICConstnt(flagValue, _), initial}, context, _, destination) =
             (* Constant length and flags is used for ref.  We could handle other cases. *)
@@ -2694,6 +2748,36 @@ struct
                     [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=aReg3, operand1=aReg1, operand2=RegisterArgument aReg2, ccRef=ccRef})] @
                     onOverflow ccRef @
                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=aReg3, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithMult, arg1, BICConstnt(value, _), context, target, onOverflow) =
+            let
+                val aReg = newPReg() and argUntagged = newUReg()
+                and resUntagged = newUReg()
+                val mulCC = newCCRef()
+                (* Is it better to untag the constant or the register argument? *)
+                val constVal = if isShort value then Word.toLargeIntX(toShort value) else 0
+            in
+                codeToICodeTarget(arg1, context, false, aReg) @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=argUntagged, operand1=aReg, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=argUntagged, operand2=IntegerConstant constVal, ccRef=mulCC} )] @
+                     onOverflow mulCC @
+                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
+            end
+
+        |   codeFixedPrecisionArith(BuiltIns.ArithMult, BICConstnt(value, _), arg2, context, target, onOverflow) =
+            let
+                val aReg = newPReg() and argUntagged = newUReg()
+                and resUntagged = newUReg()
+                val mulCC = newCCRef()
+                (* Is it better to untag the constant or the register argument? *)
+                val constVal = if isShort value then Word.toLargeIntX(toShort value) else 0
+            in
+                codeToICodeTarget(arg2, context, false, aReg) @
+                    [BlockSimple(ArithmeticFunction{oper=SUB, resultReg=argUntagged, operand1=aReg, operand2=IntegerConstant 1, ccRef=newCCRef()}),
+                     BlockSimple(Multiplication{resultReg=resUntagged, operand1=argUntagged, operand2=IntegerConstant constVal, ccRef=mulCC} )] @
+                     onOverflow mulCC @
+                     [BlockSimple(ArithmeticFunction{oper=ADD, resultReg=target, operand1=resUntagged, operand2=IntegerConstant 1, ccRef=newCCRef()})]
             end
 
         |   codeFixedPrecisionArith(BuiltIns.ArithMult, arg1, arg2, context, target, onOverflow) =

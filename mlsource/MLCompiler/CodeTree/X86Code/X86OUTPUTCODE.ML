@@ -590,6 +590,8 @@ struct
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
     |   CVTSI2SD
     |   HLT     (* End of code marker. *)
+    |   IMUL_C8
+    |   IMUL_C32
 
     fun opToInt Group1_8_A    =  0wx83
     |   opToInt Group1_32_A   =  0wx81
@@ -647,6 +649,8 @@ struct
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
     |   opToInt HLT           = 0wxf4
+    |   opToInt IMUL_C8       = 0wx6b
+    |   opToInt IMUL_C32      = 0wx69
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -744,6 +748,8 @@ struct
             |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
             |   CVTSI2SD => isX64 (* This affects the size of the integer source. *)
+            |   IMUL_C8 => isX64
+            |   IMUL_C32 => isX64
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1744,15 +1750,24 @@ struct
                 opAddress(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, index, output)
         
         |   cgOp(MultiplyR {source=NonAddressConstArg constnt, output}) =
+                (* If the constant is an 8-bit or 32-bit value we are actually using a
+                   three-operand instruction where the argument can be a register or memory
+                   and the destination register does not need to be the same as the source. *)
                 if is8BitL constnt
-                then raise InternalError "TODO: multiply 0wx6B"
+                then opReg(IMUL_C8, output, output) @ [Word8.fromLargeInt constnt]
                 else if is32bit constnt
-                then raise InternalError "TODO: multiply 0wx69"
-                else raise InternalError "TODO: multiply 0wxF 0wxAF with constant in non-address area"
+                then opReg(IMUL_C32, output, output) @ int32Signed constnt
+                else
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(IMUL, SOME{w=true, r=rx, b=false, x = false})
+                    val mdrm = modrm(Based0, rc, 0w5 (* PC rel *))
+                in
+                    opb @ [mdrm] @ int32Signed(tag 0)
+                end
 
         |   cgOp(MultiplyR {source=AddressConstArg _, ...}) =
                 raise InternalError "Multiply - address constant"
-
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
                 mMXAddress(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
@@ -2700,9 +2715,26 @@ struct
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
-            |   0wx68 =>(print "push\t"; print32 ())
-         
-            |   0wx6a =>(print "push\t"; print8 ())
+            |   0wx68 => (print "push\t"; print32 ())
+            |   0wx69 =>
+                let
+                    (* Register is in next byte. *)
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "imul\t"; print(genRegRepr (mkReg(reg, rexR), sizeFromRexW)); print ",";
+                    printEA(rex, sizeFromRexW); print ","; print32 ()
+                end
+            |   0wx6a => (print "push\t"; print8 ())
+            |   0wx6b =>
+                let
+                    (* Register is in next byte. *)
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "imul\t"; print(genRegRepr (mkReg(reg, rexR), sizeFromRexW)); print ",";
+                    printEA(rex, sizeFromRexW); print ","; print8 ()
+                end
 
             |   0wx70 => (print "jo  \t"; printJmp())
             |   0wx71 => (print "jno \t"; printJmp())

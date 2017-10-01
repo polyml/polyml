@@ -601,8 +601,14 @@ struct
                 allocateRegister(op2Reg, SOME realDestReg, generalRegisters)
             end
 
-            (* We currently only generate the register/register case. *)
-        |   registerAllocate{instr=Multiplication _, ...} = raise InternalError "registerAllocate - multiplication TODO"
+        |   registerAllocate({instr=
+                Multiplication{resultReg=PReg resReg, operand1=PReg op1Reg, operand2, ...}, ...}) =
+            let
+                val realDestReg = findRegister(resReg, NONE, generalRegisters)
+            in
+                allocateRegister(op1Reg, SOME realDestReg, generalRegisters);
+                allocateArgGeneral operand2
+            end
 
         |   registerAllocate({instr=Division{dividend=PReg regDivid, divisor, quotient=PReg regQuot,
                                   remainder=PReg regRem, ...}, ...}) =
