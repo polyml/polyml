@@ -643,20 +643,49 @@ struct
                         (* Add an entry for the return address to the stack arguments. *)
                         val returnEntry =
                             {src=StackLocation{wordOffset=stackPtr, container=returnAddressEntry, field=0, cache=NONE}, stack=stackAdjust}
+                        (* Because we're storing into the stack we may be overwriting values we want.  If the source of
+                           any value is a stack location below the current stack pointer we load it except in the special
+                           case where the destination is the same as the source (which is often the case with the return
+                           address). *)
+                        local
+                            fun loadArgs [] = ([], [])
+                            |   loadArgs (arg :: rest) =
+                                let
+                                    val (loadCode, loadedArgs) = loadArgs rest
+                                in
+                                    case arg of
+                                        {src as StackLocation{wordOffset, ...}, stack} =>
+                                            if wordOffset = stack+stackOffset (* Same location *)
+                                                orelse stack+stackOffset < 0 (* Storing above current top of stack *)
+                                                orelse stackOffset+wordOffset > ~ stackAdjust (* Above the last argument *)
+                                            then (loadCode, arg :: loadedArgs)
+                                            else
+                                            let
+                                                val preg = newPReg()
+                                            in
+                                                (BlockSimple(LoadArgument{source=src, dest=preg, kind=MoveWord}) :: loadCode,
+                                                    {src=RegisterArgument preg, stack=stack} :: loadedArgs)
+                                            end
+                                    |   _ => (loadCode, arg :: loadedArgs)
+                                end
+                        in
+                            val (loadStackArgs, loadedStackArgs) = loadArgs(returnEntry :: stackArgs)
+                        end 
                     in
-                        BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=returnEntry :: stackArgs,
-                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind, workReg=newPReg()})
+                        BlockExit(TailRecursiveCall{regArgs=closureEntry @ regArgs, stackArgs=loadedStackArgs,
+                                  stackAdjust = stackAdjust, currStackSize=stackOffset, callKind=callKind, workReg=newPReg()}) ::
+                                    loadStackArgs
                     end
                     else
                     let
                         val call = FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
                     in
                         case currHandler of
-                            NONE => BlockSimple call
-                        |   SOME h => BlockOptionalHandle{call=call, handler=h, label=newLabel()}
+                            NONE => [BlockSimple call]
+                        |   SOME h => [BlockOptionalHandle{call=call, handler=h, label=newLabel()}]
                     end
             in
-                (callInstr :: codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
+                (callInstr @ codeArgs, RegisterArgument target, isTail (* We've exited if this was a tail jump *))
             end
 
         |   codeToICodeRev(BICGetThreadId, _, _, destination, tailCode) =

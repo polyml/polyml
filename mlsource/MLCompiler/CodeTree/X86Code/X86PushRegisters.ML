@@ -692,10 +692,30 @@ struct
                     |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, workReg, ...}, ...}, code) =
                         let
                             val newWorkReg = mapWorkReg workReg
+                            val newStackOffset = !stackCount
                             
                             fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
                             let
-                                val (argVal, loadCode) = mapSource src
+                                val (argVal, loadCode) =
+                                    case mapSource src of
+                                        (source as StackLocation{wordOffset, ...}, loadCode) =>
+                                            (* If we're leaving it in its old location or we're pushing it
+                                               above the current top we're ok.  We're also ok if
+                                               we're moving it from a somewhere above the last argument.
+                                               Otherwise we have to load it.
+                                               It goes into a normal tagged register which may mean that it
+                                               could be pushed onto the stack in a subsequent pass. *)
+                                            if wordOffset = stack+newStackOffset orelse stack+newStackOffset < 0
+                                                orelse newStackOffset-wordOffset > ~ stackAdjust
+                                            then (source, loadCode)
+                                            else
+                                            let
+                                                val preg = newPReg RegPropGeneral
+                                            in
+                                                (RegisterArgument preg,
+                                                    LoadArgument{source=source, dest=preg, kind=MoveWord} :: loadCode)
+                                            end
+                                    |   argCode => argCode
                             in
                                 (loadCode @ otherLoads, {src=argVal, stack=stack} :: otherArgs)
                             end
@@ -709,9 +729,6 @@ struct
                             end
                             val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
 
-                            (* stackOffset is the current stack size.  We need it at the moment because codeExtended
-                               doesn't have a current stack pointer. *) 
-                            val newStackOffset = !stackCount
                         in
                             TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
                                     stackArgs=newStackArgs, stackAdjust=stackAdjust, currStackSize=newStackOffset,

@@ -365,7 +365,7 @@ struct
                                     let
                                         val workReg = valOf workReg
                                     in
-                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                        llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = addr*wordSize, kind=MoveWord} ::
                                             llExchange{reg=regA, arg=RegisterArg workReg} ::
                                                 llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=MoveWord}, code)
@@ -376,7 +376,7 @@ struct
                                         (* This doesn't actually occur because we always find the case above. *)
                                         val workReg = valOf workReg
                                     in
-                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                        llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = addr*wordSize, kind=MoveWord} ::
                                             llExchange{reg=regA, arg=RegisterArg workReg} ::
                                                 llLoadArgument({
@@ -386,8 +386,10 @@ struct
                                 |   (StackDest addr1, StackSource addr2) =>
                                     let
                                         val workReg = valOf workReg
+                                        (* This should no longer occur. *)
+                                        val _ = raise InternalError "Stack-stack cycle"
                                     in
-                                        llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
+                                        llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = addr1*wordSize, kind=MoveWord} ::
                                             llExchange{reg=workReg, arg=MemoryArg{base=esp, offset=addr2*wordSize, index=NoIndex}} ::
                                                 llLoadArgument({
