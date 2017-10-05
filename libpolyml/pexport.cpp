@@ -648,21 +648,12 @@ bool PImport::DoImport()
             return false;
         }
 
-        if (objBits & F_CODE_OBJ)
-        {
-            // Allocate a code area.  This sets the length word but it's always mutable.
-            PolyObject  *p = gMem.AllocCodeSpace(nWords);
-            objMap[objNo] = p;
-        }
-        else
-        {
-            PolyObject  *p = NewObject(nWords, isMutable);
-            if (p == 0)
-                return false;
-            /* Put in length PolyWord and flag bits. */
-            p->SetLengthWord(nWords, objBits);
-            objMap[objNo] = p;
-        }
+        PolyObject  *p = NewObject(nWords, isMutable);
+        if (p == 0)
+            return false;
+        objMap[objNo] = p;
+        /* Put in length PolyWord and flag bits. */
+        p->SetLengthWord(nWords, objBits);
 
         /* Skip the object contents. */
         while (getc(f) != '\n') ;

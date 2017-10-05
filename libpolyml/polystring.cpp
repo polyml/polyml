@@ -211,8 +211,8 @@ Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings)
         Handle value = SAVE(C_string_to_Poly(mdTaskData, strings[i]));
         Handle next  = alloc_and_save(mdTaskData, SIZEOF(ML_Cons_Cell));
         
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        DEREFLISTHANDLE(next)->h = value->Word(); 
+        DEREFLISTHANDLE(next)->t = list->Word();
         
         // reset save vector to stop it overflowing    
         mdTaskData->saveVec.reset(saved);

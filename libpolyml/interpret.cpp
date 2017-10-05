@@ -189,7 +189,6 @@ public:
             }
 #endif
             this->allocPointer -= words;
-            ASSERT((((uintptr_t)(this->allocPointer + 1)) & 0x7) == 0);
             return (PolyObject *)(this->allocPointer+1);
         }
         // Insufficient space.
@@ -201,7 +200,6 @@ public:
         PolyWord *space = processes->FindAllocationSpace(this, words, true);
         LoadInterpreterState(pc, sp);
         if (space == 0) return 0;
-        ASSERT((((uintptr_t)(space + 1)) & 0x7) == 0);
         return (PolyObject *)(space+1);
     }
 
