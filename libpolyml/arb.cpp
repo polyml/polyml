@@ -2,7 +2,7 @@
     Title:      Arbitrary Precision Package.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Further modification Copyright 2010, 2012, 2015 David C. J. Matthews
+    Further modification Copyright 2010, 2012, 2015, 2017 David C. J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -318,19 +318,14 @@ static Handle get_long(Handle x, Handle extend, int *sign)
 
 // Put a short value in the buffer
 #ifdef USE_GMP
-static void setShort(Handle x, byte *u, int *sign, mp_size_t *length)
+static void setShort(Handle x, byte *u, mp_size_t *length)
 #else
-static void setShort(Handle x, byte *u, int *sign, POLYUNSIGNED *length)
+static void setShort(Handle x, byte *u, POLYUNSIGNED *length)
 #endif
 {
     // Short form - put it in the temporary.
     POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
-    if (x_v >= 0) *sign = 0;
-    else /* Negative */
-    {
-        *sign = -1;
-        x_v = -x_v;
-    }
+    if (x_v < 0) x_v = -x_v;
 #ifdef USE_GMP
     *(mp_limb_t*)u = x_v;
     if (x_v == 0) *length = 0; else *length = 1;
@@ -575,7 +570,10 @@ Handle neg_longc(TaskData *taskData, Handle x)
     int sign_x;
 
     if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)x_extend, &sign_x, &lx);
+    {
+        sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
+        setShort(x, (byte*)x_extend, &lx);
+    }
     else
     {
         sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
@@ -652,6 +650,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 #else
 static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
+    PolyWord    x_extend, y_extend;
+
     byte *u; /* byte-pointer for longer number  */
     byte *v; /* byte-pointer for shorter number */
     Handle z;
@@ -660,8 +660,15 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     POLYUNSIGNED lv;   /* length of v in bytes */
 
     /* find the longer number */
-    POLYUNSIGNED lx = get_length(DEREFWORD(x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(y));
+    POLYUNSIGNED lx, ly;
+
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)&x_extend, &lx);
+    else lx = get_length(DEREFWORD(x));
+
+    if (IS_INT(DEREFWORD(y)))
+        setShort(y, (byte*)&y_extend, &ly);
+    else ly = get_length(DEREFWORD(y));
 
     /* Make ``u'' the longer. */
     if (lx < ly)
@@ -671,8 +678,10 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFBYTEHANDLE(y); lu = ly;
-        v = DEREFBYTEHANDLE(x); lv = lx;
+        u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        lu = ly;
+        lv = lx;
     }
 
     else
@@ -682,8 +691,10 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFBYTEHANDLE(x); lu = lx;
-        v = DEREFBYTEHANDLE(y); lv = ly;
+        u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        lu = lx;
+        lv = ly;
     }
 
     /* do the actual addition */
@@ -767,6 +778,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 #else
 static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
+    PolyWord    x_extend, y_extend;
     byte *u; /* byte-pointer alias for larger number  */
     byte *v; /* byte-pointer alias for smaller number */
     POLYUNSIGNED lu;   /* length of u in bytes */
@@ -776,26 +788,36 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* get the larger argument into ``u'' */
     /* This is necessary so that we can discard */
     /* the borrow at the end of the subtraction */
-    POLYUNSIGNED lx = get_length(DEREFWORD(x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(y));
+    POLYUNSIGNED lx, ly;
+
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)&x_extend, &lx);
+    else lx = get_length(DEREFWORD(x));
+
+    if (IS_INT(DEREFWORD(y)))
+        setShort(y, (byte*)&y_extend, &ly);
+    else ly = get_length(DEREFWORD(y));
 
     if (lx < ly)
     {
-        sign ^= -1; /* swap sign of result SPF 21/1/94 */
+        sign ^= -1; // swap sign of result
         z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
-
         /* now safe to dereference pointers */
-        u = DEREFBYTEHANDLE(y); lu = ly;
-        v = DEREFBYTEHANDLE(x); lv = lx;
+        u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        lu = ly;
+        lv = lx;
     }
     else if (ly < lx)
     {
         z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFBYTEHANDLE(x); lu = lx;
-        v = DEREFBYTEHANDLE(y); lv = ly;
+        u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        lu = lx;
+        lv = ly;
     }
 
     else /* lx == ly */
@@ -811,16 +833,20 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
             z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
             /* now safe to dereference pointers */
-            u = DEREFBYTEHANDLE(y); lu = ly;
-            v = DEREFBYTEHANDLE(x); lv = lx;
+            u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+            v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+            lu = ly;
+            lv = lx;
         }
         else
         {
             z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
             /* now safe to dereference pointers */
-            u = DEREFBYTEHANDLE(x); lu = lx;
-            v = DEREFBYTEHANDLE(y); lv = ly;
+            u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+            v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+            lu = lx;
+            lv = ly;
         }
     }
 
@@ -861,29 +887,21 @@ Handle add_longc(TaskData *taskData, Handle y, Handle x)
         }
     }
 
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    /* Either overflow or long arguments - convert to long form */
     int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
+
+    if (IS_INT(DEREFWORD(x))) sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
+    else sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
+
+    if (IS_INT(DEREFWORD(y))) sign_y = UNTAGGED(DEREFWORD(y)) >= 0 ? 0 : -1;
+    else sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
 
     /* Work out whether to add or subtract */
     if ((sign_y ^ sign_x) >= 0) /* signs the same? */
         /* sign(x) * (abs(x) + abs(y)) */
-        return add_unsigned_long(taskData, long_x, long_y, sign_x);
+        return add_unsigned_long(taskData, x, y, sign_x);
     else
         /* sign(x) * (abs(x) - abs(y)) */
-        return sub_unsigned_long(taskData, long_x, long_y, sign_x);
+        return sub_unsigned_long(taskData, x, y, sign_x);
 } /* add_longc */
 
 Handle sub_longc(TaskData *taskData, Handle y, Handle x)
@@ -898,30 +916,22 @@ Handle sub_longc(TaskData *taskData, Handle y, Handle x)
             return taskData->saveVec.push(TAGGED(t));
     }
 
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    /* Either overflow or long arguments. */
     int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x); /* Convert to long form */
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
+
+    if (IS_INT(DEREFWORD(x))) sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
+    else sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
+
+    if (IS_INT(DEREFWORD(y))) sign_y = UNTAGGED(DEREFWORD(y)) >= 0 ? 0 : -1;
+    else sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
 
     /* If the signs are different add the two values. */
     if ((sign_y ^ sign_x) < 0) /* signs differ */
     { /* sign(x) * (abs(x) + abs(y)) */
-        return add_unsigned_long(taskData, long_x, long_y, sign_x);
+        return add_unsigned_long(taskData, x, y, sign_x);
     }
     else
     { /* sign(x) * (abs(x) - abs(y)) */
-        return sub_unsigned_long(taskData, long_x, long_y, sign_x);
+        return sub_unsigned_long(taskData, x, y, sign_x);
     }
 } /* sub_longc */
 
@@ -942,7 +952,10 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     POLYUNSIGNED lx, ly;
 #endif
     if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)&x_extend, &sign_x, &lx);
+    {
+        sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
+        setShort(x, (byte*)&x_extend,  &lx);
+    }
     else
     {
         sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
@@ -953,7 +966,10 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 #endif
     }
     if (IS_INT(DEREFWORD(y)))
-        setShort(y, (byte*)&y_extend, &sign_y, &ly);
+    {
+        sign_y = UNTAGGED(DEREFWORD(y)) >= 0 ? 0 : -1;
+        setShort(y, (byte*)&y_extend, &ly);
+    }
     else
     {
         sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
