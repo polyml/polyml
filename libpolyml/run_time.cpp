@@ -306,11 +306,11 @@ Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
         value = mkEntry(taskData, arg, p);
         next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
 
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        DEREFLISTHANDLE(next)->h = value->Word();
+        DEREFLISTHANDLE(next)->t = list->Word();
 
         taskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
+        list = SAVE(next->Word());
         count--;
     }
     return list;

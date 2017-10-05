@@ -437,7 +437,7 @@ static Handle allocate (TaskData *taskData, Handle h)
 static Handle address (TaskData *taskData, Handle h)
 { TRACE; {
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-    void *addr = DEREFVOL(taskData, UNVOLHANDLE(h));
+    void *addr = DEREFVOL(taskData, h->Word());
     PLocker plocker(&volLock);
     *(void**)C_POINTER(UNVOLHANDLE(res)) = addr;
     return res;
@@ -446,7 +446,7 @@ static Handle address (TaskData *taskData, Handle h)
 /* Returns a vol containing the value at the address given in its argument. */
 static Handle deref (TaskData *taskData, Handle h)
 { TRACE; {
-    void *addr = DEREFVOL(taskData, UNVOLHANDLE(h));
+    void *addr = DEREFVOL(taskData, h->Word());
     PLocker plocker(&volLock);
     Handle res = vol_alloc(taskData);
     C_POINTER(UNVOLHANDLE(res))= *(void**)addr;
@@ -493,7 +493,7 @@ static Handle assign (TaskData *taskData, Handle h)
 static Handle c_sizeof (TaskData *taskData, Handle h)
 {
     TRACE;
-    PolyWord v = UNHANDLE(h);
+    PolyWord v = h->Word();
     
     if (!(IS_INT(v))) // This should be handled within ML
         RAISE_EXN("sizeof for struct");
@@ -523,7 +523,7 @@ static Handle c_sizeof (TaskData *taskData, Handle h)
 static Handle alignment (TaskData *taskData, Handle h)
 {  
     TRACE;
-    PolyWord v = UNHANDLE(h);
+    PolyWord v = h->Word();
     
     if (!(IS_INT(v)))
         RAISE_EXN("alignment of structure"); 
@@ -756,7 +756,7 @@ static Handle load_lib (TaskData *taskData, Handle string)
     }
 
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+    *(void**)DEREFVOL(taskData, res->Word()) = lib;
     return res;
 
 #else  /* UNIX version */
@@ -769,7 +769,7 @@ static Handle load_lib (TaskData *taskData, Handle string)
     }
     
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+    *(void**)DEREFVOL(taskData, res->Word()) = lib;
     return res;
 #endif
 }
@@ -799,7 +799,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
     }
 
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+    *(void**)DEREFVOL(taskData, res->Word()) = sym;
     return res;
 
 #else /* UNIX version */
@@ -813,7 +813,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
     }
 
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+    *(void**)DEREFVOL(taskData, res->Word()) = sym;
     return res;
 #endif
 }
@@ -971,16 +971,16 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
 static Handle toCchar (TaskData *taskData, Handle h)
 {
-    char ch = (char)get_C_int(taskData, UNHANDLE(h));
+    char ch = (char)get_C_int(taskData, h->Word());
     mes(("<%c>\n", ch));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(char));
-    *(char*)DEREFVOL(taskData, UNHANDLE(res)) = ch;
+    *(char*)DEREFVOL(taskData, res->Word()) = ch;
     return res;
 }
 
 static Handle fromCchar (TaskData *taskData, Handle h)
 {
-    char c = *(char*)DEREFVOL(taskData, UNHANDLE(h));
+    char c = *(char*)DEREFVOL(taskData, h->Word());
     mes(("<%c>\n", c));
     return Make_arbitrary_precision(taskData, c & 0xff);
 }
@@ -997,13 +997,13 @@ static Handle toCdouble (TaskData *taskData, Handle h)
     double d = real_arg(h);
     mes(("<%f>\n", d));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(double));
-    *(double*)DEREFVOL(taskData, UNHANDLE(res)) = d;
+    *(double*)DEREFVOL(taskData, res->Word()) = d;
     return res;
 }
 
 static Handle fromCdouble (TaskData *taskData, Handle h)
 {
-    double d = *(double*)DEREFVOL(taskData, UNHANDLE(h));
+    double d = *(double*)DEREFVOL(taskData, h->Word());
     mes(("<%f>\n", d));
     return real_result(taskData, d);
 }
@@ -1020,13 +1020,13 @@ static Handle toCfloat (TaskData *taskData, Handle h)
     float f = (float)real_arg(h);
     mes(("<%f>\n", f));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(float));
-    *(float*)DEREFVOL(taskData, UNHANDLE(res)) = f;
+    *(float*)DEREFVOL(taskData, res->Word()) = f;
     return res;
 }
 
 static Handle fromCfloat (TaskData *taskData, Handle h)
 {
-    float f = *(float*)DEREFVOL(taskData, UNHANDLE(h));
+    float f = *(float*)DEREFVOL(taskData, h->Word());
     mes(("<%f>\n", f));
     return real_result(taskData, (double)f);
 }
@@ -1040,16 +1040,16 @@ static Handle fromCfloat (TaskData *taskData, Handle h)
 
 static Handle toCint (TaskData *taskData, Handle h)
 {
-    int i = get_C_int(taskData, UNHANDLE(h));
+    int i = get_C_int(taskData, h->Word());
     mes(("value = %d\n", i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(int));
-    *(int*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    *(int*)DEREFVOL(taskData, res->Word()) = i;
     return res;
 }
 
 static Handle fromCint (TaskData *taskData, Handle h)
 {
-    int i = *(int*)DEREFVOL(taskData, UNHANDLE(h));
+    int i = *(int*)DEREFVOL(taskData, h->Word());
     mes(("<%d>\n", i));
     return Make_arbitrary_precision(taskData, i);
 }
@@ -1063,16 +1063,16 @@ static Handle fromCint (TaskData *taskData, Handle h)
 
 static Handle toClong (TaskData *taskData, Handle h)
 {
-    long i = (long)get_C_long(taskData, UNHANDLE(h));
+    long i = (long)get_C_long(taskData, h->Word());
     mes(("value = %d\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(long));
-    *(long*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    *(long*)DEREFVOL(taskData, res->Word()) = i;
     return res;
 }
 
 static Handle fromClong (TaskData *taskData, Handle h)
 {
-    long i = *(long*)DEREFVOL(taskData, UNHANDLE(h));
+    long i = *(long*)DEREFVOL(taskData, h->Word());
     mes(("<%d>\n", (int)i));
     return Make_arbitrary_precision(taskData, i);
 }
@@ -1086,16 +1086,16 @@ static Handle fromClong (TaskData *taskData, Handle h)
 
 static Handle toCshort (TaskData *taskData, Handle h)
 {
-    short i = (short)get_C_long(taskData, UNHANDLE(h));
+    short i = (short)get_C_long(taskData, h->Word());
     mes(("<%d>\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(short));
-    *(short*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    *(short*)DEREFVOL(taskData, res->Word()) = i;
     return res;
 }
 
 static Handle fromCshort (TaskData *taskData, Handle h)
 {
-    short i = *(short*)DEREFVOL(taskData, UNHANDLE(h));
+    short i = *(short*)DEREFVOL(taskData, h->Word());
     mes(("<%d>\n", (int)i));
     return Make_arbitrary_precision(taskData, i);
 }
@@ -1109,16 +1109,16 @@ static Handle fromCshort (TaskData *taskData, Handle h)
 
 static Handle toCuint (TaskData *taskData, Handle h)
 {
-    unsigned i = get_C_unsigned(taskData, UNHANDLE(h));
+    unsigned i = get_C_unsigned(taskData, h->Word());
     mes(("value = %d\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(unsigned));
-    *(unsigned*)DEREFVOL(taskData, UNHANDLE(res)) = i;
+    *(unsigned*)DEREFVOL(taskData, res->Word()) = i;
     return res;
 }
 
 static Handle fromCuint (TaskData *taskData, Handle h)
 {
-    unsigned i = *(unsigned*)DEREFVOL(taskData, UNHANDLE(h));
+    unsigned i = *(unsigned*)DEREFVOL(taskData, h->Word());
     mes(("<%d>\n", (int)i));
     return Make_arbitrary_precision(taskData, i);
 }
@@ -1170,7 +1170,7 @@ static Handle toCstring (TaskData *taskData, Handle h)
 
 static Handle fromCstring (TaskData *taskData, Handle h)
 { TRACE; {
-    char* str = *(char**)DEREFVOL(taskData, UNHANDLE(h));
+    char* str = *(char**)DEREFVOL(taskData, h->Word());
     mes(("<%s>\n", str));
     return SAVE(C_string_to_Poly(taskData, str));
 }}
@@ -1198,7 +1198,7 @@ static Handle toCbytes (TaskData *taskData, Handle h)
     *(char***)p = p + 1;
     
     /* Copy the string into the c-space starting at the second word */
-    if (size == 1) **p = (char)UNTAGGED(DEREFHANDLE(h));
+    if (size == 1) **p = (char)UNTAGGED(h->Word());
     else memcpy(*p, ((PolyStringObject*)h->WordP())->chars, size);
     
     return res;
@@ -1252,7 +1252,7 @@ static Handle UNION_MAKE(TaskData *taskData, UnionTypes tag, Handle contents)
 {
     Handle res = SAVE(alloc(taskData, 2));
     UNHANDLE(res)->Set(1, TAGGED(tag));
-    DEREFHANDLE(res)->Set(0, UNHANDLE(contents));
+    DEREFHANDLE(res)->Set(0, contents->Word());
     return res;
 }
 
@@ -1283,16 +1283,16 @@ typedef enum {
 #define CONTENTS(x)     (SAVE(UNHANDLE(x)->Get(0)))
 
 
-#define LIST_ISNULL(x)  (ML_Cons_Cell::IsNull(UNHANDLE(x)))
-#define LIST_HEAD(x)    (SAVE(Head(DEREFWORD(x))))
-#define LIST_TAIL(x)    (SAVE(Tail(DEREFWORD(x))))
+#define LIST_ISNULL(x)  (ML_Cons_Cell::IsNull(x->Word()))
+#define LIST_HEAD(x)    (SAVE(Head(x->Word())))
+#define LIST_TAIL(x)    (SAVE(Tail(x->Word())))
 #define LIST_NULL       (SAVE(ListNull))
 
 static Handle LIST_CONS (TaskData *taskData, Handle x,Handle xs)
 {
     Handle res = SAVE(alloc(taskData, sizeof(ML_Cons_Cell)));
-    Head(DEREFWORD(res)) = UNHANDLE(x);
-    Tail(DEREFWORD(res)) = DEREFWORD(xs);
+    Head(DEREFWORD(res)) = x->Word();
+    Tail(DEREFWORD(res)) = xs->Word();
     return res;
 }
 
@@ -1355,7 +1355,7 @@ static Handle union2vol_and_ctype (TaskData *taskData, Handle u)
 
 static Handle choice2ctype (TaskData *taskData, Handle choice)
 {
-    PolyWord either_tag_or_pointer = DEREFWORDHANDLE(choice);
+    PolyWord either_tag_or_pointer = choice->Word();
 
     if (IS_INT(either_tag_or_pointer)) {
         switch (UNTAGGED(either_tag_or_pointer)) {
@@ -1378,7 +1378,7 @@ static  Handle choice_and_vol2union (TaskData *taskData, Handle pair)
 {
     Handle choice = TUPLE_GET1(pair);
     Handle vol = TUPLE_GET2(pair);
-    PolyWord maybe_tag = DEREFWORDHANDLE(choice);
+    PolyWord maybe_tag = choice->Word();
     if (IS_INT(maybe_tag)) {
         switch (UNTAGGED(maybe_tag)) {
         case choice_chooseChar:       return UNION_MAKE(taskData, union_Char,   fromCchar(taskData, vol));
@@ -1536,21 +1536,21 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     {
         ffi_type *argType = cif->arg_types[i-1];
         Handle value = vol_alloc_with_c_space(taskData, argType->size);
-        memcpy(DEREFVOL(taskData, UNHANDLE(value)), args[i-1], argType->size);
+        memcpy(DEREFVOL(taskData, value->Word()), args[i-1], argType->size);
 
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(mlArgs);
+        DEREFLISTHANDLE(next)->h = value->Word();
+        DEREFLISTHANDLE(next)->t = mlArgs->Word();
 
         taskData->saveVec.reset(saved);
-        mlArgs = SAVE(DEREFHANDLE(next));
+        mlArgs = SAVE(next->Word());
     }
 
     // Callbacks previously involved forking a new ML process.  They are
     // now handled on the caller's stack.
     Handle resultHandle = taskData->EnterCallbackFunction(h, mlArgs);
 
-    PolyWord resultWord = UNHANDLE(resultHandle);
+    PolyWord resultWord = resultHandle->Word();
     taskData->saveVec.reset(mark);
     memcpy(ret, DEREFVOL(taskData, resultWord), cif->rtype->size);
     // Once we have copied the result into C memory we are free of the
@@ -1575,8 +1575,8 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, ffi_abi 
     if (newTable == 0)
         RAISE_EXN("Unable to allocate memory for callback table");
     callbackTable = newTable;
-    callbackTable[callBackEntries].argType = UNHANDLE(argTypeList);
-    callbackTable[callBackEntries].mlFunction = UNHANDLE(mlFunction);
+    callbackTable[callBackEntries].argType = argTypeList->Word();
+    callbackTable[callBackEntries].mlFunction = mlFunction->Word();
     callbackTable[callBackEntries].cFunction = 0;
 
     void *resultFunction;

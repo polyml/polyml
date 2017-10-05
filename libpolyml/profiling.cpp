@@ -331,7 +331,7 @@ Handle ProfileRequest::extractAsList(TaskData *taskData)
         pair->WordP()->Set(1, p->functionName);
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
         DEREFLISTHANDLE(next)->h = pair->Word();
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        DEREFLISTHANDLE(next)->t =list->Word();
 
         taskData->saveVec.reset(saved);
         list = taskData->saveVec.push(next->Word());
@@ -419,7 +419,7 @@ static Handle profilerc(TaskData *taskData, Handle mode_handle)
    if the parameter is 2 it produces store profiling.
    3 - arbitrary precision emulation traps. */
 {
-    unsigned mode = get_C_unsigned(taskData, DEREFWORDHANDLE(mode_handle));
+    unsigned mode = get_C_unsigned(taskData, mode_handle->Word());
     {
         // Create any strings we need.  We only need to do this once but
         // it must be done by a non-root thread since it needs a taskData object.

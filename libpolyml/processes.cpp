@@ -782,7 +782,7 @@ POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
 // may use some of these e.g. fork.
 Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, code->Word());
     TaskData *ptaskData = taskData;
     switch (c)
     {

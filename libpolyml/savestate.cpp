@@ -748,7 +748,7 @@ void StateLoader::Perform(void)
     }
     else
     {
-        fileName = Poly_string_to_T_alloc(DEREFHANDLE(fileNameList));
+        fileName = Poly_string_to_T_alloc(fileNameList->Word());
         if (fileName == NULL)
         {
             errorResult = "Insufficient memory";
@@ -1183,10 +1183,10 @@ Handle ShowHierarchy(TaskData *taskData)
     {
         Handle value = SAVE(C_string_to_Poly(taskData, hierarchyTable[i-1]->fileName));
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        DEREFLISTHANDLE(next)->h = value->Word();
+        DEREFLISTHANDLE(next)->t = list->Word();
         taskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
+        list = SAVE(next->Word());
     }
     return list;
 }
@@ -1255,7 +1255,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(DEREFHANDLE(hFileName)));
+    AutoFree<TCHAR*> fileNameBuff(Poly_string_to_T_alloc(hFileName->Word()));
     if (fileNameBuff == NULL)
         raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 
@@ -1308,7 +1308,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
         // It's possible, although silly, to have the empty string as a parent name.
         Handle resVal = SAVE(C_string_to_Poly(taskData, parentFileName));
         Handle result = alloc_and_save(taskData, 1);
-        DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resVal));
+        DEREFHANDLE(result)->Set(0, resVal->Word());
         return result;
     }
     else return SAVE(NONE_VALUE);

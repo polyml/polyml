@@ -106,7 +106,7 @@ extern "C" {
 // string name.  Having the string in there allows us to export the entry.
 Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
 {
-    TempCString entryName(Poly_string_to_C_alloc(entryH->WordP()));
+    TempCString entryName(Poly_string_to_C_alloc(entryH->Word()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // Create space for the address followed by the name as a C string.
     POLYUNSIGNED space = 1 + (strlen(entryName) + 1 + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);

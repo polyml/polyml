@@ -624,7 +624,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 
     // Push the argument and the closure on the stack.  We can't put them into the registers
     // yet because we might get a GC before we actually start the code.
-    ((PolyWord*)newStack)[topStack+1] = DEREFWORDHANDLE(proc); // Closure
+    ((PolyWord*)newStack)[topStack+1] = proc->Word(); // Closure
     ((PolyWord*)newStack)[topStack+2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
     /* We initialise the end of the stack with a sequence that will jump to
        kill_self whether the process ends with a normal return or by raising an

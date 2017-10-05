@@ -176,7 +176,7 @@ static PLock timeLock("Timing");
 
 static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, code->Word());
     switch (c)
     {
     case 0: /* Get ticks per microsecond. */

@@ -216,7 +216,7 @@ Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings)
         
         // reset save vector to stop it overflowing    
         mdTaskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
+        list = SAVE(next->Word());
     }
     
     return list;
@@ -247,12 +247,12 @@ Handle convert_string_list(TaskData *mdTaskData, int count, char **strings)
         Handle value = SAVE(C_string_to_Poly(mdTaskData, strings[i]));
         Handle next  = alloc_and_save(mdTaskData, SIZEOF(ML_Cons_Cell));
         
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        DEREFLISTHANDLE(next)->h = value->Word();
+        DEREFLISTHANDLE(next)->t = list->Word();
         
         // reset save vector to stop it overflowing    
         mdTaskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
+        list = SAVE(next->Word());
     }
     
     return list;
@@ -263,13 +263,13 @@ char **stringListToVector(Handle list)
 {
     int len = 0;
     /* Find the length of the list */
-    for (PolyWord p = DEREFHANDLE(list); p != ListNull; p = ((ML_Cons_Cell*)p.AsObjPtr())->t) len++;
+    for (PolyWord p = list->Word(); p != ListNull; p = ((ML_Cons_Cell*)p.AsObjPtr())->t) len++;
     /* Allocate vector. */
     char **vec = (char**)calloc(len+1, sizeof(char*));
     /* Copy the strings and put them into the vector. */
     len = 0;
 
-    PolyWord q = DEREFHANDLE(list);
+    PolyWord q = list->Word();
     while (q != ListNull) {
         ML_Cons_Cell *cell = (ML_Cons_Cell*)q.AsObjPtr();
         vec[len++] = Poly_string_to_C_alloc(cell->h);

@@ -393,7 +393,7 @@ public:
 
 static Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, code->Word());
     Handle hSave = taskData->saveVec.mark();
 TryAgain: // Used for various retries.
           // N.B.  If we call ThreadPause etc we may GC.  We MUST reload any handles so for
@@ -537,7 +537,7 @@ TryAgain: // Used for various retries.
     case 35: /* Set Linger time. */
         {
             struct linger linger;
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int lTime = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             /* We pass in a negative value to turn the option off,
                zero or positive to turn it on. */
@@ -561,7 +561,7 @@ TryAgain: // Used for various retries.
     case 36: /* Get Linger time. */
         {
             struct linger linger;
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             socklen_t size = sizeof(linger);
             int lTime = 0;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -576,7 +576,7 @@ TryAgain: // Used for various retries.
 
     case 37: /* Get peer name. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -588,7 +588,7 @@ TryAgain: // Used for various retries.
 
     case 38: /* Get socket name. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             struct sockaddr sockA;
             socklen_t   size = sizeof(sockA);
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -638,7 +638,7 @@ TryAgain: // Used for various retries.
 
     case 44: /* Find number of bytes available. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long readable;
@@ -654,7 +654,7 @@ TryAgain: // Used for various retries.
 
     case 45: /* Find out if we are at the mark. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             unsigned long atMark;
@@ -674,7 +674,7 @@ TryAgain: // Used for various retries.
 
     case 58: /* Non-blocking accept. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             else {
                 SOCKET sock = strm->device.sock;
@@ -733,15 +733,15 @@ TryAgain: // Used for various retries.
                     IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET;
                 /* Return a pair of the new socket and the address. */
                 pair = ALLOC(2);
-                DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(str_token));
-                DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
+                DEREFHANDLE(pair)->Set(0, str_token->Word());
+                DEREFHANDLE(pair)->Set(1, addrHandle->Word());
                 return pair;
             }
         }
 
     case 47: /* Bind an address to a socket. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -755,7 +755,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 59: /* Non-blocking connect. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -780,7 +780,7 @@ TryAgain: // Used for various retries.
             while (1)
             {
                 // ThreadPause may GC.  We need to reload the socket for security.
-                strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+                strm = get_stream(DEREFHANDLE(args)->Get(0));
                 if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
                 SOCKET sock = strm->device.sock;
                 /* In Windows failure is indicated by the bit being set in
@@ -812,7 +812,7 @@ TryAgain: // Used for various retries.
 
     case 49: /* Put socket into listening mode. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int backlog = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (listen(strm->device.sock, backlog) != 0)
@@ -822,7 +822,7 @@ TryAgain: // Used for various retries.
 
     case 50: /* Shutdown the socket. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int mode = 0;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             switch (get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)))
@@ -841,7 +841,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 60: /* Non-blocking send. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
@@ -900,7 +900,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 61: /* Non-blocking send. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
@@ -961,7 +961,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 62: /* Non-blocking receive. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
 #if(defined(_WIN32) && ! defined(_CYGWIN))
@@ -1013,7 +1013,7 @@ TryAgain: // Used for various retries.
         processes->TestAnyEvents(taskData);
     case 63: /* Non-blocking receive. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
 #if(defined(_WIN32) && ! defined(_CYGWIN))
@@ -1048,8 +1048,8 @@ TryAgain: // Used for various retries.
                     lengthHandle = Make_arbitrary_precision(taskData, recvd);
                     addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                     pair = ALLOC(2);
-                    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(lengthHandle));
-                    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
+                    DEREFHANDLE(pair)->Set(0, lengthHandle->Word());
+                    DEREFHANDLE(pair)->Set(1, addrHandle->Word());
                     return pair;
                 }
                 if ((err == WOULDBLOCK || err == INPROGRESS) && c == 54 /* blocking */)
@@ -1225,10 +1225,10 @@ static Handle makeHostEntry(TaskData *taskData, struct hostent *host)
 
     /* Make the result structure. */
     result = ALLOC(4);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(aliases));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(addrType));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(addrList));
+    DEREFHANDLE(result)->Set(0, name->Word());
+    DEREFHANDLE(result)->Set(1, aliases->Word());
+    DEREFHANDLE(result)->Set(2, addrType->Word());
+    DEREFHANDLE(result)->Set(3, addrList->Word());
     return result;
 }
 
@@ -1250,9 +1250,9 @@ static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
 
     /* Make the result structure. */
     result = ALLOC(3);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(aliases));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(protocol));
+    DEREFHANDLE(result)->Set(0, name->Word());
+    DEREFHANDLE(result)->Set(1, aliases->Word());
+    DEREFHANDLE(result)->Set(2, protocol->Word());
     return result;
 }
 
@@ -1277,10 +1277,10 @@ static Handle makeServEntry(TaskData *taskData, struct servent *serv)
 
     /* Make the result structure. */
     result = ALLOC(4);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(aliases));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(port));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(protocol));
+    DEREFHANDLE(result)->Set(0, name->Word());
+    DEREFHANDLE(result)->Set(1, aliases->Word());
+    DEREFHANDLE(result)->Set(2, port->Word());
+    DEREFHANDLE(result)->Set(3, protocol->Word());
     return result;
 }
 
@@ -1292,8 +1292,8 @@ static Handle mkAftab(TaskData *taskData, void *arg, char *p)
     name = SAVE(C_string_to_Poly(taskData, af->af_name));
     num = Make_arbitrary_precision(taskData, af->af_num);
     result = ALLOC(2);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));
+    DEREFHANDLE(result)->Set(0, name->Word());
+    DEREFHANDLE(result)->Set(1, num->Word());
     return result;
 }
 
@@ -1305,15 +1305,15 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
     name = SAVE(C_string_to_Poly(taskData, sk->sk_name));
     num = Make_arbitrary_precision(taskData, sk->sk_num);
     result = ALLOC(2);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));
+    DEREFHANDLE(result)->Set(0, name->Word());
+    DEREFHANDLE(result)->Set(1, num->Word());
     return result;
 }
 
 /* This sets an option and can also be used to set an integer. */
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
     int onOff = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
     if (setsockopt(strm->device.sock, level, opt,
@@ -1325,7 +1325,7 @@ static Handle setSocketOption(TaskData *taskData, Handle args, int level, int op
 /* Get a socket option as a boolean */
 static Handle getSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(args->WordP());
+    PIOSTRUCT strm = get_stream(args->Word());
     int onOff = 0;
     socklen_t size = sizeof(int);
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -1338,7 +1338,7 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 /* Get a socket option as an integer */
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt)
 {
-    PIOSTRUCT strm = get_stream(args->WordP());
+    PIOSTRUCT strm = get_stream(args->Word());
     int optVal = 0;
     socklen_t size = sizeof(int);
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -1353,11 +1353,11 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
 {
     /* Construct the result vectors. */
     PolyObject *inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr();
-    POLYUNSIGNED nVec = OBJECT_LENGTH(inVec);
+    POLYUNSIGNED nVec = inVec->Length();
     int nRes = 0;
     POLYUNSIGNED i;
     for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(inVec->Get(i).AsObjPtr());
+        PIOSTRUCT strm = get_stream(inVec->Get(i));
         if (FD_ISSET(strm->device.sock, pFds)) nRes++;
     }
     if (nRes == 0)
@@ -1367,7 +1367,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
         inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr(); /* It could have moved as a result of a gc. */
         nRes = 0;
         for (i = 0; i < nVec; i++) {
-            PIOSTRUCT strm = get_stream(inVec->Get(i).AsObjPtr());
+            PIOSTRUCT strm = get_stream(inVec->Get(i));
             if (FD_ISSET(strm->device.sock, pFds))
                 DEREFWORDHANDLE(result)->Set(nRes++, inVec->Get(i));
         }
@@ -1396,21 +1396,21 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     FD_ZERO(&readers);
     FD_ZERO(&writers);
     FD_ZERO(&excepts);
-    nVec = OBJECT_LENGTH(readVec);
+    nVec = readVec->Length();
     for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(readVec->Get(i).AsObjPtr());
+        PIOSTRUCT strm = get_stream(readVec->Get(i));
         if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &readers);
     }
-    nVec = OBJECT_LENGTH(writeVec);
+    nVec = writeVec->Length();
     for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(writeVec->Get(i).AsObjPtr());
+        PIOSTRUCT strm = get_stream(writeVec->Get(i));
         if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &writers);
     }
-    nVec = OBJECT_LENGTH(excVec);
+    nVec = excVec->Length();
     for (i = 0; i < nVec; i++) {
-        PIOSTRUCT strm = get_stream(excVec->Get(i).AsObjPtr());
+        PIOSTRUCT strm = get_stream(excVec->Get(i));
         if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED); 
         FD_SET(strm->device.sock, &excepts);
     }
@@ -1470,9 +1470,9 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     exResult = getSelectResult(taskData, args, 2, &excepts);
 
     result = ALLOC(3);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(rdResult));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(wrResult));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(exResult));
+    DEREFHANDLE(result)->Set(0, rdResult->Word());
+    DEREFHANDLE(result)->Set(1, wrResult->Word());
+    DEREFHANDLE(result)->Set(2, exResult->Word());
     return result;
 }
 

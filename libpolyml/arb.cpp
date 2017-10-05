@@ -1216,8 +1216,8 @@ Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
     Handle remHandle, divHandle;
     quotRem(taskData, y, x, remHandle, divHandle);
 
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
+    DEREFHANDLE(result)->Set(0, divHandle->Word());
+    DEREFHANDLE(result)->Set(1, remHandle->Word());
     return taskData->saveVec.push(TAGGED(0));
 }
 

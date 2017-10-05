@@ -1,7 +1,7 @@
 /*
     Title:      Operating Specific functions: Unix version.
 
-    Copyright (c) 2000-8, 2016 David C. J. Matthews
+    Copyright (c) 2000-8, 2016-17 David C. J. Matthews
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
@@ -395,7 +395,7 @@ static void restoreSignals(void)
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_long(taskData, code->Word());
     switch (c)
     {
     case 0: /* Return our OS type.  Not in any structure. */
@@ -403,7 +403,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 4: /* Return a constant. */
         {
-            unsigned i = get_C_unsigned(taskData, DEREFWORDHANDLE(args));
+            unsigned i = get_C_unsigned(taskData, args->Word());
             if (i >= sizeof(unixConstVec)/sizeof(unixConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
             return Make_sysword(taskData, unixConstVec[i]);
@@ -481,7 +481,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             int resType, resVal;
             Handle result,  typeHandle, resHandle;
-            int status = get_C_long(taskData, DEREFWORDHANDLE(args));
+            int status = get_C_long(taskData, args->Word());
             if (WIFEXITED(status))
             {
                 resType = 1;
@@ -505,8 +505,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             resHandle = Make_fixed_precision(taskData, resVal);
 
             result = ALLOC(2);
-            DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(typeHandle));
-            DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resHandle));
+            DEREFHANDLE(result)->Set(0, typeHandle->Word());
+            DEREFHANDLE(result)->Set(1, resHandle->Word());
             return result;
         }
 
@@ -579,9 +579,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             newTimer.it_interval.tv_sec = 0;
             newTimer.it_interval.tv_usec = 0;
             newTimer.it_value.tv_sec =
-                get_C_long(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+                get_C_long(taskData, div_longc(taskData, hMillion, hTime)->Word());
             newTimer.it_value.tv_usec =
-                get_C_long(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+                get_C_long(taskData, rem_longc(taskData, hMillion, hTime)->Word());
             if (setitimer(ITIMER_REAL, &newTimer, &oldTimer) != 0)
                 raise_syscall(taskData, "setitimer failed", errno);
             Handle result = /* Return the previous setting. */
@@ -612,8 +612,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             Handle hSave = taskData->saveVec.mark();
             Handle hTime = args;
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
-            unsigned long secs = get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
-            unsigned long usecs = get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            unsigned long secs = get_C_ulong(taskData, div_longc(taskData, hMillion, hTime)->Word());
+            unsigned long usecs = get_C_ulong(taskData, rem_longc(taskData, hMillion, hTime)->Word());
             taskData->saveVec.reset(hSave);
             /* Has the time expired? */
             if (gettimeofday(&tv, NULL) != 0)
@@ -638,14 +638,14 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 23: /* Set uid. */
         {
-            uid_t uid = get_C_long(taskData, DEREFWORDHANDLE(args));
+            uid_t uid = get_C_long(taskData, args->Word());
             if (setuid(uid) != 0) raise_syscall(taskData, "setuid failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
 
     case 24: /* Set gid. */
         {
-            gid_t gid = get_C_long(taskData, DEREFWORDHANDLE(args));
+            gid_t gid = get_C_long(taskData, args->Word());
             if (setgid(gid) != 0) raise_syscall(taskData, "setgid failed", errno);
             return Make_fixed_precision(taskData, 0);
         }
@@ -674,10 +674,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             {
                 Handle value = Make_fixed_precision(taskData, groups[ngroups]);
                 Handle next  = ALLOC(SIZEOF(ML_Cons_Cell));
-                DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-                DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+                DEREFLISTHANDLE(next)->h = value->Word();
+                DEREFLISTHANDLE(next)->t = list->Word();
                 taskData->saveVec.reset(saved);
-                list = SAVE(DEREFHANDLE(next));
+                list = SAVE(next->Word());
             }
             free(groups);
             return list;
@@ -721,7 +721,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 31: /* Get terminal name for file descriptor. */
         {
-            PIOSTRUCT str = get_stream(args->WordP());
+            PIOSTRUCT str = get_stream(args->Word());
             char *term;
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             term = ttyname(str->device.ioDesc);
@@ -732,7 +732,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 32: /* Test if file descriptor is a terminal.  Returns false if
             the stream is closed. */
         {
-            PIOSTRUCT str = get_stream(args->WordP());
+            PIOSTRUCT str = get_stream(args->Word());
             if (str != NULL && isatty(str->device.ioDesc))
                 return Make_fixed_precision(taskData, 1);
             else return Make_fixed_precision(taskData, 0);
@@ -744,7 +744,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         /* Filesys entries. */
     case 50: /* Set the file creation mask and return the old one. */
         {
-            mode_t mode = get_C_ulong(taskData, DEREFWORDHANDLE(args));
+            mode_t mode = get_C_ulong(taskData, args->Word());
             return Make_fixed_precision(taskData, umask(mode));
         }
 
@@ -826,7 +826,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 57: /* Get information about an open file. */
         {
             struct stat buf;
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fstat(strm->device.ioDesc, &buf) < 0)
                 raise_syscall(taskData, "fstat failed", errno);
@@ -860,7 +860,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 60: /* Change access rights on open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             mode_t mode = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fchmod(strm->device.ioDesc, mode) < 0)
@@ -883,7 +883,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 62: /* Change owner and group on open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             uid_t uid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             gid_t gid = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -906,13 +906,13 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                div_longc and rem_longc are in reverse order. */
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
             unsigned secsAccess =
-                get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hAccess)));
+                get_C_ulong(taskData, div_longc(taskData, hMillion, hAccess)->Word());
             unsigned usecsAccess =
-                get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hAccess)));
+                get_C_ulong(taskData, rem_longc(taskData, hMillion, hAccess)->Word());
             unsigned secsMod =
-                get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hMod)));
+                get_C_ulong(taskData, div_longc(taskData, hMillion, hMod)->Word());
             unsigned usecsMod =
-                get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hMod)));
+                get_C_ulong(taskData, rem_longc(taskData, hMillion, hMod)->Word());
             int err, res;
             times[0].tv_sec = secsAccess;
             times[0].tv_usec = usecsAccess;
@@ -940,7 +940,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 65: /* Truncate an open file. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int size = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (ftruncate(strm->device.ioDesc, size) < 0)
@@ -969,7 +969,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             /* Look up the variable. May raise an exception. */
             int nvar = findPathVar(taskData, DEREFHANDLE(args)->Get(1));
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int res;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             errno = 0; /* Unchanged if there is no limit. */
@@ -1041,14 +1041,14 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             outstrm->device.ioDesc = filedes[1];
             outstrm->ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
             result = ALLOC(2);
-            DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(strRead));
-            DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(strWrite));
+            DEREFHANDLE(result)->Set(0, strRead->Word());
+            DEREFHANDLE(result)->Set(1, strWrite->Word());
             return result;
         }
 
     case 111: /* Duplicate a file descriptor. */
         {
-            PIOSTRUCT str = get_stream(args->WordP());
+            PIOSTRUCT str = get_stream(args->Word());
             PIOSTRUCT newstr;
             Handle strToken = make_stream_entry(taskData);
             int fd;
@@ -1065,8 +1065,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 112: /* Duplicate a file descriptor to a given entry. */
         {
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            PIOSTRUCT newp = get_stream(DEREFHANDLE(args)->Get(1).AsObjPtr());
+            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
+            PIOSTRUCT newp = get_stream(DEREFHANDLE(args)->Get(1));
             /* The "newp" entry must be an open entry in our io table.
                It may, though, be an entry added through wordToFD
                (basicio call 31) which may not refer to a valid
@@ -1082,8 +1082,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 113: /* Duplicate a file descriptor to an entry equal to or greater
              than the given value. */
         {
-            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            PIOSTRUCT base = get_stream(DEREFHANDLE(args)->Get(1).AsObjPtr());
+            PIOSTRUCT old = get_stream(DEREFHANDLE(args)->Get(0));
+            PIOSTRUCT base = get_stream(DEREFHANDLE(args)->Get(1));
             int newfd;
             Handle strToken = make_stream_entry(taskData);
             PIOSTRUCT newstr;
@@ -1105,7 +1105,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 114: /* Get the file descriptor flags. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             int res;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             res = fcntl(strm->device.ioDesc, F_GETFD);
@@ -1115,7 +1115,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 115: /* Set the file descriptor flags. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int flags = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fcntl(strm->device.ioDesc, F_SETFD, flags) < 0)
@@ -1124,8 +1124,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 116: /* Get the file status and access flags. */
-        {
-            PIOSTRUCT strm = get_stream(args->WordP());
+        
+            PIOSTRUCT strm = get_stream(args->Word());
             int res;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             res = fcntl(strm->device.ioDesc, F_GETFL);
@@ -1135,7 +1135,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 117: /* Set the file status and access flags. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int flags = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fcntl(strm->device.ioDesc, F_SETFL, flags) < 0)
@@ -1145,7 +1145,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 118: /* Seek to a position on the stream. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             long position = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             int whence = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
             long newpos;
@@ -1157,7 +1157,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 119: /* Synchronise file contents. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (fsync(strm->device.ioDesc) < 0) raise_syscall(taskData, "fsync failed", errno);
             return Make_fixed_precision(taskData, 0);
@@ -1183,7 +1183,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 152: /* Send a break. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int duration = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcsendbreak(strm->device.ioDesc, duration) < 0)
@@ -1196,7 +1196,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* TODO: This will block the process.  It really needs to
                check whether the stream has drained and run another
                process until it has. */
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #ifdef HAVE_TCDRAIN
             if (tcdrain(strm->device.ioDesc) < 0)
@@ -1209,7 +1209,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 154: /* Flush terminal stream. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int qs = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcflush(strm->device.ioDesc, qs) < 0)
@@ -1219,7 +1219,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 155: /* Flow control. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             int action = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcflow(strm->device.ioDesc, action) < 0)
@@ -1229,7 +1229,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 156: /* Get process group. */
         {
-            PIOSTRUCT strm = get_stream(args->WordP());
+            PIOSTRUCT strm = get_stream(args->Word());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             pid_t pid = tcgetpgrp(strm->device.ioDesc);
             if (pid < 0) raise_syscall(taskData, "tcgetpgrp failed", errno);
@@ -1238,7 +1238,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     
     case 157: /* Set process group. */
         {
-            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+            PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
             pid_t pid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (tcsetpgrp(strm->device.ioDesc, pid) < 0)
@@ -1350,11 +1350,11 @@ static Handle makePasswordEntry(TaskData *taskData, struct passwd *pw)
     homeHandle = SAVE(C_string_to_Poly(taskData, pw->pw_dir));
     shellHandle = SAVE(C_string_to_Poly(taskData, pw->pw_shell));
     result = ALLOC(5);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(nameHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(uidHandle));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(gidHandle));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(homeHandle));
-    DEREFHANDLE(result)->Set(4, DEREFWORDHANDLE(shellHandle));
+    DEREFHANDLE(result)->Set(0, nameHandle->Word());
+    DEREFHANDLE(result)->Set(1, uidHandle->Word());
+    DEREFHANDLE(result)->Set(2, gidHandle->Word());
+    DEREFHANDLE(result)->Set(3, homeHandle->Word());
+    DEREFHANDLE(result)->Set(4, shellHandle->Word());
     return result;
 }
 
@@ -1369,9 +1369,9 @@ static Handle makeGroupEntry(TaskData *taskData, struct group *grp)
     for (i=0, p = grp->gr_mem; *p != NULL; p++, i++);
     membersHandle = convert_string_list(taskData, i, grp->gr_mem);
     result = ALLOC(3);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(nameHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(gidHandle));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(membersHandle));
+    DEREFHANDLE(result)->Set(0, nameHandle->Word());
+    DEREFHANDLE(result)->Set(1, gidHandle->Word());
+    DEREFHANDLE(result)->Set(2, membersHandle->Word());
     return result;
 }
 
@@ -1389,13 +1389,13 @@ static void makeStringPairList(TaskData *taskData, Handle &list, const char *s1,
     valueHandle = SAVE(C_string_to_Poly(taskData, s2));
     /* Make the pair. */
     pairHandle = ALLOC(2);
-    DEREFHANDLE(pairHandle)->Set(0, DEREFWORDHANDLE(nameHandle));
-    DEREFHANDLE(pairHandle)->Set(1, DEREFWORDHANDLE(valueHandle));
+    DEREFHANDLE(pairHandle)->Set(0, nameHandle->Word());
+    DEREFHANDLE(pairHandle)->Set(1, valueHandle->Word());
     /* Make the cons cell. */
     next  = ALLOC(SIZEOF(ML_Cons_Cell));
-    DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(pairHandle); 
-    DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
-    list = SAVE(DEREFHANDLE(next));
+    DEREFLISTHANDLE(next)->h = pairHandle->Word();
+    DEREFLISTHANDLE(next)->t = list->Word();
+    list = SAVE(next->Word());
 }
 
 /* Return the uname information.  */
@@ -1444,17 +1444,17 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     Handle ctimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,c),
                                             STAT_USECS(buf,c), 1000000);
     Handle result = ALLOC(11);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(modeHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(kindHandle));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(inoHandle));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(devHandle));
-    DEREFHANDLE(result)->Set(4, DEREFWORDHANDLE(linkHandle));
-    DEREFHANDLE(result)->Set(5, DEREFWORDHANDLE(uidHandle));
-    DEREFHANDLE(result)->Set(6, DEREFWORDHANDLE(gidHandle));
-    DEREFHANDLE(result)->Set(7, DEREFWORDHANDLE(sizeHandle));
-    DEREFHANDLE(result)->Set(8, DEREFWORDHANDLE(atimeHandle));
-    DEREFHANDLE(result)->Set(9, DEREFWORDHANDLE(mtimeHandle));
-    DEREFHANDLE(result)->Set(10, DEREFWORDHANDLE(ctimeHandle));
+    DEREFHANDLE(result)->Set(0, modeHandle->Word());
+    DEREFHANDLE(result)->Set(1, kindHandle->Word());
+    DEREFHANDLE(result)->Set(2, inoHandle->Word());
+    DEREFHANDLE(result)->Set(3, devHandle->Word());
+    DEREFHANDLE(result)->Set(4, linkHandle->Word());
+    DEREFHANDLE(result)->Set(5, uidHandle->Word());
+    DEREFHANDLE(result)->Set(6, gidHandle->Word());
+    DEREFHANDLE(result)->Set(7, sizeHandle->Word());
+    DEREFHANDLE(result)->Set(8, atimeHandle->Word());
+    DEREFHANDLE(result)->Set(9, mtimeHandle->Word());
+    DEREFHANDLE(result)->Set(10, ctimeHandle->Word());
     return result;
 }
 
@@ -1462,7 +1462,7 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
 
 static Handle getTTYattrs(TaskData *taskData, Handle args)
 {
-    PIOSTRUCT strm = get_stream(args->WordP());
+    PIOSTRUCT strm = get_stream(args->Word());
     struct termios tios;
     speed_t ispeed, ospeed;
     Handle ifHandle, ofHandle, cfHandle, lfHandle, ccHandle;
@@ -1489,20 +1489,20 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
     osHandle = Make_fixed_precision(taskData, ospeed);
     /* We can now create the result tuple. */
     result = ALLOC(7);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(ifHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(ofHandle));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(cfHandle));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(lfHandle));
-    DEREFHANDLE(result)->Set(4, DEREFWORDHANDLE(ccHandle));
-    DEREFHANDLE(result)->Set(5, DEREFWORDHANDLE(isHandle));
-    DEREFHANDLE(result)->Set(6, DEREFWORDHANDLE(osHandle));
+    DEREFHANDLE(result)->Set(0, ifHandle->Word());
+    DEREFHANDLE(result)->Set(1, ofHandle->Word());
+    DEREFHANDLE(result)->Set(2, cfHandle->Word());
+    DEREFHANDLE(result)->Set(3, lfHandle->Word());
+    DEREFHANDLE(result)->Set(4, ccHandle->Word());
+    DEREFHANDLE(result)->Set(5, isHandle->Word());
+    DEREFHANDLE(result)->Set(6, osHandle->Word());
     return result;
 }
 
 /* Assemble the tios structure from the arguments and set the TTY attributes. */
 static Handle setTTYattrs(TaskData *taskData, Handle args)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
     int actions = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
     struct termios tios;
     speed_t ispeed, ospeed;
@@ -1538,7 +1538,7 @@ static Handle setTTYattrs(TaskData *taskData, Handle args)
 /* Lock/unlock/test file locks.  Returns the, possibly modified, argument structure. */
 static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0)));
     struct flock lock;
     memset(&lock, 0, sizeof(lock)); /* Make sure unused fields are zero. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -1556,11 +1556,11 @@ static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
     Handle lenHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_len); // Position.int
     Handle pidHandle = Make_fixed_precision(taskData, lock.l_pid);
     Handle result = ALLOC(5);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(typeHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(whenceHandle));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(startHandle));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(lenHandle));
-    DEREFHANDLE(result)->Set(4, DEREFWORDHANDLE(pidHandle));
+    DEREFHANDLE(result)->Set(0, typeHandle->Word());
+    DEREFHANDLE(result)->Set(1, whenceHandle->Word());
+    DEREFHANDLE(result)->Set(2, startHandle->Word());
+    DEREFHANDLE(result)->Set(3, lenHandle->Word());
+    DEREFHANDLE(result)->Set(4, pidHandle->Word());
     return result;
 }
 
