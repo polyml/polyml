@@ -607,14 +607,23 @@ Handle neg_longc(TaskData *taskData, Handle x)
 #ifdef USE_GMP
 static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
-    /* find the longer number */
-    mp_size_t lx = numLimbs(DEREFWORD(x));
-    mp_size_t ly = numLimbs(DEREFWORD(y));
     mp_limb_t *u; /* limb-pointer for longer number  */
     mp_limb_t *v; /* limb-pointer for shorter number */
     Handle z;
     mp_size_t lu;   /* length of u in limbs */
     mp_size_t lv;   /* length of v in limbs */
+    /* find the longer number */
+    mp_size_t lx, ly;
+    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
+
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)&x_extend, &lx);
+    else lx = numLimbs(DEREFWORD(x));
+
+    if (IS_INT(DEREFWORD(y)))
+        setShort(y, (byte*)&y_extend, &ly);
+    else ly = numLimbs(DEREFWORD(y));
 
     if (lx < ly)
     {
@@ -623,8 +632,10 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS((ly+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFLIMBHANDLE(y); lu = ly;
-        v = DEREFLIMBHANDLE(x); lv = lx;
+        u = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        lu = ly;
+        lv = lx;
     }
     else
     {
@@ -633,8 +644,10 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS((lx+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFLIMBHANDLE(x); lu = lx;
-        v = DEREFLIMBHANDLE(y); lv = ly;
+        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        lu = lx;
+        lv = ly;
     }
 
     mp_limb_t *w = DEREFLIMBHANDLE(z);
@@ -737,14 +750,28 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* get the larger argument into ``u'' */
     /* This is necessary so that we can discard */
     /* the borrow at the end of the subtraction */
-    mp_size_t lx = numLimbs(DEREFWORD(x));
-    mp_size_t ly = numLimbs(DEREFWORD(y));
+    mp_size_t lx, ly;
+    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
+    
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)&x_extend, &lx);
+    else lx = numLimbs(DEREFWORD(x));
+    
+    if (IS_INT(DEREFWORD(y)))
+        setShort(y, (byte*)&y_extend, &ly);
+    else ly = numLimbs(DEREFWORD(y));
 
     // Find the larger number.  Check the lengths first and if they're equal the values.
     int res;
     if (lx < ly) res = -1;
     else if (lx > ly) res = 1;
-    else res = mpn_cmp(DEREFLIMBHANDLE(x), DEREFLIMBHANDLE(y), lx);
+    else
+    {
+        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        res = mpn_cmp(u, v, lx);
+    }
 
     // If they're equal the result is zero.
     if (res == 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
@@ -755,16 +782,20 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(ly*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFLIMBHANDLE(y); lu = ly;
-        v = DEREFLIMBHANDLE(x); lv = lx;
+        u = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        lu = ly;
+        lv = lx;
     }
     else
     {
         z = alloc_and_save(taskData, WORDS(lx*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = DEREFLIMBHANDLE(x); lu = lx;
-        v = DEREFLIMBHANDLE(y); lv = ly;
+        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        lu = lx;
+        lv = ly;
     }
 
     mp_limb_t *w = DEREFLIMBHANDLE(z);
