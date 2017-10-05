@@ -317,7 +317,11 @@ static Handle get_long(Handle x, Handle extend, int *sign)
 }
 
 // Put a short value in the buffer
+#ifdef USE_GMP
+static void setShort(Handle x, byte *u, int *sign, mp_size_t *length)
+#else
 static void setShort(Handle x, byte *u, int *sign, POLYUNSIGNED *length)
+#endif
 {
     // Short form - put it in the temporary.
     POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
@@ -562,32 +566,40 @@ Handle neg_longc(TaskData *taskData, Handle x)
     // Either overflow or long argument - convert to long form.
 #if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
+    mp_size_t lx;
 #else
     PolyWord    x_extend[2];
+    POLYUNSIGNED lx;
 #endif
 
     int sign_x;
-    POLYUNSIGNED lx;
+
     if (IS_INT(DEREFWORD(x)))
         setShort(x, (byte*)x_extend, &sign_x, &lx);
     else
     {
         sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
 #ifdef USE_GMP
-        lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
+        lx = numLimbs(DEREFWORD(x));
 #else
         lx = get_length(DEREFWORD(x));
 #endif
     }
 
-    Handle long_y = alloc_and_save(taskData, WORDS(lx), F_MUTABLE_BIT|F_BYTE_OBJ);
+#ifdef USE_GMP
+    POLYUNSIGNED bytes = lx*sizeof(mp_limb_t);
+#else
+    POLYUNSIGNED bytes = lx;
+#endif
+
+    Handle long_y = alloc_and_save(taskData, WORDS(bytes), F_MUTABLE_BIT|F_BYTE_OBJ);
     byte *v = DEREFBYTEHANDLE(long_y);
     if (IS_INT(DEREFWORD(x)))
-        memcpy(v, (byte*)x_extend, lx);
-    else memcpy(v, DEREFBYTEHANDLE(x), lx);
+        memcpy(v, (byte*)x_extend, bytes);
+    else memcpy(v, DEREFBYTEHANDLE(x), bytes);
 #ifndef USE_GMP
     // Make sure the last word is zero.  We may have unused bytes there.
-    memset(v+lx, 0, WORDS(lx)*sizeof(PolyWord)-lx);
+    memset(v+bytes, 0, WORDS(bytes)*sizeof(PolyWord)-lx);
 #endif
 
     /* Return the value with the sign changed. */
@@ -935,7 +947,7 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     {
         sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
 #ifdef USE_GMP
-        lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
+        lx = numLimbs(DEREFWORD(x));
 #else
         lx = get_length(DEREFWORD(x));
 #endif
@@ -946,7 +958,7 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     {
         sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
 #ifdef USE_GMP
-        ly = numLimbs(DEREFWORD(y)) * sizeof(mp_limb_t);
+        ly = numLimbs(DEREFWORD(y));
 #else
         ly = get_length(DEREFWORD(y));
 #endif
@@ -958,7 +970,8 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 
     Handle z = alloc_and_save(taskData, WORDS((lx+ly)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
     mp_limb_t *w = DEREFLIMBHANDLE(z);
-    mp_limb_t *u = DEREFLIMBHANDLE(long_x), *v = DEREFLIMBHANDLE(long_y);
+    mp_limb_t *u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+    mp_limb_t *v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
 
     // The first argument must be the longer.
     if (lx < ly) mpn_mul(w, v, ly, u, lx);
