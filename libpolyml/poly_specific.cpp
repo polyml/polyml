@@ -154,7 +154,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return globalStats.getLocalStatistics(taskData);
 
     case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
-        return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, DEREFHANDLE(args)));
+        return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, args->Word()));
 
     case 31: // Store a module
         return StoreModule(taskData, args);

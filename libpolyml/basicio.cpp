@@ -370,7 +370,7 @@ Handle make_stream_entry(TaskData *taskData)
     ASSERT(!isOpen(&basic_io_vector[stream_no]));
     /* Clear the entry then set the token. */
     memset(&basic_io_vector[stream_no], 0, sizeof(IOSTRUCT));
-    basic_io_vector[stream_no].token = DEREFWORDHANDLE(str_token);
+    basic_io_vector[stream_no].token = str_token->Word();
 
     ioLock.Unlock();
     
@@ -511,7 +511,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         PIOSTRUCT   strm;
 
         while (true) {
-            strm = get_stream(DEREFHANDLE(stream));
+            strm = get_stream(stream->Word());
             /* Raise an exception if the stream has been closed. */
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, strm))

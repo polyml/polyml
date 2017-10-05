@@ -310,7 +310,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
             {
                 PolyObject *cell = alloc(mdTaskData, 2);
                 cell->Set(0, at_exit_list);
-                cell->Set(1, DEREFWORD(args));
+                cell->Set(1, args->Word());
                 at_exit_list = cell;
             }
             return Make_fixed_precision(mdTaskData, 0);
@@ -334,7 +334,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
         {
             /* I don't like terminating without some sort of clean up
                but we'll do it this way for the moment. */
-            int i = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
+            int i = get_C_int(mdTaskData, args->Word());
             _exit(i);
         }
 
@@ -356,7 +356,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
 
     case 8: /* Test the character to see if it matches a separator. */
         {
-            int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
+            int e = get_C_int(mdTaskData, args->Word());
             if (ISPATHSEPARATOR(e))
                 return Make_fixed_precision(mdTaskData, 1);
             else return Make_fixed_precision(mdTaskData, 0);
@@ -381,7 +381,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
             const TCHAR *volName = NULL;
             int  isAbs = 0;
             int  toRemove = 0;
-            PolyWord path = DEREFHANDLE(args);
+            PolyWord path = args->Word();
             /* This examines the start of a string and determines
                how much of it represents the volume name and returns
                the number of characters to remove, the volume name
@@ -446,7 +446,7 @@ static Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle c
                 Handle sVol = SAVE(C_string_to_Poly(mdTaskData, volName));
                 Handle sRes = ALLOC(3);
                 DEREFWORDHANDLE(sRes)->Set(0, TAGGED(toRemove));
-                DEREFHANDLE(sRes)->Set(1, DEREFWORDHANDLE(sVol));
+                DEREFHANDLE(sRes)->Set(1, sVol->Word());
                 DEREFWORDHANDLE(sRes)->Set(2, TAGGED(isAbs));
                 return sRes;
             }

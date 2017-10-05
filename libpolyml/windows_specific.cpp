@@ -580,10 +580,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             serialHandle = Make_arbitrary_precision(taskData, dwVolSerial);
             maxCompHandle = Make_arbitrary_precision(taskData, dwMaxComponentLen);
             resultHandle = alloc_and_save(taskData, 4);
-            DEREFHANDLE(resultHandle)->Set(0, DEREFWORDHANDLE(volHandle));
-            DEREFHANDLE(resultHandle)->Set(1, DEREFWORDHANDLE(sysHandle));
-            DEREFHANDLE(resultHandle)->Set(2, DEREFWORDHANDLE(serialHandle));
-            DEREFHANDLE(resultHandle)->Set(3, DEREFWORDHANDLE(maxCompHandle));
+            DEREFHANDLE(resultHandle)->Set(0, volHandle->Word());
+            DEREFHANDLE(resultHandle)->Set(1, sysHandle->Word());
+            DEREFHANDLE(resultHandle)->Set(2, serialHandle->Word());
+            DEREFHANDLE(resultHandle)->Set(3, maxCompHandle->Word());
             return resultHandle;
         }
 
@@ -711,11 +711,11 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             Handle platform = Make_fixed_precision(taskData, osver.dwPlatformId);
             Handle version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
             Handle resVal = alloc_and_save(taskData, 5);
-            DEREFHANDLE(resVal)->Set(0, DEREFWORDHANDLE(major));
-            DEREFHANDLE(resVal)->Set(1, DEREFWORDHANDLE(minor));
-            DEREFHANDLE(resVal)->Set(2, DEREFWORDHANDLE(build));
-            DEREFHANDLE(resVal)->Set(3, DEREFWORDHANDLE(platform));
-            DEREFHANDLE(resVal)->Set(4, DEREFWORDHANDLE(version));
+            DEREFHANDLE(resVal)->Set(0, major->Word());
+            DEREFHANDLE(resVal)->Set(1, minor->Word());
+            DEREFHANDLE(resVal)->Set(2, build->Word());
+            DEREFHANDLE(resVal)->Set(3, platform->Word());
+            DEREFHANDLE(resVal)->Set(4, version->Word());
             return resVal;
         }
 
@@ -1138,8 +1138,8 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     dispRes = Make_fixed_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
     /* Return a pair of the disposition and the token. */
     pair = alloc_and_save(taskData, 2);
-    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(dispRes));
-    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(keyResult));
+    DEREFHANDLE(pair)->Set(0, dispRes->Word());
+    DEREFHANDLE(pair)->Set(1, keyResult->Word());
     return pair;
 }
 
@@ -1165,8 +1165,7 @@ static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent
 {
     TCHAR keyName[MAX_PATH];
     LONG lRes;
-    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1).AsObjPtr(),
-                    keyName, MAX_PATH);
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ERROR_BAD_LENGTH);
 
@@ -1233,8 +1232,8 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     /* Create a pair containing the type and the value. */
     resType = Make_fixed_precision(taskData, dwType);
     result = alloc_and_save(taskData, 2);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resType));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resVal));
+    DEREFHANDLE(result)->Set(0, resType->Word());
+    DEREFHANDLE(result)->Set(1, resVal->Word());
     return result;
 }
 
@@ -1294,7 +1293,7 @@ static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL
         return SAVE(NONE_VALUE); /* NONE. */
     resVal = SAVE(C_string_to_Poly(taskData, keyName));
     result = alloc_and_save(taskData, 1);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resVal));
+    DEREFHANDLE(result)->Set(0, resVal->Word());
     return result;
 }
 

@@ -330,7 +330,7 @@ Handle Real_convc(TaskData *mdTaskData, Handle str) /* string to real */
     double result;
     int i;
     char *finish;
-    TempCString string_buffer(Poly_string_to_C_alloc(DEREFHANDLE(str)));
+    TempCString string_buffer(Poly_string_to_C_alloc(str->Word()));
     
     /* Scan the string turning '~' into '-' */
     for(i = 0; string_buffer[i] != '\0'; i ++)
@@ -584,8 +584,8 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 {
     double  dx = real_arg(arg);
     int     decpt, sign;
-    int     mode = get_C_int(mdTaskData, DEREFWORDHANDLE(hMode));
-    int     digits = get_C_int(mdTaskData, DEREFWORDHANDLE(hDigits));
+    int     mode = get_C_int(mdTaskData, hMode->Word());
+    int     digits = get_C_int(mdTaskData, hDigits->Word());
     /* Compute the shortest string which gives the required value. */
     /*  */
     char *chars = poly_dtoa(dx, mode, digits, &decpt, &sign, NULL);
@@ -596,7 +596,7 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
     Handle ppStr = mdTaskData->saveVec.push(pStr);
     /* Allocate a triple for the results. */
     PolyObject *result = alloc(mdTaskData, 3);
-    result->Set(0, DEREFWORDHANDLE(ppStr));
+    result->Set(0, ppStr->Word());
     result->Set(1, TAGGED(decpt));
     result->Set(2, TAGGED(sign));
     return mdTaskData->saveVec.push(result);
@@ -627,7 +627,7 @@ POLYUNSIGNED PolyRealBoxedToString(PolyObject *threadId, PolyWord arg, PolyWord 
 /* Functions added for Standard Basis Library are all indirected through here. */
 static Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
-    unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(mdTaskData, code->Word());
     switch (c)
     {
     case 3: /* atan2 */ return real_result(mdTaskData, atan2(real_arg1(args), real_arg2(args)));
