@@ -1,7 +1,7 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000, 2015, 2016 David C. J. Matthews
+    Copyright (c) 2000, 2015-2017 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
@@ -481,7 +481,7 @@ static Handle close_file(TaskData *taskData, Handle stream)
     // Closed streams, stdin, stdout or stderr are all short ints.
     if (stream->Word().IsDataPtr())
     {
-        PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
+        PIOSTRUCT strm = get_stream(stream->Word());
         if (strm != NULL && strm->token.IsTagged()) strm = NULL; // Backwards compatibility for stdin etc.
         // Ignore closed streams, stdin, stdout or stderr.
         if (strm != NULL) close_stream(strm);
@@ -577,7 +577,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         PIOSTRUCT   strm;
 
         while (true) {
-            strm = get_stream(DEREFHANDLE(stream));
+            strm = get_stream(DEREFWORD(stream));
             /* Raise an exception if the stream has been closed. */
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, strm))
@@ -634,7 +634,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     ssize_t haveWritten;
 #endif
-    PIOSTRUCT       strm = get_stream(stream->WordP());
+    PIOSTRUCT       strm = get_stream(stream->Word());
     byte    ch;
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -662,7 +662,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
 // true if it will not.
 static bool canOutput(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -700,7 +700,7 @@ static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
    files since it is meaningless for other devices. */
 static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
     /* Remember our original position, seek to the end, then seek back. */
@@ -723,7 +723,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
 
 static Handle fileKind(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
@@ -784,7 +784,7 @@ static Handle fileKind(TaskData *taskData, Handle stream)
    the stream was opened. */
 Handle pollTest(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
     int nRes = 0;
     if (strm == NULL) return Make_fixed_precision(taskData, 0);
     /* Allow for the possibility of both being set in the future. */
@@ -822,7 +822,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
             Handle marker = taskData->saveVec.mark();
-            PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
+            PIOSTRUCT strm = get_stream(strmVec->Get(i));
             taskData->saveVec.reset(marker);
             int bits = get_C_int(taskData, bitVec->Get(i));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
@@ -917,7 +917,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 
         for (POLYUNSIGNED i = 0; i < nDesc; i++)
         {
-            PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
+            PIOSTRUCT strm = get_stream(strmVec->Get(i));
             int bits = UNTAGGED(bitVec->Get(i));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (bits & POLL_BIT_IN) FD_SET(strm->device.ioDesc, &readFds);
@@ -986,7 +986,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
         /* Set up the request vector. */
         for (unsigned i = 0; i < nDesc; i++)
         {
-            PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
+            PIOSTRUCT strm = get_stream(strmVec->Get(i));
             POLYUNSIGNED bits = UNTAGGED(bitVec->Get(i));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             fds[i].fd = strm->device.ioDesc;
@@ -1111,7 +1111,7 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
    parent arcs ("." and ".." in Windows and Unix) */
 Handle readDirectory(TaskData *taskData, Handle stream)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     Handle result = NULL;
 #endif
@@ -1160,7 +1160,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
 
 Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 {
-    PIOSTRUCT strm = get_stream(stream->WordP());
+    PIOSTRUCT strm = get_stream(stream->Word());
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1524,7 +1524,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
     case 16: /* See if we can get some input. */
         {
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             return Make_fixed_precision(taskData, isAvailable(taskData, str) ? 1 : 0);
         }
@@ -1537,7 +1537,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
             /* Get the current position in the stream.  This is used to test
                for the availability of random access so it should raise an
                exception if setFilePos or endFilePos would fail. */
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             long pos = seekStream(taskData, str, 0L, SEEK_CUR);
@@ -1547,7 +1547,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
     case 19: /* Seek to position on stream. */
         {
             long position = (long)get_C_long(taskData, DEREFWORD(args));
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             (void)seekStream(taskData, str, position, SEEK_SET);
@@ -1556,7 +1556,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
 
     case 20: /* Return position at end of stream. */
         {
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
 
             /* Remember our original position, seek to the end, then seek back. */
@@ -1584,7 +1584,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         // We should check for interrupts even if we're not going to block.
         processes->TestAnyEvents(taskData);
         while (true) {
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             if (isAvailable(taskData, str))
                 return Make_fixed_precision(taskData, 0);
@@ -1611,7 +1611,7 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         /* This is now also used internally to test for
            stdIn, stdOut and stdErr. */
         {
-            PIOSTRUCT str = get_stream(strm->WordP());
+            PIOSTRUCT str = get_stream(strm->Word());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", STREAMCLOSED);
             return Make_fixed_precision(taskData, str->device.ioDesc);
         }

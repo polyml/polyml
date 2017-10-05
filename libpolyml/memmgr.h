@@ -80,7 +80,7 @@ public:
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
     
-    POLYUNSIGNED spaceSize(void)const { return top-bottom; } // No of words
+    uintptr_t spaceSize(void)const { return top-bottom; } // No of words
 
     // These next two are used in the GC to limit scanning for
     // weak refs.
@@ -136,7 +136,7 @@ class LocalMemSpace: public MarkableSpace
 protected:
     LocalMemSpace();
     virtual ~LocalMemSpace() {}
-    bool InitSpace(POLYUNSIGNED size, bool mut);
+    bool InitSpace(uintptr_t size, bool mut);
 
 public:
     // Allocation.  The minor GC allocates at the bottom of the areas while the
@@ -156,23 +156,23 @@ public:
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
-    POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
+    uintptr_t start[NSTARTS];  /* starting points for bit searches.                 */
     unsigned     start_index;     /* last index used to index start array              */
-    POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */
-    POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
-    POLYUNSIGNED updated;         /* count of words updated.                           */
+    uintptr_t i_marked;        /* count of immutable words marked.                  */
+    uintptr_t m_marked;        /* count of mutable words marked.                    */
+    uintptr_t updated;         /* count of words updated.                           */
     
-    POLYUNSIGNED allocatedSpace(void)const // Words allocated
+    uintptr_t allocatedSpace(void)const // Words allocated
         { return (top-upperAllocPtr) + (lowerAllocPtr-bottom); }
-    POLYUNSIGNED freeSpace(void)const // Words free
+    uintptr_t freeSpace(void)const // Words free
         { return upperAllocPtr-lowerAllocPtr; }
 
     virtual const char *spaceTypeString()
         { return allocationSpace ? "allocation" : MemSpace::spaceTypeString(); }
 
     // Used when converting to and from bit positions in the bitmap
-    POLYUNSIGNED wordNo(PolyWord *pt) { return pt - bottom; }
-    PolyWord *wordAddr(POLYUNSIGNED bitno) { return bottom + bitno; }
+    uintptr_t wordNo(PolyWord *pt) { return pt - bottom; }
+    PolyWord *wordAddr(uintptr_t bitno) { return bottom + bitno; }
 
     friend class MemMgr;
 };
@@ -192,10 +192,10 @@ public:
 class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize);
+        CodeSpace(PolyWord *start, uintptr_t spaceSize);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
-    POLYUNSIGNED largestFree; // The largest free space in the area
+    uintptr_t largestFree; // The largest free space in the area
     PolyWord *firstFree; // The start of the first free space in the area.
 };
 
@@ -206,11 +206,11 @@ public:
     ~MemMgr();
 
     // Create a local space for initial allocation.
-    LocalMemSpace *CreateAllocationSpace(POLYUNSIGNED size);
+    LocalMemSpace *CreateAllocationSpace(uintptr_t size);
     // Create and initialise a new local space and add it to the table.
-    LocalMemSpace *NewLocalSpace(POLYUNSIGNED size, bool mut);
+    LocalMemSpace *NewLocalSpace(uintptr_t size, bool mut);
     // Create an entry for a permanent space.
-    PermanentMemSpace *NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
+    PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
     // Delete a local space.  Takes the iterator position in lSpaces and returns the
     // iterator after deletion.
@@ -221,16 +221,16 @@ public:
     // are the same) and when allocating heap segments.  If there is insufficient
     // space to satisfy the minimum it will return 0.  Updates "maxWords" with
     // the space actually allocated
-    PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, bool doAllocation = true);
-    PolyWord *AllocHeapSpace(POLYUNSIGNED words)
-        { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
+    PolyWord *AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool doAllocation = true);
+    PolyWord *AllocHeapSpace(uintptr_t words)
+        { uintptr_t allocated = words; return AllocHeapSpace(words, allocated); }
 
-    CodeSpace *NewCodeSpace(POLYUNSIGNED size);
+    CodeSpace *NewCodeSpace(uintptr_t size);
     // Allocate space for code.  This is initially mutable to allow the code to be built.
-    PolyObject *AllocCodeSpace(PolyObject *initCell);
+    PolyObject *AllocCodeSpace(POLYUNSIGNED size);
 
     // Check that a subsequent allocation will succeed.  Called from the GC to ensure
-    bool CheckForAllocation(POLYUNSIGNED words);
+    bool CheckForAllocation(uintptr_t words);
 
     // If an allocation space has a lot of data left in it, particularly a single
     // large object we should turn it into a local area.
@@ -238,17 +238,17 @@ public:
 
     // Allocate space for the initial stack for a thread.  The caller must
     // initialise the new stack.  Returns 0 if allocation fails.
-    StackSpace *NewStackSpace(POLYUNSIGNED size);
+    StackSpace *NewStackSpace(uintptr_t size);
 
     // Adjust the space for a stack.  Returns true if it succeeded.  If it failed
     // it leaves the stack untouched.
-    bool GrowOrShrinkStack(TaskData *taskData, POLYUNSIGNED newSize);
+    bool GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize);
 
     // Delete a stack when a thread has finished.
     bool DeleteStackSpace(StackSpace *space);
 
     // Create and delete export spaces
-    PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv, bool code);
+    PermanentMemSpace *NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code);
     void DeleteExportSpaces(void);
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
@@ -291,14 +291,14 @@ public:
         else return 0;
     }
 
-    void SetReservation(POLYUNSIGNED words) { reservedSpace = words; }
+    void SetReservation(uintptr_t words) { reservedSpace = words; }
 
     // In several places we assume that segments are filled with valid
     // objects.  This fills unused memory with one or more "byte" objects.
-    void FillUnusedSpace(PolyWord *base, POLYUNSIGNED words);
+    void FillUnusedSpace(PolyWord *base, uintptr_t words);
 
     // Return number of words of free space for stats.
-    POLYUNSIGNED GetFreeAllocSpace();
+    uintptr_t GetFreeAllocSpace();
 
     // Remove unused local areas.
     void RemoveEmptyLocals();
@@ -306,7 +306,7 @@ public:
     void RemoveEmptyCodeAreas();
 
     // Remove unused allocation areas to reduce the space below the limit.
-    void RemoveExcessAllocation(POLYUNSIGNED words);
+    void RemoveExcessAllocation(uintptr_t words);
     void RemoveExcessAllocation() { RemoveExcessAllocation(spaceBeforeMinorGC); }
 
     // Table for permanent spaces
@@ -334,16 +334,16 @@ public:
 
     unsigned nextIndex; // Used when allocating new permanent spaces.
 
-    POLYUNSIGNED SpaceBeforeMinorGC() const { return spaceBeforeMinorGC; }
-    POLYUNSIGNED SpaceForHeap() const { return spaceForHeap; }
-    void SetSpaceBeforeMinorGC(POLYUNSIGNED minorSize) { spaceBeforeMinorGC = minorSize; }
-    void SetSpaceForHeap(POLYUNSIGNED heapSize) { spaceForHeap = heapSize; }
+    uintptr_t SpaceBeforeMinorGC() const { return spaceBeforeMinorGC; }
+    uintptr_t SpaceForHeap() const { return spaceForHeap; }
+    void SetSpaceBeforeMinorGC(uintptr_t minorSize) { spaceBeforeMinorGC = minorSize; }
+    void SetSpaceForHeap(uintptr_t heapSize) { spaceForHeap = heapSize; }
 
-    POLYUNSIGNED CurrentAllocSpace() { return currentAllocSpace; }
-    POLYUNSIGNED AllocatedInAlloc();
-    POLYUNSIGNED CurrentHeapSize() { return currentHeapSize; }
+    uintptr_t CurrentAllocSpace() { return currentAllocSpace; }
+    uintptr_t AllocatedInAlloc();
+    uintptr_t CurrentHeapSize() { return currentHeapSize; }
 
-    POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
+    uintptr_t DefaultSpaceSize() const { return defaultSpaceSize; }
 
     void ReportHeapSizes(const char *phase);
 
@@ -356,16 +356,16 @@ private:
     bool AddLocalSpace(LocalMemSpace *space);
     bool AddCodeSpace(CodeSpace *space);
 
-    POLYUNSIGNED reservedSpace;
+    uintptr_t reservedSpace;
     unsigned nextAllocator;
     // The default size in words when creating new segments.
-    POLYUNSIGNED defaultSpaceSize;
+    uintptr_t defaultSpaceSize;
     // The number of words that can be used for initial allocation.
-    POLYUNSIGNED spaceBeforeMinorGC;
+    uintptr_t spaceBeforeMinorGC;
     // The number of words that can be used for the heap
-    POLYUNSIGNED spaceForHeap;
+    uintptr_t spaceForHeap;
     // The current sizes of the allocation space and the total heap size.
-    POLYUNSIGNED currentAllocSpace, currentHeapSize;
+    uintptr_t currentAllocSpace, currentHeapSize;
     // LocalSpaceForAddress is a hot-spot so we use a B-tree to convert addresses;
     SpaceTree *spaceTree;
     PLock spaceTreeLock;

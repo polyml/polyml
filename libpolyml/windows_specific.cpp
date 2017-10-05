@@ -595,10 +595,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (length > MAX_PATH)
                 raise_syscall(taskData, "File name too long", ERROR_BAD_LENGTH);
             hInst = FindExecutable(fileName, NULL, execName);
-            if ((POLYUNSIGNED)hInst <= 32)
+            if ((uintptr_t)hInst <= 32)
             {
                 int error = 0;
-                switch ((POLYUNSIGNED)hInst) {
+                switch ((uintptr_t)hInst) {
                 case SE_ERR_FNF: error = ERROR_FILE_NOT_FOUND; break;
                 case SE_ERR_PNF: error = ERROR_PATH_NOT_FOUND; break;
                 case SE_ERR_ACCESSDENIED: error = ERROR_ACCESS_DENIED; break;
@@ -1056,7 +1056,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
     Handle str_token = make_stream_entry(taskData);
     if (str_token == NULL) raise_syscall(taskData, "Insufficient memory", ERROR_NOT_ENOUGH_MEMORY);
     PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
-    strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
+    strm->device.ioDesc = _open_osfhandle ((intptr_t) hStream, mode);
     if (strm->device.ioDesc == -1)
         raise_syscall(taskData, "_open_osfhandle failed", _doserrno);
     strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;

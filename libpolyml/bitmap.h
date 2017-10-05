@@ -1,7 +1,7 @@
 /*
     Title:  Bitmap.  Generally used by the garbage collector to indicate allocated words
 
-    Copyright (c) 2006, 2012  David C.J. Matthews
+    Copyright (c) 2006, 2012, 2017  David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -31,35 +31,35 @@ public:
     ~Bitmap();
 
     // Allocate the bitmap bits
-    bool Create(POLYUNSIGNED bits);
+    bool Create(size_t bits);
 
     // Free the bitmap bits.
     void Destroy();
 
 private:
-    static unsigned char BitN(POLYUNSIGNED n) { return 1 << (n & 7); }
+    static unsigned char BitN(uintptr_t n) { return 1 << (n & 7); }
 public:
     // Test to see if it has been created
     bool Created() const { return m_bits != 0; }
     // Set a single bit
-    void SetBit(POLYUNSIGNED n) { m_bits[n >> 3] |=  BitN(n); }
+    void SetBit(uintptr_t n) { m_bits[n >> 3] |=  BitN(n); }
     // Clear a single bit
-    void ClearBit(POLYUNSIGNED n) { m_bits[n >> 3] &= (0xff ^ BitN(n)); }
+    void ClearBit(uintptr_t n) { m_bits[n >> 3] &= (0xff ^ BitN(n)); }
     // Set a range of bits
-    void SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length);
+    void SetBits(uintptr_t bitno, uintptr_t length);
     // Clear a range of bits.  May already be partly clear
     // N.B.  This may clear more than just the bits specified
-    void ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length);
+    void ClearBits(uintptr_t bitno, uintptr_t length);
     // Test a bit
-    bool TestBit(POLYUNSIGNED n) const { return (m_bits[n >> 3] & BitN(n)) != 0; }
+    bool TestBit(uintptr_t n) const { return (m_bits[n >> 3] & BitN(n)) != 0; }
     // How many zero bits (maximum n) are there in the bitmap, starting at location start?
-    POLYUNSIGNED CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const;
+    uintptr_t CountZeroBits(uintptr_t bitno, uintptr_t n) const;
     //* search the bitmap from the high end down looking for n contiguous zeros
-    POLYUNSIGNED FindFree(POLYUNSIGNED limit, POLYUNSIGNED bitno, POLYUNSIGNED n) const;
+    uintptr_t FindFree(uintptr_t limit, uintptr_t bitno, uintptr_t n) const;
     // How many set bits are there in the bitmap?
-    POLYUNSIGNED CountSetBits(POLYUNSIGNED size) const;
+    uintptr_t CountSetBits(uintptr_t size) const;
     // Find the last set bit before here.
-    POLYUNSIGNED FindLastSet(POLYUNSIGNED bitno) const;
+    uintptr_t FindLastSet(uintptr_t bitno) const;
 private:
 
     unsigned char *m_bits;

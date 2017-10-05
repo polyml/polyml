@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12, 2015
+    Further development copyright David C.J. Matthews 2001-12, 2015, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -196,7 +196,7 @@ POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
         Usage("Malformed %s option\n", arg);
     // Check that the number of kbytes is less than the address space.
     // The value could overflow when converted to bytes.
-    if (result >= ((POLYUNSIGNED)1 << (SIZEOF_VOIDP*8 - 10)))
+    if (result >= ((uintptr_t)1 << (SIZEOF_VOIDP*8 - 10)))
         Usage("Value of %s option is too large\n", arg);
     return result;
 }

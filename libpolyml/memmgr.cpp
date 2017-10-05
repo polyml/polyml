@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,14 +78,14 @@ LocalMemSpace::LocalMemSpace()
     allocationSpace = false;
 }
 
-bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
+bool LocalMemSpace::InitSpace(uintptr_t size, bool mut)
 {
     isMutable = mut;
 
     // Allocate the heap itself.
     size_t iSpace = size*sizeof(PolyWord);
     bottom  =
-        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, true);
 
     if (bottom == 0)
         return false;
@@ -136,7 +136,7 @@ MemMgr::~MemMgr()
 }
 
 // Create and initialise a new local space and add it to the table.
-LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
+LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
 {
     try {
         LocalMemSpace *space = new LocalMemSpace;
@@ -147,7 +147,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
         size_t rSpace = reservedSpace*sizeof(PolyWord);
 
         if (reservedSpace != 0) {
-            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
+            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ, true);
             if (reservation == 0) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
                 if (debugOptions & DEBUG_MEMMGR)
@@ -183,7 +183,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 }
 
 // Create a local space for initial allocation.
-LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
+LocalMemSpace *MemMgr::CreateAllocationSpace(uintptr_t size)
 {
     LocalMemSpace *result = NewLocalSpace(size, true);
     if (result) 
@@ -244,7 +244,7 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 
 // Create an entry for a permanent space.
-PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
+PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
                                              unsigned flags, unsigned index, unsigned hierarchy /*= 0*/)
 {
     try {
@@ -305,7 +305,7 @@ void MemMgr::RemoveEmptyLocals()
 }
 
 // Create and initialise a new export space and add it to the table.
-PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv, bool code)
+PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace;
@@ -317,7 +317,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom  =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC, true);
 
         if (space->bottom == 0)
         {
@@ -482,16 +482,16 @@ PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
 
 // In several places we assume that segments are filled with valid
 // objects.  This fills unused memory with one or more "byte" objects.
-void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
+void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
 {
     PolyWord *pDummy = base+1;
     while (words > 0)
     {
-        POLYUNSIGNED oSize = words;
+        POLYUNSIGNED oSize;
         // If the space is larger than the maximum object size
         // we will need several objects.
         if (words > MAX_OBJECT_SIZE) oSize = MAX_OBJECT_SIZE;
-        else oSize = words-1;
+        else oSize = (POLYUNSIGNED)(words-1);
         // Make this a byte object so it's always skipped.
         ((PolyObject*)pDummy)->SetLengthWord(oSize, F_BYTE_OBJ);
         words -= oSize+1;
@@ -503,7 +503,7 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
 // This is used both when allocating single objects (when minWords and maxWords
 // are the same) and when allocating heap segments.  If there is insufficient
 // space to satisfy the minimum it will return 0.
-PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, bool doAllocation)
+PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool doAllocation)
 {
     PLocker locker(&allocLock);
     // We try to distribute the allocations between the memory spaces
@@ -520,7 +520,7 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
         LocalMemSpace *space = gMem.lSpaces[j++];
         if (space->allocationSpace)
         {
-            POLYUNSIGNED available = space->freeSpace();
+            uintptr_t available = space->freeSpace();
             if (available > 0 && available >= minWords)
             {
                 // Reduce the maximum value if we had less than that.
@@ -546,12 +546,12 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
         // but it may be that allocating this object will take us over the limit.  We allow
         // that to happen so that we can successfully allocate very large objects even if
         // we have a new GC very shortly.
-        POLYUNSIGNED spaceSize = defaultSpaceSize;
+        uintptr_t spaceSize = defaultSpaceSize;
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
         LocalMemSpace *space = CreateAllocationSpace(spaceSize);
         if (space == 0) return 0; // Can't allocate it
         // Allocate our space in this new area.
-        POLYUNSIGNED available = space->freeSpace();
+        uintptr_t available = space->freeSpace();
         ASSERT(available >= minWords);
         if (available < maxWords)
             maxWords = available;
@@ -563,7 +563,7 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
     return 0; // There isn't space even for the minimum.
 }
 
-CodeSpace::CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize)
+CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize)
 {
     isOwnSpace = true;
     bottom = start;
@@ -572,11 +572,18 @@ CodeSpace::CodeSpace(PolyWord *start, POLYUNSIGNED spaceSize)
     isOwnSpace = true;
     isCode = true;
     spaceType = ST_CODE;
-    largestFree = spaceSize-1;
+#ifdef POLYML32IN64
+    // Dummy word so that the cell itself, after the length word, is on an 8-byte boundary.
+    *start = PolyWord::FromUnsigned(0);
+    largestFree = spaceSize - 2;
+    firstFree = start+1;
+#else
+    largestFree = spaceSize - 1;
     firstFree = start;
+#endif
 }
 
-CodeSpace *MemMgr::NewCodeSpace(POLYUNSIGNED size)
+CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
 {
     // Allocate a new area and add it at the end of the table.
     CodeSpace *allocSpace = 0;
@@ -584,7 +591,7 @@ CodeSpace *MemMgr::NewCodeSpace(POLYUNSIGNED size)
     size_t actualSize = size * sizeof(PolyWord);
     PolyWord *mem =
         (PolyWord*)osMemoryManager->Allocate(actualSize,
-            PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
+            PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC, false);
     if (mem != 0)
     {
         try {
@@ -602,7 +609,7 @@ CodeSpace *MemMgr::NewCodeSpace(POLYUNSIGNED size)
             else if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New code space %p allocated at %p size %lu\n", allocSpace, allocSpace->bottom, allocSpace->spaceSize());
             // Put in a byte cell to mark the area as unallocated.
-            FillUnusedSpace(allocSpace->bottom, allocSpace->spaceSize());
+            FillUnusedSpace(allocSpace->firstFree, allocSpace->top- allocSpace->firstFree);
         }
         catch (std::bad_alloc&)
         {
@@ -621,12 +628,11 @@ CodeSpace *MemMgr::NewCodeSpace(POLYUNSIGNED size)
 // area executable.  It will not be executed until the mutable bit has been cleared.
 // Once code is allocated it is not GCed or moved.
 // initCell is a byte cell that is copied into the new code area.
-PolyObject*MemMgr::AllocCodeSpace(PolyObject *initCell)
+PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
 {
     PLocker locker(&codeSpaceLock);
     // Search the code spaces until we find a free area big enough.
     size_t i = 0;
-    POLYUNSIGNED requiredSize = initCell->Length();
     while (true)
     {
         if (i != cSpaces.size())
@@ -654,15 +660,22 @@ PolyObject*MemMgr::AllocCodeSpace(PolyObject *initCell)
                         {
                             // Free and large enough
                             PolyWord *next = pt+requiredSize+1;
-                            if (requiredSize < length)
-                                FillUnusedSpace(next, length-requiredSize);
+                            POLYUNSIGNED spare = length - requiredSize;
+#ifdef POLYML32IN64
+                            if (((requiredSize + 1) & 1) && spare != 0)
+                            {
+                                *next++ = PolyWord::FromUnsigned(0);
+                                spare--;
+                            }
+#endif
+                            if (spare != 0)
+                                FillUnusedSpace(next, spare);
                             space->isMutable = true; // Set this - it ensures the area is scanned on GC.
                             space->headerMap.SetBit(pt-space->bottom); // Set the "header" bit
                             // Set the length word of the code area and copy the byte cell in.
                             // The code bit must be set before the lock is released to ensure
                             // another thread doesn't reuse this.
                             obj->SetLengthWord(requiredSize,  F_CODE_OBJ|F_MUTABLE_BIT);
-                            memcpy(obj, initCell, requiredSize * sizeof(PolyWord));
                             return obj;
                         }
                         else if (length >= actualLargest) actualLargest = length+1;
@@ -721,9 +734,9 @@ bool MemMgr::AddCodeSpace(CodeSpace *space)
 // Check that we have sufficient space for an allocation to succeed.
 // Called from the GC to ensure that we will not get into an infinite
 // loop trying to allocate, failing and garbage-collecting again.
-bool MemMgr::CheckForAllocation(POLYUNSIGNED words)
+bool MemMgr::CheckForAllocation(uintptr_t words)
 {
-    POLYUNSIGNED allocated = 0;
+    uintptr_t allocated = 0;
     return AllocHeapSpace(words, allocated, false) != 0;
 }
 
@@ -731,7 +744,7 @@ bool MemMgr::CheckForAllocation(POLYUNSIGNED words)
 // size of the allocation area is less than the required value.  This
 // is used after the quick GC and also if we need to allocate a large
 // object.
-void MemMgr::RemoveExcessAllocation(POLYUNSIGNED words)
+void MemMgr::RemoveExcessAllocation(uintptr_t words)
 {
     // First remove any non-standard allocation areas.
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end();)
@@ -752,9 +765,9 @@ void MemMgr::RemoveExcessAllocation(POLYUNSIGNED words)
 }
 
 // Return number of words free in all allocation spaces.
-POLYUNSIGNED MemMgr::GetFreeAllocSpace()
+uintptr_t MemMgr::GetFreeAllocSpace()
 {
-    POLYUNSIGNED freeSpace = 0;
+    uintptr_t freeSpace = 0;
     PLocker lock(&allocLock);
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
@@ -765,7 +778,7 @@ POLYUNSIGNED MemMgr::GetFreeAllocSpace()
     return freeSpace;
 }
 
-StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
+StackSpace *MemMgr::NewStackSpace(uintptr_t size)
 {
     PLocker lock(&stackSpaceLock);
 
@@ -773,7 +786,7 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
         StackSpace *space = new StackSpace;
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, false);
         if (space->bottom == 0)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -827,11 +840,11 @@ void MemMgr::ProtectImmutable(bool on)
     }
 }
 
-bool MemMgr::GrowOrShrinkStack(TaskData *taskData, POLYUNSIGNED newSize)
+bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
 {
     StackSpace *space = taskData->stack;
     size_t iSpace = newSize*sizeof(PolyWord);
-    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, false);
     if (newSpace == 0)
     {
         if (debugOptions & DEBUG_MEMMGR)
@@ -996,9 +1009,9 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
     *tt = 0;
 }
 
-POLYUNSIGNED MemMgr::AllocatedInAlloc()
+uintptr_t MemMgr::AllocatedInAlloc()
 {
-    POLYUNSIGNED inAlloc = 0;
+    uintptr_t inAlloc = 0;
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
         LocalMemSpace *sp = *i;
@@ -1145,6 +1158,20 @@ void MemMgr::RemoveProfilingBitmaps()
     for (std::vector<PermanentMemSpace*>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
         (*i)->profileCode.Destroy();
 }
+
+
+#ifdef POLYML32IN64
+PolyWord *globalHeapBase = (PolyWord*)0x7FC00000000;
+
+POLYOBJECTPTR AddressToObjectPtr(void *address)
+{
+    ASSERT(address >= globalHeapBase);
+    uintptr_t offset = (PolyWord*)address - globalHeapBase;
+    ASSERT(offset <= 0xffffffff);
+    ASSERT((offset & 1) == 0);
+    return (POLYOBJECTPTR)offset;
+}
+#endif
 
 MemMgr gMem; // The one and only memory manager object
 

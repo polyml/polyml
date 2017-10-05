@@ -80,7 +80,7 @@ static const char *poly_runtime_system_copyright =
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
     switch (c)
     {
     case 9: // Return the GIT version if appropriate
@@ -223,9 +223,14 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 raise_fail(taskData, "Not byte data area");
             while (true)
             {
-                PolyObject *result = gMem.AllocCodeSpace(args->WordP());
+                PolyObject *initCell = args->WordP();
+                POLYUNSIGNED requiredSize = initCell->Length();
+                PolyObject *result = gMem.AllocCodeSpace(requiredSize);
                 if (result != 0)
+                {
+                    memcpy(result, initCell, requiredSize * sizeof(PolyWord));
                     return taskData->saveVec.push(result);
+                }
                 // Could not allocate - must GC.
                 if (! QuickGC(taskData, args->WordP()->Length()))
                     raise_fail(taskData, "Insufficient memory");
@@ -308,13 +313,16 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyCopyByteVecToCode(PolyObject * threadId, Pol
         if (!pushedArg->WordP()->IsByteObject())
             raise_fail(taskData, "Not byte data area");
         do {
-            result = gMem.AllocCodeSpace(pushedArg->WordP());
+            PolyObject *initCell = pushedArg->WordP();
+            POLYUNSIGNED requiredSize = initCell->Length();
+            result = gMem.AllocCodeSpace(requiredSize);
             if (result == 0)
             {
                 // Could not allocate - must GC.
                 if (!QuickGC(taskData, pushedArg->WordP()->Length()))
                     raise_fail(taskData, "Insufficient memory");
             }
+            else memcpy(result, initCell, requiredSize * sizeof(PolyWord));
         } while (result == 0);
     }
     catch (...) {} // If an ML exception is raised

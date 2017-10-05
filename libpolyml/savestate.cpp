@@ -1030,7 +1030,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             size_t actualSize = descr->segmentSize;
             unsigned int perms = PERMISSION_READ|PERMISSION_WRITE;
             if (descr->segmentFlags & SSF_CODE) perms |= PERMISSION_EXEC;
-            PolyWord *mem  = (PolyWord*)osMemoryManager->Allocate(actualSize, perms);
+            PolyWord *mem  = (PolyWord*)osMemoryManager->Allocate(actualSize, perms, true);
             if (mem == 0)
             {
                 errorResult = "Unable to allocate memory";

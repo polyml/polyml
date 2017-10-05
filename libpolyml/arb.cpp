@@ -316,6 +316,32 @@ static Handle get_long(Handle x, Handle extend, int *sign)
     }
 }
 
+// Put a short value in the buffer
+static void setShort(Handle x, byte *u, int *sign, POLYUNSIGNED *length)
+{
+    // Short form - put it in the temporary.
+    POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
+    if (x_v >= 0) *sign = 0;
+    else /* Negative */
+    {
+        *sign = -1;
+        x_v = -x_v;
+    }
+#ifdef USE_GMP
+    *(mp_limb_t*)u = x_v;
+    if (x_v == 0) *length = 0; else *length = 1;
+#else
+    /* Put into extend buffer, low order byte first. */
+    *length = 0;
+    for (unsigned i = 0; i < sizeof(PolyWord); i++)
+    {
+        if (x_v != 0) *length = i + 1;
+        u[i] = x_v & 0xff;
+        x_v = x_v >> 8;
+    }
+#endif
+}
+
 #ifndef USE_GMP
 static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
 {
@@ -451,7 +477,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
 }
 
 #ifdef HAVE_LONG_LONG
-#if SIZEOF_LONG_LONG <= SIZEOF_VOIDP
+#if (SIZEOF_LONG_LONG <= SIZEOF_VOIDP && !defined(POLYML32IN64))
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
     return ArbitraryPrecionFromSigned(taskData, val);
@@ -539,21 +565,26 @@ Handle neg_longc(TaskData *taskData, Handle x)
 #else
     PolyWord    x_extend[2];
 #endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
 
     int sign_x;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-
+    POLYUNSIGNED lx;
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)x_extend, &sign_x, &lx);
+    else
+    {
+        sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
 #ifdef USE_GMP
-    POLYUNSIGNED lx = numLimbs(DEREFWORD(long_x))*sizeof(mp_limb_t);
+        lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
 #else
-    /* Get length of arg. */
-    POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
+        lx = get_length(DEREFWORD(x));
 #endif
+    }
+
     Handle long_y = alloc_and_save(taskData, WORDS(lx), F_MUTABLE_BIT|F_BYTE_OBJ);
     byte *v = DEREFBYTEHANDLE(long_y);
-    memcpy(v, DEREFBYTEHANDLE(long_x), lx);
+    if (IS_INT(DEREFWORD(x)))
+        memcpy(v, (byte*)x_extend, lx);
+    else memcpy(v, DEREFBYTEHANDLE(x), lx);
 #ifndef USE_GMP
     // Make sure the last word is zero.  We may have unused bytes there.
     memset(v+lx, 0, WORDS(lx)*sizeof(PolyWord)-lx);
@@ -887,25 +918,41 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 {
 
 #if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
+    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
 #else
-    PolyWord    x_extend[2], y_extend[2];
+    PolyWord    x_extend, y_extend;
 #endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    /* Either overflow or long arguments. */
     int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x); /* Convert to long form */
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
+#if USE_GMP
+    mp_size_t lx, ly;
+#else
+    POLYUNSIGNED lx, ly;
+#endif
+    if (IS_INT(DEREFWORD(x)))
+        setShort(x, (byte*)&x_extend, &sign_x, &lx);
+    else
+    {
+        sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
+#ifdef USE_GMP
+        lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
+#else
+        lx = get_length(DEREFWORD(x));
+#endif
+    }
+    if (IS_INT(DEREFWORD(y)))
+        setShort(y, (byte*)&y_extend, &sign_y, &ly);
+    else
+    {
+        sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
+#ifdef USE_GMP
+        ly = numLimbs(DEREFWORD(y)) * sizeof(mp_limb_t);
+#else
+        ly = get_length(DEREFWORD(y));
+#endif
+    }
 
 #if USE_GMP
-    mp_size_t lx = numLimbs(DEREFWORD(long_x));
-    mp_size_t ly = numLimbs(DEREFWORD(long_y));
-
     // Check for zero args.
     if (lx == 0 || ly == 0) return taskData->saveVec.push(TAGGED(0));
 
@@ -920,10 +967,6 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     return make_canonical(taskData, z, sign_x ^ sign_y);
 
 #else
-    /* Get lengths of args. */
-    POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
-
     // Check for zero args.
     if (lx == 0 || ly == 0) return taskData->saveVec.push(TAGGED(0));
 
@@ -931,8 +974,8 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     Handle long_z = alloc_and_save(taskData, WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
     /* Can now load the actual addresses because they will not change now. */
-    byte *u = DEREFBYTEHANDLE(long_x);
-    byte *v = DEREFBYTEHANDLE(long_y);
+    byte *u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+    byte *v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
     byte *w = DEREFBYTEHANDLE(long_z);
 
     for(POLYUNSIGNED i = 0; i < lx; i++)

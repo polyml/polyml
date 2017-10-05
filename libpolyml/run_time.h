@@ -75,7 +75,7 @@ NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int
 Handle make_exn(TaskData *taskData, int id, Handle arg);
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
-extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);
+extern void CheckAndGrowStack(TaskData *mdTaskData, uintptr_t minSize);
 
 extern Handle errorMsg(TaskData *taskData, int err);
 

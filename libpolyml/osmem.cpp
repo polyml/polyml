@@ -1,7 +1,7 @@
 /*
     Title:  osomem.cpp - Interface to OS memory management
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -86,7 +86,7 @@ static int ConvertPermissions(unsigned perm)
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions)
+void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
 {
     int prot = ConvertPermissions(permissions);
     // Round up to an integral number of pages.
@@ -153,7 +153,7 @@ static int ConvertPermissions(unsigned perm)
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions)
+void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
 {
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
@@ -162,7 +162,11 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
     // up of "space" may go wrong on 64-bits.
     size_t pageSize = sysInfo.dwPageSize;
     space = (space + pageSize-1) & ~(pageSize-1);
-    return VirtualAlloc(0, space, MEM_RESERVE|MEM_COMMIT, ConvertPermissions(permissions));
+    DWORD options = MEM_RESERVE | MEM_COMMIT;
+#ifdef POLYML32IN64
+    options |= MEM_TOP_DOWN;
+#endif
+    return VirtualAlloc(0, space, options, ConvertPermissions(permissions));
 }
 
 // Release the space previously allocated.  This must free the whole of

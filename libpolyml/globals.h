@@ -2,6 +2,8 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
+    Copyright David C. J. Matthews 2017
+
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
@@ -84,12 +86,20 @@
 #  include <windows.h>
 #endif
 
+#ifdef POLYML32IN64
+typedef int32_t         POLYSIGNED;
+typedef uint32_t        POLYUNSIGNED;
+#else
 typedef intptr_t        POLYSIGNED;
 typedef uintptr_t       POLYUNSIGNED;
+#endif
 
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
-#ifdef PRIuPTR
+#ifdef POLYML32IN64
+#  define POLYUFMT "lu"
+#  define POLYSFMT "ld"
+#elif (defined(PRIuPTR))
 #  define POLYUFMT PRIuPTR
 #  define POLYSFMT PRIdPTR
 #elif (defined(_MSC_VER) && (SIZEOF_VOIDP == 8))
@@ -105,13 +115,23 @@ typedef unsigned char   byte;
 class PolyObject;
 typedef PolyObject *POLYOBJPTR;
 
+#ifdef POLYML32IN64
+class PolyWord;
+extern PolyWord *globalHeapBase;
+typedef uint32_t POLYOBJECTPTR; // This is an index into globalHeapBase
+
+extern POLYOBJECTPTR AddressToObjectPtr(void *address);
+// If a 64-bit value if in the range of the object pointers.
+inline bool IsHeapAddress(void *addr) { return (uintptr_t)addr <= 0xffffffff; }
+#else
+typedef POLYOBJPTR POLYOBJECTPTR;
+inline bool IsHeapAddress(void *) { return true; }
+#endif
+
 typedef byte *POLYCODEPTR;
 
 class PolyWord {
 public:
-    // An object pointer can become a word directly.
-    PolyWord(POLYOBJPTR p) { contents.objectPtr = p; }
-
     // Initialise to TAGGED(0).  This is very rarely used.
     PolyWord() { contents.unsignedInt = 1; }
 
@@ -122,17 +142,31 @@ public:
     static PolyWord FromStackAddr(PolyWord *sp) { return PolyWord(sp); }
     static PolyWord FromCodePtr(POLYCODEPTR p) { return PolyWord(p); }
 
+
     // Tests for the various cases.
     bool IsTagged(void) const { return (contents.unsignedInt & 1) != 0; }
+#ifndef POLYML32IN64
+    // In native 32-bit and 64-bit addresses are on word boundaries
     bool IsDataPtr(void) const { return (contents.unsignedInt & (sizeof(PolyWord)-1)) == 0; }
+#else
+    // In 32-in-64 addresses are anything that isn't tagged.
+    bool IsDataPtr(void) const { return (contents.unsignedInt & 1) == 0; }
+#endif
 
     // Extract the various cases.
     POLYSIGNED UnTagged(void) const { return contents.signedInt >> POLY_TAGSHIFT; }
     POLYUNSIGNED UnTaggedUnsigned(void) const { return contents.unsignedInt >> POLY_TAGSHIFT; }
+#ifdef POLYML32IN64
+    PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
+    PolyWord *AsStackAddr(void) const { return globalHeapBase + contents.objectPtr; }
+    POLYOBJPTR AsObjPtr(void) const { return (POLYOBJPTR)AsStackAddr(); }
+#else
+    // An object pointer can become a word directly.
+    PolyWord(POLYOBJPTR p) { contents.objectPtr = p; }
     POLYOBJPTR AsObjPtr(void) const { return contents.objectPtr; }
-    PolyWord *AsStackAddr(void) const { return contents.stackAddr; }
-    POLYCODEPTR AsCodePtr(void) const { return contents.codePtr; }
-
+    PolyWord *AsStackAddr(void) const { return (PolyWord *)contents.objectPtr; }
+#endif
+    POLYCODEPTR AsCodePtr(void) const { return (POLYCODEPTR)AsObjPtr(); }
     void *AsAddress(void)const { return AsCodePtr(); }
 
     // There are a few cases where we need to store and extract untagged values
@@ -150,14 +184,17 @@ public:
     bool operator != (PolyWord b) const { return contents.unsignedInt != b.contents.unsignedInt; }
 
 protected:
-    PolyWord(PolyWord *sp) { contents.stackAddr = sp; }
-    PolyWord(POLYCODEPTR p) { contents.codePtr = p; }
+#ifdef POLYML32IN64
+    PolyWord(PolyWord *sp) { contents.objectPtr = AddressToObjectPtr(sp); }
+    PolyWord(POLYCODEPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
+#else
+    PolyWord(PolyWord *sp) { contents.objectPtr = (PolyObject*)sp; }
+    PolyWord(POLYCODEPTR p) { contents.objectPtr = (PolyObject*)p; }
+#endif
     union {
         POLYSIGNED      signedInt;      // A tagged integer - lowest bit set
         POLYUNSIGNED    unsignedInt;    // A tagged integer - lowest bit set
-        POLYOBJPTR      objectPtr;      // Object pointer   - two lowest bits clear.
-        POLYCODEPTR     codePtr;        // Address within code - lowest bits contain 10.
-        PolyWord        *stackAddr;     // Address within current stack - two lowest bits clear.
+        POLYOBJECTPTR   objectPtr;      // Object pointer   - lowest bit clear.
     } contents;
 };
 
@@ -262,8 +299,13 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 
 /* case 2 - forwarding pointer */
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_GC_BIT; }
+#ifdef POLYML32IN64
+inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
+#else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_GC_BIT; }
+#endif
 
 /* case 3 - depth */
 inline bool OBJ_IS_DEPTH(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
@@ -271,8 +313,13 @@ inline POLYUNSIGNED OBJ_GET_DEPTH(POLYUNSIGNED L) { return L & ~_OBJ_PRIVATE_DEP
 inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_PRIVATE_DEPTH_MASK; }
 // or sharing chain
 inline bool OBJ_IS_CHAINED(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
+#ifdef POLYML32IN64
+inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
+inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return  AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
+#else
 inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
 inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_DEPTH_MASK; }
+#endif
 
 // An object i.e. a piece of allocated memory in the heap.  In the simplest case this is a
 // tuple, a list cons cell, a string or a ref.  Every object has a length word in the word before

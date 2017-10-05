@@ -131,11 +131,11 @@ public:
     // atomic increment and decrement instructions.
     virtual void AtomicReset(Handle mutexp) = 0;
 
-    virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length,
-                                StackObject *new_stack, POLYUNSIGNED new_length) = 0;
+    virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length,
+                                StackObject *new_stack, uintptr_t new_length) = 0;
 
 
-    virtual POLYUNSIGNED currentStackSpace(void) const = 0;
+    virtual uintptr_t currentStackSpace(void) const = 0;
     // Add a count to the local function if we are using store profiling.
     virtual void addProfileCount(POLYUNSIGNED words) = 0;
 

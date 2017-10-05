@@ -199,8 +199,8 @@ Handle make_exn(TaskData *taskData, int id, Handle arg)
     Handle exnHandle = alloc_and_save(taskData, SIZEOF(poly_exn));
     
     DEREFEXNHANDLE(exnHandle)->ex_id   = TAGGED(id);
-    DEREFEXNHANDLE(exnHandle)->ex_name = DEREFWORD(pushed_name);
-    DEREFEXNHANDLE(exnHandle)->arg     = DEREFWORDHANDLE(arg);
+    DEREFEXNHANDLE(exnHandle)->ex_name = pushed_name->Word();
+    DEREFEXNHANDLE(exnHandle)->arg     = arg->Word();
     DEREFEXNHANDLE(exnHandle)->ex_location = TAGGED(0);
 
     return exnHandle;
@@ -254,11 +254,11 @@ void raiseSyscallError(TaskData *taskData, int err)
 {
     Handle errornum = Make_sysword(taskData, err);
     Handle pushed_option = alloc_and_save(taskData, 1);
-    DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
+    DEREFHANDLE(pushed_option)->Set(0, errornum->Word()); /* SOME err */
     Handle pushed_name = errorMsg(taskData, err); // Generate the string.
     Handle pair = alloc_and_save(taskData, 2);
-    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+    DEREFHANDLE(pair)->Set(0, pushed_name->Word());
+    DEREFHANDLE(pair)->Set(1, pushed_option->Word());
 
     raise_exception(taskData, EXC_syserr, pair);
 }
@@ -269,8 +269,8 @@ void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
     Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
     Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
     Handle pair = alloc_and_save(taskData, 2);
-    DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-    DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+    DEREFHANDLE(pair)->Set(0, pushed_name->Word());
+    DEREFHANDLE(pair)->Set(1, pushed_option->Word());
 
     raise_exception(taskData, EXC_syserr, pair);
 }
@@ -316,21 +316,21 @@ Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
     return list;
 }
 
-void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
+void CheckAndGrowStack(TaskData *taskData, uintptr_t minSize)
 /* Expands the current stack if it has grown. We cannot shrink a stack segment
    when it grows smaller because the frame is checked only at the beginning of
    a function to ensure that there is enough space for the maximum that can
    be allocated. */
 {
     /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = taskData->stack->spaceSize();
+    uintptr_t old_len = taskData->stack->spaceSize();
 
     if (old_len >= minSize) return; /* Ok with present size. */
 
     // If it is too small double its size.
-    POLYUNSIGNED new_len; /* New size */
+    uintptr_t new_len; /* New size */
     for (new_len = old_len; new_len < minSize; new_len *= 2);
-    POLYUNSIGNED limitSize = getPolyUnsigned(taskData, taskData->threadObject->mlStackSize);
+    uintptr_t limitSize = getPolyUnsigned(taskData, taskData->threadObject->mlStackSize);
 
     // Do not grow the stack if its size is already too big.
     if ((limitSize != 0 && old_len >= limitSize) || ! gMem.GrowOrShrinkStack(taskData, new_len))

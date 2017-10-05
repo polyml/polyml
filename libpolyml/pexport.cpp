@@ -390,6 +390,7 @@ bool SpaceAlloc::AddToTable(void)
 
 // Allocate a new object.  May create a new space and add the old one to the permanent
 // memory table if this is exhausted.
+#ifndef POLYML32IN64
 PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
     if (currentSize - used <= objWords)
@@ -401,7 +402,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= objWords)
             size = objWords+1;
         size_t iSpace = size*sizeof(PolyWord);
-        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC, true);
         currentSize = iSpace/sizeof(PolyWord);
         used = 0;
     }
@@ -410,6 +411,34 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
     used += objWords+1;
     return newObj;
 }
+#else
+// With 32in64 we need to allocate on 8-byte boundaries. 
+PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
+{
+    POLYUNSIGNED rounded = objWords;
+    if ((objWords & 1) == 0) rounded++;
+    if (currentSize - used <= rounded)
+    {
+        // Need some more space.
+        if (!AddToTable())
+            return 0;
+        POLYUNSIGNED size = defaultSize;
+        if (size <= rounded)
+            size = rounded + 1;
+        size_t iSpace = size * sizeof(PolyWord);
+        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC, true);
+        currentSize = iSpace / sizeof(PolyWord);
+        base[0] = PolyWord::FromUnsigned(0);
+        used = 1; 
+    }
+    ASSERT(currentSize - used > rounded);
+    PolyObject *newObj = (PolyObject*)(base + used + 1);
+    if (rounded != objWords) newObj->Set(objWords, PolyWord::FromUnsigned(0));
+    used += rounded + 1;
+    ASSERT(((uintptr_t)newObj & 0x7) == 0);
+    return newObj;
+}
+#endif
 
 class PImport
 {
@@ -467,16 +496,6 @@ bool PImport::GetValue(PolyWord *result)
         fscanf(f, "%" POLYUFMT, &obj);
         ASSERT(obj < nObjects);
         *result = objMap[obj];
-    }
-    else if (ch == '$')
-    {
-        /* Code address. */
-        POLYUNSIGNED obj, offset;
-        fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &obj, &offset);
-        ASSERT(obj < nObjects);
-        PolyObject *q = objMap[obj];
-        ASSERT(q->IsCodeObject());
-        *result = PolyWord::FromCodePtr((PolyWord(q)).AsCodePtr() + offset); /* The offset is in bytes. */
     }
     else if ((ch >= '0' && ch <= '9') || ch == '-')
     {
@@ -594,6 +613,14 @@ bool PImport::DoImport()
             fscanf(f, "%" POLYUFMT, &nBytes);
             /* Round up to appropriate number of words. */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
+#ifdef POLYML32IN64
+            if ((objBits & F_MUTABLE_BIT) && (objBits & F_WEAK_BIT))
+            {
+                // Backwards compatibility - we need to make it slightly larger
+                // to accommodate the larger entry point address.
+                nWords += 1;
+            }
+#endif
             break;
 
         case 'S': /* String. */
@@ -621,12 +648,21 @@ bool PImport::DoImport()
             return false;
         }
 
-        PolyObject  *p = NewObject(nWords, isMutable);
-        if (p == 0)
-            return false;
-        objMap[objNo] = p;
-        /* Put in length PolyWord and flag bits. */
-        p->SetLengthWord(nWords, objBits);
+        if (objBits & F_CODE_OBJ)
+        {
+            // Allocate a code area.  This sets the length word but it's always mutable.
+            PolyObject  *p = gMem.AllocCodeSpace(nWords);
+            objMap[objNo] = p;
+        }
+        else
+        {
+            PolyObject  *p = NewObject(nWords, isMutable);
+            if (p == 0)
+                return false;
+            /* Put in length PolyWord and flag bits. */
+            p->SetLengthWord(nWords, objBits);
+            objMap[objNo] = p;
+        }
 
         /* Skip the object contents. */
         while (getc(f) != '\n') ;
@@ -702,6 +738,11 @@ bool PImport::DoImport()
                 // If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject())
                 {
+#ifdef POLYML32IN64
+                    // Backwards compatibility hack.  The 32-bit values are too small.
+                    if (*(uintptr_t*)p != 0)
+                        memmove(u + 4, u, nBytes);
+#endif
                     bool loadEntryPt = setEntryPoint(p);
                     ASSERT(loadEntryPt);
                 }
@@ -786,6 +827,8 @@ bool PImport::DoImport()
                         do ch = getc(f); while (ch == ' ');
                     }
                 }
+                // Clear the mutable bit
+                p->SetLengthWord(p->Length(), F_CODE_OBJ);
                 break;
             }
 

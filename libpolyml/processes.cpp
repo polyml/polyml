@@ -762,8 +762,8 @@ POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize)
             taskData->threadObject->mlStackSize = newSize;
             if (newSize != TAGGED(0))
             {
-                POLYUNSIGNED current = taskData->currentStackSpace(); // Current size in words
-                POLYUNSIGNED newWords = getPolyUnsigned(taskData, newSize);
+                uintptr_t current = taskData->currentStackSpace(); // Current size in words
+                uintptr_t newWords = getPolyUnsigned(taskData, newSize);
                 if (current > newWords)
                     raise_exception0(taskData, EXC_interrupt);
             }
@@ -1034,6 +1034,9 @@ void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words, bool alwaysInSeg)
 {
     bool triedInterrupt = false;
+#ifdef POLYML32IN64
+    if (words & 1) words++; // Must always be an even number of words.
+#endif
 
     while (1)
     {
@@ -1042,6 +1045,10 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
         if (taskData->allocPointer != 0 && taskData->allocPointer >= taskData->allocLimit + words)
         {
             // There's space in the current segment,
+#ifdef POLYML32IN64
+            // Zero it in case it's not used.
+            taskData->allocPointer[-1] = PolyWord::FromUnsigned(0);
+#endif
             taskData->allocPointer -= words;
             return taskData->allocPointer;
         }
@@ -1059,8 +1066,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 // Fill in any unused space in the existing segment
                 taskData->FillUnusedSpace();
                 // Get another heap segment with enough space for this object.
-                POLYUNSIGNED requestSpace = taskData->allocSize+words;
-                POLYUNSIGNED spaceSize = requestSpace;
+                uintptr_t requestSpace = taskData->allocSize+words;
+                uintptr_t spaceSize = requestSpace;
                 // Get the space and update spaceSize with the actual size.
                 PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
                 if (space)
@@ -1071,6 +1078,11 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     if (spaceSize == requestSpace) taskData->allocSize = taskData->allocSize*2;
                     taskData->allocLimit = space;
                     taskData->allocPointer = space+spaceSize;
+#ifdef POLYML32IN64
+                    // Put in a zero word and move it down onto an odd-word boundary.
+                    taskData->allocPointer[-1] = PolyWord::FromUnsigned(0);
+                    taskData->allocPointer--;
+#endif
                     // Actually allocate the object
                     taskData->allocPointer -= words;
                     return taskData->allocPointer;
@@ -1572,7 +1584,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // We also count the number of threads in ML code.  Taking the
         // lock in EnterPolyCode on every RTS call turned out to be
         // expensive.
-        POLYUNSIGNED freeSpace = 0;
+        uintptr_t freeSpace = 0;
         unsigned threadsInML = 0;
         for (unsigned j = 0; j < taskArraySize; j++)
         {
@@ -1581,7 +1593,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             {
                 // This gets the values last time it was in the RTS.
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
-                if (limit < ptr && (POLYUNSIGNED)(ptr-limit) < taskData->allocSize)
+                if (limit < ptr && (uintptr_t)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
                 if (taskData->inML) threadsInML++;
             }

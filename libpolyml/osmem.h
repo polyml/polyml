@@ -1,7 +1,7 @@
 /*
     Title:  osomem.h - Interface to OS memory management
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -47,7 +47,7 @@ public:
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
     // Returns NULL if it cannot allocate the space.
-    void *Allocate(size_t &bytes, unsigned permissions);
+    void *Allocate(size_t &bytes, unsigned permissions, bool isHeap);
 
     // Release the space previously allocated.  This must free the whole of
     // the segment.  The space must be the size actually allocated.

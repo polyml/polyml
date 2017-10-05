@@ -1,7 +1,7 @@
 /*
     Title:  Bitmap.  Generally used by the garbage collector to indicate allocated words
 
-    Copyright (c) 2006, 2012  David C.J. Matthews
+    Copyright (c) 2006, 2012, 2017  David C.J. Matthews
        Based on original code in garbage_collect.c.
 
     This library is free software; you can redistribute it and/or
@@ -56,7 +56,7 @@
 #include "bitmap.h"
 #include "globals.h"
 
-bool Bitmap::Create(POLYUNSIGNED bits)
+bool Bitmap::Create(size_t bits)
 {
     free(m_bits); // Any previous data
     size_t bytes = (bits+7) >> 3;
@@ -76,15 +76,15 @@ Bitmap::~Bitmap()
 }
 
 // Set a range of bits in a bitmap.  This checks that the bits are not already set.
-void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
+void Bitmap::SetBits(uintptr_t bitno, uintptr_t length)
 {
-    POLYUNSIGNED byte_index = bitno >> 3;
+    uintptr_t byte_index = bitno >> 3;
     
     ASSERT (0 < length); // Strictly positive
     
     /* Set the first part byte */
-    POLYUNSIGNED start_bit_index = bitno & 7;
-    POLYUNSIGNED stop_bit_index  = start_bit_index + length;
+    uintptr_t start_bit_index = bitno & 7;
+    uintptr_t stop_bit_index  = start_bit_index + length;
     /* Do we need to change more than one byte? */
     if (stop_bit_index < 8)
     {
@@ -131,9 +131,9 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 // Clear a range of bits.  This is only used to clear the bitmap so
 // it does not need to be exact so long as at least the range specified
 // is zero.
-void Bitmap::ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
+void Bitmap::ClearBits(uintptr_t bitno, uintptr_t length)
 {
-    POLYUNSIGNED byte_index = bitno >> 3;
+    uintptr_t byte_index = bitno >> 3;
     length += bitno & 7;
     size_t bytes = length >> 3;
     if (length & 7) bytes++;
@@ -141,12 +141,12 @@ void Bitmap::ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 }
 
 // How many zero bits (maximum n) are there in the bitmap, starting at location start? */
-POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const
+uintptr_t Bitmap::CountZeroBits(uintptr_t bitno, uintptr_t n) const
 {
-    POLYUNSIGNED byte_index = bitno >> 3;
+    uintptr_t byte_index = bitno >> 3;
     unsigned bit_index  = bitno & 7;
     unsigned mask  = 1 << bit_index;
-    POLYUNSIGNED zero_bits  = 0;
+    uintptr_t zero_bits  = 0;
     ASSERT (0 < n); // Strictly positive
     
     /* Check the first part byte */
@@ -184,22 +184,22 @@ POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const
 
 // Search the bitmap from the high end down looking for n contiguous zeros
 // Returns the value of "bitno" on failure. .
-POLYUNSIGNED Bitmap::FindFree
+uintptr_t Bitmap::FindFree
 (
-  POLYUNSIGNED   limit,  /* The highest numbered bit that's too small to use */
-  POLYUNSIGNED   start,  /* The lowest numbered bit that's too large to use */
-  POLYUNSIGNED   n       /* The number of consecutive zero bits required */
+  uintptr_t   limit,  /* The highest numbered bit that's too small to use */
+  uintptr_t   start,  /* The lowest numbered bit that's too large to use */
+  uintptr_t   n       /* The number of consecutive zero bits required */
 ) const
 {
     if (limit + n >= start)
         return start; // Failure
 
-    POLYUNSIGNED candidate = start - n;
+    uintptr_t candidate = start - n;
     ASSERT (start > limit);
     
     while (1)
     {
-        POLYUNSIGNED bits_free = CountZeroBits(candidate, n);
+        uintptr_t bits_free = CountZeroBits(candidate, n);
         
         if (n <= bits_free)
             return candidate;
@@ -212,10 +212,10 @@ POLYUNSIGNED Bitmap::FindFree
 }
 
 // Count the number of set bits in the bitmap.
-POLYUNSIGNED Bitmap::CountSetBits(POLYUNSIGNED size) const
+uintptr_t Bitmap::CountSetBits(uintptr_t size) const
 {
     size_t bytes = (size+7) >> 3;
-    POLYUNSIGNED count = 0;
+    uintptr_t count = 0;
     for (size_t i = 0; i < bytes; i++)
     {
         unsigned char byte = m_bits[i];
@@ -236,7 +236,7 @@ POLYUNSIGNED Bitmap::CountSetBits(POLYUNSIGNED size) const
 
 // Find the last set bit before here.  Used to find the start of a code cell.
 // Returns zero if no bit is set.
-POLYUNSIGNED Bitmap::FindLastSet(POLYUNSIGNED bitno) const
+uintptr_t Bitmap::FindLastSet(uintptr_t bitno) const
 {
     size_t byteno = bitno >> 3;
     // Code cells are quite long so most of the bitmap will be zero.

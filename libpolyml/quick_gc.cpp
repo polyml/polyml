@@ -135,21 +135,21 @@ public:
 #   endif
 #endif
 
-static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
-                                  POLYUNSIGNED testVal, POLYUNSIGNED update)
+static bool atomiclySetForwarding(LocalMemSpace *space, uintptr_t *pt,
+                                  uintptr_t testVal, uintptr_t update)
 {
 #ifdef _MSC_VER
 # if (SIZEOF_VOIDP == 8)
     LONGLONG *address = (LONGLONG*)(pt-1);
-    POLYUNSIGNED result = InterlockedCompareExchange64(address, update, testVal);
+    uintptr_t result = InterlockedCompareExchange64(address, update, testVal);
     return result == testVal;
 # else
     LONG *address = (LONG*)(pt-1);
-    POLYUNSIGNED result = InterlockedCompareExchange(address, update, testVal);
+    uintptr_t result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
 #elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32)) && defined(__GNUC__))
-    POLYUNSIGNED result;
+    uintptr_t result;
     __asm__ __volatile__ (
         "lock; cmpxchgl %1,%2"
         :"=a"(result)
@@ -158,7 +158,7 @@ static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
     );
     return result == testVal;
 #elif(defined(HOSTARCHITECTURE_X86_64) && defined(__GNUC__))
-    POLYUNSIGNED result;
+    uintptr_t result;
     __asm__ __volatile__ (
         "lock; cmpxchgq %1,%2"
         :"=a"(result)
@@ -201,7 +201,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     // be worth-while.
     if (isMutable || OBJ_IS_CODE_OBJECT(L))
     {
-        if (! atomiclySetForwarding(srcSpace, (POLYUNSIGNED*)obj, L, OBJ_SET_POINTER(newObject)))
+        if (! atomiclySetForwarding(srcSpace, (uintptr_t*)obj, L, OBJ_SET_POINTER(newObject)))
         {
             newObject = obj->GetForwardingPtr();
             if (debugOptions & DEBUG_GC_DETAIL)
@@ -511,7 +511,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
     if (debugOptions & DEBUG_HEAPSIZE)
         gMem.ReportHeapSizes("Minor GC (before)");
 
-    POLYUNSIGNED spaceBeforeGC = 0;
+    uintptr_t spaceBeforeGC = 0;
 
     for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
@@ -618,7 +618,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     gpTaskFarm->WaitForCompletion();
 
-    POLYUNSIGNED spaceAfterGC = 0;
+    uintptr_t spaceAfterGC = 0;
 
     if (succeeded)
     {
@@ -629,7 +629,7 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
         for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
             LocalMemSpace *lSpace = *i;
-            POLYUNSIGNED free;
+            uintptr_t free;
             if (lSpace->allocationSpace)
             {
                 lSpace->lowerAllocPtr = lSpace->bottom;
