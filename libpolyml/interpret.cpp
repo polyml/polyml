@@ -125,10 +125,13 @@ union stackItem
 #ifndef POLYML32IN64
     stackItem(PolyWord v) { words[0] = v; };
     PolyWord words[1];
+    bool IsPotentialPtr() const { return true; }
 #else
     // In 32-in-64 we need to clear the second PolyWord.  This assumes little-endian.
     stackItem(PolyWord v) { words[0] = v; words[1] = PolyWord::FromUnsigned(0); };
     PolyWord words[2];
+    // If the top word is anything other than zero we definitely don't have an address.
+    bool IsPotentialPtr() const { return words[1] == PolyWord::FromUnsigned(0); }
 #endif
     PolyWord w()const { return words[0]; }
     operator PolyWord () { return words[0]; }
@@ -1958,9 +1961,15 @@ void IntTaskData::GarbageCollect(ScanAddress *process)
         // Now the values on the stack.
         for (stackItem *q = stackPtr; q < (stackItem*)stackSpace->top; q++)
         {
-            PolyWord w = q->w();
-            ScanStackAddress(process, w, stackSpace);
-            *q = w;
+            if (q->IsPotentialPtr())
+            {
+                PolyWord w = q->w();
+                if (w.IsDataPtr())
+                {
+                    ScanStackAddress(process, w, stackSpace);
+                    *q = w;
+                }
+            }
         }
      }
 }

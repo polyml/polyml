@@ -1,7 +1,7 @@
 /*
     Title:      Quick copying garbage collector
 
-    Copyright (c) 2011-12, 2016 David C. J. Matthews
+    Copyright (c) 2011-12, 2016-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -135,11 +135,17 @@ public:
 #   endif
 #endif
 
-static bool atomiclySetForwarding(LocalMemSpace *space, uintptr_t *pt,
-                                  uintptr_t testVal, uintptr_t update)
+#ifdef POLYML32IN64
+typedef uint32_t ptrasint;
+#else
+typedef uintptr_t ptrasint;
+#endif
+
+
+static bool atomiclySetForwarding(LocalMemSpace *space, ptrasint *pt, ptrasint testVal, ptrasint update)
 {
 #ifdef _MSC_VER
-# if (SIZEOF_VOIDP == 8)
+# if ((SIZEOF_VOIDP == 8) && !defined(POLYML32IN64))
     LONGLONG *address = (LONGLONG*)(pt-1);
     uintptr_t result = InterlockedCompareExchange64(address, update, testVal);
     return result == testVal;
@@ -148,7 +154,7 @@ static bool atomiclySetForwarding(LocalMemSpace *space, uintptr_t *pt,
     uintptr_t result = InterlockedCompareExchange(address, update, testVal);
     return result == testVal;
 # endif
-#elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32)) && defined(__GNUC__))
+#elif((defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X32) || defined(POLYML32IN64)) && defined(__GNUC__))
     uintptr_t result;
     __asm__ __volatile__ (
         "lock; cmpxchgl %1,%2"
@@ -201,7 +207,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     // be worth-while.
     if (isMutable || OBJ_IS_CODE_OBJECT(L))
     {
-        if (! atomiclySetForwarding(srcSpace, (uintptr_t*)obj, L, OBJ_SET_POINTER(newObject)))
+        if (! atomiclySetForwarding(srcSpace, (ptrasint*)obj, L, OBJ_SET_POINTER(newObject)))
         {
             newObject = obj->GetForwardingPtr();
             if (debugOptions & DEBUG_GC_DETAIL)
@@ -224,6 +230,11 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     }
 
     lSpace->lowerAllocPtr += n+1;
+#ifdef POLYML32IN64
+    // Maintain the odd-word alignment of lowerAllocPtr
+    if ((n & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
+        lSpace->lowerAllocPtr++;
+#endif
     CopyObjectToNewAddress(obj, newObject, L);
     objectCopied = true;
     return newObject;
@@ -632,7 +643,12 @@ bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
             uintptr_t free;
             if (lSpace->allocationSpace)
             {
+#ifdef POLYML32IN64
+                lSpace->lowerAllocPtr = lSpace->bottom + 1;
+                lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
+#else
                 lSpace->lowerAllocPtr = lSpace->bottom;
+#endif
                 free = lSpace->freeSpace();
 #ifdef FILL_UNUSED_MEMORY
                 // This provides extra checking if we have dangling pointers

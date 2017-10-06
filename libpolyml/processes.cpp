@@ -1050,6 +1050,9 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
             taskData->allocPointer[-1] = PolyWord::FromUnsigned(0);
 #endif
             taskData->allocPointer -= words;
+#ifdef POLYML32IN64
+            ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+#endif
             return taskData->allocPointer;
         }
         else // Insufficient space in this area. 
@@ -1078,13 +1081,11 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     if (spaceSize == requestSpace) taskData->allocSize = taskData->allocSize*2;
                     taskData->allocLimit = space;
                     taskData->allocPointer = space+spaceSize;
-#ifdef POLYML32IN64
-                    // Put in a zero word and move it down onto an odd-word boundary.
-                    taskData->allocPointer[-1] = PolyWord::FromUnsigned(0);
-                    taskData->allocPointer--;
-#endif
                     // Actually allocate the object
                     taskData->allocPointer -= words;
+#ifdef POLYML32IN64
+                    ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
+#endif
                     return taskData->allocPointer;
                 }
             }

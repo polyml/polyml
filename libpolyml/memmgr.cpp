@@ -99,6 +99,12 @@ bool LocalMemSpace::InitSpace(uintptr_t size, bool mut)
     upperAllocPtr = partialGCTop = fullGCRescanStart = fullGCLowerLimit = lowestWeak = top;
     lowerAllocPtr = partialGCScan = partialGCRootBase = partialGCRootTop =
         fullGCRescanEnd = highestWeak = bottom;
+#ifdef POLYML32IN64
+    // The address must be on an odd-word boundary so that after the length
+    // word is put in the actual cell address is on an even-word boundary.
+    lowerAllocPtr[0] = PolyWord::FromUnsigned(0);
+    lowerAllocPtr = bottom + 1;
+#endif
     spaceOwner = 0;
 
     allocationSpace = false;
@@ -525,10 +531,23 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
             {
                 // Reduce the maximum value if we had less than that.
                 if (available < maxWords)
+                {
                     maxWords = available;
+#ifdef POLYML32IN64
+                    // If necessary round down to an even boundary
+                    if (maxWords & 1)
+                    {
+                        maxWords--;
+                        space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
+                    }
+#endif
+                }
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 if (doAllocation)
                     space->lowerAllocPtr += maxWords; // Allocate it.
+#ifdef POLYML32IN64
+                ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
+#endif
                 return result;
             }
         }
@@ -554,10 +573,23 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         uintptr_t available = space->freeSpace();
         ASSERT(available >= minWords);
         if (available < maxWords)
+        {
             maxWords = available;
+#ifdef POLYML32IN64
+            // If necessary round down to an even boundary
+            if (maxWords & 1)
+            {
+                maxWords--;
+                space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
+            }
+#endif
+        }
         PolyWord *result = space->lowerAllocPtr; // Return the address.
         if (doAllocation)
             space->lowerAllocPtr += maxWords; // Allocate it.
+#ifdef POLYML32IN64
+        ASSERT((uintptr_t)result & 4); // Must be odd-word aligned
+#endif
         return result;
     }
     return 0; // There isn't space even for the minimum.
@@ -1161,7 +1193,8 @@ void MemMgr::RemoveProfilingBitmaps()
 
 
 #ifdef POLYML32IN64
-PolyWord *globalHeapBase = (PolyWord*)0x7FC00000000;
+// Limit this to 8Gbytes for the moment.
+PolyWord *globalHeapBase = (PolyWord*)0x7FE00000000; // 0x7FC00000000
 
 POLYOBJECTPTR AddressToObjectPtr(void *address)
 {
