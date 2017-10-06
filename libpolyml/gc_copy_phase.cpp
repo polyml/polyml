@@ -141,13 +141,6 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     return newp;
 }
 
-// This does nothing to the addresses but by applying it in ScanConstantsWithinCode we
-// adjust any relative addresses so they are relative to the new location.
-class MTGCProcessIdentity: public ScanAddress {
-public:
-   virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-};
-
 // Copy a cell to its new address.
 void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POLYUNSIGNED L)
 {
@@ -169,16 +162,6 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
         destAddress->Set(1, srcAddress->Get(1));
     case 1:
         destAddress->Set(0, srcAddress->Get(0));
-    }
-
-    // If this is a code object flush out anything from the instruction cache
-    // that might previously have been at this address
-    if (OBJ_IS_CODE_OBJECT(L))
-    {
-        MTGCProcessIdentity identity;
-        machineDependent->FlushInstructionCache(destAddress, n * sizeof(PolyWord));
-        // We have to update any relative addresses in the code.
-        machineDependent->ScanConstantsWithinCode(destAddress, srcAddress, OBJ_OBJECT_LENGTH(L), &identity);
     }
 }
 
