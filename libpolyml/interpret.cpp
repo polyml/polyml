@@ -182,7 +182,7 @@ public:
     {
         words++; // Add the size of the length word.
         // N.B. The allocation area may be empty so that both of these are zero.
-        if (this->allocPointer >= this->allocLimit + words)
+        if (this->allocPointer >= this->allocLimit + words + 1)
         {
 #ifdef POLYML32IN64
             if (words & 1)
@@ -995,9 +995,8 @@ int IntTaskData::SwitchToPoly()
             {
                 // Floating point call.  The call itself does not allocate but we
                 // need to put the result into a "box".
-                PolyWord rtsCall = (*sp++).w().AsObjPtr()->Get(0); // Value holds address.
+                callRTSFtoF doCall = *(callRTSFtoF*)(*sp++).w().AsObjPtr();
                 PolyWord rtsArg1 = *sp++;
-                callRTSFtoF doCall = (callRTSFtoF)rtsCall.AsCodePtr();
                 double argument = unboxDouble(rtsArg1);
                 // Allocate memory for the result.
                 double result = doCall(argument);
@@ -1010,9 +1009,8 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastGtoF:
             {
                 // Call that takes a POLYUNSIGNED argument and returns a double.
-                PolyWord rtsCall = (*sp++).w().AsObjPtr()->Get(0); // Value holds address.
+                callRTSGtoF doCall = *(callRTSGtoF*)(*sp++).w().AsObjPtr();
                 PolyWord rtsArg1 = *sp++;
-                callRTSGtoF doCall = (callRTSGtoF)rtsCall.AsCodePtr();
                 // Allocate memory for the result.
                 double result = doCall(rtsArg1);
                 PolyObject *t = boxDouble(result, pc, sp);

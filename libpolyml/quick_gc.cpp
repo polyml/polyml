@@ -233,7 +233,10 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
 #ifdef POLYML32IN64
     // Maintain the odd-word alignment of lowerAllocPtr
     if ((n & 1) == 0 && lSpace->lowerAllocPtr < lSpace->upperAllocPtr)
+    {
+        *lSpace->lowerAllocPtr = PolyWord::FromUnsigned(0);
         lSpace->lowerAllocPtr++;
+    }
 #endif
     CopyObjectToNewAddress(obj, newObject, L);
     objectCopied = true;

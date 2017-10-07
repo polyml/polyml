@@ -398,7 +398,7 @@ Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
 
 Handle Make_sysword(TaskData *taskData, uintptr_t p)
 {
-    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    Handle result = alloc_and_save(taskData, sizeof(uintptr_t)/sizeof(PolyWord), F_BYTE_OBJ);
     *(uintptr_t*)(result->Word().AsCodePtr()) = p;
     return result;
 }

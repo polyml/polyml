@@ -184,7 +184,11 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         LocalMemSpace *lSpace = *i;
         // Reset the allocation pointers.  They will be set to the
         // limits of the retained data.
+#ifdef POLYML32IN64
+        lSpace->lowerAllocPtr = lSpace->bottom+1; // Must be odd-word aligned
+#else
         lSpace->lowerAllocPtr = lSpace->bottom;
+#endif
         lSpace->upperAllocPtr = lSpace->top;
     }
 

@@ -530,18 +530,15 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
             if (available > 0 && available >= minWords)
             {
                 // Reduce the maximum value if we had less than that.
-                if (available < maxWords)
-                {
-                    maxWords = available;
+                if (available < maxWords) maxWords = available;
 #ifdef POLYML32IN64
-                    // If necessary round down to an even boundary
-                    if (maxWords & 1)
-                    {
-                        maxWords--;
-                        space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
-                    }
-#endif
+                // If necessary round down to an even boundary
+                if (maxWords & 1)
+                {
+                    maxWords--;
+                    space->lowerAllocPtr[maxWords] = PolyWord::FromUnsigned(0);
                 }
+#endif
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 if (doAllocation)
                     space->lowerAllocPtr += maxWords; // Allocate it.
@@ -694,6 +691,7 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
                             PolyWord *next = pt+requiredSize+1;
                             POLYUNSIGNED spare = length - requiredSize;
 #ifdef POLYML32IN64
+                            // Maintain alignment.
                             if (((requiredSize + 1) & 1) && spare != 0)
                             {
                                 *next++ = PolyWord::FromUnsigned(0);

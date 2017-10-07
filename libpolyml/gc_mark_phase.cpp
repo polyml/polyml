@@ -731,7 +731,11 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
 static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
 {
     CodeSpace *space = (CodeSpace*)arg1;
+#ifdef POLYML32IN64
+    PolyWord *pt = space->bottom+1;
+#else
     PolyWord *pt = space->bottom;
+#endif
     PolyWord *lastFree = 0;
     POLYUNSIGNED lastFreeSpace = 0;
     space->largestFree = 0;
@@ -751,6 +755,20 @@ static void CheckMarksOnCodeTask(GCTaskId *, void *arg1, void *arg2)
             lastFree = 0;
             lastFreeSpace = 0;
         }
+#ifdef POLYML32IN64
+        else if (length == 0)
+        {
+            // We may have zero filler words to set the correct alignment.
+            // Merge them into a previously free area otherwise leave
+            // them if they're after something allocated.
+            if (lastFree + lastFreeSpace == pt)
+            {
+                lastFreeSpace += length + 1;
+                PolyObject *freeSpace = (PolyObject*)(lastFree + 1);
+                freeSpace->SetLengthWord(lastFreeSpace - 1, F_BYTE_OBJ);
+            }
+        }
+#endif
         else { // Turn it into a byte area i.e. free.  It may already be free.
             if (space->firstFree == 0) space->firstFree = pt;
             space->headerMap.ClearBit(pt-space->bottom); // Remove the "header" bit

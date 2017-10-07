@@ -117,8 +117,30 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     if (start <= limit)
         return 0;
 
+#ifdef POLYML32IN64
+    // This is complicated.  We need the eventual address to be on an even word boundary
+    // which means the length word is on an odd boundary.  We might find an exact match that
+    // fits this or we may need to keep looking.
+    POLYUNSIGNED free = start;
+    POLYUNSIGNED m = n & 1 ? n + 1 : n; // If n is odd round up.
+    for (;;)
+    {
+        POLYUNSIGNED lastFree = free;
+        free = dst->bitmap.FindFree(limit, free, m);
+        if (free == lastFree) { free = start;  break; } // Not there - return with free = start
+        if (free & 1) break;  // It's odd aligned - that's fine
+        if (!dst->bitmap.TestBit(free - 1))
+        {
+            // The previous bit is free - we can use this.
+            // This leaves a hole but we'll zero it during the update phase.
+            free = free - 1;
+            break;
+        }
+    }
+#else
     // Look in the bitmap.  Returns "start" if it can't find space.
     POLYUNSIGNED free = dst->bitmap.FindFree(limit, start, n);
+#endif
 
     // If we failed to allocate the space (free == start) we set this to
     // zero to indicate that there is no space for anything of this size
