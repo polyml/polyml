@@ -97,8 +97,16 @@ typedef uintptr_t       POLYUNSIGNED;
 // libpolyml uses printf-style I/O instead of C++ standard IOstreams,
 // so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
 #ifdef POLYML32IN64
+#if (defined(PRIu32))
+#  define POLYUFMT PRIu32
+#  define POLYSFMT PRId32
+#elif (defined(_MSC_VER))
 #  define POLYUFMT "lu"
 #  define POLYSFMT "ld"
+#else
+#  define POLYUFMT "u"
+#  define POLYSFMT "d"
+#endif
 #elif (defined(PRIuPTR))
 #  define POLYUFMT PRIuPTR
 #  define POLYSFMT PRIdPTR

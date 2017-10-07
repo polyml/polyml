@@ -32,6 +32,8 @@
 #define ASSERT(x)
 #endif
 
+#include <stdio.h>
+
 #include <new>
 
 #include "globals.h"
@@ -1145,7 +1147,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     }
 
     // A bit is set if it is a length word.
-    while ((POLYUNSIGNED)addr & (sizeof(POLYUNSIGNED)-1)) addr--; // Make it word aligned
+    while ((uintptr_t)addr & (sizeof(POLYUNSIGNED)-1)) addr--; // Make it word aligned
     PolyWord *wordAddr = (PolyWord*)addr;
     // Work back to find the first set bit before this.
     // Normally we will find one but if we're looking up a value that
@@ -1192,7 +1194,13 @@ void MemMgr::RemoveProfilingBitmaps()
 
 #ifdef POLYML32IN64
 // Limit this to 8Gbytes for the moment.
+#ifdef _WIN32
+// Windows
 PolyWord *globalHeapBase = (PolyWord*)0x7FE00000000; // 0x7FC00000000
+#else
+// Linux, but only under GDB at the moment.
+PolyWord *globalHeapBase = (PolyWord*)0x7fff80000000;
+#endif
 
 POLYOBJECTPTR AddressToObjectPtr(void *address)
 {
