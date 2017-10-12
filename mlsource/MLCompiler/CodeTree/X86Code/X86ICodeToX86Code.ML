@@ -386,8 +386,14 @@ struct
                                 |   (StackDest addr1, StackSource addr2) =>
                                     let
                                         val workReg = valOf workReg
-                                        (* This should no longer occur. *)
-                                        val _ = raise InternalError "Stack-stack cycle"
+                                        (* This can still happen if we have argument registers that need to be
+                                           loaded from stack locations and those argument registers happen to
+                                           contain the values to be stored into those stack locations.
+                                           e.g. ebx => S8; eax => S7; S8 => eax; S7 => eax.
+                                           Eliminating the registers results in a cycle.
+                                           It may be possible to avoid this by excluding the argument
+                                           registers (eax; ebx; r8; r9; r10) from holding values in the
+                                           area to be overwritten. *)
                                     in
                                         llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
                                                 offset = addr1*wordSize, kind=MoveWord} ::
