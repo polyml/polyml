@@ -189,7 +189,7 @@ struct
         fun processCode(basicBlocks: basicBlock vector, pregProps: regProperty vector, maxStack, passes) =
         let
             (* This should only require a few passes. *)
-            val _ = passes < 10 orelse raise InternalError "Too many passes"
+            val _ = passes < 40 orelse raise InternalError "Too many passes"
             val () =
                 if wantPrintCode
                 then printCode basicBlocks
