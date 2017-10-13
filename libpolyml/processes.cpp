@@ -219,6 +219,8 @@ public:
     virtual void ThreadUseMLMemory(TaskData *taskData); 
     virtual void ThreadReleaseMLMemory(TaskData *taskData);
 
+    virtual poly_exn* GetInterrupt(void) { return interrupt_exn; }
+
     // If the schedule lock is already held we need to use these functions.
     void ThreadUseMLMemoryWithSchedLock(TaskData *taskData);
     void ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData);
@@ -1450,8 +1452,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // allocate when we need to raise it.
         // We can only do this once the taskData object has been created.
         if (interrupt_exn == 0)
-            interrupt_exn =
-                DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
+            interrupt_exn = makeExceptionPacket(taskData, EXC_interrupt);
 
         if (singleThreaded)
         {

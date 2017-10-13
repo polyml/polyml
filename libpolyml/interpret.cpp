@@ -265,10 +265,8 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     *(--this->taskSp) = closure; /* Closure address */
 
     // Make packets for exceptions.             
-    Handle exn = make_exn(parentTask, EXC_overflow, parentTask->saveVec.push(TAGGED(0)));
-    overflowPacket = exn->WordP();
-    exn = make_exn(parentTask, EXC_divide, parentTask->saveVec.push(TAGGED(0)));
-    dividePacket = exn->WordP();
+    overflowPacket = makeExceptionPacket(parentTask, EXC_overflow);
+    dividePacket = makeExceptionPacket(parentTask, EXC_divide);
 }
 
 extern "C" {
