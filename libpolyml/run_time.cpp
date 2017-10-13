@@ -279,10 +279,23 @@ void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
 // Calls to it should really be replaced with calls to either raiseSyscallMessage
 // or raiseSyscallError but it's been left because there may be cases where errno
 // actually contains zero.
-void raise_syscall(TaskData *taskData, const char *errmsg, int err)
+void raiseSycallTemp(TaskData *taskData, const char *errmsg, int err, const char *file, int line)
 {
-    if (err == 0) raiseSyscallMessage(taskData, errmsg);
-    else raiseSyscallError(taskData, err);
+    char location[100];
+    sprintf(location, "%s, %d", file, line);
+    if (err == 0) raiseSyscallMessage(taskData, location);
+    else
+    {
+        Handle errornum = Make_sysword(taskData, err);
+        Handle pushed_option = alloc_and_save(taskData, 1);
+        DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
+        Handle pushed_name = SAVE(C_string_to_Poly(taskData, location));
+        Handle pair = alloc_and_save(taskData, 2);
+        DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
+        DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+
+        raise_exception(taskData, EXC_syserr, pair);
+    }
 }
 
 // Raises a Fail exception.

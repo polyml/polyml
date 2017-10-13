@@ -70,7 +70,9 @@ NORETURNFN(extern void raiseSyscallError(TaskData *taskData, int err));
 // Raise OS.SysCall(msg, NONE)
 NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errmsg));
 // This was the previous version.  The errmsg argument is ignored unless err is zero.
-NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
+//NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
+NORETURNFN(extern void raiseSycallTemp(TaskData *taskData, const char *errmsg, int err, const char *file, int line));
+#define raise_syscall(taskData, errMsg, err) raiseSycallTemp(taskData, errMsg, err, __FILE__, __LINE__)
 
 Handle make_exn(TaskData *taskData, int id, Handle arg);
 
