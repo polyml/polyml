@@ -141,25 +141,19 @@ POLYUNSIGNED PolyFullGC(PolyObject *threadId)
 Handle errorMsg(TaskData *taskData, int err)
 {
 #ifdef _WIN32
-    /* In the Windows version we may have both errno values
-       and also GetLastError values.  We convert the latter into
-       negative values before returning them. */
-    if (err < 0)
+    LPTSTR lpMsg = NULL;
+    TCHAR *p;
+    if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_ALLOCATE_BUFFER |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL, (DWORD)err, 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
     {
-        LPTSTR lpMsg = NULL;
-        TCHAR *p;
-        if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
-                FORMAT_MESSAGE_ALLOCATE_BUFFER |
-                FORMAT_MESSAGE_IGNORE_INSERTS,
-                NULL, (DWORD)(-err), 0, (LPTSTR)&lpMsg, 1, NULL) > 0)
-        {
-            /* The message is returned with CRLF at the end.  Remove them. */
-            for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
-            *p = '\0';
-            Handle res = SAVE(C_string_to_Poly(taskData, lpMsg));
-            LocalFree(lpMsg);
-            return res;
-        }
+        /* The message is returned with CRLF at the end.  Remove them. */
+        for (p = lpMsg; *p != '\0' && *p != '\n' && *p != '\r'; p++);
+        *p = '\0';
+        Handle res = SAVE(C_string_to_Poly(taskData, lpMsg));
+        LocalFree(lpMsg);
+        return res;
     }
 #endif
     // Unix and unknown Windows errors.
