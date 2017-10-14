@@ -435,12 +435,16 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
 // Called by the root thread to actually save the state and write the file.
 void SaveRequest::Perform()
 {
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Beginning saving state.");
     // Check that we aren't overwriting our own parent.
     for (unsigned q = 0; q < newHierarchy-1; q++) {
         if (sameFile(hierarchyTable[q]->fileName, fileName))
         {
             errorMessage = "File being saved is used as a parent of this file";
             errCode = 0;
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: File being saved is used as a parent of this file");
             return;
         }
     }
@@ -452,6 +456,8 @@ void SaveRequest::Perform()
     {
         errorMessage = "Cannot open save file";
         errCode = ERRORNUMBER;
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Cannot open save file");
         return;
     }
 
@@ -464,13 +470,20 @@ void SaveRequest::Perform()
         for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
         {
             PermanentMemSpace *space = *i;
-            if (space->isMutable && ! space->noOverwrite && ! space->byteOnly)
+            if (space->isMutable && !space->noOverwrite && !space->byteOnly)
+            {
+                if (debugOptions & DEBUG_SAVING)
+                    Log("SAVE: Scanning permanent mutable area %p allocated at %p size %lu",
+                        space, space->bottom, space->spaceSize());
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
+            }
         }
     }
     catch (MemoryException &)
     {
         success = false;
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Scan of permanent mutable area raised memory exception");
     }
 
     // Copy the areas into the export object.  Make sufficient space for
@@ -523,6 +536,9 @@ void SaveRequest::Perform()
 
     exports.memTableEntries = memTableCount;
 
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Updating references to moved objects.");
+
     // Update references to moved objects.
     SaveFixupAddress fixup;
     for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
@@ -561,10 +577,14 @@ void SaveRequest::Perform()
     // Try to promote the spaces even if we've had a failure because export
     // spaces are deleted in ~CopyScan and we may have already copied
     // some objects there.
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Promoting export spaces to permanent spaces.");
     if (! gMem.PromoteExportSpaces(newHierarchy) || ! success)
     {
         errorMessage = "Out of Memory";
         errCode = NOMEMORY;
+        if (debugOptions & DEBUG_SAVING)
+            Log("SAVE: Unable to promote export spaces.");
         return;
     }
     // Remove any deeper entries from the hierarchy table.
@@ -574,6 +594,9 @@ void SaveRequest::Perform()
         delete(hierarchyTable[hierarchyDepth]);
         hierarchyTable[hierarchyDepth] = 0;
     }
+
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Writing out data.");
 
     // Write out the file header.
     SavedStateHeader saveHeader;
@@ -673,6 +696,9 @@ void SaveRequest::Perform()
     fseek(exports.exportFile, 0, SEEK_SET);
     fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
     fwrite(descrs, sizeof(SavedStateSegmentDescr), exports.memTableEntries, exports.exportFile);
+
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Writing complete.");
 
     // Add an entry to the hierarchy table for this file.
     (void)AddHierarchyEntry(fileName, saveHeader.timeStamp);

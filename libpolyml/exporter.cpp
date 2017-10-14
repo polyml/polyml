@@ -131,7 +131,11 @@ void CopyScan::initialise(bool isExport/*=true*/)
     {
         graveYard = new GraveYard[gMem.pSpaces.size()];
         if (graveYard == 0)
+        {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to allocate graveyard, size: %lu.", gMem.pSpaces.size());
             throw MemoryException();
+        }
     }
 
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
@@ -152,7 +156,15 @@ void CopyScan::initialise(bool isExport/*=true*/)
                 // We need a separate area for the tombstones because this is read-only
                 graveYard[tombs].graves = (PolyWord*)calloc(space->spaceSize(), sizeof(PolyWord));
                 if (graveYard[tombs].graves == 0)
+                {
+                    if (debugOptions & DEBUG_SAVING)
+                        Log("SAVE: Unable to allocate graveyard for permanent space, size: %lu.",
+                            space->spaceSize() * sizeof(PolyWord));
                     throw MemoryException();
+                }
+                if (debugOptions & DEBUG_SAVING)
+                    Log("SAVE: Allocated graveyard for permanent space, %p size: %lu.",
+                        graveYard[tombs].graves, space->spaceSize() * sizeof(PolyWord));
                 graveYard[tombs].startAddr = space->bottom;
                 graveYard[tombs].endAddr = space->top;
                 tombs++;
@@ -315,6 +327,8 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         if (isByteObj) space->byteOnly = true;
         if (space == 0)
         {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to allocate export space, size: %lu.", spaceWords);
             // Unable to allocate this.
             throw MemoryException();
         }
@@ -734,7 +748,11 @@ unsigned long ExportStringTable::makeEntry(const char *str)
             stringAvailable = stringSize + len + 1 + 500;
         strings = (char*)realloc(strings, stringAvailable);
         if (strings == 0)
+        {
+            if (debugOptions & DEBUG_SAVING)
+                Log("SAVE: Unable to realloc string table, size: %lu.", stringAvailable);
             throw MemoryException();
+        }
      }
     strcpy(strings + stringSize, str);
     stringSize += len + 1;
