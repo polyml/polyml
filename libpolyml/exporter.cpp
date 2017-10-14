@@ -133,7 +133,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (graveYard == 0)
         {
             if (debugOptions & DEBUG_SAVING)
-                Log("SAVE: Unable to allocate graveyard, size: %lu.", gMem.pSpaces.size());
+                Log("SAVE: Unable to allocate graveyard, size: %lu.\n", gMem.pSpaces.size());
             throw MemoryException();
         }
     }
@@ -158,12 +158,12 @@ void CopyScan::initialise(bool isExport/*=true*/)
                 if (graveYard[tombs].graves == 0)
                 {
                     if (debugOptions & DEBUG_SAVING)
-                        Log("SAVE: Unable to allocate graveyard for permanent space, size: %lu.",
+                        Log("SAVE: Unable to allocate graveyard for permanent space, size: %lu.\n",
                             space->spaceSize() * sizeof(PolyWord));
                     throw MemoryException();
                 }
                 if (debugOptions & DEBUG_SAVING)
-                    Log("SAVE: Allocated graveyard for permanent space, %p size: %lu.",
+                    Log("SAVE: Allocated graveyard for permanent space, %p size: %lu.\n",
                         graveYard[tombs].graves, space->spaceSize() * sizeof(PolyWord));
                 graveYard[tombs].startAddr = space->bottom;
                 graveYard[tombs].endAddr = space->top;
@@ -328,7 +328,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         if (space == 0)
         {
             if (debugOptions & DEBUG_SAVING)
-                Log("SAVE: Unable to allocate export space, size: %lu.", spaceWords);
+                Log("SAVE: Unable to allocate export space, size: %lu.\n", spaceWords);
             // Unable to allocate this.
             throw MemoryException();
         }
@@ -750,7 +750,7 @@ unsigned long ExportStringTable::makeEntry(const char *str)
         if (strings == 0)
         {
             if (debugOptions & DEBUG_SAVING)
-                Log("SAVE: Unable to realloc string table, size: %lu.", stringAvailable);
+                Log("SAVE: Unable to realloc string table, size: %lu.\n", stringAvailable);
             throw MemoryException();
         }
      }
