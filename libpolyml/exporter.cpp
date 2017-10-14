@@ -202,6 +202,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultImmSize < 4096) defaultImmSize = 4096;
         if (defaultCodeSize < 4096) defaultImmSize = 4096;
     }
+    if (debugOptions & DEBUG_SAVING)
+        Log("SAVE: Copyscan default sizes: Immutable: %lu, Mutable: %lu, Code: %lu.\n",
+            defaultImmSize, defaultMutSize, defaultCodeSize);
 }
 
 CopyScan::~CopyScan()
