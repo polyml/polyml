@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011-12, 2016 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12, 2016-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -334,8 +334,9 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         space->topPointer = space->bottom;
 
         if (debugOptions & DEBUG_MEMMGR)
-            Log("MMGR: New export %smutable space %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
-                space, space->spaceSize() / 1024, space->bottom, space->top);
+            Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
+                noOv ? "no-overwrite " : "", code ? "code " : "", space,
+                space->spaceSize() / 1024, space->bottom, space->top);
 
         // Add to the table.
         try {

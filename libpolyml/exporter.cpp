@@ -1,7 +1,7 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7, 2015, 2016 David C.J. Matthews
+    Copyright (c) 2006-7, 2015, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -112,8 +112,7 @@ GraveYard::~GraveYard()
 
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
-    defaultImmSize = defaultMutSize = defaultCodeSize = 0;
-    defaultNoOverSize = 4096; // This can be small.
+    defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
     tombs = 0;
     graveYard = 0;
 }
@@ -145,7 +144,9 @@ void CopyScan::initialise(bool isExport/*=true*/)
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
             POLYUNSIGNED size = (space->top-space->bottom)/4;
-            if (space->isMutable)
+            if (space->noOverwrite)
+                defaultNoOverSize += size;
+            else if (space->isMutable)
                 defaultMutSize += size;
             else if (space->isCode)
                 defaultCodeSize += size;
@@ -201,6 +202,13 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultMutSize < 1024) defaultMutSize = 1024;
         if (defaultImmSize < 4096) defaultImmSize = 4096;
         if (defaultCodeSize < 4096) defaultImmSize = 4096;
+        if (defaultNoOverSize < 4096) defaultNoOverSize = 4096;
+        // Set maximum sizes as well.  We may have insufficient contiguous space for
+        // very large areas.
+        if (defaultMutSize > 1024 * 1024) defaultMutSize = 1024 * 1024;
+        if (defaultImmSize > 1024 * 1024) defaultImmSize = 1024 * 1024;
+        if (defaultCodeSize > 1024 * 1024) defaultCodeSize = 1024 * 1024;
+        if (defaultNoOverSize > 1024 * 1024) defaultNoOverSize = 1024 * 1024;
     }
     if (debugOptions & DEBUG_SAVING)
         Log("SAVE: Copyscan default sizes: Immutable: %lu, Mutable: %lu, Code: %lu.\n",
