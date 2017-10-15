@@ -310,7 +310,7 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             }
         }
         POLYUNSIGNED k = j; // Remember the first object that didn't match.
-        //.For each identical object set all but the one we want to point to
+        // For each identical object set all but the one we want to point to
         // the shared object.
         for (j = i; j < k; j++)
         {
@@ -433,6 +433,13 @@ void DepthVector::SortRange(Item *first, Item *last)
     }
 }
 
+// This class is used in two places and is called to ensure that all
+// object length words have been restored.
+// Before we actually try to share the immutable objects at a particular depth it
+// is called to update addresses in those objects to take account of
+// sharing at lower depths.
+// When all sharing is complete it is called to update the addresses in
+// level zero objects, i.e. mutables and code.
 class ProcessFixupAddress: public ScanAddress
 {
 public:
@@ -491,6 +498,9 @@ void ProcessFixupAddress::FixupItems (DepthVector *v)
     }
 }
 
+// This class is used to set up the depth vectors for sorting.  It subclasses ScanAddress
+// in order to be able to use that for code objects since they are complicated but it
+// handles most object types itself.  It scans them depth-first using an explicit stack.
 class ProcessAddToVector: public ScanAddress
 {
 public:
@@ -532,6 +542,8 @@ ProcessAddToVector::~ProcessAddToVector()
     free(addStack); // Now free the stack
 }
 
+// Either adds an object to the stack or, if its depth is known, adds it
+// to the depth vector and returns the depth.
 // We use _OBJ_GC_MARK to detect when we have visited a cell but not yet
 // computed the depth.  We have to be careful that this bit is removed
 // before we finish in the case that we run out of memory and throw an
@@ -620,6 +632,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     return 0;
 }
 
+// Adds an object to the stack.
 void ProcessAddToVector::PushToStack(PolyObject *obj)
 {
     if (asp == stackSize)
@@ -645,6 +658,9 @@ void ProcessAddToVector::PushToStack(PolyObject *obj)
     addStack[asp++] = obj;
 }
 
+// Processes the root and anything reachable from it.  Addresses are added to the
+// explicit stack if an object has not yet been processed.  Most of this function
+// is about processing the stack.
 void ProcessAddToVector::ProcessRoot(PolyObject *root)
 {
     // Mark the initial object
@@ -674,6 +690,8 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             }
         }
 
+        // Immutable local objects.  These can be shared.  We need to compute the
+        // depth by computing the maximum of the depth of all the addresses in it.
         else if ((obj->LengthWord() & _OBJ_GC_MARK) && ! obj->IsMutable())
         {
             POLYUNSIGNED depth = 0;
@@ -700,6 +718,11 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             }
         }
 
+        // Mutable or non-local objects.  These have depth zero.  Local objects have
+        // _OBJ_GC_MARK in their header.  Immutable permanent objects cannot be
+        // modified so we don't set the depth.  Mutable objects are added to the
+        // depth vectors even though they aren't shared so that they will be
+        // updated if they point to immutables that have been shared.
         else
         {
             POLYUNSIGNED length = obj->Length();
@@ -826,7 +849,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
 
     /* We have updated the addresses in objects with non-zero level so they point to
        the single occurrence but we need to do the same with level 0 objects
-       (mutables, stacks and code). */
+       (mutables and code). */
     if (depthVectorSize > 0)
     {
         DepthVector *v = &depthVectors[0];
