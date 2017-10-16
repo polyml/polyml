@@ -681,13 +681,10 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
                different.  For that reason we don't share code segments.  DCJM 4/1/01 */
             asp--; // Pop it because we'll process it completely
             ScanAddressesInObject(obj);
-            // If it's local set the depth with the value zero.
+            // If it's local set the depth with the value zero.  It has already been
+            // added to the zero depth vector.
             if (obj->LengthWord() & _OBJ_GC_MARK)
-            {
-                obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
-                m_parent->AddToVector(0, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
                 obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
-            }
         }
 
         // Immutable local objects.  These can be shared.  We need to compute the
@@ -853,10 +850,17 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     if (depthVectorSize > 0)
     {
         DepthVector *v = &depthVectors[0];
+        // Log this because it could be very large.
+        if (debugOptions & DEBUG_SHARING)
+            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT "\n", v->depth, v->nitems);
+        RestoreLengthWords(v);
         RestoreLengthWords(v);
         fixup.FixupItems(v);
         free(v->vector);
     }
+
+    if (debugOptions & DEBUG_SHARING)
+        Log("Sharing: Maximum depth %4" POLYUFMT "\n", depthVectorSize);
 
     /* Previously we made a complete scan over the memory updating any addresses so
        that if we have shared two substructures within our root we would also
