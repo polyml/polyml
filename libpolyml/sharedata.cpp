@@ -132,14 +132,21 @@ public:
     virtual POLYUNSIGNED MergeSameItems(void);
     virtual void Sort(void);
     virtual POLYUNSIGNED ItemCount(void) { return nitems; }
-    virtual void RestoreLengthWords(void) = 0;
+
     virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt) = 0;
 
     void FixLengthAndAddresses(ScanAddress *scan);
+
+    virtual void RestoreForwardingPointers() = 0;
+
 protected:
     POLYUNSIGNED    nitems;
     POLYUNSIGNED    vsize;
     PolyObject      **ptrVector;
+
+    // This must only be called BEFORE sorting.  The pointer vector will be
+    // modified by sorting but the length vector is not.
+    virtual void RestoreLengthWords(void) = 0;
 
     static void SortRange(PolyObject * *first, PolyObject * *last);
 
@@ -164,6 +171,7 @@ public:
 
     virtual void RestoreLengthWords(void);
     virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt);
+    virtual void RestoreForwardingPointers();
 
 protected:
     POLYUNSIGNED    *lengthVector; // Same size as the ptrVector
@@ -175,6 +183,9 @@ public:
 
     virtual void RestoreLengthWords(void);
     virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt);
+
+    // It's safe to run this again for the fixed length vectors.
+    virtual void RestoreForwardingPointers() { RestoreLengthWords(); }
 
 protected:
     POLYUNSIGNED length;
@@ -557,6 +568,19 @@ void DepthVector::FixLengthAndAddresses(ScanAddress *scan)
     {
         // Fix up all addresses.
         scan->ScanAddressesInObject(ptrVector[i]);
+    }
+}
+
+// Restore the original length words on forwarding pointers.
+// After sorting the pointer vector and length vector are no longer
+// matched so we have to follow the pointers.
+void DepthVectorWithVariableLength::RestoreForwardingPointers()
+{
+    for (POLYUNSIGNED i = 0; i < this->nitems; i++)
+    {
+        PolyObject *obj = ptrVector[i];
+        if (obj->ContainsForwardingPtr())
+            obj->SetLengthWord(obj->GetForwardingPtr()->LengthWord());
     }
 }
 
@@ -988,7 +1012,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
             if (d < depthVectorArray[j].vectorSize)
             {
                 DepthVector *v = depthVectorArray[j].vector[d];
-                v->RestoreLengthWords();
+                v->RestoreForwardingPointers();
             }
         }
     }
