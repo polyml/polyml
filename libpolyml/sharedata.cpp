@@ -66,7 +66,7 @@ were equal) they should be merged so that only a single object is retained.
 
 The basic algorithm works like this:
 1. From the root, recursively process all objects and calculate a "depth"
-   for each object.  Mutable data, stacks and code segments have depth 0 and
+   for each object.  Mutable data and code segments have depth 0 and
    cannot be merged.  Byte segments (e.g. strings and long-format arbitrary
    precision values) have depth 1.  Other cells have depths of 1 or greater,
    the depth being the maximum recursion depth until a byte segment or an
@@ -79,15 +79,15 @@ The basic algorithm works like this:
 2. Vectors are created containing objects of the same depth, from 1 to the
    maximum depth found.
 3. We begin a loop starting at depth 1.
-4. The objects are sorted by their contents so bringing together objects
+4. The length words are restored, replacing the depth count in the header.
+5. The objects are sorted by their contents so bringing together objects
    with the same contents.  The contents are considered simply as
    uninterpreted bits.
-5. The sorted vector is processed to find those objects that are actually
-   bitwise equal.  One object is selected to be retained and its length
-   word is restored to be a normal length (phase 1 had set it to be a depth).
-   The other objects have their length words turned into tombstones pointing
-   at the retained object.
-6. Objects at the next depth are first processed to find pointers to objects
+6. The sorted vector is processed to find those objects that are actually
+   bitwise equal.  One object is selected to be retained and other objects
+   have their length words turned into tombstones pointing at the retained
+   object.
+7. Objects at the next depth are first processed to find pointers to objects
    that moved in the previous step (or that step with a lower depth).  The
    addresses are updated to point to the retained object.  The effect of this
    step is to ensure that now two objects that are equal in ML terms have
@@ -98,7 +98,7 @@ The basic algorithm works like this:
    previous pass of level 1 objects.  This step ensures that the two cells
    containing the pairs both hold pointers to the same objects and so are
    bitwise equal.
-7. Repeat with 4, 5 and 6 until all the levels have been processed.
+8. Repeat with 4, 5 and 6 until all the levels have been processed.
 
 Each object is processed once and at the end most of the objects have been
 updated with the shared addresses.  We have to scan all the mutable and
@@ -114,6 +114,8 @@ C stack overflows.
 
 A further problem is that the vectors can get very large and this
 can cause problems if there is insufficient contiguous space.
+The code has been modified to reduce the size of the vectors
+at the cost of increasing the total memory requirement.
 */
 
 extern "C" {
@@ -125,50 +127,60 @@ extern "C" {
 // the cells have the same size and where they may vary.
 class DepthVector {
 public:
-    virtual ~DepthVector() {}
-    virtual POLYUNSIGNED MergeSameItems(void) = 0;
-    virtual void Sort(void) = 0;
-    virtual POLYUNSIGNED ItemCount(void) = 0;
-    virtual void ScanItems(ScanAddress *scan) = 0;
-    virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt) = 0;
-    virtual void RestoreLengthWords(void) = 0;
-};
+    DepthVector() : nitems(0), vsize(0), ptrVector(0) {}
 
-typedef struct
-{
-    POLYUNSIGNED    L;
-    PolyObject *pt;
-} Item;
-
-// DepthVector where the size needs to be part of the Item.
-class DepthVectorWithVariableLength: public DepthVector {
-public:
-    DepthVectorWithVariableLength() : nitems(0), vsize(0), vector(0) {}
-    virtual ~DepthVectorWithVariableLength() { free(vector); }
-
+    virtual ~DepthVector() { free(ptrVector);  }
     virtual POLYUNSIGNED MergeSameItems(void);
     virtual void Sort(void);
     virtual POLYUNSIGNED ItemCount(void) { return nitems; }
-    virtual void ScanItems(ScanAddress *scan);
-    virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt);
-    virtual void RestoreLengthWords(void);
+    virtual void RestoreLengthWords(void) = 0;
+    virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt) = 0;
 
+    void FixLengthAndAddresses(ScanAddress *scan);
 protected:
     POLYUNSIGNED    nitems;
     POLYUNSIGNED    vsize;
-    Item            *vector;
+    PolyObject      **ptrVector;
 
-private:
-    static void SortRange(Item *first, Item *last);
+    static void SortRange(PolyObject * *first, PolyObject * *last);
 
-    static int CompareItems(const Item *a, const Item *b);
+    static int CompareItems(const PolyObject * const *a, const PolyObject * const *b);
 
     static int qsCompare(const void *a, const void *b)
-        { return CompareItems((const Item*)a, (const Item*)b); }
+    {
+        return CompareItems((const PolyObject * const*)a, (const PolyObject *const *)b);
+    }
 
     static void sortTask(GCTaskId*, void *s, void *l)
-        { SortRange((Item*)s, (Item*)l); }
+    {
+        SortRange((PolyObject **)s, (PolyObject **)l);
+    }
 };
+
+// DepthVector where the size needs to be held for each item.
+class DepthVectorWithVariableLength: public DepthVector {
+public:
+    DepthVectorWithVariableLength() : lengthVector(0) {}
+    virtual ~DepthVectorWithVariableLength() { free(lengthVector); }
+
+    virtual void RestoreLengthWords(void);
+    virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt);
+
+protected:
+    POLYUNSIGNED    *lengthVector; // Same size as the ptrVector
+};
+
+class DepthVectorWithFixedLength : public DepthVector {
+public:
+    DepthVectorWithFixedLength(POLYUNSIGNED l) : length(l) {}
+
+    virtual void RestoreLengthWords(void);
+    virtual void AddToVector(POLYUNSIGNED L, PolyObject *pt);
+
+protected:
+    POLYUNSIGNED length;
+};
+
 
 // We have special vectors for the sizes from 1 to FIXEDLENGTHSIZE-1.
 // Zero-sized and large objects go in depthVectorArray[0].
@@ -180,9 +192,7 @@ public:
     ~ShareDataClass();
 
     bool RunShareData(PolyObject *root);
-
-    DepthVector *AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length);
-    void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt);
+    void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED length, PolyObject *pt);
 
 private:
     struct _depthVector {
@@ -218,8 +228,11 @@ ShareDataClass::~ShareDataClass()
     }
 }
 
-DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length)
+// Grow the appropriate depth vector if necessary and add the item to it.
+void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED length, PolyObject *pt)
 {
+    // Select the appropriate vector.  Element zero is the variable length vector and is
+    // also used for the, rare, zero length objects.
     struct _depthVector *vectorToUse = &(depthVectorArray[length < FIXEDLENGTHSIZE ? length : 0]);
 
     if (depth >= maxVectorSize) maxVectorSize = depth+1;
@@ -236,7 +249,9 @@ DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length)
         for (POLYUNSIGNED d = vectorToUse->vectorSize; d < newDepth; d++)
         {
             try {
-                vectorToUse->vector[d] = new DepthVectorWithVariableLength;
+                if (length != 0 && length < FIXEDLENGTHSIZE)
+                    vectorToUse->vector[d] = new DepthVectorWithFixedLength(length);
+                else vectorToUse->vector[d] = new DepthVectorWithVariableLength;
             }
             catch (std::bad_alloc &) {
                 throw MemoryException();
@@ -244,88 +259,116 @@ DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length)
         }
         vectorToUse->vectorSize = newDepth;
     }
-    return vectorToUse->vector[depth];
+
+    vectorToUse->vector[depth]->AddToVector(length, pt);
 }
 
 // Add an object to a depth vector
 void DepthVectorWithVariableLength::AddToVector(POLYUNSIGNED L, PolyObject *pt)
 {
-    DepthVectorWithVariableLength *v = this;
+    ASSERT (this->nitems <= this->vsize);
 
-    ASSERT (v->nitems <= v->vsize);
-
-    if (v->nitems == v->vsize)
+    if (this->nitems == this->vsize)
     {
         // The vector is full or has not yet been allocated.  Grow it by 50%.
-        POLYUNSIGNED new_vsize = v->vsize + v->vsize / 2 + 1;
+        POLYUNSIGNED new_vsize = this->vsize + this->vsize / 2 + 1;
         if (new_vsize < 15)
             new_vsize = 15;
 
-        Item *new_vector = (Item *)realloc (v->vector, new_vsize*sizeof(Item));
-
-        if (new_vector == 0)
+        // First the length vector.
+        POLYUNSIGNED *newLength = (POLYUNSIGNED *)realloc(this->lengthVector, new_vsize * sizeof(POLYUNSIGNED));
+        if (newLength == 0)
         {
             // The vectors can get large and we may not be able to grow them
             // particularly if the address space is limited in 32-bit mode.
             // Try again with just a small increase.
-            new_vsize = v->vsize + 15;
-            new_vector = (Item *)realloc (v->vector, new_vsize*sizeof(Item));
+            new_vsize = this->vsize + 15;
+            newLength = (POLYUNSIGNED *)realloc(this->lengthVector, new_vsize * sizeof(POLYUNSIGNED));
             // If that failed give up.
-            if (new_vector == 0)
+            if (newLength == 0)
                 throw MemoryException();
         }
 
-        v->vector = new_vector;
-        v->vsize  = new_vsize;
+        PolyObject **newPtrVector = (PolyObject * *)realloc (this->ptrVector, new_vsize*sizeof(PolyObject *));
+
+        if (newPtrVector == 0)
+        {
+            new_vsize = this->vsize + 15;
+            newPtrVector = (PolyObject **)realloc (this->ptrVector, new_vsize*sizeof(PolyObject *));
+            // If that failed give up.
+            if (newPtrVector == 0)
+                throw MemoryException();
+        }
+
+        this->lengthVector = newLength;
+        this->ptrVector = newPtrVector;
+        this->vsize  = new_vsize;
     }
 
-    ASSERT (v->nitems < v->vsize);
-
-    v->vector[v->nitems].L  = L;
-    v->vector[v->nitems].pt = pt;
-
-    v->nitems++;
-
-    ASSERT (v->nitems <= v->vsize);
+    ASSERT (this->nitems < this->vsize);
+    this->lengthVector[this->nitems]  = L;
+    this->ptrVector[this->nitems] = pt;
+    this->nitems++;
+    ASSERT (this->nitems <= this->vsize);
 }
 
 // Add an object to a depth vector
-void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
+void DepthVectorWithFixedLength::AddToVector(POLYUNSIGNED L, PolyObject *pt)
 {
-    DepthVector *v = AddDepth(depth, L);
-    v->AddToVector(L, pt);
+    ASSERT(this->nitems <= this->vsize);
+    ASSERT(L == length);
+
+    if (this->nitems == this->vsize)
+    {
+        // The vector is full or has not yet been allocated.  Grow it by 50%.
+        POLYUNSIGNED new_vsize = this->vsize + this->vsize / 2 + 1;
+        if (new_vsize < 15)
+            new_vsize = 15;
+
+        PolyObject **newPtrVector = (PolyObject * *)realloc(this->ptrVector, new_vsize * sizeof(PolyObject *));
+
+        if (newPtrVector == 0)
+        {
+            new_vsize = this->vsize + 15;
+            newPtrVector = (PolyObject **)realloc(this->ptrVector, new_vsize * sizeof(PolyObject *));
+            // If that failed give up.
+            if (newPtrVector == 0)
+                throw MemoryException();
+        }
+
+        this->ptrVector = newPtrVector;
+        this->vsize = new_vsize;
+    }
+
+    ASSERT(this->nitems < this->vsize);
+    this->ptrVector[this->nitems] = pt;
+    this->nitems++;
+    ASSERT(this->nitems <= this->vsize);
 }
 
 // Comparison function used for sorting and also to test whether
 // two cells can be merged.
-int DepthVectorWithVariableLength::CompareItems(const Item *a, const Item *b)
+int DepthVector::CompareItems(const PolyObject *const *a, const PolyObject *const *b)
 {
-    PolyObject *x = a->pt;
-    PolyObject *y = b->pt;
-//    POLYUNSIGNED  A = x->LengthWord();
-//    POLYUNSIGNED  B = y->LengthWord();
+    const PolyObject *x = *a;
+    const PolyObject *y = *b;
+    POLYUNSIGNED  lX = x->LengthWord();
+    POLYUNSIGNED  lY = y->LengthWord();
 
-//    ASSERT (OBJ_IS_DEPTH(A));
-//    ASSERT (OBJ_IS_DEPTH(B));
-//    ASSERT (A == B); // Should be the same depth.
+//    ASSERT (OBJ_IS_LENGTH(lX));
+//    ASSERT (OBJ_IS_LENGTH(lY));
 
-//    ASSERT (OBJ_IS_LENGTH(a->L));
-//    ASSERT (OBJ_IS_LENGTH(b->L));
-
-    if (a->L > b->L) return  1; // These tests include the flag bits
-    if (a->L < b->L) return -1;
+    if (lX > lY) return  1; // These tests include the flag bits
+    if (lX < lY) return -1;
 
     // Return simple bitwise equality.
-    return memcmp(x, y, OBJ_OBJECT_LENGTH(a->L)*sizeof(PolyWord));
+    return memcmp(x, y, OBJ_OBJECT_LENGTH(lX)*sizeof(PolyWord));
 }
 
 // Merge cells with the same contents.
-POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
+POLYUNSIGNED DepthVector::MergeSameItems()
 {
-    DepthVectorWithVariableLength *v = this;
-
-    POLYUNSIGNED  N = v->nitems;
-    Item *itemVec = v->vector;
+    POLYUNSIGNED  N = this->nitems;
     POLYUNSIGNED  n = 0;
     POLYUNSIGNED  i = 0;
 
@@ -337,9 +380,9 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
         POLYUNSIGNED j;
         for (j = i; j < N; j++)
         {
-            ASSERT (OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
+            ASSERT (OBJ_IS_LENGTH(ptrVector[i]->LengthWord()));
             // Search for identical objects.  Don't bother to compare it with itself.
-            if (i != j && CompareItems (& itemVec[i], & itemVec[j]) != 0) break;
+            if (i != j && CompareItems (&ptrVector[i], &ptrVector[j]) != 0) break;
             // The order of sharing is significant.
             // Choose an object in the permanent memory if that is available.
             // This is necessary to retain the invariant that no object in
@@ -352,10 +395,10 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
             // If we can't find a permanent space choose a space that isn't
             // an allocation space.  Otherwise we could break the invariant
             // that immutable areas never point into the allocation area.
-            MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt-1);
+            MemSpace *space = gMem.SpaceForAddress(ptrVector[j]-1);
             if (bestSpace == 0)
             {
-                bestShare = itemVec[j].pt;
+                bestShare = ptrVector[j];
                 bestSpace = space;
             }
             else if (bestSpace->spaceType == ST_PERMANENT)
@@ -364,7 +407,7 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
                 if (space->spaceType == ST_PERMANENT &&
                         ((PermanentMemSpace *)space)->hierarchy < ((PermanentMemSpace *)bestSpace)->hierarchy)
                 {
-                    bestShare = itemVec[j].pt;
+                    bestShare = ptrVector[j];
                     bestSpace = space;
                 }
             }
@@ -373,7 +416,7 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
                 // Update if the current space is not an allocation space
                 if (space->spaceType != ST_LOCAL || ! ((LocalMemSpace*)space)->allocationSpace)
                 {
-                    bestShare = itemVec[j].pt;
+                    bestShare = ptrVector[j];
                     bestSpace = space;
                 }
             }
@@ -383,21 +426,13 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
         // the shared object.
         for (j = i; j < k; j++)
         {
-            ASSERT (OBJ_IS_DEPTH(itemVec[j].pt->LengthWord()));
-            if (itemVec[j].pt == bestShare)
+            ASSERT (OBJ_IS_LENGTH(ptrVector[j]->LengthWord()));
+            if (ptrVector[j] != bestShare)
             {
-                // This is the common object.
-                bestShare->SetLengthWord(itemVec[j].L); // restore genuine length word
-                ASSERT (OBJ_IS_LENGTH(bestShare->LengthWord()));
-            }
-            else
-            {
-                itemVec[j].pt->SetForwardingPtr(bestShare); /* an indirection */
-                ASSERT (itemVec[j].pt->ContainsForwardingPtr());
+                ptrVector[j]->SetForwardingPtr(bestShare); /* an indirection */
                 n++;
             }
         }
-        ASSERT(! OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
         i = k;
     }
 
@@ -405,9 +440,9 @@ POLYUNSIGNED DepthVectorWithVariableLength::MergeSameItems()
 }
 
 // Sort this vector
-void DepthVectorWithVariableLength::Sort()
+void DepthVector::Sort()
 {
-    SortRange(vector, vector+(nitems-1));
+    SortRange(ptrVector, ptrVector +(nitems-1));
     gpTaskFarm->WaitForCompletion();
 
     // Check
@@ -415,30 +450,30 @@ void DepthVectorWithVariableLength::Sort()
 //       ASSERT(CompareItems(vector+i, vector+i+1) <= 0);
 }
 
-inline void swapItems(Item *i, Item *j)
+inline void swapItems(PolyObject * *i, PolyObject * *j)
 {
-    Item t = *i;
+    PolyObject * t = *i;
     *i = *j;
     *j = t;
 }
 
 // Simple parallel quick-sort.  "first" and "last" are the first
 // and last items (inclusive) in the vector.
-void DepthVectorWithVariableLength::SortRange(Item *first, Item *last)
+void DepthVector::SortRange(PolyObject * *first, PolyObject * *last)
 {
     while (first < last)
     {
         if (last-first <= 100)
         {
             // Use the standard library function for small ranges.
-            qsort(first, last-first+1, sizeof(Item), qsCompare);
+            qsort(first, last-first+1, sizeof(PolyObject *), qsCompare);
             return;
         }
         // Select the best pivot from the first, last and middle item
         // by sorting these three items.  We use the middle item as
         // the pivot and since the first and last items are sorted
         // by this we can skip them when we start the partitioning.
-        Item *middle = first + (last-first)/2;
+        PolyObject * *middle = first + (last-first)/2;
         if (CompareItems(first, middle) > 0)
             swapItems(first, middle);
         if (CompareItems(middle, last) > 0)
@@ -452,8 +487,8 @@ void DepthVectorWithVariableLength::SortRange(Item *first, Item *last)
         // vector into two partitions with all items <= pivot to
         // the left and all items >= pivot to the right.
         // Note: items equal to the pivot could be in either partition.
-        Item *f = first+1;
-        Item *l = last-1;
+        PolyObject * *f = first+1;
+        PolyObject * *l = last-1;
 
         do {
             // Find an item we have to move.  These loops will always
@@ -502,25 +537,27 @@ void DepthVectorWithVariableLength::SortRange(Item *first, Item *last)
     }
 }
 
-void DepthVectorWithVariableLength::ScanItems(ScanAddress *scan)
-{
-    POLYUNSIGNED  N = this->nitems;
-    Item *V = this->vector;
-    for (POLYUNSIGNED i = 0; i < N; i++)
-    {
-        scan->ScanAddressesInObject(V[i].pt, V[i].L);
-    }
-}
-
+// Set the genuine length word.  This overwrites both depth words and forwarding pointers.
 void DepthVectorWithVariableLength::RestoreLengthWords()
 {
-    DepthVectorWithVariableLength *vec = this;
-    // Restore the length words.
-    Item *itemVec = vec->vector;
-    for (POLYUNSIGNED i = 0; i < vec->nitems; i++)
+    for (POLYUNSIGNED i = 0; i < this->nitems; i++)
+        ptrVector[i]->SetLengthWord(lengthVector[i]); // restore genuine length word
+}
+void DepthVectorWithFixedLength::RestoreLengthWords()
+{
+    for (POLYUNSIGNED i = 0; i < this->nitems; i++)
+        ptrVector[i]->SetLengthWord(length); // restore genuine length word
+}
+
+// Fix up the length word.  Then update all addresses to their new location if
+// we have shared the original destination of the address with something else.
+void DepthVector::FixLengthAndAddresses(ScanAddress *scan)
+{
+    RestoreLengthWords();
+    for (POLYUNSIGNED i = 0; i < this->nitems; i++)
     {
-        itemVec[i].pt->SetLengthWord(itemVec[i].L); // restore genuine length word
-        ASSERT(OBJ_IS_LENGTH(itemVec[i].pt->LengthWord()));
+        // Fix up all addresses.
+        scan->ScanAddressesInObject(ptrVector[i]);
     }
 }
 
@@ -875,7 +912,8 @@ bool ShareDataClass::RunShareData(PolyObject *root)
             if (depth < depthVectorArray[j].vectorSize)
             {
                 DepthVector *vec = depthVectorArray[j].vector[depth];
-                vec->ScanItems(&fixup);
+                // Set the length word and update all addresses.
+                vec->FixLengthAndAddresses(&fixup);
 
                 vec->Sort();
 
@@ -927,8 +965,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
             // Log this because it could be very large.
             if (debugOptions & DEBUG_SHARING)
                 Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT "\n", 0, j, v->ItemCount());
-            v->RestoreLengthWords();
-            v->ScanItems(&fixup);
+            v->FixLengthAndAddresses(&fixup);
         }
     }
     /* Previously we made a complete scan over the memory updating any addresses so
