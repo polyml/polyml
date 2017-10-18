@@ -145,57 +145,82 @@ private:
         { SortRange((Item*)s, (Item*)l); }
 };
 
+// We have special vectors for the sizes from 1 to FIXEDLENGTHSIZE-1.
+// Zero-sized and large objects go in depthVectorArray[0].
+#define FIXEDLENGTHSIZE     10
+
 class ShareDataClass {
 public:
-    ShareDataClass() { depthVectors = 0; depthVectorSize = 0; }
+    ShareDataClass();
     ~ShareDataClass();
 
     bool RunShareData(PolyObject *root);
 
-    DepthVector *AddDepth(POLYUNSIGNED depth);
+    DepthVector *AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length);
     void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt);
 
 private:
-    DepthVector *depthVectors;
-    POLYUNSIGNED depthVectorSize;
+    struct _depthVector {
+        DepthVector *vector;
+        POLYUNSIGNED vectorSize;
+    } depthVectorArray[FIXEDLENGTHSIZE];
+
+    POLYUNSIGNED maxVectorSize;
 };
+
+ShareDataClass::ShareDataClass()
+{
+    maxVectorSize = 0;
+    for (unsigned i = 0; i < FIXEDLENGTHSIZE; i++)
+    {
+        depthVectorArray[i].vector = 0;
+        depthVectorArray[i].vectorSize = 0;
+    }
+}
 
 ShareDataClass::~ShareDataClass()
 {
     // Free the bitmaps associated with the permanent spaces.
     for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
        (*i)->shareBitmap.Destroy();
+
+    for (unsigned i = 0; i < FIXEDLENGTHSIZE; i++)
+        free(depthVectorArray[i].vector);
 }
 
-DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth)
+DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth, POLYUNSIGNED length)
 {
-    if (depth >= depthVectorSize) {
+    struct _depthVector *vectorToUse = &(depthVectorArray[length < FIXEDLENGTHSIZE ? length : 0]);
+
+    if (depth >= maxVectorSize) maxVectorSize = depth+1;
+
+    if (depth >= vectorToUse->vectorSize) {
         POLYUNSIGNED newDepth = depth+1;
-        DepthVector *newVec = (DepthVector *)realloc(depthVectors, sizeof(DepthVector)*newDepth);
+        DepthVector *newVec = (DepthVector *)realloc(vectorToUse->vector, sizeof(DepthVector)*newDepth);
         if (newVec == 0) throw MemoryException();
-        depthVectors = newVec;
-        for (POLYUNSIGNED d = depthVectorSize; d < newDepth; d++) {
-            DepthVector *dv = &depthVectors[d];
+        vectorToUse->vector = newVec;
+        for (POLYUNSIGNED d = vectorToUse->vectorSize; d < newDepth; d++) {
+            DepthVector *dv = &vectorToUse->vector[d];
             dv->depth = d;
             dv->nitems = dv->vsize = 0;
             dv->vector = 0;
         }
-        depthVectorSize = newDepth;
+        vectorToUse->vectorSize = newDepth;
     }
-    return &depthVectors[depth];
+    return &vectorToUse->vector[depth];
 }
 
 // Add an object to a depth vector
 void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
-    DepthVector *v = AddDepth (depth);
+    DepthVector *v = AddDepth (depth, L);
 
     ASSERT (v->nitems <= v->vsize);
 
     if (v->nitems == v->vsize)
     {
         // The vector is full or has not yet been allocated.  Grow it by 50%.
-        POLYUNSIGNED new_vsize  = v->vsize + v->vsize / 2 + 1;
+        POLYUNSIGNED new_vsize = v->vsize + v->vsize / 2 + 1;
         if (new_vsize < 15)
             new_vsize = 15;
 
@@ -784,9 +809,6 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
 
-    depthVectors = 0;
-    depthVectorSize = 0;
-
     // Build the vectors from the immutable objects.
     bool success = true;
 
@@ -803,20 +825,26 @@ bool ShareDataClass::RunShareData(PolyObject *root)
 
     ProcessFixupAddress fixup;
 
-    for (POLYUNSIGNED depth = 1; depth < depthVectorSize; depth++)
+    for (POLYUNSIGNED depth = 1; depth < maxVectorSize; depth++)
     {
-        DepthVector *vec = &depthVectors[depth];
-        fixup.FixupItems(vec);
-        vec->Sort();
+        for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
+        {
+            if (depth < depthVectorArray[j].vectorSize)
+            {
+                DepthVector *vec = &(depthVectorArray[j].vector[depth]);
+                fixup.FixupItems(vec);
+                vec->Sort();
 
-        POLYUNSIGNED n = vec->MergeSameItems();
+                POLYUNSIGNED n = vec->MergeSameItems();
 
-        if ((debugOptions & DEBUG_SHARING) && n > 0)
-            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT " (%1.0f%%)\n",
-                vec->depth, vec->nitems, n, (float)n / (float)vec->nitems * 100.0);
+                if ((debugOptions & DEBUG_SHARING) && n > 0)
+                    Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT ", Shared %6" POLYUFMT " (%1.0f%%)\n",
+                        vec->depth, j, vec->nitems, n, (float)n / (float)vec->nitems * 100.0);
 
-        totalObjects += vec->nitems;
-        totalShared  += n;
+                totalObjects += vec->nitems;
+                totalShared += n;
+            }
+        }
     }
 
       /*
@@ -847,35 +875,36 @@ bool ShareDataClass::RunShareData(PolyObject *root)
     /* We have updated the addresses in objects with non-zero level so they point to
        the single occurrence but we need to do the same with level 0 objects
        (mutables and code). */
-    if (depthVectorSize > 0)
+    for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
     {
-        DepthVector *v = &depthVectors[0];
-        // Log this because it could be very large.
-        if (debugOptions & DEBUG_SHARING)
-            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT "\n", v->depth, v->nitems);
-        RestoreLengthWords(v);
-        RestoreLengthWords(v);
-        fixup.FixupItems(v);
-        free(v->vector);
+        if (depthVectorArray[j].vectorSize > 0)
+        {
+            DepthVector *v = &(depthVectorArray[j].vector[0]);
+            // Log this because it could be very large.
+            if (debugOptions & DEBUG_SHARING)
+                Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT "\n", v->depth, j, v->nitems);
+            RestoreLengthWords(v);
+            fixup.FixupItems(v);
+            free(v->vector);
+        }
     }
-
-    if (debugOptions & DEBUG_SHARING)
-        Log("Sharing: Maximum depth %4" POLYUFMT "\n", depthVectorSize);
-
     /* Previously we made a complete scan over the memory updating any addresses so
        that if we have shared two substructures within our root we would also
        share any external pointers.  This has been removed but we have to
        reinstate the length words we've overwritten with forwarding pointers because
        there may be references to unshared objects from outside. */
-    for (POLYUNSIGNED d = 1; d < depthVectorSize; d++)
+    for (POLYUNSIGNED d = 1; d < maxVectorSize; d++)
     {
-        DepthVector *v = &depthVectors[d];
-        RestoreLengthWords(v);
-        free(v->vector);
+        for (unsigned j = 0; j < FIXEDLENGTHSIZE; j++)
+        {
+            if (d < depthVectorArray[j].vectorSize)
+            {
+                DepthVector *v = &(depthVectorArray[j].vector[d]);
+                RestoreLengthWords(v);
+                free(v->vector);
+            }
+        }
     }
-
-    free(depthVectors);
-    depthVectors = 0;
 
     if (debugOptions & DEBUG_SHARING)
         Log ("Sharing: Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT " (%1.0f%%)\n",
