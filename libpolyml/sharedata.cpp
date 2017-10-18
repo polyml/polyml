@@ -960,6 +960,9 @@ bool ShareDataClass::RunShareData(PolyObject *root)
             }
         }
     }
+    
+    if (debugOptions & DEBUG_SHARING)
+        Log("Sharing: Maximum level %4" POLYUFMT ",\n", maxVectorSize);
 
       /*
        At this stage, we have fixed up most but not all of the forwarding
