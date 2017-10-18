@@ -3,12 +3,11 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-13, 2016
+    and David C. J. Matthews 2006, 2010-13, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
 
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -688,14 +687,23 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 
     if (obj->IsMutable())
     {
-        // Mutable data in the local or permanent areas
-        if (! obj->IsByteObject())
+        // Mutable data in the local or permanent areas.  Ignore byte objects or
+        // word objects containing only ints.
+        if (obj->IsWordObject())
         {
-            // Add it to the vector so we will update any addresses it contains.
-            m_parent->AddToVector(0, L, old.AsObjPtr());
-            // and follow any addresses to try to merge those.
-            PushToStack(obj);
-            obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+            bool containsAddress = false;
+            for (POLYUNSIGNED j = 0; j < OBJ_OBJECT_LENGTH(L) && !containsAddress; j++)
+                containsAddress = ! obj->Get(j).IsTagged();
+
+            if (containsAddress)
+            {
+                // Add it to the vector so we will update any addresses it contains.
+                m_parent->AddToVector(0, L, old.AsObjPtr());
+                // and follow any addresses to try to merge those.
+                PushToStack(obj);
+                obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+            }
+            // If we don't add it to the vector we mustn't set _OBJ_GC_MARK.
         }
         return 0; // Level is zero
     }
