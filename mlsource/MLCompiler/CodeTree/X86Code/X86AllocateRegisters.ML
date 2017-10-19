@@ -326,7 +326,15 @@ struct
 
         fun allocateArgument(RegisterArgument(PReg r), regSet) = allocateRegister(r, NONE, regSet)
         |   allocateArgument(MemoryLocation{base=PReg bReg, index, cache=NONE, ...}, _) = (allocateGeneralReg bReg; allocateArgIndex index)
-        |   allocateArgument(MemoryLocation{cache=SOME(PReg r), ...}, regSet) = allocateRegister(r, NONE, regSet)
+            (* Unfortunately we still have to allocate a register for the base even if we're going to use the cache.
+               That's because the conflict sets are based on the assumption that the registers are allocated at the
+               last occurrence (first when working from the end back) and it uses getInstructionRegisters which in turn
+               uses argRegs which returns both the base and the cache.  GetConflictSets could use a different version
+               but we also have to take account of save registers in e.g. AllocateMemoryOperation.  If we
+               don't allocate a register because it's not needed at some point it shouldn't be allocated
+               for the save set. *)
+        |   allocateArgument(MemoryLocation{cache=SOME(PReg r), base=PReg bReg, index, ...}, regSet) =
+                (allocateGeneralReg bReg; allocateArgIndex index; allocateRegister(r, NONE, regSet))
         |   allocateArgument(StackLocation{cache=SOME(PReg r), ...}, regSet) = allocateRegister(r, NONE, regSet)
         |   allocateArgument _ = ()
     
