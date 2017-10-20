@@ -1029,9 +1029,11 @@ struct
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
-                            (* We can cache the boxed value. *)
+                            (* We can cache the boxed value except if this is an X87 box.
+                               We can't cache X87 values because there's effectively only one register
+                               and this box instruction uses FSTP (store and POP). *)
                             val cacheCode =
-                                if Vector.sub(pushVec, dReg) then []
+                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87 then []
                                 else
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
