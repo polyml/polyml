@@ -608,13 +608,13 @@ struct
         |   printICode(SSE2Compare{arg1, arg2, ...}, stream, printReg) =
                 (stream "\tSSE2Compare\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
 
-        |   printICode(X87FPGetCondition{dest, ...}, stream, printReg) = (stream "\tX87FPGetCondition\t => "; printReg(dest, stream))
+        |   printICode(X87FPGetCondition{dest, ...}, stream, printReg) = (stream "\tX87FPGetCondition\t=> "; printReg(dest, stream))
 
         |   printICode(X87FPArith{opc, resultReg, arg1, arg2}, stream, printReg) =
             (
                 case opc of
                     FADD => stream "\tX87FPAdd\t"
-                |   FMUL => stream "\tX87FPMul"
+                |   FMUL => stream "\tX87FPMul\t"
                 |   FCOM => stream "\tX87FPCompare\t"
                 |   FCOMP => stream "\tX87FPComparePop\t"
                 |   FSUB => stream "\tX87FPSub\t"
