@@ -2460,35 +2460,41 @@ struct
                 BlockSimple(WordComparison{arg1=arg1Reg, arg2=RegisterArgument arg2Reg, ccRef=ccRef}) :: arg2Code
             end
 
-        |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2=BICConstnt(value, _)},
-                    context, jumpOn, jumpLabel, tailCode) =
-            let
-                val ccRef = newCCRef()
-                val argReg = newUReg()
-                val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val noJumpLabel = newLabel()
-                val constantValue = largeWordConstant value
-            in
-                BlockLabel noJumpLabel ::
-                BlockFlow(Conditional{ccRef=ccRef,
-                           condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=argReg, arg2=IntegerConstant constantValue, ccRef=ccRef}) ::
-                BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg1Code
-            end
-
         |   codeConditionRev(BICBinary{oper=BuiltIns.LargeWordComparison test, arg1, arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
                 val (arg1Code, arg1Reg) = codeToPRegRev(arg1, context, tailCode)
-                val (arg2Code, arg2Reg) = codeToPRegRev(arg2, context, arg1Code)
+                (* In X64 we can extract the word from a constant and do the comparison
+                   directly.  That can't be done in X86/32 because the value isn't tagged
+                   and might look like an address.  The RTS scans for comparisons with
+                   inline constant addresses. *)
+                val (arg2Code, arg2Operand) =
+                    if isX64
+                    then
+                    (
+                        case arg2 of
+                            BICConstnt(value, _) => (arg1Code, IntegerConstant(largeWordConstant value))
+                        |   _ =>
+                            let
+                                val (code, reg) = codeToPRegRev(arg2, context, arg1Code)
+                            in
+                                (code, wordAt reg)
+                            end
+                    )
+                    else
+                    let
+                        val (code, reg) = codeToPRegRev(arg2, context, arg1Code)
+                    in
+                        (code, wordAt reg)
+                    end
                 val argReg = newUReg()
                 val noJumpLabel = newLabel()
             in
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, false, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=argReg, arg2=wordAt arg2Reg, ccRef=ccRef}) ::
+                BlockSimple(WordComparison{arg1=argReg, arg2=arg2Operand, ccRef=ccRef}) ::
                 BlockSimple(LoadArgument{source=wordAt arg1Reg, dest=argReg, kind=MoveWord}) :: arg2Code
             end
 
