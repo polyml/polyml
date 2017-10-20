@@ -2252,6 +2252,9 @@ struct
             (b1' * 0x100) + b0
         end
         
+        fun get16u(a, seg) : int =
+            Word8.toInt (codeVecGet (seg, a + 0w1)) * 0x100 + Word8.toInt (codeVecGet (seg, a))
+        
         (* Get 1 unsigned byte from the given offset in the segment. *)
         fun get8u (a, seg) : Word8.word = codeVecGet (seg, a);
 
@@ -2913,7 +2916,7 @@ struct
             
             |   0wxca => (* Register mask *)
                 let
-                    val mask = get16s (!ptr, seg) before (ptr +:= 0w2)
+                    val mask = get16u (!ptr, seg) before (ptr +:= 0w2)
                 in
                     print "SAVE\t";
                     printMask mask
@@ -2921,10 +2924,10 @@ struct
 
             |   0wxcd => (* Register mask *)
                 let
-                    val mask = get8s (!ptr, seg) before (ptr +:= 0w1)
+                    val mask = get8u (!ptr, seg) before (ptr +:= 0w1)
                 in
                     print "SAVE\t";
-                    printMask mask
+                    printMask(Word8.toInt mask)
                 end
 
             |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, sizeFromRexW)
