@@ -1319,7 +1319,19 @@ struct
                 arithOpReg (opc, output, source)
 
         |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source }) =
+            let
+                (* On the X86/32 we use CMP with literal sources to compare with an
+                   address and the RTS searches for them in the code.  Any
+                   non-address constant must be tagged.  Most will be but we
+                   might want to use this to compare with the contents of a
+                   LargeWord value. *)
+                val _ =
+                    if isX64 orelse is8BitL source orelse opc <> CMP orelse IntInf.andb(source, 1) = 1
+                    then ()
+                    else raise InternalError "CMP with constant that looks like an address"
+            in
                 immediateOperand(opc, output, source)
+            end
 
         |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _ }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
