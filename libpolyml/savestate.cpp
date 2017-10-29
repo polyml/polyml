@@ -804,27 +804,105 @@ void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED leng
     }
 }
 
+// This is copied from the B-tree in MemMgr.  It probably should be
+// merged but will do for the moment.  It's intended to reduce the
+// cost of finding the segment for relocation.
+
+class SpaceBTree
+{
+public:
+    SpaceBTree(bool is, unsigned i = 0) : isLeaf(is), index(i) { }
+    virtual ~SpaceBTree() {}
+
+    bool isLeaf;
+    unsigned index; // The index if this is a leaf
+};
+
+// A non-leaf node in the B-tree
+class SpaceBTreeTree : public SpaceBTree
+{
+public:
+    SpaceBTreeTree();
+    virtual ~SpaceBTreeTree();
+
+    SpaceBTree *tree[256];
+};
+
+SpaceBTreeTree::SpaceBTreeTree() : SpaceBTree(false)
+{
+    for (unsigned i = 0; i < 256; i++)
+        tree[i] = 0;
+}
+
+SpaceBTreeTree::~SpaceBTreeTree()
+{
+    for (unsigned i = 0; i < 256; i++)
+        delete(tree[i]);
+}
+
+
 // This class is used to relocate addresses in areas that have been loaded.
 class LoadRelocate
 {
 public:
-    LoadRelocate(): descrs(0), targetAddresses(0), nDescrs(0), errorMessage(0) {}
+    LoadRelocate(): descrs(0), targetAddresses(0), nDescrs(0), errorMessage(0), spaceTree(0) {}
     ~LoadRelocate();
 
     void RelocateObject(PolyObject *p);
     void RelocateAddressAt(PolyWord *pt);
+    void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
 
     SavedStateSegmentDescr *descrs;
     PolyWord **targetAddresses;
     unsigned nDescrs;
     const char *errorMessage;
+    SpaceBTree *spaceTree;
 };
 
 LoadRelocate::~LoadRelocate()
 {
     if (descrs) delete[](descrs);
     if (targetAddresses) delete[](targetAddresses);
+    delete(spaceTree);
 }
+
+// Add an entry to the space B-tree.
+void LoadRelocate::AddTreeRange(SpaceBTree **tt, unsigned index, uintptr_t startS, uintptr_t endS)
+{
+    if (*tt == 0)
+        *tt = new SpaceBTreeTree;
+    ASSERT(!(*tt)->isLeaf);
+    SpaceBTreeTree *t = (SpaceBTreeTree*)*tt;
+
+    const unsigned shift = (sizeof(void*) - 1) * 8; // Takes the high-order byte
+    uintptr_t r = startS >> shift;
+    ASSERT(r < 256);
+    const uintptr_t s = endS == 0 ? 256 : endS >> shift;
+    ASSERT(s >= r && s <= 256);
+
+    if (r == s) // Wholly within this entry
+        AddTreeRange(&(t->tree[r]), index, startS << 8, endS << 8);
+    else
+    {
+        // Deal with any remainder at the start.
+        if ((r << shift) != startS)
+        {
+            AddTreeRange(&(t->tree[r]), index, startS << 8, 0 /*End of range*/);
+            r++;
+        }
+        // Whole entries.
+        while (r < s)
+        {
+            ASSERT(t->tree[r] == 0);
+            t->tree[r] = new SpaceBTree(true, index);
+            r++;
+        }
+        // Remainder at the end.
+        if ((s << shift) != endS)
+            AddTreeRange(&(t->tree[r]), index, 0, endS << 8);
+    }
+}
+
 
 // Update the addresses in a group of words.
 void LoadRelocate::RelocateAddressAt(PolyWord *pt)
@@ -834,26 +912,32 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
     if (val.IsTagged()) return;
 
     // Which segment is this address in?
-    unsigned i;
-    for (i = 0; i < nDescrs; i++)
+    uintptr_t t = (uintptr_t)val.AsAddress();
+    SpaceBTree *tr = spaceTree;
+
+    // Each level of the tree is either a leaf or a vector of trees.
+    unsigned j = sizeof(void *) * 8;
+    for (;;)
     {
-        SavedStateSegmentDescr *descr = &descrs[i];
-        if (val.AsAddress() > descr->originalAddress &&
-            val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize)
-        {
+        if (tr == 0) break;
+        if (tr->isLeaf) {
             // It's in this segment: relocate it to the current position.
-            PolyWord *newAddress = targetAddresses[descr->segmentIndex];
+            unsigned i = tr->index;
+            SavedStateSegmentDescr *descr = &descrs[i];
+            PolyWord *newAddress = targetAddresses[i];
+            ASSERT(val.AsAddress() > descr->originalAddress &&
+                val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize);
             ASSERT(newAddress != 0);
             byte *setAddress = (byte*)newAddress + ((char*)val.AsAddress() - (char*)descr->originalAddress);
             *pt = PolyWord::FromCodePtr(setAddress);
-            break;
+            return;
         }
+        j -= 8;
+        tr = ((SpaceBTreeTree*)tr)->tree[(t >> j) & 0xff];
     }
-    if (i == nDescrs)
-    {
-        // Error: Not found.
-        errorMessage = "Unmatched address";
-    }
+
+    // Error: Not found.
+    errorMessage = "Unmatched address";
 }
 
 // This is based on Exporter::relocateObject but does the reverse.
@@ -1025,7 +1109,12 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
             if (relocate.descrs[i].segmentIndex > maxIndex)
                 maxIndex = relocate.descrs[i].segmentIndex;
         relocate.targetAddresses = new PolyWord*[maxIndex+1];
-        for (unsigned i = 0; i <= maxIndex; i++) relocate.targetAddresses[i] = 0;
+        for (unsigned i = 0; i <= maxIndex; i++)
+        {
+            relocate.targetAddresses[i] = 0;
+            relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
+                (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
+        }
     }
 
     // Read in and create the new segments first.  If we have problems,
