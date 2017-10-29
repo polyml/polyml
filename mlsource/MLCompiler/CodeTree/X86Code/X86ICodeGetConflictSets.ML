@@ -31,7 +31,7 @@ struct
         conflicts: intSet, realConflicts: reg list
     }
     
-    type triple = {instr: abstract x86ICode, current: intSet, active: intSet}
+    type triple = {instr: x86ICode, current: intSet, active: intSet}
 
     exception InternalError = Misc.InternalError
     
@@ -81,7 +81,7 @@ struct
         fun conflictsForInstr passThrough {instr, current, ...} =
         let
             val {sources, dests} = getInstructionRegisters instr
-            fun regNo(PReg(i, _)) = i
+            fun regNo(PReg i) = i
             val destRegNos = map regNo dests
             and sourceRegNos = map regNo sources
             val destSet = listToSet destRegNos
@@ -101,7 +101,20 @@ struct
                     |   IndexedCaseOperation _ => destRegNos @ sourceRegNos
                     |   ArithmeticFunction{oper=SUB, operand2, ...} =>
                             (* Special case for subtraction - we can't use the same register for the result and
-                               the second operand. *) destRegNos @ map regNo (argRegs operand2)   
+                               the second operand. *) destRegNos @ map regNo (argRegs operand2)
+                    |   ArithmeticFunction{operand2 as MemoryLocation _, ...} =>
+                        (* If operand1 is not in the destination register we will move it
+                           there before the instruction.  That means that we must not have the
+                           destination register as either a base or index register.  *)
+                            destRegNos @ map regNo (argRegs operand2)
+                    |   Multiplication{operand2 as MemoryLocation _, ...} =>
+                        (* Likewise for multiplication.  *)
+                            destRegNos @ map regNo (argRegs operand2)
+                        (* TailRecursiveCall and JumpLoop may require a work register.
+                           This is the only destination but if present it must be distinct
+                           from the arguments. *)
+                    |   TailRecursiveCall _ => destRegNos @ sourceRegNos
+                    |   JumpLoop _ => destRegNos @ sourceRegNos
                     |   _ => destRegNos
             in
                 (* If there is more than one destination they conflict with each other. *)
@@ -128,7 +141,7 @@ struct
                 case instr of
                     JumpLoop{regArgs, ...} =>
                     let
-                        val destRegs = List.foldl(fn ((_, PReg(loopReg, _)), dests) => loopReg :: dests) [] regArgs
+                        val destRegs = List.foldl(fn ((_, PReg loopReg), dests) => loopReg :: dests) [] regArgs
                     in
                         addConflictsTo(destRegs, listToSet destRegs);
                         addConflictsTo(destRegs, current);
@@ -198,6 +211,14 @@ struct
                         (* This can only put the result in rax. *)
                         reserveRegister([regNo dest], GenReg eax)
 
+                |   RaiseExceptionPacket{ packetReg } =>
+                        (* This wasn't needed previously because we always pushed the registers
+                           across an exception. *)
+                        reserveRegister([regNo packetReg], GenReg eax)
+                
+                |   BeginHandler { packetReg, ...} =>
+                        reserveRegister([regNo packetReg], GenReg eax)
+
                 |   _ => ()
         in
             ()
@@ -238,9 +259,9 @@ struct
 
     structure Sharing =
     struct
-        type 'reg x86ICode = 'reg x86ICode
+        type x86ICode = x86ICode
         and reg = reg
-        and abstract = abstract
+        and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
     end

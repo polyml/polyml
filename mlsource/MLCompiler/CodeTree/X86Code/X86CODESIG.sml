@@ -143,7 +143,7 @@ sig
     |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
-    |   ResetStack of int
+    |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
@@ -162,13 +162,12 @@ sig
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
-    |   MultiplyRR of { source: genReg, output: genReg }
-    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
-    |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
@@ -208,5 +207,12 @@ sig
         and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
+        and  callKinds      = callKinds
+        and  arithOp        = arithOp
+        and  shiftType      = shiftType
+        and  repOps         = repOps
+        and  fpOps          = fpOps
+        and  fpUnaryOps     = fpUnaryOps
+        and  sse2Operations = sse2Operations
     end
 end;

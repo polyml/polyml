@@ -15,21 +15,33 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86PUSHREGISTERSIG =
+signature X86ALLOCATEREGISTERSSIG =
 sig
-    type preg and x86ICode and intSet and extendedBasicBlock and basicBlock
-    and regProperty
+    type intSet and extendedBasicBlock and regProperty and reg
+    type address = Address.address 
+    
+    type conflictState =
+    {
+        conflicts: intSet, realConflicts: reg list
+    }
 
-    val addRegisterPushes :
-        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
-            { code: basicBlock vector, pregProps: regProperty vector, maxStack: int }
-
+    datatype allocateResult =
+        AllocateSuccess of reg vector
+    |   AllocateFailure of intSet list
+    
+    val allocateRegisters :
+        {
+            blocks: extendedBasicBlock vector,
+            regStates: conflictState vector,
+            regProps: regProperty vector
+        } -> allocateResult
+    
     structure Sharing:
     sig
-        type x86ICode = x86ICode
-        and preg = preg
-        and extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
-        and regProperty = regProperty
+        type intSet             = intSet
+        and extendedBasicBlock  = extendedBasicBlock
+        and regProperty         = regProperty
+        and reg                 = reg
+        and allocateResult      = allocateResult
     end
 end;

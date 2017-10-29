@@ -1139,7 +1139,11 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xc6: /* MOVB_8_A */
         case 0x83: /* Group1_8_A */
         case 0x80: /* Group1_8_a */
+        case 0x6b: // IMUL Ev,Ib
             pt++; skipea(addr, &pt, process, false); pt++; break;
+
+        case 0x69: // IMUL Ev,Iv
+            pt++; skipea(addr, &pt, process, false); pt += 4; break;
 
         case 0x81: /* Group1_32_A */
             {

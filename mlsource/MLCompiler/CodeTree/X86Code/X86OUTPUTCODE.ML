@@ -75,7 +75,6 @@ struct
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
 
-    fun is8Bit n = ~ 0x80 <= n andalso n < 0x80
     fun is8BitL (n: LargeInt.int) = ~ 0x80 <= n andalso n < 0x80
 
     local
@@ -371,6 +370,8 @@ struct
             then listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi, r8, r9, r10, r11, r12, r13, r14])
             else listToSet(map GenReg [eax, ecx, edx, ebx, esi, edi])
         
+        (* The floating point stack.  Note that this excludes one item so it is always
+           possible to load a value onto the top of the FP stack. *)
         val floatingPtRegisters =
             listToSet(map FPReg [fp0, fp1, fp2, fp3, fp4, fp5, fp6(*, fp7*)])
 
@@ -589,6 +590,8 @@ struct
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
     |   CVTSI2SD
     |   HLT     (* End of code marker. *)
+    |   IMUL_C8
+    |   IMUL_C32
 
     fun opToInt Group1_8_A    =  0wx83
     |   opToInt Group1_32_A   =  0wx81
@@ -646,6 +649,8 @@ struct
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
     |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
     |   opToInt HLT           = 0wxf4
+    |   opToInt IMUL_C8       = 0wx6b
+    |   opToInt IMUL_C32      = 0wx69
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -676,22 +681,6 @@ struct
     (* The X86 has the option to include an index register and to scale it. *)
     datatype indexType =
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
-
-    (* Put together the three fields which make up the s-i-b byte. *)
-    fun sib (s : indexType, b : genReg option) : Word8.word =
-    let
-        val sizeField =
-            case s of
-                NoIndex  => 0w4 <<- 0w3 (* No index reg. *)
-            |   Index1 i => (0w0 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index2 i => (0w1 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index4 i => (0w2 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-            |   Index8 i => (0w3 <<- 0w6) orb8 (#1 (getReg i) <<- 0w3)
-        val baseField =
-            case b of SOME r => #1 (getReg r) | NONE => 0w5 (* No base *)
-    in
-       sizeField orb8 baseField
-    end
 
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
     fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
@@ -735,39 +724,6 @@ struct
         opcodePrefix opb @ rexByte @ escapePrefix opb @ [opToInt opb]
     end
 
-    (* Generate an effective address. *)
-    fun eACode (offset: LargeInt.int, rb: Word8.word, r: Word8.word) =
-    let
-        val offsetCode =
-            (* don't generate [ebp] (use [ebp+0]) 'cos it doesn't exist! *)
-            if offset = 0 andalso rb <> 0w5 
-            then Based0  (* no disp field *)
-            else if is8BitL offset
-            then Based8  (* use 8-bit disp field *)
-            else Based32 (* use 32-bit disp field *)
-        val modRmbytes =
-            if rb = 0w4 (* Code for esp and r12 *)
-            then (* Need to use s-i-b byte. *)
-            let
-                (* Normally we will have a non-zero offset for esp.  The
-                   exception is computing the maximum stack in the prelude. *)
-                val mdrmByte = modrm (offsetCode, r, 0w4 (* use SIB *))
-                val sibByte = sib(NoIndex, SOME esp)
-            in
-                [mdrmByte, sibByte]
-            end
-            else [modrm(offsetCode, r, rb)]
-
-        val offsetBytes =
-            (* generate the disp field (if any) *)
-            case offsetCode of
-                Based8  => [byteSigned(LargeInt.toInt offset)]
-            |   Based32 => int32Signed offset
-            |   _       => []
-    in
-        modRmbytes @ offsetBytes
-    end
-
     fun rexByte(opb, rrX, rbX, riX) =
     let
         (* We need a rex prefix if we need to set the length to 64-bit. *)
@@ -792,6 +748,8 @@ struct
             |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
             |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
             |   CVTSI2SD => isX64 (* This affects the size of the integer source. *)
+            |   IMUL_C8 => isX64
+            |   IMUL_C32 => isX64
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -809,30 +767,9 @@ struct
         else []
     end
 
-    local
-        (* Generate a opcode plus a modrm byte.  *)
-        fun opEAGen(opb:opCode, offset: LargeInt.int, rb: genReg, (rrC, rrX)) =
-        let
-            val (rbC, rbX) = getReg rb
-        in
-            (* Any lock or opsize prefix comes before any REX prefix. *)
-            opcodePrefix opb @ rexByte(opb, rrX, rbX, false) @ escapePrefix opb @ [opToInt opb] @
-                eACode(offset, rbC, rrC)
-        end
-    in
-        fun opEA(opb, offset, rb, r) = opEAGen(opb, offset, rb, getReg r)
-        and mMXEA(opb:opCode, offset: LargeInt.int, rb: genReg, SSE2Reg rrC) =
-            opEAGen(opb, offset, rb, (rrC, false))
-        (* Generate a opcode plus a second modrm byte but where the "register" field in
-           the modrm byte is actually a code.  *)
-        and opPlus2(opb, offset, rb, op2) = opEAGen(opb, offset, rb, (op2, false))
-    end
-
     (* Register/register operation. *)
-    fun opReg(opb:opCode, rd: genReg, rs: genReg) =
+    fun opReg(opb:opCode, (*dest*)GeneralReg(rrC, rrX), (*source*)GeneralReg(rbC, rbX)) =
     let
-        val (rbC, rbX) = getReg rs
-        val (rrC, rrX) = getReg rd
         val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
         val rex = rexByte(opb, rrX, rbX, false)
         val esc = escapePrefix opb (* Generate the ESCAPE code if needed. *)
@@ -842,56 +779,66 @@ struct
         pref @ rex @ esc @ [opc, mdrm]
     end
 
+    (* Operations on a register where the second "register" is actually an operation code. *)
     fun opRegPlus2(opb:opCode, rd: genReg, op2: Word8.word) =
     let
         val (rrC, rrX) = getReg rd
+        val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
         val rex = rexByte(opb, false, rrX, false)
         val opc = opToInt opb
         val mdrm = modrm(Register, op2, rrC)
     in
-        rex @ [opc, mdrm]
+        pref @ rex @ [opc, mdrm]
     end
 
     local
-        (* Similar to genEA, but used when there is an index register.
-           rb may be NONE if no base register is required (used
-           with leal to tag values). *)
+        (* General instruction form with modrm and optional sib bytes.  rb is an option since the
+           base register may be omitted.  This is used with LEA to tag integers. *)
         fun opIndexedGen (opb:opCode, offset: LargeInt.int, rb: genReg option, ri: indexType, (rrC, rrX)) =
         let
-            val (rbC, rbX) = case rb of NONE => (0w0, false) | SOME rb => getReg rb
-
-            val (_, riX) = 
-                case ri of
-                    (* We should call a non-indexed function if there is no index. *)
-                    NoIndex  => raise InternalError "opIndexedGen: No index"
-                |   Index1 i => getReg i
-                |   Index2 i => getReg i
-                |   Index4 i => getReg i
-                |   Index8 i => getReg i
-
-            val (offsetCode, basefield) =
+            (* Base encoding.  (Based0, 0w5) means "no base" so if we need ebp as the
+               base we have to use Based8 at least. *)
+            val (offsetCode, rbC, rbX) =
                 case rb of
-                    NONE => (Based0, NONE (* no base register *))
+                    NONE => (Based0, 0w5 (* no base register *), false)
                 |   SOME rb =>
                     let
+                        val (rbC, rbX) = getReg rb
                         val base =
-                            if offset = 0 andalso rbC <> 0wx5
+                            if offset = 0 andalso rbC <> 0wx5 (* Can't use ebp with Based0 *)
                             then Based0    (* no disp field *)
                             else if is8BitL offset
                             then Based8   (* use 8-bit disp field *)
-                            else Based32; (* use 32-bit disp field *)
+                            else Based32 (* use 32-bit disp field *)
                     in
-                        (base, SOME rb)
+                        (base, rbC, rbX)
                     end
 
-            val pref = opcodePrefix opb (* Any opsize or lock prefix. *)
-            val rex = rexByte(opb, rrX, rbX, riX);
-            val esc = escapePrefix opb
-            val opc = opToInt opb
-            val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
-            val sibByte = sib(ri, basefield)
+            (* Index coding.  esp can't be used as an index so (0w4, false) means "no index".
+               But r12 (0w4, true) CAN be. *)
+            val ((riC, riX), scaleFactor) =
+                case ri of
+                    NoIndex  => ((0w4, false), 0w0)
+                |   Index1 i => (getReg i, 0w0)
+                |   Index2 i => (getReg i, 0w1)
+                |   Index4 i => (getReg i, 0w2)
+                |   Index8 i => (getReg i, 0w3)
+            
+            (* If the base register is esp or r12 we have to use a sib byte even if
+               there's no index.  That's because 0w4 as a base register means "there's
+               a SIB byte". *)
+            val modRmAndOptionalSib =
+                if rbC = 0w4  (* Code for esp and r12 *) orelse riC <> 0w4 orelse riX
+                then
+                let
+                    val mdrm = modrm(offsetCode, rrC, 0w4 (* s-i-b *))
+                    val sibByte = (scaleFactor <<- 0w6) orb8 (riC <<- 0w3) orb8 rbC
+                in
+                    [mdrm, sibByte]
+                end
+                else [modrm(offsetCode, rrC, rbC)]
     
-            (* generate the disp field (if any) *)
+            (* Generate the disp field (if any) *)
             val dispField =
                 case (offsetCode, rb) of
                     (Based8, _)  => [Word8.fromLargeInt offset]
@@ -899,14 +846,21 @@ struct
                 |   (_, NONE)    => (* 32 bit absolute used as base *) int32Signed offset
                 |    _ => []
         in
-            pref @ rex @ esc @ [opc, mdrm, sibByte] @ dispField
+            opcodePrefix opb @ rexByte(opb, rrX, rbX, riX) @ escapePrefix opb @
+                opToInt opb :: modRmAndOptionalSib @ dispField
         end
     in
+        fun opEA(opb, offset, rb, r) = opIndexedGen(opb, offset, SOME rb, NoIndex, getReg r)
+        (* Generate a opcode plus a second modrm byte but where the "register" field in
+           the modrm byte is actually a code.  *)
+        and opPlus2(opb, offset, rb, op2) = opIndexedGen(opb, offset, SOME rb, NoIndex, (op2, false))
+        
         fun opIndexed (opb, offset, rb, ri, rd) =
-           opIndexedGen(opb, offset, rb, ri, getReg rd) 
-        and mMXIndexed(opb, offset, rb, ri, SSE2Reg rrC) =
-            opIndexedGen(opb, offset, SOME rb, ri, (rrC, false))
-        and opIndexedPlus2(opb, offset, rb, ri, op2) =
+            opIndexedGen(opb, offset, rb, ri, getReg rd) 
+        
+        fun opAddress(opb, offset, rb, ri, rd) = opIndexedGen (opb, offset, SOME rb, ri, getReg rd)
+        and mMXAddress(opb, offset, rb, ri, SSE2Reg rrC) = opIndexedGen(opb, offset, SOME rb, ri, (rrC, false))
+        and opAddressPlus2(opb, offset, rb, ri, op2) =
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
@@ -1012,7 +966,7 @@ struct
     |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
-    |   ResetStack of int
+    |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
     |   LoadLabelAddress of { label: label, output: genReg }
     |   RepeatOperation of repOps
@@ -1031,13 +985,12 @@ struct
     |   FPStatusToEAX
     |   FPLoadInt of { base: genReg, offset: int }
     |   FPFree of fpReg
-    |   MultiplyRR of { source: genReg, output: genReg }
-    |   MultiplyRM of { base: genReg, offset: int,output: genReg }
+    |   MultiplyR of { source: genReg regOrMemoryArg, output: genReg }
     |   XMMArith of { opc: sse2Operations, source: xmmReg regOrMemoryArg, output: xmmReg }
     |   XMMStoreToMemory of { toStore: xmmReg, address: memoryAddress, precision: fpSize }
     |   XMMConvertFromInt of { source: genReg, output: xmmReg }
     |   SignExtendForDivide
-    |   XChngRegisters of { regX: genReg, regY: genReg }
+    |   XChng of { reg: genReg, arg: genReg regOrMemoryArg }
     |   Negative of { output: genReg }
     |   JumpTable of { cases: label list, jumpSize: jumpSize ref }
     |   IndexedJumpCalc of { addrReg: genReg, indexReg: genReg, jumpSize: jumpSize ref }
@@ -1201,8 +1154,8 @@ struct
                 stream "RaiseException"
         |   UncondBranch(Label{labelNo, ...})=>
                 (stream "UncondBranch L"; stream(Int.toString labelNo))
-        |   ResetStack i =>
-                (stream "ResetStack "; stream(Int.toString i))
+        |   ResetStack{numWords, preserveCC} =>
+                (stream "ResetStack "; stream(Int.toString numWords); if preserveCC then stream " preserve CC" else ())
         |   JumpLabel(Label{labelNo, ...}) =>
                 (stream "L"; stream(Int.toString labelNo); stream ":")
         |   LoadLabelAddress{ label=Label{labelNo, ...}, output } =>
@@ -1235,8 +1188,7 @@ struct
         |   FPStatusToEAX => (stream "FPStatus "; printGReg eax)
         |   FPLoadInt { base, offset} => (stream "FPLoadInt "; printBaseOffset(base, NoIndex, offset))
         |   FPFree reg => (stream "FPFree "; printFPReg reg)
-        |   MultiplyRR {source, output } => (stream "MultiplyRR"; stream " "; printGReg source; stream " *=>"; printGReg output)
-        |   MultiplyRM {base, offset, output } => (stream "MultiplyRM"; stream " "; printBaseOffset(base, NoIndex, offset); stream " *=>"; printGReg output)
+        |   MultiplyR {source, output } => (stream "MultiplyR"; stream " "; printRegOrMemoryArg printGReg source; stream " *=>"; printGReg output)
         |   XMMArith { opc, source, output } =>
             (
                 stream (sse2OpRepr opc ^ "RM "); printXMMReg output; stream " <= "; printRegOrMemoryArg printXMMReg source
@@ -1254,7 +1206,7 @@ struct
                 stream "ConvertFromInt "; printGReg source; stream " => "; printXMMReg output
             )
         |   SignExtendForDivide => stream "SignExtendForDivide"
-        |   XChngRegisters { regX, regY } => (stream "XChngRegisters "; printGReg regX; stream " <=> "; printGReg regY)
+        |   XChng { reg, arg } => (stream "XChng "; printGReg reg; stream " <=> "; printRegOrMemoryArg printGReg arg)
         |   Negative { output } => (stream "Negative "; printGReg output)
         |   JumpTable{cases, ...} =>
                 List.app(fn(Label{labelNo, ...}) => (stream "UncondBranch L"; stream(Int.toString labelNo); stream "\n")) cases
@@ -1347,48 +1299,39 @@ struct
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVL_A_R, LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVL_A_R, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVL_A_R, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVZB (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVZB, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVZB, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVZW (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVZW, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVZW, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
-            (
-                case index of
-                    NoIndex => opEA(MOVL_A_R32, LargeInt.fromInt offset, base, output)
-                |   _ => opIndexed(MOVL_A_R32, LargeInt.fromInt offset, SOME base, index, output)
-            )
+                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadAddress{ offset, base, index, output }) =
-            (
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
-                case (index, base) of
-                    (NoIndex, SOME base) => opEA(LEAL, LargeInt.fromInt offset, base, output)
-                |   (NoIndex, NONE) => raise InternalError "LoadAddress: no base or index"
-                |   _ => opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
-            )
+                opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source }) =
                 arithOpReg (opc, output, source)
 
         |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source }) =
+            let
+                (* On the X86/32 we use CMP with literal sources to compare with an
+                   address and the RTS searches for them in the code.  Any
+                   non-address constant must be tagged.  Most will be but we
+                   might want to use this to compare with the contents of a
+                   LargeWord value. *)
+                val _ =
+                    if isX64 orelse is8BitL source orelse opc <> CMP orelse IntInf.andb(source, 1) = 1
+                    then ()
+                    else raise InternalError "CMP with constant that looks like an address"
+            in
                 immediateOperand(opc, output, source)
+            end
 
         |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _ }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
@@ -1412,10 +1355,8 @@ struct
                 end
             end
 
-        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index=NoIndex} }) =
-                opEA(Arith (opc, 0w3), LargeInt.fromInt offset, base, output)
-
-        |   cgOp(ArithToGenReg _) = raise InternalError "cgOp: ArithToGenReg"
+        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index} }) =
+                opAddress(Arith (opc, 0w3), LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(ArithMemConst{ opc, offset, base, source }) =
                 if is8BitL source
@@ -1522,11 +1463,8 @@ struct
                 opCodeBytes(PUSH_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
             end
 
-        |   cgOp(PushToStack(MemoryArg{base, offset, index=NoIndex})) =
-                opPlus2(Group5, LargeInt.fromInt offset, base, 0w6 (* push *))
-
         |   cgOp(PushToStack(MemoryArg{base, offset, index})) =
-                opIndexed(Group5, LargeInt.fromInt offset, SOME base, index, mkReg(0w6 (* push *), false))
+                opAddressPlus2(Group5, LargeInt.fromInt offset, base, index, 0w6 (* push *))
 
         |   cgOp(PushToStack(NonAddressConstArg constnt)) = 
                 if is8BitL constnt
@@ -1560,11 +1498,8 @@ struct
                     opCodeBytes(POP_R rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE)
                 end
 
-        |   cgOp(StoreRegToMemory{toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A, LargeInt.fromInt offset, base, toStore) 
-          
         |   cgOp(StoreRegToMemory{toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A, LargeInt.fromInt offset, SOME base, index, toStore)
+                opAddress(MOVL_R_A, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} }) =
             (
@@ -1574,11 +1509,7 @@ struct
                    memory. *)
                 isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
-                case index of
-                    NoIndex =>
-                        opPlus2(MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed toStore
-                |   index =>
-                        opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
             )
 
@@ -1586,14 +1517,9 @@ struct
                 (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
                 if isX64
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
-                else
-                (
-                    case index of
-                        NoIndex => opPlus2 (MOVL_32_A, LargeInt.fromInt offset, base, 0w0) @ int32Signed (tag 0)
-                    |   ri => opIndexed(MOVL_32_A, LargeInt.fromInt offset, SOME base, ri, mkReg(0w0, false)) @ int32Signed (tag 0)
-                )
+                else opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
-        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address }) =
+        |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address={offset, base, index} }) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
@@ -1601,30 +1527,17 @@ struct
                 val opcode = MOVB_R_A{forceRex= rrC >= 0w4}
                 val _ = isX64 orelse rrC < 0w4 orelse raise InternalError "High byte register"
             in
-                case address of
-                    {offset, base, index=NoIndex} =>
-                        opEA(opcode, LargeInt.fromInt offset, base, toStore) 
-                |   {offset, base, index} =>
-                        opIndexed(opcode, LargeInt.fromInt offset, SOME base, index, toStore)
+                opAddress(opcode, LargeInt.fromInt offset, base, index, toStore)
             end
 
-        |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A16, LargeInt.fromInt offset, base, toStore) 
-
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A16, LargeInt.fromInt offset, SOME base, index, toStore)
-
-        |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index=NoIndex}}) =
-                opEA(MOVL_R_A32, LargeInt.fromInt offset, base, toStore) 
+                opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
             
         |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index}}) =
-                opIndexed(MOVL_R_A32, LargeInt.fromInt offset, SOME base, index, toStore)
-
-        |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index=NoIndex}}) =
-                opPlus2(MOVB_8_A, LargeInt.fromInt offset, base, 0w0) @ [Word8.fromLargeInt toStore]
+                opAddress(MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
-                opIndexed(MOVB_8_A, LargeInt.fromInt offset, SOME base, index, mkReg(0w0, false)) @
+                opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
         |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
@@ -1644,11 +1557,8 @@ struct
                 opCodeBytes (CALL_32, NONE) @ int32Signed 0
      
         |   cgOp(CallFunction FullCall) =
-            let
-                val mdrm = modrm(Based0, 0w2 (* call *), #1 (getReg regClosure))
-            in
-                opCodeBytes (Group5, NONE) @ [mdrm]
-            end
+                (* Indirect call to the address held in the first word of the closure. *)
+                opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w2 (* call *))
 
         |   cgOp(CallFunction(ConstantCode _)) =
             if isX64
@@ -1665,26 +1575,13 @@ struct
                be the last instruction. *)
             else opCodeBytes (CALL_32, NONE) @ int32Signed ~5
             
-        |   cgOp(CallFunction(DirectReg reg)) =
-            let
-                val (rc, rx) = getReg reg
-                val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
-                val mdrm = modrm(Register, 0w2 (* call *), rc)
-            in
-                opb @ [mdrm]
-            end
+        |   cgOp(CallFunction(DirectReg reg)) = opRegPlus2(Group5, reg, 0w2 (* call *))
 
         |   cgOp(JumpToFunction Recursive) =
                 (* Jump to the start of the current function.  Offset is patched in later. *)
                 opCodeBytes (JMP_32, NONE) @ int32Signed 0
            
-        |   cgOp(JumpToFunction FullCall) =
-            let (* Full closure call *)
-                val opb = opCodeBytes (Group5, NONE)
-                val mdrm = modrm(Based0, 0w4 (* jmp *), #1 (getReg regClosure))
-            in
-                opb @ [mdrm]
-            end
+        |   cgOp(JumpToFunction FullCall) = opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w4 (* jmp *))
 
         |   cgOp(JumpToFunction (ConstantCode _)) =
             if isX64
@@ -1699,13 +1596,7 @@ struct
             
         |   cgOp(JumpToFunction (DirectReg reg)) =
             (* Used as part of indexed case - not for entering a function. *)
-            let
-                val (rc, rx) = getReg reg
-                val opb = opCodeBytes (Group5, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
-                val mdrm = modrm(Register, 0w4 (* jmp *), rc)
-            in
-                opb @ [mdrm]
-            end
+                opRegPlus2(Group5, reg, 0w4 (* jmp *))
     
         |   cgOp(ReturnFromFunction args) =
             if args = 0
@@ -1730,10 +1621,16 @@ struct
 
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
-        |   cgOp(ResetStack count) =
-                (* Use LEA because it doesn't change the condition code so is safe to use
-                   before a conditional branch. *)
-                opEA(LEAL, Word.toLargeInt(wordsToBytes(Word.fromInt count)), esp, esp)
+        |   cgOp(ResetStack{numWords, preserveCC}) =
+            let
+                val bytes = Word.toLargeInt(wordsToBytes(Word.fromInt numWords))
+            in
+                (* If we don't need to preserve the CC across the reset we use ADD since
+                   it's shorter. *)
+                if preserveCC
+                then opEA(LEAL, bytes, esp, esp)
+                else immediateOperand(ADD, esp, bytes)
+            end
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
 
@@ -1764,9 +1661,7 @@ struct
                         DoublePrecision => FPESC 0w5
                     |   SinglePrecision => FPESC 0w1
             in
-                case index of
-                    NoIndex => opPlus2(loadInstr, LargeInt.fromInt offset, base, 0wx0)
-                |   index => opIndexedPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0)
+                opAddressPlus2(loadInstr, LargeInt.fromInt offset, base, index, 0wx0)
             end
 
         |   cgOp (FPLoadFromFPReg{source=FloatingPtReg fp, ...}) =
@@ -1817,9 +1712,7 @@ struct
                     |   SinglePrecision => FPESC 0w1
                 val subInstr = if andPop then 0wx3 else 0wx2
             in
-                case index of
-                    NoIndex => opPlus2(storeInstr, LargeInt.fromInt offset, base, subInstr)
-                |   index => opIndexedPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr)
+                opAddressPlus2(storeInstr, LargeInt.fromInt offset, base, index, subInstr)
             end
 
         |   cgOp (FPArithR{ opc, source = FloatingPtReg src}) =
@@ -1857,25 +1750,39 @@ struct
                 then opPlus2(FPESC 0w7, LargeInt.fromInt offset, base, 0w5)
                 else opPlus2(FPESC 0w3, LargeInt.fromInt offset, base, 0w0)
 
-        |   cgOp (MultiplyRR {source, output}) =
+        |   cgOp (MultiplyR {source=RegisterArg srcReg, output}) =
                 (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                opReg(IMUL (* 2 byte opcode *), output, source)
+                opReg(IMUL (* 2 byte opcode *), output, srcReg)
 
-        |   cgOp (MultiplyRM {base, offset, output}) =
-                (* We use the 0F AF form of IMUL rather than the Group3 MUL or IMUL
-                   because the former allows us to specify the destination register.
-                   The Group3 forms produce double length results in RAX:RDX/EAX:EDX
-                   but we only ever want the low-order half. *)
-                opEA(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, output)
+        |   cgOp (MultiplyR {source=MemoryArg{base, offset, index}, output}) =
+                (* This may be used for large-word multiplication. *)
+                opAddress(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, index, output)
+        
+        |   cgOp(MultiplyR {source=NonAddressConstArg constnt, output}) =
+                (* If the constant is an 8-bit or 32-bit value we are actually using a
+                   three-operand instruction where the argument can be a register or memory
+                   and the destination register does not need to be the same as the source. *)
+                if is8BitL constnt
+                then opReg(IMUL_C8, output, output) @ [Word8.fromLargeInt constnt]
+                else if is32bit constnt
+                then opReg(IMUL_C32, output, output) @ int32Signed constnt
+                else
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(IMUL, SOME{w=true, r=rx, b=false, x = false})
+                    val mdrm = modrm(Based0, rc, 0w5 (* PC rel *))
+                in
+                    opb @ [mdrm] @ int32Signed(tag 0)
+                end
 
-        |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index=NoIndex}, output }) =
-                mMXEA(SSE2Ops opc, LargeInt.fromInt offset, base, output)
+        |   cgOp(MultiplyR {source=AddressConstArg _, ...}) =
+                raise InternalError "Multiply - address constant"
 
         |   cgOp (XMMArith { opc, source=MemoryArg{base, offset, index}, output }) =
-                mMXIndexed(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
+                mMXAddress(SSE2Ops opc, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp (XMMArith { opc, source=AddressConstArg _, output=SSE2Reg rrC }) =
             let
@@ -1910,27 +1817,29 @@ struct
                         DoublePrecision => SSE2StoreDouble
                     |   SinglePrecision => SSE2StoreSingle
             in
-                case index of
-                    NoIndex => mMXEA(oper, LargeInt.fromInt offset, base, toStore)
-                |   index => mMXIndexed(oper, LargeInt.fromInt offset, base, index, toStore)
+                mMXAddress(oper, LargeInt.fromInt offset, base, index, toStore)
             end
 
         |   cgOp (XMMConvertFromInt { source, output=SSE2Reg rrC }) =
             let
                 (* The source is a general register and the output a XMM register. *)
+                (* TODO: The source can be a memory location. *)
                 val (rbC, rbX) = getReg source
             in
-                
-                    opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
+                (* This is a special case with both an XMM and general register. *)
+                opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
                     escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)]
             end
 
         |   cgOp SignExtendForDivide =
                 opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE)
             
-        |   cgOp (XChngRegisters { regX, regY}) =
-                (* We only use register-to-register exchange.  That doesn't cause a lock. *)
-                opReg(XCHNG, regX, regY)
+        |   cgOp (XChng { reg, arg=RegisterArg regY }) = opReg(XCHNG, reg, regY)
+            
+        |   cgOp (XChng { reg, arg=MemoryArg{offset, base, index} }) =
+                opAddress(XCHNG, LargeInt.fromInt offset, base, index, reg)
+                
+        |   cgOp (XChng _) = raise InternalError "cgOp: XChng"
 
         |   cgOp (Negative {output}) =
                 opRegPlus2(Group3_A, output, 0w3 (* neg *))
@@ -1949,7 +1858,7 @@ struct
                 jumpSize = JumpSize8 orelse raise InternalError "cgOp: IndexedJumpCalc";
                 (* Should currently be JumpSize8 which requires a multiplier of 4 and
                    4 to be subtracted to remove the shifted tag. *)
-                opIndexed(LEAL, ~4, SOME addrReg, Index4 indexReg, addrReg)
+                opAddress(LEAL, ~4, addrReg, Index4 indexReg, addrReg)
             )
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
@@ -2105,7 +2014,7 @@ struct
             (* If we've shortened a jump table we have to change the indexing. *)
         |   fixupAddress(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref JumpSize2 }, _, _, list) =
                 (* On x86/32 it might be shorter to use DEC addrReg; ADD addrReg, indexReg. *)
-                Word8Vector.fromList(opIndexed(LEAL, ~1, SOME addrReg, Index1 indexReg, addrReg)) :: list
+                Word8Vector.fromList(opAddress(LEAL, ~1, addrReg, Index1 indexReg, addrReg)) :: list
 
         |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let
@@ -2227,6 +2136,11 @@ struct
         |   getConstant(XMMArith { source=AddressConstArg constVal, ... }, bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
                         if isX64 then RealConstant(toMachineWord constVal) else InlineAbsoluteAddress (toMachineWord constVal)) :: l
+
+        |   getConstant(MultiplyR{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
+                if is32bit source
+                then l
+                else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
 
         |   getConstant(_, _, _, l) = l        
     in
@@ -2350,6 +2264,9 @@ struct
             (b1' * 0x100) + b0
         end
         
+        fun get16u(a, seg) : int =
+            Word8.toInt (codeVecGet (seg, a + 0w1)) * 0x100 + Word8.toInt (codeVecGet (seg, a))
+        
         (* Get 1 unsigned byte from the given offset in the segment. *)
         fun get8u (a, seg) : Word8.word = codeVecGet (seg, a);
 
@@ -2443,7 +2360,7 @@ struct
                     )
                     else ();
         
-                    if index = 0w4 (* No index. *)
+                    if index = 0w4 andalso not rexX (* No index. *)
                     then ()
                     else print (genRegRepr (mkReg(index, rexX), sz32_64) ^ 
                             (if ss = 0w0 then "*1"
@@ -2813,9 +2730,26 @@ struct
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), sz32_64))
 
-            |   0wx68 =>(print "push\t"; print32 ())
-         
-            |   0wx6a =>(print "push\t"; print8 ())
+            |   0wx68 => (print "push\t"; print32 ())
+            |   0wx69 =>
+                let
+                    (* Register is in next byte. *)
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "imul\t"; print(genRegRepr (mkReg(reg, rexR), sizeFromRexW)); print ",";
+                    printEA(rex, sizeFromRexW); print ","; print32 ()
+                end
+            |   0wx6a => (print "push\t"; print8 ())
+            |   0wx6b =>
+                let
+                    (* Register is in next byte. *)
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "imul\t"; print(genRegRepr (mkReg(reg, rexR), sizeFromRexW)); print ",";
+                    printEA(rex, sizeFromRexW); print ","; print8 ()
+                end
 
             |   0wx70 => (print "jo  \t"; printJmp())
             |   0wx71 => (print "jno \t"; printJmp())
@@ -2994,7 +2928,7 @@ struct
             
             |   0wxca => (* Register mask *)
                 let
-                    val mask = get16s (!ptr, seg) before (ptr +:= 0w2)
+                    val mask = get16u (!ptr, seg) before (ptr +:= 0w2)
                 in
                     print "SAVE\t";
                     printMask mask
@@ -3002,10 +2936,10 @@ struct
 
             |   0wxcd => (* Register mask *)
                 let
-                    val mask = get8s (!ptr, seg) before (ptr +:= 0w1)
+                    val mask = get8u (!ptr, seg) before (ptr +:= 0w1)
                 in
                     print "SAVE\t";
-                    printMask mask
+                    printMask(Word8.toInt mask)
                 end
 
             |   0wxd1 => (* Group2_1_A *) printShift (opByte, rex, sizeFromRexW)
@@ -3293,6 +3227,13 @@ struct
         and  regSet         = RegSet.regSet
         and  label          = label
         and  branchOps      = branchOps
+        and  callKinds      = callKinds
+        and  arithOp        = arithOp
+        and  shiftType      = shiftType
+        and  repOps         = repOps
+        and  fpOps          = fpOps
+        and  fpUnaryOps     = fpUnaryOps
+        and  sse2Operations = sse2Operations
     end
 
 end (* struct *) (* CODECONS *);

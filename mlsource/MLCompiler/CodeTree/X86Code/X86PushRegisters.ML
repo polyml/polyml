@@ -33,235 +33,544 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, maxPRegs} =
+    (* Each preg in the input is mapped to either a new preg or the stack. *)
+    datatype pregMapType = Unset | ToPReg of preg | ToStack of int * stackLocn
+
+    (* The stack contains both entries in the input code and entries added here.
+       It is really used to ensure that the stack at run time is the same size
+       at the start of a block whichever block has jumped to it. *)
+    datatype stackEntry =
+        NewEntry of {pregNo: int} (* pregNo is the original preg that has been pushed here. *)
+    |   OriginalEntry of { stackLoc: stackLocn }
+    |   HandlerEntry
+
+    fun addRegisterPushes{code: extendedBasicBlock vector, pushVec: bool vector, pregProps, firstPass} =
     let
+        val maxPRegs = Vector.length pregProps
         val numberOfBlocks = Vector.length code
+        (* Output registers and properties. *)
         val pregCounter = ref 0
-        val maxStack = ref 0
-        
-        (* Each preg in the input is mapped to either a new preg or the stack. *)
-        datatype pregMapType = Unset | ToPReg of abstract | ToStack
+        val pregPropList = ref []
         val pregMap = Array.array(maxPRegs, Unset)
         
-        
-        (* The stack contains both entries in the input code and entries added here. *)
-        datatype stackEntry =
-            NewEntry of {pregNo: int}
-        |   ContainerEntry of { size: int, active: bool }
-        |   HandlerEntry
-        
-        type context =
-        {
-            oldCount: int,      (* The stack entries from the input code. *)
-            newCount: int,      (* The total number of items on the stack. *)
-            stack: stackEntry list
-        }
+        (* Cache registers. *)
+        datatype cacheType =
+            CacheStack of { rno: int }(* Original preg or stack loc. *)
+        |   CacheMemory of { rno: int, offset: int } (* Base offset *)
+            (* CacheTagged is used if we tag a value to see if we can use the
+               original untagged value somewhere. *)
+        |   CacheTagged of { rno: int, isSigned: bool }
 
-        val emptyContext: context = { oldCount=0, newCount=0, stack=[]}
+        local
+            (* The number of active cache entries is likely to be small and is
+               at most proportional to the number of instructions in the block.
+               Any function call will clear it.
+               For memory entries we need to know if the value is tagged and
+               what kind of move we're using.
+               Stack entries always will be tagged and MoveWord. *)
+            val cache: {cacheFor: cacheType, cacheReg: preg, isTagged: bool, kind: moveKind } list ref = ref []
+           
+            fun isStack n {cacheFor=CacheStack{rno}, ...} = rno = n
+            |   isStack _ _ = false
+            
+            fun isMemory (r, off) {cacheFor=CacheMemory{rno, offset}, ...} = rno = r andalso offset=off
+            |   isMemory _ _ = false
+            
+            fun isTagCache(r, s) {cacheFor=CacheTagged{rno, isSigned}, ...} = rno = r andalso s = isSigned
+            |   isTagCache _ _ = false
+            
+            fun findCache f = List.find f (! cache)
+            
+            fun removeCache f = cache := List.filter (not o f) (! cache)
+        in
+            fun clearCache() = cache := []
+             
+            fun findCachedStack n = Option.map (#cacheReg) (findCache (isStack n))
+            and findCachedMemory (r, off) =
+                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off)))
+            and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
+            
+            fun removeStackCache n = removeCache (isStack n)
+            and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
+            and removeTagCache (r, s) = removeCache (isTagCache (r, s))
+            
+            fun clearMemoryCache() =
+                cache := List.filter(fn {cacheFor=CacheMemory _,...} => false | _ => true) (!cache)
 
-        fun newPReg kind = PReg(!pregCounter before pregCounter := !pregCounter + 1, kind)
-        
-        fun getStackOffset(regNo: int, {stack, newCount, ...}: context) =
-        let
-            fun findEntry(offset, NewEntry {pregNo} :: tl) =
-                if regNo = pregNo
-                then offset
-                else findEntry(offset+1, tl)
-            |   findEntry(offset, ContainerEntry {size, ...} :: tl) = findEntry(offset+size, tl)
-            |   findEntry(offset, HandlerEntry :: tl) = findEntry(offset+2, tl) (* Occupies two words *)
-            |   findEntry(_, []) = raise InternalError "findEntry - not found"
-            val stackOffset = findEntry(0, stack)
-            val _ = stackOffset < newCount orelse raise InternalError "getStackOffset - bad offset"
-        in
-            stackOffset
+            fun setStackCache(n, new) =
+                (
+                    removeStackCache n;
+                    cache := {cacheFor=CacheStack{rno=n}, cacheReg=new, isTagged=true, kind=MoveWord} :: ! cache
+                )
+            
+            and setMemoryCache(r, off, new, isTagged, kind) =
+                (
+                    removeMemoryCache (r, off);
+                    cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
+                )
+            
+            and setTagCache(r, s, new) =
+                (
+                    removeTagCache (r, s);
+                    cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=MoveWord} :: ! cache
+                )
+
+            fun getCache () = ! cache
+            
+            (* Merge the cache states *)
+            fun setCommonCacheState [] = clearCache() 
+            |   setCommonCacheState [single] = cache := single
+            
+            |   setCommonCacheState (many as first :: rest) =
+                let
+                    (* Generally we will either be unable to merge and have an empty cache or
+                       will have just one or two entries. *)
+                    (* Find the shortest.  If it's empty we're done. *)
+                    fun findShortest(_, [], _) = []
+                    |   findShortest(_, shortest, []) = shortest
+                    
+                    |   findShortest(len, shortest, hd::tl) =
+                        let
+                            val hdLen = length hd
+                        in
+                            if hdLen < len then findShortest(hdLen, hd, tl) else findShortest(len, shortest, tl)
+                        end
+                    val shortest = findShortest(length first, first, rest)
+                    
+                    (* Find the item we're caching for.  If it is in a different register we
+                       can't use it. *)
+                    fun findItem search (hd::tl) =
+                        if #cacheFor hd = #cacheFor search then #cacheReg hd = #cacheReg search
+                        else findItem search tl
+                    |   findItem _ [] = false
+                    
+                    (* It's present if it's in all the sources. *)
+                    fun present search = List.all(findItem search) many
+                    
+                    val filtered =
+                        List.foldl (fn (search, l) => if present search then search :: l else l) [] shortest
+                in
+                    cache := filtered
+                end
         end
+
+        val maxStack = ref 0
+        (* The stack size we've assumed for the block.  Also indicates if
+           a block has already been processed. *)
+        val inputStackSizes =
+            Array.array(numberOfBlocks, NONE: {expectedInput:int, reqCC: bool} option)
+        (* The result of processing a block. *)
+        val blockOutput = Array.array(numberOfBlocks, {code=[], cache=[], stackCount=0})
         
-        (* Adjust a stack offset from the old state to the new state. *)
-        fun mapOldStackOffset(offset, {oldCount, newCount, stack, ...}: context) =
-        let
-            fun adjustStack(old, new, []) =
+        (* Extra blocks to adjust the stack are added here. *)
+        val extraBlocks: basicBlock list ref = ref []
+        val blockCounter = ref numberOfBlocks
+        
+        (* Get the blocks that are inputs for each one. *)
+        local
+            val blockRefs = Array.array(numberOfBlocks, [])
+            
+            fun setReferences fromBlock =
+            let
+                val ExtendedBasicBlock{ flow, ...} = vsub code fromBlock
+                val refs = successorBlocks flow
+                fun setRefs toBlock =
                 let
-                    val _ = old = offset-oldCount orelse raise InternalError "mapOldStackOffset - old"
-                    val _ = new = newCount orelse raise InternalError "mapOldStackOffset - new"
+                    val oldRefs = asub blockRefs toBlock
                 in
-                    old+new
+                    Array.update(blockRefs, toBlock, fromBlock :: oldRefs);
+                    if null oldRefs
+                    then setReferences toBlock
+                    else ()
                 end
-            |   adjustStack(old, new, entry :: tl) =
-                let
-                    val _ = old < 0 andalso raise InternalError "adjustStack"
-                in
-                    case entry of
-                        NewEntry _ => adjustStack(old, new+1, tl)
-                    |   ContainerEntry {size, active=false} => adjustStack(old, new+size, tl)
-                    |   ContainerEntry {size, ...} =>
-                            if old = 0
-                            then new
-                            else adjustStack(old-size, new+size, tl)
-                    |   HandlerEntry =>
-                            if old = 0
-                            then new
-                            else adjustStack(old-2, new+2, tl)
-                end
+            in
+                List.app setRefs refs
+            end
+
+            val () = setReferences 0
         in
-            adjustStack(offset, 0, stack)
+            val blockRefs = blockRefs
         end
+
+        (* Recursive scan of the blocks.  For each block we produce an input and output state.
+           The input state is the output state of the predecessor i.e. some block that jumps to
+           this, but with any entries removed that are not used in this block.  It is then
+           necessary to match the input state, if necessary by adding extra blocks that just
+           do the matching. *)
+        local
+            val haveProcessed = isSome o asub inputStackSizes
         
-        (* Map a source register.  This always loads the argument. *)
-        fun mapSrcReg(PReg(n, _), context: context) =
-            case Array.sub(pregMap, n) of
-                Unset => raise InternalError "mapSrcReg - unset"
-            |   ToPReg preg => (preg, [])
-            |   ToStack =>
+            fun processBlocks toDo =
+            case List.filter (fn (n, _) => not(haveProcessed n)) toDo of
+                [] => () (* Nothing left to do *)
+
+            |   stillToDo as head :: _ =>
                 let
-                    (* Make a new untagged register. That will prevent us pushing it if
-                       we have to spill registers. *)
-                    val newReg = newPReg PRegUntagged
-                in
-                    (newReg,
-                        [LoadArgument{source=StackLocation{wordOffset=getStackOffset(n, context), adjustment=0}, dest=newReg, kind=MoveWord}])
-                end
-       
-        fun mapDestReg(PReg(n, kind), context: context as {stack, oldCount, newCount}) =
-        let
-            val currentLocation = Array.sub(pregMap, n)
-        in
-            if Vector.sub(pushVec, n)
-            then
-                let
-                    (* This should not have been seen before. *)
-                    val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
-                    val newReg = newPReg kind
-                    val () = Array.update(pregMap, n, ToStack)
-                    val newContext = { stack = NewEntry{pregNo=n}::stack, oldCount=oldCount, newCount=newCount+1}
-                    val () = maxStack := Int.max(!maxStack, newCount+1)
-                in
-                    (newReg, [PushValue{arg=RegisterArgument newReg}], newContext)
-                end
-            else
-                let
-                (* See if we already have a number for it.  We may encounter the same preg
-                   as a destination when returning the result from a conditional in which
-                   case we have to use the same number.  We shouldn't have pushed it. *)
-                    val newReg =
+                    (* Try to find a block all of whose predecessors have been processed.  That
+                       increases the chances that we will have cached items. *)
+                    fun available(dest, _) = List.all haveProcessed (Array.sub(blockRefs, dest))
+                    val (blockNo, lastOutputState) =
+                        case List.find available stillToDo of
+                            SOME c => c
+                        |   NONE => head
+                
+                    (* This is the first time we've come to this block.  *)
+                    val ExtendedBasicBlock{ block, flow, imports, passThrough, inCCState, initialStacks, ...} = vsub code blockNo
+                    val requiresCC = isSome inCCState
+
+                    (* Remove any items from the input state that are no longer needed for
+                       this block.  They could be local to the previous block or needed by
+                       a different successor. *)
+                    fun removeItems(result as {stack=[], stackCount=0}) = result
+                
+                    |   removeItems{stack=[], ...} = raise InternalError "removeItems - stack size"
+
+                    |   removeItems (thisStack as {stack=NewEntry{pregNo} :: rest, stackCount}) =
+                        if member(pregNo, imports) orelse member(pregNo, passThrough)
+                        then thisStack
+                        else removeItems{stack=rest, stackCount=stackCount-1}
+
+                    |   removeItems (thisStack as {stack=OriginalEntry{stackLoc=StackLoc{rno, size}, ...} :: rest, stackCount}) =
+                        if member(rno, initialStacks)
+                        then thisStack
+                        else removeItems{stack=rest, stackCount=stackCount-size}
+
+                    |   removeItems result = result
+
+                    val {stackCount=newSp, stack=newStack} = removeItems lastOutputState
+                    
+                    (* References to hold the current stack count (number of words on the stack)
+                       and the list of items on the stack.  The list is not used directly to map
+                       stack addresses.  Instead it is used to match the stack at the beginning
+                       and end of a block. *)
+                    val stackCount = ref newSp
+                    val stack = ref newStack
+                    (* Items from the stack that have been marked as deleted but not yet
+                       removed.  We only remove items from the top of the stack to avoid
+                       quadratic behaviour with a very deep stack. *)
+                    val deletedItems = ref []
+                    
+                    (* Save the stack size in case we come by a different route. *)
+                    val () = Array.update(inputStackSizes, blockNo, SOME{expectedInput=newSp, reqCC=requiresCC})
+                    
+                    fun pushItemToStack item =
+                    let
+                        val size =
+                            case item of
+                                NewEntry _ => 1
+                            |   OriginalEntry{stackLoc=StackLoc{size, ...}, ...} => size
+                            |   HandlerEntry => 2
+                    in
+                        stackCount := ! stackCount+size;
+                        stack := item :: ! stack;
+                        maxStack := Int.max(!maxStack, !stackCount)
+                    end
+ 
+                    fun newPReg propKind =
+                    let
+                        val regNo = !pregCounter before pregCounter := !pregCounter + 1
+                        val () = pregPropList := propKind :: !pregPropList
+                    in
+                        PReg regNo
+                    end
+        
+                    and newStackLoc size =
+                    let
+                        val regNo = !pregCounter before pregCounter := !pregCounter + 1
+                        val () = pregPropList := RegPropStack size :: !pregPropList
+                    in
+                        StackLoc{size=size, rno=regNo}
+                    end
+        
+                    (* Map a source register.  This always loads the argument. *)
+                    fun mapSrcRegEx(PReg n) =
+                        case Array.sub(pregMap, n) of
+                            Unset => raise InternalError "mapSrcReg - unset"
+                        |   ToPReg preg => (preg, [], [])
+                        |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
+                            let
+                                (* Make a new untagged register. That will prevent us pushing it if
+                                   we have to spill registers. *)
+                                val newReg = newPReg RegPropUntagged
+                                val sourceCache = findCachedStack n
+                                val stackSource =
+                                    StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
+                                (* Because this is in a register we can copy it to a cache register. *)
+                                val newCacheReg = newPReg RegPropCacheTagged
+                                val () = setStackCache(n, newCacheReg)
+                            in
+                                (newReg,
+                                    [LoadArgument{source=stackSource, dest=newReg, kind=MoveWord}],
+                                    [CopyToCache{source=newReg, dest=newCacheReg, kind=MoveWord}])
+                            end
+
+                    fun mapSrcReg srcReg =
+                    let
+                        val (newReg, codePre, codePost) = mapSrcRegEx srcReg
+                    in
+                        (newReg, codePost @ codePre)
+                    end
+
+                    fun mapDestReg(PReg n) =
+                    let
+                        val currentLocation = Array.sub(pregMap, n)
+                        val kind = Vector.sub(pregProps, n)
+                    in
+                        if Vector.sub(pushVec, n)
+                        then
+                        let
+                            (* This should not have been seen before. *)
+                            val _ = case currentLocation of Unset => () | _ => raise InternalError "mapDestReg - already set"
+                            val newReg = newPReg kind
+                            val newContainer = newStackLoc 1
+                            val () = Array.update(pregMap, n, ToStack (!stackCount, newContainer))
+                            val () = pushItemToStack(NewEntry{pregNo=n})
+                        in
+                            (newReg, [PushValue{arg=RegisterArgument newReg, container=newContainer}])
+                        end
+                        else
+                        let
+                        (* See if we already have a number for it.  We may encounter the same preg
+                           as a destination when returning the result from a conditional in which
+                           case we have to use the same number.  We shouldn't have pushed it. *)
+                            val newReg =
+                                case currentLocation of
+                                    Unset =>
+                                    let
+                                        val newReg = newPReg kind
+                                        val () = Array.update(pregMap, n, ToPReg newReg)
+                                    in
+                                        newReg
+                                    end
+                                |   ToPReg preg => preg
+                                |   ToStack _ => raise InternalError "mapDestReg - already on stack"
+                        in
+                            (newReg, [])
+                        end
+                    end
+        
+                    (* A work register must be a normal register. *)
+                    fun mapWorkReg(PReg n) =
+                    let
+                        val currentLocation = Array.sub(pregMap, n)
+                        val _ = Vector.sub(pushVec, n) andalso raise InternalError "mapWorkReg - MustPush"
+                    in
                         case currentLocation of
                             Unset =>
                             let
+                                val kind = Vector.sub(pregProps, n)
                                 val newReg = newPReg kind
                                 val () = Array.update(pregMap, n, ToPReg newReg)
                             in
                                 newReg
                             end
                         |   ToPReg preg => preg
-                        |   ToStack => raise InternalError "mapDestReg - already on stack"
-                in
-                    (newReg, [], context)
-                end
-        end
-        
-        (* A work register must be a normal register. *)
-        fun mapWorkReg(PReg(n, kind)) =
-        let
-            val currentLocation = Array.sub(pregMap, n)
-            val _ = Vector.sub(pushVec, n) andalso raise InternalError "mapWorkReg - MustPush"
-        in
-            case currentLocation of
-                Unset =>
-                let
-                    val newReg = newPReg kind
-                    val () = Array.update(pregMap, n, ToPReg newReg)
-                in
-                    newReg
-                end
-            |   ToPReg preg => preg
-            |   ToStack => raise InternalError "mapWorkReg - on stack"
+                        |   ToStack _ => raise InternalError "mapWorkReg - on stack"
                 
-        end
+                    end
 
-        fun mapIndex(NoMemIndex, _) = (NoMemIndex, [])
-        |   mapIndex(MemIndex1 r, context) =
-                let val (sreg, c) = mapSrcReg(r, context) in (MemIndex1 sreg, c) end
-        |   mapIndex(MemIndex2 r, context) =
-                let val (sreg, c) = mapSrcReg(r, context) in (MemIndex2 sreg, c) end
-        |   mapIndex(MemIndex4 r, context) =
-                let val (sreg, c) = mapSrcReg(r, context) in (MemIndex4 sreg, c) end
-        |   mapIndex(MemIndex8 r, context) =
-                let val (sreg, c) = mapSrcReg(r, context) in (MemIndex8 sreg, c) end
+                    fun mapIndexEx(NoMemIndex) = (NoMemIndex, [], [])
+                    |   mapIndexEx(MemIndex1 r) =
+                            let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex1 sreg, c1, c2) end
+                    |   mapIndexEx(MemIndex2 r) =
+                            let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex2 sreg, c1, c2) end
+                    |   mapIndexEx(MemIndex4 r) =
+                            let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex4 sreg, c1, c2) end
+                    |   mapIndexEx(MemIndex8 r) =
+                            let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex8 sreg, c1, c2) end
 
-        fun mapSource(RegisterArgument(PReg(r, _)), context: context) =
-            (
-                case Array.sub(pregMap, r) of
-                    Unset => raise InternalError "mapSrcReg - unset"
-                |   ToPReg preg => (RegisterArgument preg, [])
-                |   ToStack => (StackLocation{wordOffset=getStackOffset(r, context), adjustment=0}, [])
-            )
+                    fun mapIndex index =
+                    let
+                        val (newIndex, codePre, codePost) = mapIndexEx index
+                    in
+                        (newIndex, codePost @ codePre)
+                    end
 
-        |   mapSource(a as AddressConstant _, _) = (a, [])
-        |   mapSource(i as IntegerConstant _, _) = (i, [])
+                    (* Adjust a stack offset from the old state to the new state. *)
+                    fun mapContainerAndStack(StackLoc{rno, size}, field) =
+                    let
+                        val (newStackAddr, newContainer) =
+                        case Array.sub(pregMap, rno) of
+                            Unset => raise InternalError "mapContainer - unset"
+                        |   ToPReg _ => raise InternalError "mapContainer - ToPReg"
+                        |   ToStack stackContainer => stackContainer
 
-        |   mapSource(MemoryLocation{base, offset, index}, context) =
-            let
-                val (baseReg, baseCode) = mapSrcReg(base, context)
-                val (indexValue, indexCode) = mapIndex(index, context)
-            in
-                (MemoryLocation{base=baseReg, offset=offset, index=indexValue}, baseCode @ indexCode)
-            end
-
-        |   mapSource(StackLocation{wordOffset, adjustment}, context) =
-                (StackLocation{wordOffset=mapOldStackOffset(wordOffset+adjustment, context), adjustment=0}, [])
-
-        (* If the argument AFTER processing is a stack entry, then load it. *)
-        fun loadStack(stack as StackLocation _) =
-            let
-                val newReg = newPReg PRegUntagged
-            in
-                (RegisterArgument newReg, [LoadArgument{source=stack, dest=newReg, kind=MoveWord}])
-            end
-        |   loadStack other = (other, [])
-
-
-        local
-            (* We don't need to save registers if we've pushed them.
-               N.B.  If we ever cache registers we'll need to clear the cache. *)
-            fun mapSaveReg (PReg(n, _), l) =
-                case Array.sub(pregMap, n) of
-                    Unset => raise InternalError "mapSaveReg - unset"
-                |   ToPReg preg => preg :: l
-                |   ToStack => l
-        in
-            val mapSaveRegs = List.foldl mapSaveReg [] 
-        end
+                        val newOffset = !stackCount-(newStackAddr+size) + field
+                    in
+                        (newOffset, newContainer)
+                    end
         
-        (* Record the current state against the label.  In almost all cases the label
-           will not previously have been set.  The one exception is that floating
-           point comparisons sometimes have different jumps to check the parity bit
-           and the zero bit. The context will be the same for both so it's safe. *)
-        (*fun addNewLabel(ILabel lab, context) = Array.update(labelState, lab, SOME context)*)
-        
-        (* Rewrite the code, replacing any registers that need to be pushed with references to
-           the stack.  The result is built up in reverse order and then reversed. *)
-        fun pushRegisters([], code, context) = (code, context)
-        
-        |   pushRegisters({instr=LoadArgument{source, dest=PReg(dReg, dKind), kind}, ...} :: rest, code, context as {stack, oldCount, newCount}) =
-            let
-                val (sourceVal, sourceCode) = mapSource(source, context)
-                (* If we have to push the value we don't have to first load it into a register. *)
-                val currentLocation = Array.sub(pregMap, dReg)
+                    (* Add an entry for an existing stack entry. *)
+                    fun mapDestContainer(StackLoc{rno, size}, locn) =
+                    (
+                        case Array.sub(pregMap, rno) of
+                            Unset =>
+                            let
+                                val newContainer = newStackLoc size
+                                val () = Array.update(pregMap, rno, ToStack(locn, newContainer))
+                            in
+                                newContainer
+                            end
+                        |   _ => raise InternalError "mapDestContainer: already set"
+                    )
 
-                val (destCode, newContext) =
-                    if Vector.sub(pushVec, dReg)
-                    then
+                    fun mapSourceEx(RegisterArgument(PReg r)) =
+                        (
+                            case Array.sub(pregMap, r) of
+                                Unset => raise InternalError "mapSource - unset"
+                            |   ToPReg preg => (RegisterArgument preg, [], [])
+                            |   ToStack(stackLoc, container as StackLoc{size, ...}) =>
+                                let
+                                    val sourceCache = findCachedStack r
+                                    val stackLoc =
+                                        StackLocation{wordOffset= !stackCount-stackLoc-size, container=container, field=0, cache=sourceCache}
+                                    (* If this is cached we need to make a new cache register and copy it there. *)
+                                    val cacheCode =
+                                        case sourceCache of
+                                            NONE => []
+                                        |   SOME cacheR =>
+                                            let
+                                                val newCacheReg = newPReg RegPropCacheTagged
+                                                val () = setStackCache(r, newCacheReg)
+                                            in
+                                                [CopyToCache{source=cacheR, dest=newCacheReg, kind=MoveWord}]
+                                            end
+                                in
+                                    (stackLoc, [], cacheCode)
+                                end
+                        )
+
+                    |   mapSourceEx(a as AddressConstant _) = (a, [], [])
+                    |   mapSourceEx(i as IntegerConstant _) = (i, [], [])
+
+                    |   mapSourceEx(MemoryLocation{base as PReg breg, offset, index=NoMemIndex, cache, ...}) =
                         let
-                            val _ = case currentLocation of Unset => () | _ => raise InternalError "LoadArgument - already set"
-                            val () = Array.update(pregMap, dReg, ToStack)
-                            val newContext = { stack = NewEntry{pregNo=dReg}::stack, oldCount=oldCount, newCount=newCount+1}
-                            val () = maxStack := Int.max(!maxStack, newCount+1)
+                            val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
+                            (* We can cache this if it is the first pass or if we have previously
+                               cached it and we haven't marked it as pushed. *)
+                            val newCache =
+                                case cache of
+                                    NONE => if firstPass then findCachedMemory(breg, offset) else NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else findCachedMemory(breg, offset)
+                            val memLoc =
+                                MemoryLocation{base=baseReg, offset=offset, index=NoMemIndex, cache=Option.map #1 newCache}
+                            val cacheCode =
+                                case newCache of
+                                    NONE => (removeMemoryCache(breg, offset); [])
+                                |   SOME (oldCacheReg, isTagged, kind) =>
+                                    let
+                                        (* Set the cache kind.  If this is the first pass we will have a
+                                           general or untagged register. *)
+                                        val cacheKind = if isTagged then RegPropCacheTagged else RegPropCacheUntagged
+                                        val newCacheReg = newPReg cacheKind
+                                        val () = setMemoryCache(breg, offset, newCacheReg, isTagged, kind)
+                                    in
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=kind}]
+                                    end
                         in
-                            (PushValue{arg=sourceVal}, newContext)
+                            (memLoc, baseCodePre, baseCodePost @ cacheCode)
                         end
-                    else
+
+                    |   mapSourceEx(MemoryLocation{base, offset, index, ...}) =
                         let
+                            val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
+                            val (indexValue, indexCodePre, indexCodePost) = mapIndexEx index
+                        in
+                            (MemoryLocation{base=baseReg, offset=offset, index=indexValue, cache=NONE}, baseCodePre @ indexCodePre,
+                                baseCodePost @ indexCodePost)
+                        end
+
+                    |   mapSourceEx(StackLocation{container as StackLoc{rno, ...}, field, cache, ...}) =
+                        let
+                            val (newOffset, newContainer) = mapContainerAndStack(container, field)
+                            (* Was the item previously cached?  If it wasn't or the cache reg has been marked
+                               as "must push" we can't use a cache. *)
+                            val newCache =
+                                case cache of
+                                    NONE => NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else findCachedStack rno
+                            val stackLoc =
+                                StackLocation{wordOffset=newOffset, container=newContainer, field=field, cache=newCache}
+                            val cacheCode =
+                                case newCache of
+                                    NONE => (removeStackCache rno; [])
+                                |   SOME oldCacheReg =>
+                                    let
+                                        val newCacheReg = newPReg RegPropCacheTagged
+                                        val () = setStackCache(rno, newCacheReg)
+                                    in
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=MoveWord}]
+                                    end
+                        in
+                            (stackLoc, [], cacheCode)
+                        end
+                    
+                    |   mapSourceEx(ContainerAddr{container, ...}) =
+                        let
+                            val (newOffset, newContainer) = mapContainerAndStack(container, 0)
+                        in
+                            (ContainerAddr{container=newContainer, stackOffset=newOffset}, [], [])
+                        end
+
+                    fun mapSource src =
+                    let
+                        val (sourceVal, sourceCodePre, sourceCodePost) = mapSourceEx src
+                    in
+                        (sourceVal, sourceCodePost @ sourceCodePre)
+                    end
+
+                    (* Force a load of the source into a register if it is on the stack.
+                       This is used in cases where a register or literal is allowed but not
+                       a memory location. If we do load it we can cache the register. *)
+                    fun mapAndLoad(source as RegisterArgument(PReg r)) =
+                        let
+                            val (sourceVal, sourceCodePre, sourceCodePost) = mapSourceEx source
+                        in
+                            case sourceVal of
+                                stack as StackLocation _ =>
+                                let
+                                    val newReg = newPReg RegPropUntagged
+                                    val newCacheReg = newPReg RegPropCacheTagged
+                                    val _ = setStackCache(r, newCacheReg)
+                                in
+                                    (RegisterArgument newReg,
+                                        CopyToCache{source=newReg, dest=newCacheReg, kind=MoveWord} :: sourceCodePost @
+                                            LoadArgument{source=stack, dest=newReg, kind=MoveWord} :: sourceCodePre)
+                                end
+                            |   _ => (sourceVal, sourceCodePost @ sourceCodePre)
+                        end
+
+                    |   mapAndLoad(StackLocation _) = raise InternalError "mapAndLoad - already a stack loc"
+                    |   mapAndLoad(MemoryLocation _) = raise InternalError "mapAndLoad - already a mem loc"
+                    |   mapAndLoad source = mapSource source
+        
+                    (* Rewrite the code, replacing any registers that need to be pushed with references to
+                       the stack.  The result is built up in reverse order and then reversed. *)
+                    fun pushRegisters({instr=LoadArgument{source, dest=PReg dReg, kind}, ...}, code) =
+                        if Vector.sub(pushVec, dReg)
+                        then (* We're going to push this. *)
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            (* If we have to push the value we don't have to first load it into a register. *)
+                            val _ = case Array.sub(pregMap, dReg) of Unset => () | _ => raise InternalError "LoadArgument - already set"
+                            val container = newStackLoc 1
+                            val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
+                            val () = pushItemToStack(NewEntry{pregNo=dReg})
+                        in
+                            PushValue{arg=sourceVal, container=container} :: sourceCode @ code
+                        end
+                        else (* We're not going to push this. *)
+                        let
+                            val (sourceVal, sourceCodePre, sourceCodePost) = mapSourceEx source
+                            val dKind = Vector.sub(pregProps, dReg)
                             val destReg =
-                                case currentLocation of
+                                case Array.sub(pregMap, dReg) of
                                     Unset =>
                                     let
                                         val newReg = newPReg dKind
@@ -270,641 +579,744 @@ struct
                                         newReg
                                     end
                                 |   ToPReg preg => preg
-                                |   ToStack => raise InternalError "LoadArgument - already on stack"
+                                |   ToStack _ => raise InternalError "LoadArgument - already on stack"
+                            
+                            (* Can we cache this? . *)
+                            val cacheCode =
+                                case source of
+                                    MemoryLocation{base=PReg breg, offset, index=NoMemIndex, ...} =>
+                                    let
+                                        (* The cache kind must match the kind of register we're loading.
+                                           If the value is untagged it must not be marked to be examined
+                                           by the GC if we allocate anything.
+                                           The move kind has to be suitable for a register to register move. *)
+                                        val moveKind =
+                                            case kind of
+                                                MoveWord => MoveWord
+                                            |   MoveByte => MoveWord
+                                            |   Move16Bit => MoveWord
+                                            |   Move32Bit => MoveWord
+                                            |   MoveFloat => MoveDouble
+                                            |   MoveDouble => MoveDouble
+                                        val (cacheType, isTagged) =
+                                            case dKind of
+                                                RegPropGeneral => (RegPropCacheTagged, true)
+                                            |   RegPropUntagged => (RegPropCacheUntagged, false)
+                                            |   _ => raise InternalError "cacheKind"
+                                        val newCacheReg = newPReg cacheType
+                                        val _ = setMemoryCache(breg, offset, newCacheReg, isTagged, moveKind)
+                                    in 
+                                        [CopyToCache{source=destReg, dest=newCacheReg, kind=moveKind}]
+                                    end
+                                |   _ => []
+
+                            val destCode = LoadArgument{source=sourceVal, dest=destReg, kind=kind}
                         in
-                            (LoadArgument{source=sourceVal, dest=destReg, kind=kind}, context)
+                            cacheCode @ sourceCodePost @ destCode :: sourceCodePre @ code
                         end
-            in
-                pushRegisters(rest, destCode  :: sourceCode @ code, newContext)
-            end
 
-        |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSource(source, context)
-                (* We can't have a memory-memory store so we have to load the source if it's now the stack. *)
-                val (loadedSource, loadCode) = loadStack sourceVal
-                val (baseReg, baseCode) = mapSrcReg(base, context)
-                val (indexValue, indexCode) = mapIndex(index, context)
-            in
-                pushRegisters(rest,
-                    StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind} ::
-                        indexCode @ baseCode @ loadCode @ sourceCode @ code, context)
-            end
-
-        |   pushRegisters({instr=LoadMemReg { offset, dest}, ...} :: rest, code, context) =
-            let
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ LoadMemReg { offset=offset, dest=destVal} :: code, newContext)
-            end
-
-        |   pushRegisters({instr=ExchangeRegisters _, ...} :: _, _, _) = (* This is added at the next level. *)
-                raise InternalError "pushRegisters - ExchangeRegisters"
-
-        |   pushRegisters({instr=BeginFunction {regArgs}, ...} :: rest, code, context) =
-            let
-                (* Push any registers that need to be pushed. *)
-                fun pushReg((preg, rreg), (others, code, context)) =
-                let
-                    val (newReg, newCode, newContext) = mapDestReg(preg, context)
-                in
-                    ((newReg, rreg) :: others, newCode @ code, newContext)
-                end
-                val (newRegArgs, pushCode, newContext) = List.foldl pushReg ([], [], context) regArgs
-            in
-                pushRegisters(rest,
-                    pushCode @ (BeginFunction {regArgs=newRegArgs} :: code), newContext)
-            end
-
-        |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, ...} :: rest, code, context) =
-            let
-                (* It's possible that this could lead to having to spill registers in order
-                   to load others.  Leave that problem for the moment. *)
-                fun loadStackArg (arg, (otherLoads, otherArgs)) =
-                let
-                    val (argVal, loadCode) = mapSource(arg, context)
-                in
-                    (loadCode @ otherLoads, argVal :: otherArgs)
-                end
-                val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
-
-                fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
-                let
-                    val (argVal, loadCode) = mapSource(arg, context)
-                in
-                    (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
-                end
-                val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @
-                        FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs, dest=destVal} ::
-                            regArgLoads @ stackArgLoads @ code, newContext)
-            end
-
-        |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, returnAddr={srcStack, stack}, stackAdjust}, ...} :: rest, code,
-                          context as {oldCount, newCount, ...}) =
-            let
-                val _ = null rest orelse raise InternalError "pushRegisters - TailRecursiveCall"
-                (* We have to adjust all the stack offsets to account for anything we've pushed.
-                   Note: we mustn't use mapOldStackOffset for destination stack offsets.
-                   These are not actual source stack items but overwrite the stack. *)
-                fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
-                let
-                    val (argVal, loadCode) = mapSource(src, context)
-                in
-                    (loadCode @ otherLoads, {src=argVal, stack=stack+newCount-oldCount} :: otherArgs)
-                end
-                val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
-                
-                fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
-                let
-                    val (argVal, loadCode) = mapSource(arg, context)
-                in
-                    (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
-                end
-                val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
-
-                val returnAddr = {srcStack=mapOldStackOffset(srcStack, context), stack=stack+newCount-oldCount}
-                (* Because we're adjusting to the base of the stack we don't need to look at what we've
-                   actually pushed. *) 
-                val newStackAdjust = stackAdjust+newCount-oldCount
-            in
-                (TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
-                        stackArgs=newStackArgs, returnAddr=returnAddr, stackAdjust=newStackAdjust} ::
-                            regArgLoads @ stackArgLoads @ code, context)
-            end
-
-        |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, saveRegs}, ...} :: rest, code, context) =
-            let
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: code, newContext)
-            end
-
-        |   pushRegisters({instr=AllocateMemoryVariable{size, dest, saveRegs}, ...} :: rest, code, context) =
-            let
-                val (sizeVal, sizeCode) = mapSrcReg(size, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: sizeCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=InitialiseMem{size, addr, init}, ...} :: rest, code, context) =
-            let
-                val (sizeVal, sizeCode) = mapSrcReg(size, context)
-                val (addrVal, addrCode) = mapSrcReg(addr, context)
-                val (initVal, initCode) = mapSrcReg(init, context)
-            in
-                pushRegisters(rest,
-                    InitialiseMem{size=sizeVal, addr=addrVal, init=initVal} :: initCode @ addrCode @ sizeCode @ code, context)
-            end
-
-        |   pushRegisters({instr=InitialisationComplete, ...} :: rest, code, context) =
-                pushRegisters(rest, InitialisationComplete :: code, context)
-
-        |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt}, ...} :: rest, code, context) =
-            let
-                (* Normally JumpLoop will be the last item in a block but it is possible that we've
-                   added a reset-stack after it. *)
-                fun getValues [] = ([], [], [])
-                |   getValues ((source, PReg(n, _)) :: rest) =
-                    let
-                        val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
-                    in
-                        case Array.sub(pregMap, n) of
-                            ToPReg lReg =>
-                            let
-                                val (sourceVal, sourceCode) = mapSource(source, context)
-                            in
-                                ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
-                            end
-                        |   ToStack =>
-                            let
-                                val (sourceVal, sourceCode) = mapSource(source, context)
-                                val stackOff = getStackOffset(n, context)
-                            in
-                                (otherRegArgs, (sourceVal, stackOff) :: otherStackArgs, sourceCode @ otherCode)
-                            end
-                        |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
-                                (otherRegArgs, otherStackArgs, otherCode)
-                    end
-                val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
-                fun loadStackArg((source, destStack), (otherLoads, otherArgs)) =
-                let
-                    val (sourceVal, sourceCode) = mapSource(source, context)
-                in
-                    (sourceCode @ otherLoads, (sourceVal, mapOldStackOffset(destStack, context)) :: otherArgs)
-                end
-                
-                val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
-                val check = Option.map mapSaveRegs checkInterrupt
-            in
-                pushRegisters(rest,
-                    JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check} ::
-                         sourceCode @ stackArgLoads @ code, context)
-            end
-
-        |   pushRegisters({instr=RaiseExceptionPacket{packet}, ...} :: rest, code, context) =
-            let
-                val (packetVal, packetCode) = mapSource(packet, context)
-                (* Should be last. *)
-                val _ = null rest orelse raise InternalError "pushRegisters:RaiseExceptionPacket"
-            in
-                (RaiseExceptionPacket{packet=packetVal} :: packetCode @ code, context)
-            end
-
-        |   pushRegisters({instr=ReserveContainer{size, address}, ...} :: rest, code, {oldCount, newCount, stack}) =
-            let
-                val containerContext =
-                    {oldCount=oldCount+size, newCount=newCount+size, stack=ContainerEntry{size=size, active=true}::stack}
-                val (destVal, destCode, newContext) = mapDestReg(address, containerContext)
-                val () = maxStack := Int.max(!maxStack, newCount+size)
-            in
-                pushRegisters(rest, destCode @ ReserveContainer{size=size, address=destVal} :: code, newContext)
-            end
-
-        |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...} :: rest, code, context) =
-            let
-                (* Should be last. *)
-                val _ = null rest orelse raise InternalError "pushRegisters:IndexedCaseOperation"
-                val (srcVal, srcCode) = mapSrcReg(testReg, context)
-                val newWorkReg = mapWorkReg workReg
-            in
-                (* This is an unconditional branch. *)
-                (IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg} :: srcCode @ code, context)
-            end
-
-        |   pushRegisters({instr=LockMutable{addr}, ...} :: rest, code, context) =
-            let
-                val (addrVal, addrCode) = mapSrcReg(addr, context)
-            in
-                pushRegisters(rest, LockMutable{addr=addrVal} :: addrCode @ code, context)
-            end
- 
-        |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...} :: rest, code, context) =
-            let
-                (* codeExtended expects the first argument to be in a register.
-                   We may be able to do something clever if the second is actually in the
-                   register but for the moment just force a load. *)
-                val (op1Val, op1Code) = mapSource(arg1, context)
-                val (loadedOp1, loadCode) = loadStack op1Val
-                val (op2Val, op2Code) = mapSource(arg2, context)
-            in
-                pushRegisters(rest, WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ loadCode @ op1Code @ code, context)
-            end
-
-        |   pushRegisters({instr=PushExceptionHandler{workReg}, ...} :: rest, code, {oldCount, newCount, stack}) =
-            let
-                val _ = null rest orelse raise InternalError "pushRegisters - PushExceptionHandler"
-                val newWorkReg = mapWorkReg workReg
-                (* Add a handler entry to the stack. *)
-                val newContext = {oldCount=oldCount+2, newCount=newCount+2, stack=HandlerEntry :: stack}
-                val () = maxStack := Int.max(!maxStack, newCount+2)
-            in
-                (PushExceptionHandler{workReg=newWorkReg} :: code, newContext)
-            end
-
-        |   pushRegisters({instr=PopExceptionHandler{workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
-            let
-                val newWorkReg = mapWorkReg workReg
-                (* Get the state after removing the handler. *)
-                fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
-                |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
-                |   popContext (ContainerEntry{active=true, ...} :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
-                |   popContext (ContainerEntry{active=false, size} :: tl, old, new) = popContext(tl, old, new-size)
-                |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
-                val newContext as { newCount=newNewCount, ...} = popContext(stack, oldCount, newCount)
-                (* Reset the stack to just above the two words of the handler. *)
-                val resetCode =
-                    if newCount <> newNewCount+2
-                    then [ResetStackPtr{numWords=newCount-newNewCount-2}]
-                    else []
-            in
-                pushRegisters(rest, PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, ...} :: rest, code, {oldCount, newCount, stack}) =
-            let
-                (* Pop the context as with PopExceptionHandler.  However this will adjust the stack. *)
-                fun popContext ([], _, _) = raise InternalError "pushRegisters - pop handler"
-                |   popContext (HandlerEntry :: tl, old, new) = {oldCount=old-2, newCount=new-2, stack=tl}
-                |   popContext (ContainerEntry _ :: _, _, _) = raise InternalError "pushRegisters - pop handler - container"
-                |   popContext (NewEntry _ :: tl, old, new) = popContext(tl, old, new-1)
-                val postPopContext = popContext(stack, oldCount, newCount)
-                val newWorkReg = mapWorkReg workReg
-                val (pktReg, pktCode, postPktRegContext) = mapDestReg(packetReg, postPopContext)
-            in
-                pushRegisters(rest, pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code, postPktRegContext)
-            end
-
-        |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...} :: rest, code, context as {newCount, ...}) =
-            let
-                val _ = null rest orelse raise InternalError "pushRegisters - ReturnResultFromFunction"
-                val (resultValue, loadResult) = mapSrcReg(resultReg, context)
-                val resetCode =
-                    if newCount = 0 then [] else [ResetStackPtr{numWords=newCount}]
-            in
-                (ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code,
-                    context)
-            end
-
-        |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, ...} :: rest, code, context) =
-            let
-                (* codeExtended expects the first argument to be in a register.
-                   We may be able to do something clever if the second is actually in the
-                   register but for the moment just force a load. *)
-                val (op1Val, op1Code) = mapSource(operand1, context)
-                val (loadedOp1, loadCode) = loadStack op1Val
-                val (op2Val, op2Code) = mapSource(operand2, context)
-                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
-            in
-                pushRegisters(rest,
-                    destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
-                        op2Code @ loadCode @ op1Code @ code, newContext)
-            end
-
-        |   pushRegisters({instr=TestTagBit{arg, ccRef}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSource(arg, context)
-            in
-                pushRegisters(rest, TestTagBit{arg=sourceVal, ccRef=ccRef} :: sourceCode @ code, context)
-            end
-
-        |   pushRegisters({instr=PushValue{arg}, ...} :: rest, code, context as {oldCount, newCount, stack}) =
-            let
-                val (sourceVal, sourceCode) = mapSource(arg, context)
-                (* This was a push from a previous pass.  Treat as a container of size 1. *)
-                val pushContext =
-                    {oldCount=oldCount+1, newCount=newCount+1, stack=ContainerEntry{size=1, active=true}::stack}
-            in
-                pushRegisters(rest, PushValue{arg=sourceVal} :: sourceCode @ code, pushContext)
-            end
-
-        |   pushRegisters({instr=ResetStackPtr{numWords}, ...} :: rest, code, {newCount, oldCount, stack}) =
-            (* This indicates that an old entry is no longer required.  We can't actually remove
-               it because we may have pushed something since.  Instead we mark it as inactive and remove
-               it when everything above is free. *)
-            let
-                fun removeItems(0, stack) = stack
-                |   removeItems(_, []) = raise InternalError "removeItems - stack empty"
-                |   removeItems(toRemove, (entry as ContainerEntry {active=false, ...}) :: tl) =
-                        entry :: removeItems(toRemove, tl)
-                |   removeItems(toRemove, ContainerEntry {size, active=true} :: tl) =
-                        if toRemove < size then raise InternalError "removeItems - container size"
-                        else ContainerEntry {size=size, active=false} :: removeItems(toRemove-size, tl)
-                |   removeItems(_, HandlerEntry :: _) = raise InternalError "removeItems - handler"
-                |   removeItems(toRemove, entry :: tl) = entry :: removeItems(toRemove, tl)
-                
-                val newStack = removeItems(numWords, stack)
-                (* Even though the entries have been marked for removal we only deduct
-                   this from the old count. *)
-                val newContext = {newCount=newCount, oldCount=oldCount-numWords, stack=newStack}
-            in
-                pushRegisters(rest, code, newContext)
-            end
-
-        |   pushRegisters({instr=TagValue{source, dest}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSrcReg(source, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest, destCode @ TagValue{source=sourceVal, dest=destVal} :: sourceCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=UntagValue{source, dest, isSigned}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSource(source, context)
-                val (loadedSource, loadCode) = loadStack sourceVal
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned} :: loadCode @ sourceCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...} :: rest, code, context) =
-            let
-                val (baseVal, baseCode) =
-                    case base of
-                        NONE => (NONE, [])
-                    |   SOME bReg =>
-                            let val (newBReg, regCode) = mapSrcReg(bReg, context) in (SOME newBReg, regCode) end
-                val (indexVal, indexCode) = mapIndex(index, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, ...} :: rest, code, context) =
-            let
-                val (opVal, opCode) = mapSource(operand, context)
-                val (shiftVal, shiftCode) = mapSource(shiftAmount, context)
-                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
-            in
-                pushRegisters(rest,
-                    destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef} ::
-                        shiftCode @ opCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, ...} :: rest, code, context) =
-            let
-                val (op1Val, op1Code) = mapSource(operand1, context)
-                val (op2Val, op2Code) = mapSource(operand2, context)
-                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
-            in
-                pushRegisters(rest,
-                    destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code, newContext)
-            end
-
-        |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder}, ...} :: rest, code, context) =
-            let
-                val (dividendVal, dividendCode) = mapSrcReg(dividend, context)
-                val (divisorVal, divisorCode) = mapSource(divisor, context)
-                val (quotVal, quotCode, quotContext) = mapDestReg(quotient, context)
-                val (remVal, remCode, newContext) = mapDestReg(remainder, quotContext)
-            in
-                pushRegisters(rest,
-                    remCode @ quotCode @
-                        Division{isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, quotient=quotVal, remainder=remVal} ::
-                            divisorCode @ dividendCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, ...} :: rest, code, context) =
-            let
-                val (baseVal, baseCode) = mapSrcReg(base, context)
-                val (sourceVal, sourceCode) = mapSrcReg(source, context)
-                (* The "source" is also a result and must be in a register.  It's an untagged reg
-                   so it shouldn't have been marked as to be pushed. *)
-                val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
-            in
-                pushRegisters(rest, AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code, context)
-            end
-
-        |   pushRegisters({instr=BoxValue{boxKind, source, dest, saveRegs}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSrcReg(source, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=mapSaveRegs saveRegs} :: sourceCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, ...} :: rest, code, context) =
-            let
-                val (vec1Val, vec1Code) = mapSrcReg(vec1Addr, context)
-                val (vec2Val, vec2Code) = mapSrcReg(vec2Addr, context)
-                val (lengthVal, lengthCode) = mapSrcReg(length, context)
-            in
-                pushRegisters(rest,
-                    CompareByteVectors{vec1Addr=vec1Val, vec2Addr=vec2Val, length=lengthVal, ccRef=ccRef} ::
-                        lengthCode @ vec2Code @ vec1Code @ code, context)
-            end
-
-        |   pushRegisters({instr=BlockMove{srcAddr, destAddr, length, isByteMove}, ...} :: rest, code, context) =
-            let
-                val (srcVal, srcCode) = mapSrcReg(srcAddr, context)
-                val (destVal, destCode) = mapSrcReg(destAddr, context)
-                val (lengthVal, lengthCode) = mapSrcReg(length, context)
-            in
-                pushRegisters(rest,
-                    BlockMove{srcAddr=srcVal, destAddr=destVal, length=lengthVal, isByteMove=isByteMove} ::
-                        lengthCode @ destCode @ srcCode @ code, context)
-            end
-
-        |   pushRegisters({instr=CompareFloatingPt{arg1, arg2, ccRef}, ...} :: rest, code, context) =
-            let
-                val (arg1Val, arg1Code) = mapSource(arg1, context)
-                val (arg2Val, arg2Code) = mapSource(arg2, context)
-            in
-                pushRegisters(rest, CompareFloatingPt{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code, context)
-            end
-
-        |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, ...} :: rest, code, context) =
-            let
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest, destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code, newContext)
-            end
-
-        |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, ...} :: rest, code, context) =
-            let
-                val (arg1Val, arg1Code) = mapSource(arg1, context)
-                val (arg2Val, arg2Code) = mapSource(arg2, context)
-                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
-            in
-                pushRegisters(rest,
-                    destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
-                        arg2Code @ arg1Code @ code, newContext)
-            end
-    
-        |   pushRegisters({instr=X87FPUnaryOps{fpOp, dest, source}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSource(source, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest,
-                    destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code, newContext)
-            end
-
-        |   pushRegisters({instr=FloatFixedInt{dest, source}, ...} :: rest, code, context) =
-            let
-                val (sourceVal, sourceCode) = mapSource(source, context)
-                val (destVal, destCode, newContext) = mapDestReg(dest, context)
-            in
-                pushRegisters(rest, destCode @ FloatFixedInt{dest=destVal, source=sourceVal} :: sourceCode @ code, newContext)
-            end
-    
-        |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...} :: rest, code, context) =
-            let
-                val (arg1Val, arg1Code) = mapSource(arg1, context)
-                val (arg2Val, arg2Code) = mapSource(arg2, context)
-                val (destVal, destCode, newContext) = mapDestReg(resultReg, context)
-            in
-                pushRegisters(rest,
-                    destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
-                        arg2Code @ arg1Code @ code, newContext)
-            end
-        
-        (* The result code. *)
-        val resultBlocks = Array.array(numberOfBlocks, BasicBlock{flow=ExitCode, block=[]})
-        
-        (* Extra blocks to adjust the stack are added here. *)
-        val extraBlocks: abstract basicBlock list ref = ref []
-        val blockCounter = ref numberOfBlocks
-         
-        (* Recursive scan of the blocks.  For each block we produce an input and output state.
-           The input state is the output state of the predecessor i.e. some block that jumps to
-           this, but with any entries removed that are not used in this block.  It is then
-           necessary to match the input state, if necessary by adding extra blocks that just
-           do the matching. *)
-        local
-            (* The stack size we've assumed for the block.  Also indicates if
-               a block has already been processed. *)
-            val inputStackSizes = Array.array(numberOfBlocks, NONE: int option)
-
-            fun processBlocks(blockNo, lastOutputState) =
-            case asub inputStackSizes blockNo of
-                SOME stackSize => stackSize
-                (* Already done.  Return the stack size it is expecting. *)
-
-            |   NONE =>
-                let
-                    (* This is the first time we've come to this block.  *)
-                    val ExtendedBasicBlock{ block, flow, imports, passThrough, ...} = vsub code blockNo
-
-                    (* Remove any items from the input state that are no longer needed for
-                       this block.  They could be local to the previous block or needed by
-                       a different successor. *)
-                    fun removeItems([], 0, 0) = {newCount=0, oldCount=0, stack=[]}
-                
-                    |   removeItems([], _, _) = raise InternalError "removeItems - stack size"
-
-                    |   removeItems (stack as NewEntry{pregNo} :: rest, oldSize, newSize) =
-                        if member(pregNo, imports) orelse member(pregNo, passThrough)
-                        then {newCount=newSize, oldCount=oldSize, stack=stack}
-                        else removeItems(rest, oldSize, newSize-1)
-
-                        (* This container has been deleted.  Its size has already been removed from
-                           the old count. *)
-                    |   removeItems (ContainerEntry{active=false, size} :: rest, oldSize, newSize) =
-                            removeItems(rest, oldSize, newSize-size)
-
-                    |   removeItems (stack, oldSize, newSize) = {newCount=newSize, oldCount=oldSize, stack=stack}
-
-                    val {stack, newCount, oldCount} = lastOutputState
-
-                    val newContext as {newCount=newSp, ...} = removeItems(stack, oldCount, newCount)
-                    
-                    (* Save the stack size in case we come by a different route. *)
-                    val () = Array.update(inputStackSizes, blockNo, SOME newSp)
-
-                    (* We can't adjust the stack at this point. *)
-                    val (codeResult, stateResult as {newCount=outputCount, ...}) =
-                        pushRegisters(block, [], newContext)
-                    
-                    (* Process the successor.  If we need a stack adjustment this will require
-                       an adjustment block.  TODO: We could put a pre-adjustment if we only have one
-                       branch to this block. *)
-                    fun matchStacks targetBlock =
-                    let
-                        (* Process the destination.  If it hasn't been processed. *)
-                        val expectedInput = processBlocks(targetBlock, stateResult)
-                    in
-                        if expectedInput = outputCount
-                        then targetBlock
-                        else
+                    |   pushRegisters({instr=StoreArgument{source, offset, base, index, kind, isMutable}, ...}, code) =
                         let
-                            val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
-                            val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput}]
-                            val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
-                            val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
-                            val () = extraBlocks := newBlock :: !extraBlocks
+                            val (loadedSource, sourceCode) = mapAndLoad source
+                            (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
+                            val (baseReg, baseCode) = mapSrcReg(base)
+                            val (indexValue, indexCode) = mapIndex(index)
+                            (* If we're assigning to a mutable we can no longer rely on
+                               the memory cache.  Clear it completely in that case although
+                               we could be more selective. *)
+                            val () = if isMutable then clearMemoryCache() else ()
                         in
-                            newBlockNo
+                            StoreArgument{source=loadedSource, base=baseReg, offset=offset, index=indexValue, kind=kind, isMutable=isMutable} ::
+                                    indexCode @ baseCode @ sourceCode @ code
                         end
-                    end
-                    
-                    val (finalCode, newFlow) =
-                        case flow of
-                            ExitCode => (codeResult, ExitCode)
-                        
-                        |   Unconditional m =>
-                            let
-                                (* Process the block.  Since we're making an unconditional jump
-                                   we can include any stack adjustment needed to match the
-                                   destination in here.  In particular this includes loops. *)
-                                val expectedInput = processBlocks(m, stateResult)
-                                val resultCode =
-                                    if expectedInput = outputCount
-                                    then codeResult
-                                    else ResetStackPtr{numWords=outputCount-expectedInput} :: codeResult
-                            in
-                                (resultCode, Unconditional m)
-                            end
 
-                            (* For any of these, if we need to adjust the stack we have to add an
-                               adjustment block. *)
-                        |   Conditional {trueJump, falseJump, ccRef, condition} =>
-                            (codeResult,
-                                Conditional{trueJump=matchStacks trueJump, falseJump=matchStacks falseJump,
-                                    ccRef=ccRef, condition=condition})
+                    |   pushRegisters({instr=LoadMemReg { offset, dest}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadMemReg { offset=offset, dest=destVal} :: code
+                        end
+
+                    |   pushRegisters({instr=BeginFunction {regArgs, stackArgs}, ...}, code) =
+                        let
+                            (* Create a new container list.  The offsets begin at -numArgs. *)
+                            fun newContainers(src :: srcs, offset) =
+                                let
+                                    val newContainer = mapDestContainer(src, offset)
+                                in
+                                    newContainer :: newContainers(srcs, offset+1)
+                                end
+                            |   newContainers _ = []
+
+                            val newStackArgs = newContainers(stackArgs, ~ (List.length stackArgs))
+                            (* Push any registers that need to be pushed. *)
+                            fun pushReg((preg, rreg), (others, code)) =
+                            let
+                                val (newReg, newCode) = mapDestReg(preg)
+                            in
+                                ((newReg, rreg) :: others, newCode @ code)
+                            end
+                            val (newRegArgs, pushCode) = List.foldl pushReg ([], []) regArgs
+                        in
+                            pushCode @ BeginFunction {regArgs=newRegArgs, stackArgs=newStackArgs} :: code
+                        end
+
+                    |   pushRegisters({instr=FunctionCall{callKind, regArgs, stackArgs, dest}, ...}, code) =
+                        let
+                            (* It's possible that this could lead to having to spill registers in order
+                               to load others.  Leave that problem for the moment. *)
+                            fun loadStackArg (arg, (otherLoads, otherArgs)) =
+                            let
+                                val (argVal, loadCode) = mapSource arg
+                            in
+                                (loadCode @ otherLoads, argVal :: otherArgs)
+                            end
+                            val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
+
+                            fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
+                            let
+                                val (argVal, loadCode) = mapSource arg
+                            in
+                                (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
+                            end
+                            val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
+                            val (destVal, destCode) = mapDestReg dest
+                            (* Now clear the cache table. *)
+                            val () = clearCache()
+                        in
+                            destCode @
+                                    FunctionCall{ callKind=callKind, regArgs=newRegArgs, stackArgs=newStackArgs, dest=destVal} ::
+                                        regArgLoads @ stackArgLoads @ code
+                        end
+
+                    |   pushRegisters({instr=TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, workReg, ...}, ...}, code) =
+                        let
+                            val newWorkReg = mapWorkReg workReg
+                            val newStackOffset = !stackCount
+                            
+                            fun loadStackArg ({src, stack}, (otherLoads, otherArgs)) =
+                            let
+                                val (argVal, loadCode) =
+                                    case mapSource src of
+                                        (source as StackLocation{wordOffset, ...}, loadCode) =>
+                                            (* If we're leaving it in its old location or we're pushing it
+                                               above the current top we're ok.  We're also ok if
+                                               we're moving it from a somewhere above the last argument.
+                                               Otherwise we have to load it.
+                                               It goes into a normal tagged register which may mean that it
+                                               could be pushed onto the stack in a subsequent pass. *)
+                                            if wordOffset = stack+newStackOffset orelse stack+newStackOffset < 0
+                                                orelse newStackOffset-wordOffset > ~ stackAdjust
+                                            then (source, loadCode)
+                                            else
+                                            let
+                                                val preg = newPReg RegPropGeneral
+                                            in
+                                                (RegisterArgument preg,
+                                                    LoadArgument{source=source, dest=preg, kind=MoveWord} :: loadCode)
+                                            end
+                                    |   argCode => argCode
+                            in
+                                (loadCode @ otherLoads, {src=argVal, stack=stack} :: otherArgs)
+                            end
+                            val (stackArgLoads, newStackArgs) = List.foldr loadStackArg ([], []) stackArgs
+                
+                            fun loadRegArg ((arg, reg), (otherLoads, otherArgs)) =
+                            let
+                                val (argVal, loadCode) = mapSource arg
+                            in
+                                (loadCode @ otherLoads, (argVal, reg) :: otherArgs)
+                            end
+                            val (regArgLoads, newRegArgs) = List.foldr loadRegArg ([], []) regArgs
+
+                        in
+                            TailRecursiveCall{ callKind=callKind, regArgs=newRegArgs,
+                                    stackArgs=newStackArgs, stackAdjust=stackAdjust, currStackSize=newStackOffset,
+                                    workReg=newWorkReg} ::
+                                        regArgLoads @ stackArgLoads @ code
+                        end
+
+                    |   pushRegisters({instr=AllocateMemoryOperation{size, flags, dest, ...}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ AllocateMemoryOperation{size=size, flags=flags, dest=destVal, saveRegs=[]} :: code
+                        end
+
+                    |   pushRegisters({instr=AllocateMemoryVariable{size, dest, ...}, ...}, code) =
+                        let
+                            val (sizeVal, sizeCode) = mapSrcReg size
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ AllocateMemoryVariable{size=sizeVal, dest=destVal, saveRegs=[]} :: sizeCode @ code
+                        end
+
+                    |   pushRegisters({instr=InitialiseMem{size, addr, init}, ...}, code) =
+                        let
+                            val (sizeVal, sizeCode) = mapSrcReg size
+                            val (addrVal, addrCode) = mapSrcReg addr
+                            val (initVal, initCode) = mapSrcReg init
+                        in
+                            InitialiseMem{size=sizeVal, addr=addrVal, init=initVal} :: initCode @ addrCode @ sizeCode @ code
+                        end
+
+                    |   pushRegisters({instr=InitialisationComplete, ...}, code) = InitialisationComplete :: code
+
+                    |   pushRegisters({instr=JumpLoop{regArgs, stackArgs, checkInterrupt, workReg}, ...}, code) =
+                        let
+                            (* Normally JumpLoop will be the last item in a block but it is possible that we've
+                               added a reset-stack after it. *)
+                            fun getValues [] = ([], [], [])
+                            |   getValues ((source, PReg n) :: rest) =
+                                let
+                                    val (otherRegArgs, otherStackArgs, otherCode) = getValues rest
+                                in
+                                    case Array.sub(pregMap, n) of
+                                        ToPReg lReg =>
+                                        let
+                                            val (sourceVal, sourceCode) = mapSource source
+                                        in
+                                            ((sourceVal, lReg) :: otherRegArgs, otherStackArgs, sourceCode @ otherCode)
+                                        end
+                                    |   ToStack(stackLoc, stackC as StackLoc{size, ...}) =>
+                                        let
+                                            val (sourceVal, sourceCode) = mapSource source
+                                            val stackOff = !stackCount - stackLoc - size
+                                        in
+                                            (otherRegArgs, (sourceVal, stackOff, stackC) :: otherStackArgs, sourceCode @ otherCode)
+                                        end
+                                    |   Unset => (* Drop it.  It's never used. Probably a unit argument. *)
+                                            (otherRegArgs, otherStackArgs, otherCode)
+                                end
+                            val (newRegArguments, newStackArgs, sourceCode) = getValues regArgs
+                            fun loadStackArg((source, _, destC), (otherLoads, otherArgs)) =
+                            let
+                                val (sourceVal, sourceCode) = mapSource source
+                                val (newOffset, newContainer) = mapContainerAndStack(destC, 0)
+                            in
+                                (sourceCode @ otherLoads, (sourceVal, newOffset, newContainer) :: otherArgs)
+                            end
+                
+                            val (stackArgLoads, oldStackArgs) = List.foldr loadStackArg ([], []) stackArgs
+                            val check = case checkInterrupt of NONE => NONE | SOME _ => SOME []
+                            (* Map the work reg if it exists already but get a new one if
+                               we now have stack args. *)
+                            val newWorkReg =
+                                case (workReg, newStackArgs) of
+                                    (SOME r, _) => SOME(mapWorkReg r)
+                                |   (NONE, []) => NONE
+                                |   _ => SOME(newPReg RegPropGeneral)
+                        in
+                            JumpLoop{ regArgs=newRegArguments, stackArgs=oldStackArgs @ newStackArgs, checkInterrupt=check, workReg=newWorkReg} ::
+                                     sourceCode @ stackArgLoads @ code
+                        end
+
+                    |   pushRegisters({instr=RaiseExceptionPacket{packetReg}, ...}, code) =
+                        let
+                            val (packetVal, packetCode) = mapSrcReg packetReg
+                        in
+                            RaiseExceptionPacket{packetReg=packetVal} :: packetCode @ code
+                        end
+
+                    |   pushRegisters({instr=ReserveContainer{size, container}, ...}, code) =
+                        let
+                            val newContainer = mapDestContainer(container, !stackCount)
+                            val () = pushItemToStack(OriginalEntry{stackLoc=container})
+                        in
+                            ReserveContainer{size=size, container=newContainer} :: code
+                        end
+
+                    |   pushRegisters({instr=IndexedCaseOperation{testReg, workReg}, ...}, code) =
+                        let
+                            val (srcVal, srcCode) = mapSrcReg(testReg)
+                            val newWorkReg = mapWorkReg workReg
+                        in
+                            (* This is an unconditional branch. *)
+                            IndexedCaseOperation{testReg=srcVal, workReg=newWorkReg} :: srcCode @ code
+                        end
+
+                    |   pushRegisters({instr=LockMutable{addr}, ...}, code) =
+                        let
+                            val (addrVal, addrCode) = mapSrcReg(addr)
+                        in
+                            LockMutable{addr=addrVal} :: addrCode @ code
+                        end
+ 
+                    |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...}, code) =
+                        let
+                            val (loadedOp1, op1Code) = mapSrcReg arg1
+                            val (op2Val, op2Code) = mapSource arg2
+                        in
+                            WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
+                        let
+                            val newWorkReg = mapWorkReg workReg
+                            (* Add a handler entry to the stack. *)
+                            val () = pushItemToStack HandlerEntry
+                        in
+                            PushExceptionHandler{workReg=newWorkReg} :: code
+                        end
+
+                    |   pushRegisters({instr=PopExceptionHandler{workReg, ...}, ...}, code) =
+                        let
+                            val newWorkReg = mapWorkReg workReg
+                            (* Appears at the end of the block whose exceptions are being handled.  Delete the
+                               handler and anything above it. *)
+                            (* Get the state after removing the handler. *)
+                            fun popContext ([], _) = raise InternalError "pushRegisters - pop handler"
+                            |   popContext (HandlerEntry :: tl, new) = (tl, new-2)
+                            |   popContext (OriginalEntry{stackLoc=StackLoc{size, ...}, ...} :: tl, new) = popContext(tl, new-size)
+                            |   popContext (NewEntry _ :: tl, new) = popContext(tl, new-1)
+                            val (newStack, nnCount) = popContext(!stack, !stackCount)
+                            val () = stack := newStack
+                            val oldStackPtr = ! stackCount
+                            val () = stackCount := nnCount
+                            (* Reset the stack to just above the two words of the handler. *)
+                            val resetCode =
+                                if oldStackPtr <> nnCount+2
+                                then [ResetStackPtr{numWords=oldStackPtr-nnCount-2, preserveCC=false}]
+                                else []
+                        in
+                            PopExceptionHandler{workReg=newWorkReg} :: resetCode @ code
+                        end
+
+                    |   pushRegisters({instr=BeginHandler{packetReg, workReg, ...}, ...}, code) =
+                        let
+                            (* Clear the cache.  This may not be necessary if we are only handling
+                               locally generated exceptions but keep it for the moment. *)
+                            val () = clearCache()
+                            (* Start of a handler.  The top active entry should be the handler. *)
+                            val () =
+                                case !stack of
+                                    HandlerEntry :: tl => stack := tl
+                                |   _ => raise InternalError "pushRegisters: BeginHandler"
+                            val () = stackCount := !stackCount - 2
+                            val newWorkReg = mapWorkReg workReg
+                            val (pktReg, pktCode) = mapDestReg(packetReg)
+                        in
+                            pktCode @ BeginHandler{packetReg=pktReg, workReg=newWorkReg} :: code
+                        end
+
+                    |   pushRegisters({instr=ReturnResultFromFunction{resultReg, numStackArgs}, ...}, code) =
+                        let
+                            val (resultValue, loadResult) = mapSrcReg resultReg
+                            val resetCode =
+                                if !stackCount = 0 then [] else [ResetStackPtr{numWords= !stackCount, preserveCC=false}]
+                        in
+                            ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code
+                        end
+
+                    |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, ...}, code) =
+                        let
+                            val (loadedOp1, op1Code) = mapSrcReg operand1
+                            val (op2Val, op2Code) = mapSource operand2
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
+                                    op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=TestTagBit{arg, ccRef}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource arg
+                        in
+                            TestTagBit{arg=sourceVal, ccRef=ccRef} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=PushValue{arg, container, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource arg
+                            (* This was a push from a previous pass.  Treat as a container of size 1. *)
+                            val newContainer = mapDestContainer(container, !stackCount)
+                            val () = pushItemToStack(OriginalEntry{stackLoc=container})
+                        in
+                            PushValue{arg=sourceVal, container=newContainer} :: sourceCode @ code
+                        end
+                    
+                    |   pushRegisters({instr=CopyToCache _, ...}, code) = code
+                            (* This was added on a previous pass.  Discard it.  If we are going to cache this again we'll
+                               add new CopyToCache instructions. *)
+
+                    |   pushRegisters({instr=ResetStackPtr _, ...}, code) = code
+                            (* Added in a previous pass - discard it. *)
+
+                    |   pushRegisters({instr=StoreToStack{source, container, field, ...}, ...}, code) =
+                        let
+                            val (loadedSource, sourceCode) = mapAndLoad source
+                            (* We can't have a memory-memory store so we have to load the source if it's now on the stack. *)
+                            val (newOffset, newContainer) = mapContainerAndStack(container, field)
+                        in
+                            StoreToStack{source=loadedSource, container=newContainer, field=field, stackOffset=newOffset} ::
+                                    sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=TagValue{source, dest as PReg dReg, isSigned}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                            val _ = setTagCache(dReg, isSigned, sourceVal)
+                        in
+                            destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=UntagValue{source as PReg srcReg, dest, isSigned, ...}, ...}, code) =
+                        let
+                            val (loadedSource, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                            val cache = findCachedTagged(srcReg, isSigned)
+                        in
+                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=cache} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) =
+                                case base of
+                                    NONE => (NONE, [])
+                                |   SOME bReg =>
+                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (SOME newBReg, regCode) end
+                            val (indexVal, indexCode) = mapIndex index
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, ...}, code) =
+                        let
+                            val (opVal, opCode) = mapSrcReg operand
+                            val (shiftVal, shiftCode) = mapSource shiftAmount
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef} ::
+                                    shiftCode @ opCode @ code
+                        end
+
+                    |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, ...}, code) =
+                        let
+                            val (op1Val, op1Code) = mapSrcReg operand1
+                            val (op2Val, op2Code) = mapSource operand2
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
+                        end
+
+                    |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder}, ...}, code) =
+                        let
+                            val (dividendVal, dividendCode) = mapSrcReg dividend
+                            val (divisorVal, divisorCode) = mapSource divisor
+                            val (quotVal, quotCode) = mapDestReg quotient
+                            val (remVal, remCode) = mapDestReg remainder
+                        in
+                            remCode @ quotCode @
+                                    Division{isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, quotient=quotVal, remainder=remVal} ::
+                                        divisorCode @ dividendCode @ code
+                        end
+
+                    |   pushRegisters({instr=AtomicExchangeAndAdd{base, source}, ...}, code) =
+                        let
+                            val (baseVal, baseCode) = mapSrcReg(base)
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            (* The "source" is also a result and must be in a register.  It's an untagged reg
+                               so it shouldn't have been marked as to be pushed. *)
+                            val _ = case sourceCode of [] => () | _ => raise InternalError "pushRegisters - AtomicExchangeAndAdd"
+                        in
+                            AtomicExchangeAndAdd{base=baseVal, source=sourceVal} :: baseCode @ code
+                        end
+
+                    |   pushRegisters({instr=BoxValue{boxKind, source, dest as PReg dReg, ...}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                            (* We can cache the boxed value except if this is an X87 box.
+                               We can't cache X87 values because there's effectively only one register
+                               and this box instruction uses FSTP (store and POP). *)
+                            val cacheCode =
+                                if Vector.sub(pushVec, dReg) orelse boxKind = BoxX87 then []
+                                else
+                                let
+                                    val newCacheReg = newPReg RegPropCacheUntagged
+                                    val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
+                                    val _ = setMemoryCache(dReg, 0, newCacheReg, true, moveKind)
+                                in
+                                    [CopyToCache{source=sourceVal, dest=newCacheReg, kind=moveKind}]
+                                end
+                        in
+                            cacheCode @ destCode @ BoxValue{boxKind=boxKind, source=sourceVal, dest=destVal, saveRegs=[]} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=CompareByteVectors{vec1Addr, vec2Addr, length, ccRef}, ...}, code) =
+                        let
+                            val (vec1Val, vec1Code) = mapSrcReg vec1Addr
+                            val (vec2Val, vec2Code) = mapSrcReg vec2Addr
+                            val (lengthVal, lengthCode) = mapSrcReg length
+                        in
+                            CompareByteVectors{vec1Addr=vec1Val, vec2Addr=vec2Val, length=lengthVal, ccRef=ccRef} ::
+                                    lengthCode @ vec2Code @ vec1Code @ code
+                        end
+
+                    |   pushRegisters({instr=BlockMove{srcAddr, destAddr, length, isByteMove}, ...}, code) =
+                        let
+                            val (srcVal, srcCode) = mapSrcReg srcAddr
+                            val (destVal, destCode) = mapSrcReg destAddr
+                            val (lengthVal, lengthCode) = mapSrcReg length
+                            (* For safety clear the memory cache here.  That may not be necessary. *)
+                            val () = clearMemoryCache()
+                        in
+                            BlockMove{srcAddr=srcVal, destAddr=destVal, length=lengthVal, isByteMove=isByteMove} ::
+                                    lengthCode @ destCode @ srcCode @ code
+                        end
+
+                    |   pushRegisters({instr=X87Compare{arg1, arg2, ccRef}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSource arg2
+                        in
+                            X87Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2Compare{arg1, arg2, ccRef}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSource arg2
+                        in
+                            SSE2Compare{arg1=arg1Val, arg2=arg2Val, ccRef=ccRef} :: arg2Code @ arg1Code @ code
+                        end
+
+                    |   pushRegisters({instr=X87FPGetCondition{dest, ccRef}, ...}, code) =
+                        let
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ X87FPGetCondition{dest=destVal, ccRef=ccRef} :: code
+                        end
+
+                    |   pushRegisters({instr=X87FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSource arg2
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ X87FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                                    arg2Code @ arg1Code @ code
+                        end
+    
+                    |   pushRegisters({instr=X87FPUnaryOps{fpOp, dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSrcReg source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ X87FPUnaryOps{fpOp=fpOp, dest=destVal, source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=X87Float{dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ X87Float{dest=destVal, source=sourceVal} :: sourceCode @ code
+                        end
+
+                    |   pushRegisters({instr=SSE2Float{dest, source}, ...}, code) =
+                        let
+                            val (sourceVal, sourceCode) = mapSource source
+                            val (destVal, destCode) = mapDestReg dest
+                        in
+                            destCode @ SSE2Float{dest=destVal, source=sourceVal} :: sourceCode @ code
+                        end
+    
+                    |   pushRegisters({instr=SSE2FPArith{opc, resultReg, arg1, arg2}, ...}, code) =
+                        let
+                            val (arg1Val, arg1Code) = mapSrcReg arg1
+                            val (arg2Val, arg2Code) = mapSource arg2
+                            val (destVal, destCode) = mapDestReg resultReg
+                        in
+                            destCode @ SSE2FPArith{opc=opc, resultReg=destVal, arg1=arg1Val, arg2=arg2Val} ::
+                                    arg2Code @ arg1Code @ code
+                        end
+        
+
+                    (* Find the common cache state. *)
+                    val () = setCommonCacheState(List.map (#cache o asub blockOutput) (asub blockRefs blockNo))
+
+                    local
+                        fun doPush(instr as {kill, ...}, code) =
+                        let
+                            val newCode = pushRegisters(instr, code)
+                            (* Can we pop the stack? *)
+                            val stackReset =
+                                case setToList kill of
+                                    [] => []
+                                |   killList =>
+                                    let
+                                        (* See if any of the kill items are at the top of the stack.
+                                           If they are we can pop them and perhaps items we've
+                                           previously marked for deletion but not been able to pop. *)
+                                        val oldStack = !stackCount
+                                        fun checkAndAdd(r, output) =
+                                            case Array.sub(pregMap, r) of
+                                                ToStack(stackLoc, StackLoc{size, ...}) =>
+                                                    if stackLoc < 0
+                                                    then r :: output (* We can have arguments and return address. *)
+                                                    else if !stackCount = stackLoc+size
+                                                    then
+                                                    (
+                                                        stack := tl (!stack);
+                                                        stackCount := stackLoc;
+                                                        output
+                                                    )
+                                                    else r :: output
+                                            |   _ => r :: output
+                                        val toAdd = List.foldl checkAndAdd [] killList
+                                        fun reprocess list =
+                                        let
+                                            val prevStack = !stackCount
+                                            val outlist = List.foldl checkAndAdd [] list
+                                        in
+                                            if !stackCount = prevStack
+                                            then list
+                                            else reprocess outlist
+                                        end
+                                        val () =
+                                            if !stackCount = oldStack
+                                            then deletedItems := toAdd @ !deletedItems
+                                            else deletedItems := reprocess(toAdd @ !deletedItems)
+                                    in
+                                        if !stackCount = oldStack then []
+                                        else [ResetStackPtr{numWords=oldStack - !stackCount, preserveCC=true (* In case*)}]
+                                    end
+                        in
+                            stackReset @ newCode
+                        end
+                    in
+                        val codeResult = List.foldl doPush [] block
+                        val outputCount = ! stackCount
+                        val results = {code=codeResult, cache=getCache(), stackCount= outputCount}
+                        val stateResult = { stackCount= outputCount, stack= !stack }
                         
-                        |   SetHandler{ handler, continue } =>
-                            (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
+                        val () = Array.update(blockOutput, blockNo,  results)
+                    end
+
+                    val addSet =
+                        case flow of
+                            ExitCode => []
+                        |   IndexedBr cases => cases
+                        |   Unconditional dest => [dest]
+                        |   Conditional {trueJump, falseJump, ...} => [falseJump, trueJump]
+                        |   SetHandler { handler, continue } => [handler, continue]
+                        |   UnconditionalHandle _ => []
+                        |   ConditionalHandle { continue, ...} => [continue]
                         
-                        |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
-                    val () =
-                        Array.update(resultBlocks, blockNo, BasicBlock{block=List.rev finalCode, flow=newFlow})
+                    val addItems = List.map(fn m => (m, stateResult)) addSet
                 in
-                    newSp (* Return our input stack size. *)
+                    processBlocks(addItems @ stillToDo)
                 end
         in
-            val _ = processBlocks(0, emptyContext)
+            val () = processBlocks([(0, {stack=[], stackCount=0})])
         end
 
+
         (* Put together the result code and blocks. *)
-        val resultBlocks = Array.vector resultBlocks
+        local
+            fun createBlock blockNo =
+            (* Skip unreferenced blocks apart from block 0. *)
+            if blockNo <> 0 andalso null (asub blockRefs blockNo)
+            then BasicBlock{block=[], flow=ExitCode}
+            else
+            let
+                val ExtendedBasicBlock{ flow, ...} = vsub code blockNo
+                val {code=codeResult, stackCount=outputCount, ...} = asub blockOutput blockNo
+                
+                (* Process the successor.  If we need a stack adjustment this will require
+                   an adjustment block.  TODO: We could put a pre-adjustment if we only have one
+                   branch to this block. *)
+                fun matchStacks targetBlock =
+                let
+                    (* Process the destination.  If it hasn't been processed. *)
+                    val {expectedInput, ...} = valOf (asub inputStackSizes targetBlock)
+                in
+                    if expectedInput = outputCount
+                    then targetBlock
+                    else
+                    let
+                        val _ = outputCount > expectedInput orelse raise InternalError "adjustStack"
+                        val adjustCode = [ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=true (* For the moment *)}]
+                        val newBlock = BasicBlock{block=adjustCode, flow=Unconditional targetBlock}
+                        val newBlockNo = !blockCounter before blockCounter := !blockCounter+1
+                        val () = extraBlocks := newBlock :: !extraBlocks
+                    in
+                        newBlockNo
+                    end
+                end
+                
+                val (finalCode, newFlow) =
+                    case flow of
+                        ExitCode => (codeResult, ExitCode)
+                    
+                    |   Unconditional m =>
+                        let
+                            (* Process the block.  Since we're making an unconditional jump
+                               we can include any stack adjustment needed to match the
+                               destination in here.  In particular this includes loops. *)
+                            val {expectedInput, reqCC} = valOf (asub inputStackSizes m)
+                            val resultCode =
+                                if expectedInput = outputCount
+                                then codeResult
+                                else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
+                        in
+                            (resultCode, Unconditional m)
+                        end
+
+                        (* For any of these, if we need to adjust the stack we have to add an
+                           adjustment block. *)
+                    |   Conditional {trueJump, falseJump, ccRef, condition} =>
+                        (codeResult,
+                            Conditional{trueJump=matchStacks trueJump, falseJump=matchStacks falseJump,
+                                ccRef=ccRef, condition=condition})
+                    
+                    |   SetHandler{ handler, continue } =>
+                        (codeResult, SetHandler{ handler=matchStacks handler, continue=matchStacks continue})
+                    
+                    |   IndexedBr cases => (codeResult, IndexedBr(map matchStacks cases))
+                    
+                    |   u as UnconditionalHandle _ => (codeResult, u)
+                    
+                    |   c as ConditionalHandle{ continue, ... } =>
+                        let
+                            (* As for unconditional branch *)
+                            val {expectedInput, reqCC} = valOf (asub inputStackSizes continue)
+                            val resultCode =
+                                if expectedInput = outputCount
+                                then codeResult
+                                else ResetStackPtr{numWords=outputCount-expectedInput, preserveCC=reqCC} :: codeResult
+                        in
+                            (resultCode, c)
+                        end
+             in
+                BasicBlock{block=List.rev finalCode, flow=newFlow}
+            end
+        in
+            val resultBlocks = Vector.tabulate(numberOfBlocks, createBlock)
+        end
         
         (* Add any extra blocks to the result. *)
         val finalResult =
             case !extraBlocks of
                 [] => resultBlocks
             |   blocks => Vector.concat[resultBlocks, Vector.fromList(List.rev blocks)]
+        
+        val pregProperties = Vector.fromList(List.rev(! pregPropList))
     in
-        {code=finalResult, maxPRegs= !pregCounter, maxStack= !maxStack}
+        {code=finalResult, pregProps=pregProperties, maxStack= !maxStack}
     end
 
     structure Sharing =
     struct
-        type 'reg x86ICode = 'reg x86ICode
-        and abstract = abstract
+        type x86ICode = x86ICode
+        and preg = preg
         and intSet = intSet
         and extendedBasicBlock = extendedBasicBlock
-        and 'reg basicBlock = 'reg basicBlock
+        and basicBlock = basicBlock
+        and regProperty = regProperty
     end
 end;

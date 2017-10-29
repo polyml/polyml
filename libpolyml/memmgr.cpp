@@ -330,6 +330,8 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         if (space->bottom == 0)
         {
             delete space;
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New export %smutable space: insufficient space\n", mut ? "" : "im");
             return 0;
         }
         space->isOwnSpace = true;
@@ -339,6 +341,11 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         space->top = space->bottom + size;
         space->topPointer = space->bottom;
 
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
+                noOv ? "no-overwrite " : "", code ? "code " : "", space,
+                space->spaceSize() / 1024, space->bottom, space->top);
+
         // Add to the table.
         try {
             AddTree(space);
@@ -347,11 +354,15 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         catch (std::exception&) {
             RemoveTree(space);
             delete space;
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New export %smutable space: Adding to tree failed\n", mut ? "" : "im");
             return 0;
         }
         return space;
     }
     catch (std::bad_alloc&) {
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New export %smutable space: \"new\" failed\n", mut ? "" : "im");
         return 0;
     }
 }
@@ -740,6 +751,8 @@ void MemMgr::RemoveEmptyCodeAreas()
         PolyObject *start = (PolyObject *)(space->bottom+1);
         if (start->IsByteObject() && start->Length() == space->spaceSize()-1)
         {
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: Deleted code space %p\n", space);
             // We have an empty cell that fills the whole space.
             RemoveTree(space);
             delete(space);

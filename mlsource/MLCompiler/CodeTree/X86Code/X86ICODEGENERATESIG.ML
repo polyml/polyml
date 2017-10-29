@@ -15,21 +15,24 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature X86PUSHREGISTERSIG =
+signature X86ICODEGENERATESIG =
 sig
-    type preg and x86ICode and intSet and extendedBasicBlock and basicBlock
-    and regProperty
-
-    val addRegisterPushes :
-        { code: extendedBasicBlock vector, pushVec: bool vector, pregProps: regProperty vector, firstPass: bool } ->
-            { code: basicBlock vector, pregProps: regProperty vector, maxStack: int }
-
+    type intSet and extendedBasicBlock and regProperty and reg
+    type address = Address.address 
+    
+    val icodeToX86Code :
+        {
+            blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
+            stackRequired: int, argRegsUsed: reg list, hasFullClosure: bool, debugSwitches: Universal.universal list
+        } -> address
+    
+    val nGenRegs: int (* Number of general registers. *)
+    
     structure Sharing:
     sig
-        type x86ICode = x86ICode
-        and preg = preg
-        and extendedBasicBlock = extendedBasicBlock
-        and basicBlock = basicBlock
-        and regProperty = regProperty
+        type intSet             = intSet
+        and extendedBasicBlock  = extendedBasicBlock
+        and regProperty         = regProperty
+        and reg                 = reg
     end
 end;

@@ -345,6 +345,8 @@ public:
 
     // After a Unix fork we only have a single thread in the new process.
     virtual void SetSingleThreaded(void) = 0;
+
+    virtual poly_exn* GetInterrupt(void) = 0;
 };
 
 // Return the number of processors.  Used when configuring multi-threaded GC.

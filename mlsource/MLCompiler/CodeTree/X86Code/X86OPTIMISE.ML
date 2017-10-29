@@ -48,9 +48,9 @@ struct
            reversed list and turn it back into the original order. *)
         fun forward([], list, rep) = reverse(list, [], rep)
 
-        |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
+        |   forward(ResetStack{numWords=count1, preserveCC=pres1} :: ResetStack{numWords=count2, preserveCC=pres2} :: tl, list, _) =
                 (* Combine adjacent resets. *)
-                forward(ResetStack(count1+count2) :: tl, list, true)
+                forward(ResetStack{numWords=count1+count2, preserveCC=pres1 orelse pres2} :: tl, list, true)
 
         |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=NonAddressConstArg constA }) ::
                     (b as ArithToGenReg{ opc=opB, output=outB, source=NonAddressConstArg constB }) :: tl, list, rep) =
@@ -75,7 +75,7 @@ struct
             end
             else forward(b :: tl, a :: list, rep)
 
-        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output}) :: (reset as ResetStack count) :: tl,
+        |   forward((mv as MoveToRegister{source=MemoryArg{base, offset, index=NoIndex}, output}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
                     list, rep) =
             (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
                we can't we may be better to split the stack reset in case there's another load that could. *)
@@ -90,14 +90,14 @@ struct
                     val _ = offset = 0 orelse raise InternalError "forward: offset non-zero"
                     val resetAfter = count - resetBefore - 1
                 in
-                    forward(if resetAfter = 0 then tl else ResetStack resetAfter :: tl,
+                    forward(if resetAfter = 0 then tl else ResetStack{numWords=resetAfter, preserveCC=preserveCC} :: tl,
                         PopR output :: list, true)
                 end
                 else forward(
                         MoveToRegister{
                             source=MemoryArg{base=base, offset=offset-resetBefore*Address.wordSize, index=NoIndex}, output=output} ::
-                        (if count = resetBefore then tl else ResetStack(count - resetBefore) :: tl),
-                        ResetStack resetBefore :: list, true)
+                        (if count = resetBefore then tl else ResetStack{numWords=count - resetBefore, preserveCC=preserveCC} :: tl),
+                        ResetStack{numWords=resetBefore, preserveCC=preserveCC} :: list, true)
             end
             else forward(reset::tl, mv::list, rep)
 
