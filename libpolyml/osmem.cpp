@@ -120,7 +120,7 @@ bool Linux32In64Mem::Initialise()
     globalHeapBase = (PolyWord*)result;
     pageSize = getpagesize();
     // Create a bitmap with a bit for each page.
-    if (!pageMap->Create(space / pageSize))
+    if (!pageMap.Create(space / pageSize))
         return false;
     firstFree = space / pageSize - 1; // Last page in the area
     return true;
@@ -128,7 +128,6 @@ bool Linux32In64Mem::Initialise()
 
 void *Linux32In64Mem::Allocate(size_t &space, unsigned permissions)
 {
-    int prot = ConvertPermissions(permissions);
     uintptr_t pages = (space + pageSize - 1) / pageSize;
     // Round up to an integral number of pages.
     space = pages * pageSize;
@@ -137,7 +136,7 @@ void *Linux32In64Mem::Allocate(size_t &space, unsigned permissions)
         firstFree--;
     uintptr_t free = pageMap.FindFree(0, firstFree, pages);
     if (free == firstFree)
-        return false; // Can't find the space.
+        return 0; // Can't find the space.
     pageMap.SetBits(free, pages);
     // TODO: Do we need to zero this?  It may have previously been set.
     char *baseAddr = (char*)globalHeapBase + free * pageSize;
@@ -162,6 +161,10 @@ bool Linux32In64Mem::Free(void *p, size_t space)
     pageMap.ClearBits(offset, space / pageSize);
     return true;
 }
+
+// Create the global object for the memory manager.
+static Linux32In64Mem lin32MemMan;
+OSMem *osMemoryManager = &lin32MemMan;
 
 #else
 
