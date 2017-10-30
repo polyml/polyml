@@ -87,7 +87,7 @@ bool LocalMemSpace::InitSpace(uintptr_t size, bool mut)
     // Allocate the heap itself.
     size_t iSpace = size*sizeof(PolyWord);
     bottom  =
-        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, true);
+        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
 
     if (bottom == 0)
         return false;
@@ -143,6 +143,11 @@ MemMgr::~MemMgr()
         delete(*i);
 }
 
+bool MemMgr::Initialise()
+{
+    return osMemoryManager->Initialise();
+}
+
 // Create and initialise a new local space and add it to the table.
 LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
 {
@@ -155,7 +160,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
         size_t rSpace = reservedSpace*sizeof(PolyWord);
 
         if (reservedSpace != 0) {
-            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ, true);
+            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
             if (reservation == 0) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
                 if (debugOptions & DEBUG_MEMMGR)
@@ -325,7 +330,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom  =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC, true);
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
 
         if (space->bottom == 0)
         {
@@ -633,7 +638,7 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
     size_t actualSize = size * sizeof(PolyWord);
     PolyWord *mem =
         (PolyWord*)osMemoryManager->Allocate(actualSize,
-            PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC, false);
+            PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
     if (mem != 0)
     {
         try {
@@ -831,7 +836,7 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
         StackSpace *space = new StackSpace;
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, false);
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
         if (space->bottom == 0)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -889,7 +894,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
 {
     StackSpace *space = taskData->stack;
     size_t iSpace = newSize*sizeof(PolyWord);
-    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE, false);
+    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
     if (newSpace == 0)
     {
         if (debugOptions & DEBUG_MEMMGR)

@@ -346,6 +346,9 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
             userOptions.user_arg_strings[userOptions.user_arg_count++] = argv[i];
     }
 
+    if (!gMem.Initialise())
+        Usage("Unable to initialise memory allocator\n");
+
     if (exports == 0 && importFileName == 0)
         Usage("Missing import file name\n");
 

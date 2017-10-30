@@ -431,7 +431,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= rounded)
             size = rounded + 1;
         size_t iSpace = size * sizeof(PolyWord);
-        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC, true);
+        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
         currentSize = iSpace / sizeof(PolyWord);
         base[0] = PolyWord::FromUnsigned(0);
         used = 1; 

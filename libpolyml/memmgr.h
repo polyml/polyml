@@ -204,6 +204,7 @@ class MemMgr
 public:
     MemMgr();
     ~MemMgr();
+    bool Initialise();
 
     // Create a local space for initial allocation.
     LocalMemSpace *CreateAllocationSpace(uintptr_t size);

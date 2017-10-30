@@ -41,21 +41,26 @@
 #define PERMISSION_WRITE    2
 #define PERMISSION_EXEC     4
 
+// This is now subclassed for the various combinations of OS and native address/object index.
 class OSMem
 {
 public:
+    OSMem() {}
+    virtual ~OSMem() {}
+    virtual bool Initialise(void) { return true;  }
+
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
     // Returns NULL if it cannot allocate the space.
-    void *Allocate(size_t &bytes, unsigned permissions, bool isHeap);
+    virtual void *Allocate(size_t &bytes, unsigned permissions) = 0;
 
     // Release the space previously allocated.  This must free the whole of
     // the segment.  The space must be the size actually allocated.
-    bool Free(void *p, size_t space);
+    virtual bool Free(void *p, size_t space) = 0;
 
     // Adjust the permissions on a segment.  This must apply to the
     // whole of a segment.
-    bool SetPermissions(void *p, size_t space, unsigned permissions);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions) = 0;
 };
 
 

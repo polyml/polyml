@@ -35,8 +35,9 @@
 #include <sys/mman.h>
 #endif
 
-
 #include "osmem.h"
+#include "bitmap.h"
+#include "globals.h"
 
 // Linux prefers MAP_ANONYMOUS to MAP_ANON 
 #ifndef MAP_ANON
@@ -45,7 +46,7 @@
 #endif
 #endif
 
-#if defined(HAVE_MMAP) && defined(MAP_ANON)
+#if (defined(HAVE_MMAP) && defined(MAP_ANON))
 // We don't use autoconf's test for mmap here because that tests for
 // file mapping.  Instead the test simply tests for the presence of an mmap
 // function.
@@ -71,6 +72,12 @@
 #endif
 #endif
 
+#ifdef SOLARIS
+#define FIXTYPE (caddr_t)
+#else
+#define FIXTYPE
+#endif
+
 static int ConvertPermissions(unsigned perm)
 {
     int res = 0;
@@ -83,10 +90,95 @@ static int ConvertPermissions(unsigned perm)
     return res;
 }
 
+#ifdef POLYML32IN64
+// The memory allocator for 32-in-64 Linux works differently.
+
+class Linux32In64Mem : public OSMem
+{
+public:
+    Linux32In64Mem(): pageSize(4096), firstFree(0) {}
+    virtual ~Linux32In64Mem() {}
+    bool Initialise();
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+
+    Bitmap pageMap;
+    long pageSize;
+    uintptr_t firstFree;
+};
+
+bool Linux32In64Mem::Initialise()
+{
+    // Allocate a single 8G area but with no access.  In Linux this does not
+    // actually allocate memory which is only allocated when we unprotect it.
+    // This currently only allocates 8G because we need two bits in the header
+    size_t space = (size_t)8 * 1024 * 1024 * 1024; // 16Gbytes
+    void *result = mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (result == MAP_FAILED)
+        return false;
+    globalHeapBase = (PolyWord*)result;
+    pageSize = getpagesize();
+    // Create a bitmap with a bit for each page.
+    if (!pageMap->Create(space / pageSize))
+        return false;
+    firstFree = space / pageSize - 1; // Last page in the area
+    return true;
+}
+
+void *Linux32In64Mem::Allocate(size_t &space, unsigned permissions)
+{
+    int prot = ConvertPermissions(permissions);
+    uintptr_t pages = (space + pageSize - 1) / pageSize;
+    // Round up to an integral number of pages.
+    space = pages * pageSize;
+    // Find some space
+    while (pageMap.TestBit(firstFree)) // Skip the wholly allocated area.
+        firstFree--;
+    uintptr_t free = pageMap.FindFree(0, firstFree, pages);
+    if (free == firstFree)
+        return false; // Can't find the space.
+    pageMap.SetBits(free, pages);
+    // TODO: Do we need to zero this?  It may have previously been set.
+    char *baseAddr = (char*)globalHeapBase + free * pageSize;
+    int res = mprotect(baseAddr, space, ConvertPermissions(permissions));
+    if (res != 0)
+        return 0;
+    return baseAddr;
+}
+
+bool Linux32In64Mem::SetPermissions(void *p, size_t space, unsigned permissions)
+{
+    int res = mprotect(FIXTYPE p, space, ConvertPermissions(permissions));
+    return res != -1;
+}
+
+bool Linux32In64Mem::Free(void *p, size_t space)
+{
+    char *addr = (char*)p;
+    uintptr_t offset = (addr - (char*)globalHeapBase) / pageSize;
+    if (!mprotect(FIXTYPE p, space, PROT_NONE))
+        return false;
+    pageMap.ClearBits(offset, space / pageSize);
+    return true;
+}
+
+#else
+
+class UnixMem : public OSMem
+{
+public:
+    UnixMem() {}
+    virtual ~UnixMem() {}
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+};
+
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
+void *UnixMem::Allocate(size_t &space, unsigned permissions)
 {
     int prot = ConvertPermissions(permissions);
     // Round up to an integral number of pages.
@@ -100,31 +192,40 @@ void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
     return result;
 }
 
-#ifdef SOLARIS
-#define FIXTYPE (caddr_t)
-#else
-#define FIXTYPE
-#endif
-
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::Free(void *p, size_t space)
+bool UnixMem::Free(void *p, size_t space)
 {
     return munmap(FIXTYPE p, space) == 0;
 }
 
 // Adjust the permissions on a segment.  This must apply to the
 // whole of a segment.
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool UnixMem::SetPermissions(void *p, size_t space, unsigned permissions)
 {
     int res = mprotect(FIXTYPE p, space, ConvertPermissions(permissions));
     return res != -1;
 }
 
+// Create the global object for the memory manager.
+static UnixMem unixMemMan;
+OSMem *osMemoryManager = &unixMemMan;
+
+#endif
 
 #elif defined(_WIN32)
 // Use Windows memory management.
 #include <windows.h>
+
+class WinMem : public OSMem
+{
+public:
+    WinMem() {}
+    virtual ~WinMem() {}
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+};
 
 static int ConvertPermissions(unsigned perm)
 {
@@ -153,7 +254,7 @@ static int ConvertPermissions(unsigned perm)
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
-void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
+void *WinMem::Allocate(size_t &space, unsigned permissions)
 {
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
@@ -171,19 +272,22 @@ void *OSMem::Allocate(size_t &space, unsigned permissions, bool isHeap)
 
 // Release the space previously allocated.  This must free the whole of
 // the segment.  The space must be the size actually allocated.
-bool OSMem::Free(void *p, size_t space)
+bool WinMem::Free(void *p, size_t space)
 {
     return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
 }
 
 // Adjust the permissions on a segment.  This must apply to the
 // whole of a segment.
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool WinMem::SetPermissions(void *p, size_t space, unsigned permissions)
 {
     DWORD oldProtect;
     return VirtualProtect(p, space, ConvertPermissions(permissions), &oldProtect) == TRUE;
 }
 
+// Create the global object for the memory manager.
+static WinMem winMemMan;
+OSMem *osMemoryManager = &winMemMan;
 
 #else
 
@@ -195,27 +299,41 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 #include <malloc.h>
 #endif
 
+#ifdef POLYML32IN64
+#error "32 bit in 64-bits requires either mmap or VirtualAlloc"
+#endif
+
+class MallocMem : public OSMem
+{
+public:
+    MallocMem() {}
+    virtual ~MallocMem() {}
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+};
+
 // Use calloc to allocate the memory.  Using calloc ensures the memory is
 // zeroed and is compatible with the other allocators.
-void *OSMem::Allocate(size_t &bytes, unsigned permissions)
+void *MallocMem::Allocate(size_t &bytes, unsigned permissions)
 {
     return calloc(bytes, 1);
 }
 
-bool OSMem::Free(void *p, size_t/*space*/)
+bool MallocMem::Free(void *p, size_t/*space*/)
 {
     free(p);
     return true;
 }
 
 // We can't do this if we don't have mprotect.
-bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
+bool MallocMem::SetPermissions(void *p, size_t space, unsigned permissions)
 {
     return true; // Let's hope this is all right.
 }
 
-#endif
-
 // Create the global object for the memory manager.
-static OSMem osmemMan;
-OSMem *osMemoryManager = &osmemMan;
+static MallocMem mallocMemMan;
+OSMem *osMemoryManager = &mallocMemMan;
+
+#endif
