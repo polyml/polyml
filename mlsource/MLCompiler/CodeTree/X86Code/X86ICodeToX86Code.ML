@@ -816,6 +816,7 @@ struct
                     let
                         val areg = getAllocatedGenReg reg
                         val _ = areg = eax andalso raise InternalError "codeExtended: eax in save regs"
+                        val _ = if List.exists(fn (_, r) => r = GenReg areg) regArgs then raise InternalError "codeExtended: arg reg in save regs" else ()
                     in
                         PopR areg :: makeSaves(regs, PushToStack(RegisterArg areg) :: code)
                     end
