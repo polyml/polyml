@@ -218,6 +218,11 @@ struct
                 
                 |   BeginHandler { packetReg, ...} =>
                         reserveRegister([regNo packetReg], GenReg eax)
+                
+                |   FunctionCall { dest, ...} =>
+                        (* This is only needed if we are saving the registers rather
+                           than marking them as "must push". *)
+                        reserveRegister([regNo dest], GenReg eax)
 
                 |   _ => ()
         in

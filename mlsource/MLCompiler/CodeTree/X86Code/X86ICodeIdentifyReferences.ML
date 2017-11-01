@@ -619,6 +619,13 @@ struct
                             in
                                 JumpLoop{regArgs=regArgs, stackArgs=stackArgs, checkInterrupt=check, workReg=workReg}
                             end
+                        
+                        |   FunctionCall{regArgs, stackArgs=[], dest, callKind as ConstantCode m, saveRegs=_} =>
+                            (* If this is arbitrary precision push the registers rather than marking them as "save". *)
+                            if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                            then FunctionCall{regArgs=regArgs, stackArgs=[], callKind=callKind, dest=dest,
+                                    saveRegs=getSaveSet(regNo dest) }
+                            else instr
 
                         |   _ => instr
                 end
@@ -643,7 +650,13 @@ struct
                 in
                     val () =
                         case instr of
-                            FunctionCall _ => pushRegisters ()
+                            FunctionCall{ stackArgs=[], callKind=ConstantCode m, ...} =>
+                            if (String.isSubstring "Arbitrary\"" (Address.stringOfWord m))
+                            then ()
+                            else pushRegisters ()
+                            
+                        |   FunctionCall _ => pushRegisters ()
+                            
                             (* It should no longer be necessary to push across a handler but
                                there still seem to be cases that need it. *)
                         |   BeginHandler _ => pushRegisters ()
