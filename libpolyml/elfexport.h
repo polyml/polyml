@@ -96,7 +96,7 @@ class TaskData;
 class ELFExport: public Exporter, public ScanAddress
 {
 public:
-    ELFExport(): relocationCount(0), directReloc(0), symbolNum(0) {}
+    ELFExport(): relocationCount(0), symbolNum(0) {}
 public:
     virtual void exportStore(void);
 
@@ -120,8 +120,6 @@ private:
 
     // There are two tables - one is used for section names, the other for symbol names.
     ExportStringTable symStrings, sectionStrings;
-    unsigned directReloc;
-    bool useRela; // True if we should ElfXX_Rela rather than ElfXX_Rel
     // Table and count for external references.
     ExportStringTable externTable;
     unsigned symbolNum;
