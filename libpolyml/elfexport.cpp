@@ -179,7 +179,13 @@
 # define USE_RELA 0
 # define HOST_E_FLAGS EF_ARM_EABI_VER4
 #elif defined(HOSTARCHITECTURE_HPPA)
-# define HOST_OSABI ELFOSABI_HPUX
+# if defined(__hpux)
+#  define HOST_OSABI ELFOSABI_HPUX
+# elif defined(__NetBSD__)
+#  define HOST_OSABI ELFOSABI_NETBSD
+# elif defined(__linux__)
+#  define HOST_OSABI ELFOSABI_GNU
+# endif
 # define HOST_E_MACHINE EM_PARISC
 # define HOST_DIRECT_RELOC R_PARISC_DIR32
 # define HOST_E_FLAGS EFA_PARISC_1_0
