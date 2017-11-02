@@ -110,7 +110,7 @@ private:
 private:
     void setRelocationAddress(void *p, ElfXX_Addr *reloc);
     PolyWord createRelocation(PolyWord p, void *relocAddr);
-    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum);
+    PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum, bool isFuncPtr);
     void writeSymbol(const char *symbolName, long value, long size, int binding, int sttype, int section);
     unsigned long makeStringTableEntry(const char *str, ExportStringTable *stab);
     void alignFile(int align);

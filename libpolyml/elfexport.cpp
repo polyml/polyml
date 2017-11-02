@@ -120,31 +120,38 @@
 
 #if defined(HOSTARCHITECTURE_X86)
 # define HOST_E_MACHINE EM_386
-# define HOST_DIRECT_RELOC R_386_32
+# define HOST_DIRECT_DATA_RELOC R_386_32
+# define HOST_DIRECT_FPTR_RELOC R_386_32
 # define USE_RELA 0
 #elif defined(HOSTARCHITECTURE_PPC)
 # define HOST_E_MACHINE EM_PPC
-# define HOST_DIRECT_RELOC R_PPC_ADDR32
+# define HOST_DIRECT_DATA_RELOC R_PPC_ADDR32
+# define HOST_DIRECT_FPTR_RELOC R_PPC_ADDR32
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_PPC64)
 # define HOST_E_MACHINE EM_PPC64
-# define HOST_DIRECT_RELOC R_PPC64_ADDR64
+# define HOST_DIRECT_DATA_RELOC R_PPC64_ADDR64
+# define HOST_DIRECT_FPTR_RELOC R_PPC64_ADDR64
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_S390)
 # define HOST_E_MACHINE EM_S390
-# define HOST_DIRECT_RELOC R_390_32
+# define HOST_DIRECT_DATA_RELOC R_390_32
+# define HOST_DIRECT_FPTR_RELOC R_390_32
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_S390X)
 # define HOST_E_MACHINE EM_S390
-# define HOST_DIRECT_RELOC R_390_64
+# define HOST_DIRECT_DATA_RELOC R_390_64
+# define HOST_DIRECT_FPTR_RELOC R_390_64
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_SH)
 # define HOST_E_MACHINE EM_SH
-# define HOST_DIRECT_RELOC R_SH_DIR32
+# define HOST_DIRECT_DATA_RELOC R_SH_DIR32
+# define HOST_DIRECT_FPTR_RELOC R_SH_DIR32
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_SPARC)
 # define HOST_E_MACHINE EM_SPARC
-# define HOST_DIRECT_RELOC R_SPARC_32
+# define HOST_DIRECT_DATA_RELOC R_SPARC_32
+# define HOST_DIRECT_FPTR_RELOC R_SPARC_32
 # define USE_RELA 1
 /* Sparc/Solaris, at least 2.8, requires ELF32_Rela relocations.  For some reason,
    though, it adds the value in the location being relocated (as with ELF32_Rel
@@ -152,7 +159,8 @@
    relocation we always zero the location to be relocated. */
 #elif defined(HOSTARCHITECTURE_SPARC64)
 # define HOST_E_MACHINE EM_SPARCV9
-# define HOST_DIRECT_RELOC R_SPARC_64
+# define HOST_DIRECT_DATA_RELOC R_SPARC_64
+# define HOST_DIRECT_FPTR_RELOC R_SPARC_64
 /* Use the most relaxed memory model. At link time, the most restrictive one is
    chosen, so it does no harm to be as permissive as possible here. */
 # define HOST_E_FLAGS EF_SPARCV9_RMO
@@ -161,11 +169,13 @@
 /* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
    Linux will support either so we now use Rela on X86-64. */
 # define HOST_E_MACHINE EM_X86_64
-# define HOST_DIRECT_RELOC R_X86_64_64
+# define HOST_DIRECT_DATA_RELOC R_X86_64_64
+# define HOST_DIRECT_FPTR_RELOC R_X86_64_64
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_X32)
 # define HOST_E_MACHINE EM_X86_64
-# define HOST_DIRECT_RELOC R_X86_64_32
+# define HOST_DIRECT_DATA_RELOC R_X86_64_32
+# define HOST_DIRECT_FPTR_RELOC R_X86_64_32
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_ARM)
 # ifndef EF_ARM_EABI_VER4
@@ -175,7 +185,8 @@
 // need to set the version to the same as the libraries.
 // GCC currently uses version 4.
 # define HOST_E_MACHINE EM_ARM
-# define HOST_DIRECT_RELOC R_ARM_ABS32
+# define HOST_DIRECT_DATA_RELOC R_ARM_ABS32
+# define HOST_DIRECT_FPTR_RELOC R_ARM_ABS32
 # define USE_RELA 0
 # define HOST_E_FLAGS EF_ARM_EABI_VER4
 #elif defined(HOSTARCHITECTURE_HPPA)
@@ -187,32 +198,38 @@
 #  define HOST_OSABI ELFOSABI_GNU
 # endif
 # define HOST_E_MACHINE EM_PARISC
-# define HOST_DIRECT_RELOC R_PARISC_DIR32
+# define HOST_DIRECT_DATA_RELOC R_PARISC_DIR32
+# define HOST_DIRECT_FPTR_RELOC R_PARISC_PLABEL32
 # define HOST_E_FLAGS EFA_PARISC_1_0
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_IA64)
 # define HOST_E_MACHINE EM_IA_64
-# define HOST_DIRECT_RELOC R_IA64_DIR64LSB
+# define HOST_DIRECT_DATA_RELOC R_IA64_DIR64LSB
+# define HOST_DIRECT_FPTR_RELOC R_IA64_FPTR64LSB
 # define HOST_E_FLAGS EF_IA_64_ABI64
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_AARCH64)
 # define HOST_E_MACHINE EM_AARCH64
-# define HOST_DIRECT_RELOC R_AARCH64_ABS64
+# define HOST_DIRECT_DATA_RELOC R_AARCH64_ABS64
+# define HOST_DIRECT_FPTR_RELOC R_AARCH64_ABS64
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_M68K)
 # define HOST_E_MACHINE EM_68K
-# define HOST_DIRECT_RELOC R_68K_32
+# define HOST_DIRECT_DATA_RELOC R_68K_32
+# define HOST_DIRECT_FPTR_RELOC R_68K_32
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_MIPS)
 # define HOST_E_MACHINE EM_MIPS
-# define HOST_DIRECT_RELOC R_MIPS_32
+# define HOST_DIRECT_DATA_RELOC R_MIPS_32
+# define HOST_DIRECT_FPTR_RELOC R_MIPS_32
 # ifdef __PIC__
 #  define HOST_E_FLAGS EF_MIPS_CPIC
 # endif
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_MIPS64)
 # define HOST_E_MACHINE EM_MIPS
-# define HOST_DIRECT_RELOC R_MIPS_64
+# define HOST_DIRECT_DATA_RELOC R_MIPS_64
+# define HOST_DIRECT_FPTR_RELOC R_MIPS_64
 # ifdef __PIC__
 #  define HOST_E_FLAGS (EF_MIPS_ARCH_64 | EF_MIPS_CPIC)
 # else
@@ -221,7 +238,8 @@
 # define USE_RELA 1
 #elif defined(HOSTARCHITECTURE_ALPHA)
 # define HOST_E_MACHINE EM_ALPHA
-# define HOST_DIRECT_RELOC R_ALPHA_REFQUAD
+# define HOST_DIRECT_DATA_RELOC R_ALPHA_REFQUAD
+# define HOST_DIRECT_FPTR_RELOC R_ALPHA_REFQUAD
 # define USE_RELA 1
 #else
 # error "No support for exporting on this architecture"
@@ -248,7 +266,7 @@ void ELFExport::addExternalReference(void *relocAddr, const char *name)
 {
     externTable.makeEntry(name);
     // The symbol is added after the memory table entries and poly_exports
-    writeRelocation(0, relocAddr, symbolNum++);
+    writeRelocation(0, relocAddr, symbolNum++, true);
 }
 
 // Generate the address relative to the start of the segment.
@@ -265,10 +283,10 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
-    return writeRelocation(offset, relocAddr, AreaToSym(addrArea));
+    return writeRelocation(offset, relocAddr, AreaToSym(addrArea), false);
 }
 
-PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum)
+PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNum, bool isFuncPtr)
 {
 #if USE_RELA
     ElfXX_Rela reloc;
@@ -282,11 +300,11 @@ PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsign
 #ifdef HOSTARCHITECTURE_MIPS64
     reloc.r_sym = symbolNum;
     reloc.r_ssym = 0;
-    reloc.r_type = HOST_DIRECT_RELOC;
+    reloc.r_type = isFuncPtr ? HOST_DIRECT_FPTR_RELOC : HOST_DIRECT_DATA_RELOC;
     reloc.r_type2 = 0;
     reloc.r_type3 = 0;
 #else
-    reloc.r_info = ELFXX_R_INFO(symbolNum, HOST_DIRECT_RELOC);
+    reloc.r_info = ELFXX_R_INFO(symbolNum, isFuncPtr ? HOST_DIRECT_FPTR_RELOC : HOST_DIRECT_DATA_RELOC);
 #endif
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -409,11 +427,11 @@ void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYS
 #ifdef HOSTARCHITECTURE_MIPS64
     reloc.r_sym = sym;
     reloc.r_ssym = 0;
-    reloc.r_type = HOST_DIRECT_RELOC;
+    reloc.r_type = HOST_DIRECT_DATA_RELOC;
     reloc.r_type2 = 0;
     reloc.r_type3 = 0;
 #else
-    reloc.r_info = ELFXX_R_INFO(sym, HOST_DIRECT_RELOC);
+    reloc.r_info = ELFXX_R_INFO(sym, HOST_DIRECT_DATA_RELOC);
 #endif
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
