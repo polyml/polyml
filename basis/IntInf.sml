@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: IntInf structure and signature.
-    Copyright   David Matthews 2000, 2016
+    Copyright   David Matthews 2000, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -112,7 +112,7 @@ struct
                 if i = 0 then raise Div
                 else if i = 1 then 1
                 else if i = ~1
-                then if LargeInt.quot(j, 2) = 0 then (*even*) 1 else (*odd*) ~1
+                then if Int.quot(j, 2) = 0 then (*even*) 1 else (*odd*) ~1
                 else 0
             )
             else if LibrarySupport.isShortInt j
