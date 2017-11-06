@@ -140,10 +140,11 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
 	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
 	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
-	x86_dep.cpp x86assembly_gas64.S interpret.cpp \
+	interpret.cpp x86_dep.cpp x86assembly_gas64.S \
 	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
 	pecoffexport.cpp unix_specific.cpp Console.cpp \
 	windows_specific.cpp
+@ARCHI386_FALSE@@ARCHINTERPRET32IN64_TRUE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_FALSE@am__objects_1 = interpret.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
@@ -413,6 +414,7 @@ AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 8:0:0 $(am__append_1)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
+@ARCHI386_FALSE@@ARCHINTERPRET32IN64_TRUE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_FALSE@ARCHSOURCE = interpret.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@ARCHSOURCE = interpret.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@ARCHSOURCE = interpret.cpp
@@ -852,7 +854,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libLTLIBRARIES clean-libtool clean-local \
+clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
 	mostlyclean-am
 
 distclean: distclean-am
@@ -924,8 +926,8 @@ uninstall-am: uninstall-libLTLIBRARIES uninstall-pkgconfigDATA
 .MAKE: install-am install-strip
 
 .PHONY: CTAGS GTAGS TAGS all all-am check check-am clean clean-generic \
-	clean-libLTLIBRARIES clean-libtool clean-local cscopelist-am \
-	ctags ctags-am distclean distclean-compile distclean-generic \
+	clean-libLTLIBRARIES clean-libtool cscopelist-am ctags \
+	ctags-am distclean distclean-compile distclean-generic \
 	distclean-libtool distclean-tags distdir dvi dvi-am html \
 	html-am info info-am install install-am install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
@@ -938,13 +940,6 @@ uninstall-am: uninstall-libLTLIBRARIES uninstall-pkgconfigDATA
 	pdf pdf-am ps ps-am tags tags-am uninstall uninstall-am \
 	uninstall-libLTLIBRARIES uninstall-pkgconfigDATA
 
-
-# Convert the portable format to a native binary
-polyexport.o: polyimport exportPoly.sml
-	(cd ..; driver/polyimport driver/$(POLYIMPORT) < driver/exportPoly.sml > /dev/null)
-
-clean-local:
-	rm -f x86asmtemp.S ppcasmtemp.s
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

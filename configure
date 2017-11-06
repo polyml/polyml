@@ -648,6 +648,8 @@ NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
 WINDOWS64CALLS_FALSE
 WINDOWS64CALLS_TRUE
+ARCHINTERPRET32IN64_FALSE
+ARCHINTERPRET32IN64_TRUE
 ARCHINTERPRET64_FALSE
 ARCHINTERPRET64_TRUE
 ARCHINTERPRET_FALSE
@@ -827,6 +829,7 @@ with_x
 with_gmp
 with_system_libffi
 with_threads
+enable_compact32bit
 enable_native_codegeneration
 with_moduledir
 enable_intinf_as_int
@@ -1492,6 +1495,7 @@ Optional Features:
                           enable make rules and dependencies not useful (and
                           sometimes confusing) to the casual installer
   --disable-largefile     omit support for large files
+  --enable-compact32bit   use 32-bit values rather than native 64-bits.
   --disable-native-codegeneration
                           disable the native code generator and use the slow
                           byte code interpreter instead.
@@ -22008,6 +22012,19 @@ $as_echo "no" >&6; }
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 
+# Build 32-bit in 64-bits.  For the moment this is independent of the architecture.
+# Check whether --enable-compact32bit was given.
+if test "${enable_compact32bit+set}" = set; then :
+  enableval=$enable_compact32bit;
+fi
+
+
+if test "x$enable_compact32bit" = "xyes"; then
+   if test X"$ac_cv_sizeof_voidp" != X8; then
+      as_fn_error $? "--enable-compact32bit is only available on 64-bit architectures" "$LINENO" 5
+   fi
+fi
+
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
@@ -22035,8 +22052,15 @@ $as_echo "#define HOSTARCHITECTURE_X86 1" >>confdefs.h
 
 $as_echo "#define HOSTARCHITECTURE_X86_64 1" >>confdefs.h
 
-                polyarch=x86_64
-            else
+                if test "x$enable_compact32bit" = "xyes"; then
+
+$as_echo "#define POLYML32IN64 1" >>confdefs.h
+
+                    polyarch=interpret32in64
+                else
+                    polyarch=x86_64
+                fi
+           else
 
 $as_echo "#define HOSTARCHITECTURE_X32 1" >>confdefs.h
 
@@ -22213,6 +22237,14 @@ fi
 else
   ARCHINTERPRET64_TRUE='#'
   ARCHINTERPRET64_FALSE=
+fi
+
+ if test "$polyarch" = interpret32in64; then
+  ARCHINTERPRET32IN64_TRUE=
+  ARCHINTERPRET32IN64_FALSE='#'
+else
+  ARCHINTERPRET32IN64_TRUE='#'
+  ARCHINTERPRET32IN64_FALSE=
 fi
 
  if test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64; then
@@ -22530,6 +22562,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ARCHINTERPRET64_TRUE}" && test -z "${ARCHINTERPRET64_FALSE}"; then
   as_fn_error $? "conditional \"ARCHINTERPRET64\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${ARCHINTERPRET32IN64_TRUE}" && test -z "${ARCHINTERPRET32IN64_FALSE}"; then
+  as_fn_error $? "conditional \"ARCHINTERPRET32IN64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WINDOWS64CALLS_TRUE}" && test -z "${WINDOWS64CALLS_FALSE}"; then
