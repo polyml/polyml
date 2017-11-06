@@ -402,7 +402,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         if (size <= objWords)
             size = objWords+1;
         size_t iSpace = size*sizeof(PolyWord);
-        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC, true);
+        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
         if (base == 0)
         {
             fprintf(stderr, "Unable to allocate memory\n");
