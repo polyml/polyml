@@ -314,6 +314,14 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             {
                 newObj = (PolyObject*)(space->topPointer+1);
                 space->topPointer += words+1;
+#ifdef POLYML32IN64
+                // Maintain the odd-word alignment of topPointer
+                if ((words & 1) == 0 && space->topPointer < space->top)
+                {
+                    *space->topPointer = PolyWord::FromUnsigned(0);
+                    space->topPointer++;
+                }
+#endif
                 break;
             }
         }
@@ -345,6 +353,14 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         }
         newObj = (PolyObject*)(space->topPointer+1);
         space->topPointer += words+1;
+#ifdef POLYML32IN64
+        // Maintain the odd-word alignment of topPointer
+        if ((words & 1) == 0 && space->topPointer < space->top)
+        {
+            *space->topPointer = PolyWord::FromUnsigned(0);
+            space->topPointer++;
+        }
+#endif
         ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
     }
 
@@ -570,8 +586,13 @@ void Exporter::RunExport(PolyObject *rootFunction)
     ASSERT(memEntry == tableEntries);
     exports->memTableEntries = memEntry;
     exports->rootFunction = copiedRoot;
-    exports->exportStore();
-    return;
+    try {
+        // This can raise MemoryException at least in PExport::exportStore. 
+        exports->exportStore();
+    }
+    catch (MemoryException &) {
+        exports->errorMessage = "Insufficient Memory";
+    }
 }
 
 // Functions called via the RTS call.

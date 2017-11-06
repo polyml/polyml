@@ -138,7 +138,10 @@ void PExport::printObject(PolyObject *p)
         {
             // This is either an entry point or a weak ref used in the FFI.
             // Clear the first word
-            if (p->Length() >= 1) p->Set(0, PolyWord::FromSigned(0));
+            if (p->Length() == 1)
+                p->Set(0, PolyWord::FromSigned(0)); // Weak ref
+            else if (p->Length() > 1)
+                *(uintptr_t*)p = 0; // Entry point
         }
         /* May be a string, a long format arbitrary precision
            number or a real number. */
@@ -297,14 +300,17 @@ void PExport::exportStore(void)
         {
             p++;
             PolyObject *obj = (PolyObject*)p;
+            ASSERT(nObjects <= nMapSize);
             if (nObjects == nMapSize)
             {
                 // Need to expand the array.
+                unsigned newSize = nMapSize + nMapSize / 2;
                 PolyObject **newMap =
-                    (PolyObject **)realloc(pMap, (nMapSize + nMapSize/2)*sizeof(PolyObject*));
+                    (PolyObject **)realloc(pMap, newSize *sizeof(PolyObject*));
                 if (newMap == 0)
                     throw MemoryException();
                 pMap = newMap;
+                nMapSize = newSize;
             }
             POLYUNSIGNED length = obj->Length();
             pMap[nObjects++] = obj;
@@ -326,6 +332,12 @@ void PExport::exportStore(void)
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
+#ifdef POLYML32IN64
+            // We may have filler cells to get the alignment right.
+            // We mustn't try to print them.
+            if (((uintptr_t)obj & 4) != 0 && length == 0)
+                continue;
+#endif
             printObject(obj);
             p += length;
         }
@@ -619,7 +631,7 @@ bool PImport::DoImport()
             /* Round up to appropriate number of words. */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
 #ifdef POLYML32IN64
-            if ((objBits & F_MUTABLE_BIT) && (objBits & F_WEAK_BIT))
+            if ((objBits & F_MUTABLE_BIT) && (objBits & F_WEAK_BIT) && nWords != 1)
             {
                 // Backwards compatibility - we need to make it slightly larger
                 // to accommodate the larger entry point address.
@@ -732,7 +744,7 @@ bool PImport::DoImport()
                 ch = getc(f);
                 ASSERT(ch == '\n');
                 // If this is an entry point object set its value.
-                if (p->IsMutable() && p->IsWeakRefObject())
+                if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > 1)
                 {
 #ifdef POLYML32IN64
                     // Backwards compatibility hack.  The 32-bit values are too small.

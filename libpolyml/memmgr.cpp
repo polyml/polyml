@@ -130,6 +130,9 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 
 MemMgr::~MemMgr()
 {
+    // Don't try to clean up here.  This is done in the final close-down and
+    // OSMem may already have been finalised.
+#if (0)
     delete(spaceTree); // Have to do this before we delete the spaces.
     for (std::vector<PermanentMemSpace *>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
         delete(*i);
@@ -141,6 +144,7 @@ MemMgr::~MemMgr()
         delete(*i);
     for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i < cSpaces.end(); i++)
         delete(*i);
+#endif
 }
 
 bool MemMgr::Initialise()
@@ -345,6 +349,12 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         size = iSpace/sizeof(PolyWord);
         space->top = space->bottom + size;
         space->topPointer = space->bottom;
+#ifdef POLYML32IN64
+        // The address must be on an odd-word boundary so that after the length
+        // word is put in the actual cell address is on an even-word boundary.
+        space->topPointer[0] = PolyWord::FromUnsigned(0);
+        space->topPointer = space->bottom + 1;
+#endif
 
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New export %smutable %s%sspace %p, size=%luk words, bottom=%p, top=%p\n", mut ? "" : "im",
