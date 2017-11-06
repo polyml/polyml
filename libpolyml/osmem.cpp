@@ -159,6 +159,8 @@ bool Linux32In64Mem::Free(void *p, size_t space)
     if (!mprotect(FIXTYPE p, space, PROT_NONE))
         return false;
     pageMap.ClearBits(offset, space / pageSize);
+    if (offset < firstFree)
+        firstFree = offset;
     return true;
 }
 
