@@ -32,6 +32,10 @@ else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
+if ARCHINTERPRET32IN64
+ARCHSOURCE = interpret.cpp
+else
+endif
 endif
 endif
 endif
@@ -157,10 +161,3 @@ libpolyml_la_SOURCES = \
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = polyml.pc
-
-# Convert the portable format to a native binary
-polyexport.o: polyimport exportPoly.sml
-	(cd ..; driver/polyimport driver/$(POLYIMPORT) < driver/exportPoly.sml > /dev/null)
-
-clean-local:
-	rm -f x86asmtemp.S ppcasmtemp.s

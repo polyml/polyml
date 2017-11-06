@@ -414,6 +414,17 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[__asm__(".section .note.GNU-stack,\"\",@pro
         [Define to 1 if you have .note.GNU-stack support in the assembler.])],
     [AC_MSG_RESULT([no])])
 
+# Build 32-bit in 64-bits.  For the moment this is independent of the architecture.
+AC_ARG_ENABLE([compact32bit],
+        [AS_HELP_STRING([--enable-compact32bit],
+            [use 32-bit values rather than native 64-bits.])])
+
+if test "x$enable_compact32bit" = "xyes"; then
+   if test X"$ac_cv_sizeof_voidp" != X8; then
+      AC_MSG_ERROR([--enable-compact32bit is only available on 64-bit architectures])
+   fi
+fi
+
 # This option enables the native code generator.  More precisely it allows
 # the byte code interpreter to be built on X86.
 
@@ -435,8 +446,13 @@ case "${host_cpu}" in
       x86_64* | amd64*)
             if test X"$ac_cv_sizeof_voidp" = X8; then
                 AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
-                polyarch=x86_64
-            else
+                if test "x$enable_compact32bit" = "xyes"; then
+                    AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
+                    polyarch=interpret32in64
+                else
+                    polyarch=x86_64
+                fi
+           else
                 AC_DEFINE([HOSTARCHITECTURE_X32], [1], [Define if the host is an X86 (32-bit ABI, 64-bit processor)])
                 polyarch=interpret
             fi
@@ -554,6 +570,7 @@ AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
+AM_CONDITIONAL([ARCHINTERPRET32IN64], [test "$polyarch" = interpret32in64])
 AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64])
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
