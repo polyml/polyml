@@ -740,7 +740,7 @@ struct
                     codeTailCall(extStackArgs @ extRegArgs, stackAdjust+currStackSize, code)
             end
 
-        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg}, ...}, code) =
+        |   codeExtended _ ({instr=FunctionCall{callKind, regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs}, ...}, code) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
@@ -809,8 +809,20 @@ struct
                 |   getConstArgs((RegisterArgument _, _), code) = code
                 |   getConstArgs((MemoryLocation _, _), code) = code
                 val loadConstArgs = List.foldl getConstArgs loadRegArgs regArgs
+                
+                (* Push the registers before the call and pop them afterwards. *)
+                fun makeSaves([], code) = CallFunction callKind :: code
+                |   makeSaves(PReg reg::regs, code) =
+                    let
+                        val areg = getAllocatedGenReg reg
+                        val _ = areg = eax andalso raise InternalError "codeExtended: eax in save regs"
+                        val _ = if List.exists(fn (_, r) => r = GenReg areg) regArgs then raise InternalError "codeExtended: arg reg in save regs" else ()
+                    in
+                        PopR areg :: makeSaves(regs, PushToStack(RegisterArg areg) :: code)
+                    end
+
             in
-                moveIfNecessary({dst=destReg, src=GenReg eax, kind=MoveWord}, CallFunction callKind :: loadConstArgs) 
+                moveIfNecessary({dst=destReg, src=GenReg eax, kind=MoveWord}, makeSaves(saveRegs, loadConstArgs)) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =

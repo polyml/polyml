@@ -678,7 +678,7 @@ struct
                     end
                     else
                     let
-                        val call = FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind}
+                        val call = FunctionCall{regArgs=closureEntry @ regArgs, stackArgs=stackArgs, dest=target, callKind=callKind, saveRegs=[]}
                     in
                         case currHandler of
                             NONE => [BlockSimple call]

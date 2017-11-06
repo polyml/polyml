@@ -417,11 +417,12 @@ struct
                 List.app (allocateArgGeneral o #1) regArgs
             end
 
-        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, ...}, ...}) =
+        |   registerAllocate({instr=FunctionCall{regArgs=oRegArgs, stackArgs=oStackArgs, dest=PReg dReg, saveRegs, ...}, ...}) =
             let
                 val regArgs = List.map (fn (arg, reg) => (decache arg, reg)) oRegArgs
                 and stackArgs = List.map decache oStackArgs
             in
+                List.app(fn (PReg r) => allocateGeneralReg r) saveRegs;
                 (* Result will be in rax. *)
                 allocateRegister(dReg, SOME(GenReg eax), generalRegisters);
                 List.app allocateArgGeneral stackArgs;

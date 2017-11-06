@@ -95,7 +95,7 @@ struct
            as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
-              stackArgs: argument list, dest: preg}
+              stackArgs: argument list, dest: preg, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
@@ -369,7 +369,7 @@ struct
                 List.app(fn s => printStackLoc(s, stream)) stackArgs
             )
 
-        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest}, stream, printReg) =
+        |   printICode(FunctionCall{callKind, regArgs, stackArgs, dest, saveRegs}, stream, printReg) =
             (
                 stream "\tFunctionCall\t";
                 case callKind of
@@ -379,7 +379,8 @@ struct
                 |   DirectReg r => (stream(regRepr(GenReg r)); stream " ");
                 List.app(fn (arg, r) => (stream(regRepr r); stream "="; printArg(arg, stream, printReg); stream " ")) regArgs;
                 List.app(fn arg => (stream "p="; printArg(arg, stream, printReg); stream " ")) stackArgs;
-                stream "=> "; printReg(dest, stream)
+                stream "=> "; printReg(dest, stream);
+                stream " save="; printSaves(saveRegs, printReg, stream)
             )
 
         |   printICode(TailRecursiveCall{callKind, regArgs, stackArgs, stackAdjust, currStackSize, workReg}, stream, printReg) =
