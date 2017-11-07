@@ -133,7 +133,7 @@ sig
            as one of the argument registers.  The result is stored in the destination register. *)
     |   FunctionCall of
             { callKind: callKinds, regArgs: (argument * reg) list,
-              stackArgs: argument list, dest: preg}
+              stackArgs: argument list, dest: preg, saveRegs: preg list}
 
         (* Jump to a tail-recursive function.  This is similar to FunctionCall
            but complicated for stack arguments because the stack and the return
