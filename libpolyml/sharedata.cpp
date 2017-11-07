@@ -452,8 +452,11 @@ POLYUNSIGNED DepthVector::MergeSameItems()
 // Sort this vector
 void DepthVector::Sort()
 {
-    SortRange(ptrVector, ptrVector +(nitems-1));
-    gpTaskFarm->WaitForCompletion();
+    if (nitems > 1)
+    {
+        SortRange(ptrVector, ptrVector + (nitems - 1));
+        gpTaskFarm->WaitForCompletion();
+    }
 
     // Check
 //    for (POLYUNSIGNED i = 0; i < nitems-1; i++)
