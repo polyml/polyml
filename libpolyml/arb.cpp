@@ -1127,7 +1127,8 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
     Handle remRes = alloc_and_save(taskData, WORDS(ly * sizeof(mp_limb_t)), F_MUTABLE_BIT | F_BYTE_OBJ);
     Handle divRes = alloc_and_save(taskData, WORDS((lx - ly + 1) * sizeof(mp_limb_t)), F_MUTABLE_BIT | F_BYTE_OBJ);
 
-    mp_limb_t *u = DEREFLIMBHANDLE(long_x), *v = DEREFLIMBHANDLE(long_y);
+    mp_limb_t *u = IS_INT(DEREFWORD(x)) ? &x_extend : DEREFLIMBHANDLE(x);
+    mp_limb_t *v = IS_INT(DEREFWORD(y)) ? &y_extend : DEREFLIMBHANDLE(y);
     mp_limb_t *quotient = DEREFLIMBHANDLE(divRes);
     mp_limb_t *remainder = DEREFLIMBHANDLE(remRes);
 
