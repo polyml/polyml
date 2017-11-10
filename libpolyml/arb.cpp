@@ -343,7 +343,7 @@ static void setShort(Handle x, byte *u, POLYUNSIGNED *length)
 
 // Convert short values to long.  Returns a pointer to the memory.
 #ifdef USE_GMP
-static mp_limb_t *convertToLong(Handle x, byte *mp_limb_t, mp_size_t *length)
+static mp_limb_t *convertToLong(Handle x, mp_limb_t *extend, mp_size_t *length)
 {
     if (IS_INT(x->Word()))
     {
@@ -654,10 +654,9 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 {
     /* find the longer number */
     mp_size_t lx, ly;
-    mp_limb_t    x_extend;
-    mp_limb_t    y_extend;
+    mp_limb_t    x_extend, y_extend;
     mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
-    mp_limb_t *yb = convertToLong(x, &x_extend, &ly);
+    mp_limb_t *yb = convertToLong(y, &y_extend, &ly);
 
     mp_limb_t *u; /* limb-pointer for longer number  */
     mp_limb_t *v; /* limb-pointer for shorter number */
@@ -708,7 +707,7 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     POLYUNSIGNED ly;   /* length of v in bytes */
 
     byte *xb = convertToLong(x, x_extend, &lx);
-    byte *yb = convertToLong(x, x_extend, &ly);
+    byte *yb = convertToLong(y, y_extend, &ly);
     Handle z;
     byte *u;  /* byte-pointer for longer number  */
     byte *v; /* byte-pointer for shorter number */
@@ -782,8 +781,7 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* This is necessary so that we can discard */
     /* the borrow at the end of the subtraction */
     mp_size_t lx, ly;
-    mp_limb_t    x_extend;
-    mp_limb_t    y_extend;
+    mp_limb_t    x_extend, y_extend;
     mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
     mp_limb_t *yb = convertToLong(y, &y_extend, &ly);
 
