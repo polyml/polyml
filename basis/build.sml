@@ -61,8 +61,10 @@ val () = Bootstrap.use "basis/ListPair.sml";
 val () =
     if LargeWord.wordSize = 32
     then Bootstrap.use "basis/Word32.sml"
-    else if LargeWord.wordSize = 64
+    else if Word.wordSize >= 32
     then Bootstrap.use "basis/Word32In64.sml"
+    else if LargeWord.wordSize = 64
+    then Bootstrap.use "basis/Word32InLargeWord64.sml"
     else ();
 
 val () = Bootstrap.use "basis/Word8.sml";

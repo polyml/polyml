@@ -2000,7 +2000,7 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
-    POLYSIGNED p = 0;
+    uintptr_t p = 0;
 
     if (arg.IsTagged())
         p = arg.UnTagged();
@@ -2012,24 +2012,26 @@ POLYUNSIGNED PolyGetLowOrderAsLargeWord(PolyObject *threadId, PolyWord arg)
         p = c;
 #else
         POLYUNSIGNED length = get_length(arg);
-        if (length > sizeof(PolyWord)) length = sizeof(PolyWord);
+        if (length > sizeof(uintptr_t)) length = sizeof(uintptr_t);
         byte *ptr = arg.AsCodePtr();
         while (length--)
         {
             p = (p << 8) | ptr[length];
         }
 #endif
-        if (negative) p = -p;
+        if (negative) p = 0-p;
     }
 
-    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
-    result->WordP()->Set(0, PolyWord::FromUnsigned(p));
+    Handle result = 0;
+    try {
+        result = Make_sysword(taskData, p);
+    }
+    catch (...) {} // We could run out of memory.
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();
-    return result->Word().AsUnsigned();
-
-
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 POLYUNSIGNED PolyOrArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2)

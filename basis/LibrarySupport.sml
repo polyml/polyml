@@ -27,6 +27,9 @@ struct
     end
     
     val wordSize : word = RunCall.bytesPerWord
+    
+    (* This is the same as wordSize in native 32-bit and 64-bit but different in 32-in-64. *)
+    val sysWordSize: word = RunCall.memoryCellLength(Word.toLargeWord 0w0) * wordSize
 end;
 
 structure LibrarySupport :>
@@ -44,7 +47,7 @@ sig
         end
     val w8vectorToString: Word8Array.vector -> string
     and w8vectorFromString: string -> Word8Array.vector
-    val wordSize: word
+    val wordSize: word and sysWordSize: word
     val bigEndian: bool
     val allocString: word -> string (* Create a mutable string. *)
     val allocBytes: word -> address

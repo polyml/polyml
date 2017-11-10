@@ -928,7 +928,7 @@ struct
 
         local
             fun loadLarge(m: voidStar): LargeInt.int =
-                if wordSize = 0w4
+                if sysWordSize = 0w4
                 then
                 let
                     val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
@@ -940,14 +940,14 @@ struct
                 else SysWord.toLargeIntX(get64(m, 0w0))
             
             fun loadShort(m: voidStar): int =
-                if wordSize = 0w4
+                if sysWordSize = 0w4
                 then Int.fromLarge(loadLarge m)
                 else SysWord.toIntX(get64(m, 0w0))
 
             val max = IntInf.<<(1, 0w63) - 1 and min = ~ (IntInf.<<(1, 0w63))
 
             fun storeLarge(m: voidStar, i: LargeInt.int) =
-                if wordSize = 0w4
+                if sysWordSize = 0w4
                 then
                 let
                     val _ = checkRangeLong(i, min, max)
@@ -961,7 +961,7 @@ struct
                 else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, min, max))); noFree)
           
             fun storeShort(m: voidStar, i: int) =
-                if wordSize = 0w4 orelse not (isSome Int.maxInt)
+                if sysWordSize = 0w4 orelse not (isSome Int.maxInt)
                 then (* 32-bit or arbitrary precision. *) storeLarge(m, LargeInt.fromInt i)
                 else (* Fixed precision 64-bit - no need for a range check. *)
                     (set64(m, 0w0, SysWord.fromInt i); noFree)
@@ -974,7 +974,7 @@ struct
 
         local
             fun loadLarge(m: voidStar): LargeInt.int =
-                if wordSize = 0w4
+                if sysWordSize = 0w4
                 then
                 let
                     val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
@@ -993,7 +993,7 @@ struct
             val max = IntInf.<<(1, 0w64) - 1
 
             fun storeLarge(m: voidStar, i: LargeInt.int) =
-                if wordSize = 0w4
+                if sysWordSize = 0w4
                 then
                 let
                     val _ = checkRangeLong(i, 0, max)
@@ -1007,7 +1007,7 @@ struct
                 else (set64(m, 0w0, SysWord.fromLargeInt(checkRangeLong(i, 0, max))); noFree)
           
             fun storeShort(m: voidStar, i: int) =
-                if wordSize = 0w4 orelse not (isSome Int.maxInt)
+                if sysWordSize = 0w4 orelse not (isSome Int.maxInt)
                 then (* 32-bit or arbitrary precision. *) storeLarge(m, LargeInt.fromInt i)
                 else if i < 0 (* Fixed precision 64-bit - just check it's not negative. *)
                 then raise Overflow

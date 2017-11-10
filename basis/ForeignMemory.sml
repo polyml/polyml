@@ -1,7 +1,7 @@
 (*
     Title:      Foreign Function Interface: memory operations
     Author:     David Matthews
-    Copyright   David Matthews 2015
+    Copyright   David Matthews 2015, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -86,20 +86,20 @@ struct
            a saved state but there's a problem if it is contained in a parent state.
            Then loading a child state will clear it because we reload all the parents
            when we load a child. *)
-        val v = RunCall.allocateWordMemory(0w1, 0wx69, 0w0)
+        val v = RunCall.allocateWordMemory(sysWordSize div wordSize, 0wx69, 0w0)
         (* Copy the SysWord into it. *)
-        val () = memMove(init, RunCall.unsafeCast v, 0w0, 0w0, wordSize)
+        val () = memMove(init, RunCall.unsafeCast v, 0w0, 0w0, sysWordSize)
     in
         v
     end
 
-    fun setVolatileRef(v, i) = memMove(i, RunCall.unsafeCast v, 0w0, 0w0, wordSize)
+    fun setVolatileRef(v, i) = memMove(i, RunCall.unsafeCast v, 0w0, 0w0, sysWordSize)
 
     fun getVolatileRef var =
     let
         (* Allocate a single word marked as mutable, byte. *)
-        val v = RunCall.allocateByteMemory(0w1, 0wx41)
-        val () = memMove(RunCall.unsafeCast var, v, 0w0, 0w0, wordSize)
+        val v = RunCall.allocateByteMemory(sysWordSize div wordSize, 0wx41)
+        val () = memMove(RunCall.unsafeCast var, v, 0w0, 0w0, sysWordSize)
         val () = RunCall.clearMutableBit v
     in
         v
@@ -128,9 +128,9 @@ struct
 
     (* Get and set addresses.  This is a bit messy because it has to compile on 64-bits as well as 32-bits. *)
     val getAddress: voidStar * Word.word -> voidStar =
-        if wordSize = 0w4 then Word32.toLargeWord o get32 else get64
+        if sysWordSize = 0w4 then Word32.toLargeWord o get32 else get64
     val setAddress: voidStar * Word.word * voidStar -> unit =
-        if wordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
+        if sysWordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
 
     local
         local
@@ -155,7 +155,7 @@ struct
         val maxAlign = Word.max(#align saDouble, Word.max(#align saPointer, #align saSint64))
         (* We need a length word in each object we allocate but we need enough
            padding to align the result. *)
-        val overhead = alignUp(wordSize, maxAlign)
+        val overhead = alignUp(sysWordSize, maxAlign)
         val chunkSize = 0w4096 (* Configure this. *)
 
         fun addFree(entry, []) = [entry]

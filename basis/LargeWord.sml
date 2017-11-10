@@ -157,13 +157,15 @@ local
          |  power2' n i = power2' (2*n) (i-1)
         val power2 = power2' 1
         val bitsInWord: int = (RunCall.unsafeCast LibrarySupport.wordSize) * 8
+        val bitsInLargeWord: int = (RunCall.unsafeCast LibrarySupport.sysWordSize) * 8
     in
         val wordSize = bitsInWord - 1 (* 31 or 63 bits *)
         val maxWordP1: LargeInt.int = power2 wordSize (* One more than the maximum word *)
         val maxWord: LargeInt.int = maxWordP1 - 1
-        val largeWordSize = bitsInWord
+        val largeWordSize = bitsInLargeWord
         val maxLargeWord = power2 largeWordSize - 1
-        val largeWordTopBit: LargeInt.int = maxWordP1 (* The top bit of a large word *)
+        val maxLargeWordP1: LargeInt.int = power2 (bitsInLargeWord - 1)
+        val largeWordTopBit: LargeInt.int = maxLargeWordP1 (* The top bit of a large word *)
         val maxWordAsWord = wordFromLargeInt maxWord
     end
 

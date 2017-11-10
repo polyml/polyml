@@ -120,6 +120,8 @@ const PolyWord Zero = TAGGED(0);
 
 union realdb { double dble; POLYUNSIGNED puns[DOUBLESIZE]; };
 
+#define LGWORDSIZE (sizeof(uintptr_t) / sizeof(PolyWord))
+
 union stackItem
 {
 #ifndef POLYML32IN64
@@ -1094,11 +1096,11 @@ int IntTaskData::SwitchToPoly()
         {
             // Shift the tagged value to remove the tag and put it into the first word.
             // The original sign bit is copied in the shift.
-            POLYSIGNED wx = (*sp).w().UnTagged();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            intptr_t wx = (*sp).w().UnTagged();
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromSigned(wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(intptr_t*)t = wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1107,11 +1109,11 @@ int IntTaskData::SwitchToPoly()
         {
             // As with the above except the value is treated as an unsigned
             // value and the top bit is zero.
-            POLYUNSIGNED wx = (*sp).w().UnTaggedUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = (*sp).w().UnTaggedUnsigned();
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1373,144 +1375,144 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_lgWordEqual:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = wx == wy ? True : False;
             break;
         }
 
         case INSTR_lgWordNotequal:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = wx != wy ? True : False;
             break;
         }
 
         case INSTR_lgWordLess:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = (wy < wx) ? True : False;
             break;
         }
 
         case INSTR_lgWordLessEq:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = (wy <= wx) ? True : False;
             break;
         }
 
         case INSTR_lgWordGreater:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = (wy > wx) ? True : False;
             break;
         }
 
         case INSTR_lgWordGreaterEq:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
             *sp = (wy >= wx) ? True : False;
             break;
         }
 
         case INSTR_lgWordAdd:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy+wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy+wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordSub:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy-wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy-wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordMult:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy*wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy*wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordDiv:
          {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy/wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy/wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordMod:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy%wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy%wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordAnd:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy&wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy&wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordOr:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy|wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy|wx;
             *sp = (PolyWord)t;
             break;
         }
 
         case INSTR_lgWordXor:
         {
-            POLYUNSIGNED wx = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wx = *(uintptr_t*)((*sp++).w().AsObjPtr());
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy^wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy^wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1519,11 +1521,11 @@ int IntTaskData::SwitchToPoly()
         {
             // The shift amount is a tagged word not a boxed large word
             POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy << wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy << wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1532,11 +1534,11 @@ int IntTaskData::SwitchToPoly()
         {
             // The shift amount is a tagged word not a boxed large word
             POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            POLYUNSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsUnsigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            uintptr_t wy = *(uintptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(wy >> wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = wy >> wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1545,11 +1547,11 @@ int IntTaskData::SwitchToPoly()
         {
             // The shift amount is a tagged word not a boxed large word
             POLYUNSIGNED wx = UNTAGGED_UNSIGNED(*sp++);
-            POLYSIGNED wy = (*sp).w().AsObjPtr()->Get(0).AsSigned();
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            intptr_t wy = *(intptr_t*)((*sp).w().AsObjPtr());
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromSigned(wy >> wx));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(intptr_t*)t = wy >> wx;
             *sp = (PolyWord)t;
             break;
         }
@@ -1707,33 +1709,34 @@ int IntTaskData::SwitchToPoly()
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
-            POLYUNSIGNED r = ((uint32_t*)p)[index];
+            uintptr_t r = ((uint32_t*)p)[index];
 #ifdef IS64BITS
             // This is tagged in 64-bit mode
             *sp = TAGGED(r);
 #else
             // But boxed in 32-bit mode.
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(r));
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = r;
             *sp = (PolyWord)t;
 #endif
             break;
         }
-#ifdef IS64BITS
+
+#if (defined(IS64BITS) || defined(POLYML32IN64))
         case INSTR_loadC64:
         {
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
-            POLYUNSIGNED r = ((uint64_t*)p)[index];
+            uintptr_t r = ((uint64_t*)p)[index];
             // This must be boxed.
-            PolyObject *t = this->allocateMemory(1, pc, sp);
+            PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
             if (t == 0) goto RAISE_EXCEPTION;
-            t->SetLengthWord(1, F_BYTE_OBJ);
-            t->Set(0, PolyWord::FromUnsigned(r));
-            *sp = t;
+            t->SetLengthWord(LGWORDSIZE, F_BYTE_OBJ);
+            *(uintptr_t*)t = r;
+            *sp = (PolyWord)t;
             break;
         }
 #endif
@@ -1824,7 +1827,7 @@ int IntTaskData::SwitchToPoly()
             uint32_t toStore = (uint32_t)UNTAGGED(*sp++);
 #else
             // but a boxed value in 32-bit mode.
-            uint32_t toStore = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
+            uint32_t toStore = (uint32_t)(*(uintptr_t*)((*sp++).w().AsObjPtr()));
 #endif
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
@@ -1834,11 +1837,11 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-#ifdef IS64BITS
+#if (defined(IS64BITS) || defined(POLYML32IN64))
         case INSTR_storeC64:
         {
             // This is a boxed value.
-            uint64_t toStore = (*sp++).w().AsObjPtr()->Get(0).AsUnsigned();
+            uint64_t toStore = *(uintptr_t*)((*sp++).w().AsObjPtr());
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
             POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
