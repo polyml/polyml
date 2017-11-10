@@ -316,34 +316,12 @@ static Handle get_long(Handle x, Handle extend, int *sign)
     }
 }
 
-// Put a short value in the buffer
-#ifdef USE_GMP
-static void setShort(Handle x, byte *u, mp_size_t *length)
-#else
-static void setShort(Handle x, byte *u, POLYUNSIGNED *length)
-#endif
-{
-    // Short form - put it in the temporary.
-    POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
-    if (x_v < 0) x_v = -x_v;
-#ifdef USE_GMP
-    *(mp_limb_t*)u = x_v;
-    if (x_v == 0) *length = 0; else *length = 1;
-#else
-    /* Put into extend buffer, low order byte first. */
-    *length = 0;
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
-    {
-        if (x_v != 0) *length = i + 1;
-        u[i] = x_v & 0xff;
-        x_v = x_v >> 8;
-    }
-#endif
-}
-
 // Convert short values to long.  Returns a pointer to the memory.
+// This is generally called before allocating memory for the result.
+// It is unsafe to use the result after the allocation if the value is
+// an address because it may have been moved by a GC.
 #ifdef USE_GMP
-static mp_limb_t *convertToLong(Handle x, mp_limb_t *extend, mp_size_t *length)
+static mp_limb_t *convertToLong(Handle x, mp_limb_t *extend, mp_size_t *length, int *sign)
 {
     if (IS_INT(x->Word()))
     {
@@ -352,16 +330,18 @@ static mp_limb_t *convertToLong(Handle x, mp_limb_t *extend, mp_size_t *length)
         if (x_v < 0) x_v = -x_v;
         *extend = x_v;
         if (x_v == 0) *length = 0; else *length = 1;
+        if (sign) *sign = UNTAGGED(x->Word()) >= 0 ? 0 : -1;
         return extend;
     }
     else
     {
-        *length = numLimbs(DEREFWORD(x));
+        *length = numLimbs(x->Word());
+        if (sign) *sign = OBJ_IS_NEGATIVE(GetLengthWord(x->Word())) ? -1 : 0;
         return DEREFLIMBHANDLE(x);
     }
 }
 #else
-static byte *convertToLong(Handle x, byte *extend, POLYUNSIGNED *length)
+static byte *convertToLong(Handle x, byte *extend, POLYUNSIGNED *length, int *sign)
 {
     if (IS_INT(x->Word()))
     {
@@ -376,25 +356,15 @@ static byte *convertToLong(Handle x, byte *extend, POLYUNSIGNED *length)
             extend[i] = x_v & 0xff;
             x_v = x_v >> 8;
         }
+        if (sign) *sign = UNTAGGED(x->Word()) >= 0 ? 0 : -1;
         return extend;
     }
     else
     {
         *length = get_length(DEREFWORD(x));
+        if (sign) *sign = OBJ_IS_NEGATIVE(GetLengthWord(x->Word())) ? -1 : 0;
         return DEREFBYTEHANDLE(x);
     }
-}
-#endif
-
-#ifndef USE_GMP
-static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
-{
-    Handle y = alloc_and_save(taskData, WORDS(lx), F_BYTE_OBJ|F_MUTABLE_BIT);
-
-    // copy the bytes
-    byte *v = DEREFBYTEHANDLE(y);
-    memcpy(v, DEREFBYTEHANDLE(x), lx);
-    return y;
 }
 #endif
 
@@ -604,30 +574,16 @@ Handle neg_longc(TaskData *taskData, Handle x)
     }
 
     // Either overflow or long argument - convert to long form.
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    mp_size_t lx;
-#else
-    PolyWord    x_extend[2];
-    POLYUNSIGNED lx;
-#endif
-
     int sign_x;
-
-    if (IS_INT(DEREFWORD(x)))
-    {
-        sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
-        setShort(x, (byte*)x_extend, &lx);
-    }
-    else
-    {
-        sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
-#ifdef USE_GMP
-        lx = numLimbs(DEREFWORD(x));
+#if USE_GMP
+    mp_limb_t    x_extend;
+    mp_size_t lx;
+    (void)convertToLong(x, &x_extend, &lx, &sign_x);
 #else
-        lx = get_length(DEREFWORD(x));
+    byte    x_extend[sizeof(PolyWord)];
+    POLYUNSIGNED lx;
+    (void)convertToLong(x, x_extend, &lx, &sign_x);
 #endif
-    }
 
 #ifdef USE_GMP
     POLYUNSIGNED bytes = lx*sizeof(mp_limb_t);
@@ -655,8 +611,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* find the longer number */
     mp_size_t lx, ly;
     mp_limb_t    x_extend, y_extend;
-    mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
-    mp_limb_t *yb = convertToLong(y, &y_extend, &ly);
+    mp_limb_t *xb = convertToLong(x, &x_extend, &lx, NULL);
+    mp_limb_t *yb = convertToLong(y, &y_extend, &ly, NULL);
 
     mp_limb_t *u; /* limb-pointer for longer number  */
     mp_limb_t *v; /* limb-pointer for shorter number */
@@ -706,8 +662,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     POLYUNSIGNED lx;   /* length of u in bytes */
     POLYUNSIGNED ly;   /* length of v in bytes */
 
-    byte *xb = convertToLong(x, x_extend, &lx);
-    byte *yb = convertToLong(y, y_extend, &ly);
+    byte *xb = convertToLong(x, x_extend, &lx, NULL);
+    byte *yb = convertToLong(y, y_extend, &ly, NULL);
     Handle z;
     byte *u;  /* byte-pointer for longer number  */
     byte *v; /* byte-pointer for shorter number */
@@ -782,8 +738,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* the borrow at the end of the subtraction */
     mp_size_t lx, ly;
     mp_limb_t    x_extend, y_extend;
-    mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
-    mp_limb_t *yb = convertToLong(y, &y_extend, &ly);
+    mp_limb_t *xb = convertToLong(x, &x_extend, &lx, NULL);
+    mp_limb_t *yb = convertToLong(y, &y_extend, &ly, NULL);
 
     // Find the larger number.  Check the lengths first and if they're equal check the values.
     int res;
@@ -831,8 +787,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* This is necessary so that we can discard */
     /* the borrow at the end of the subtraction */
     POLYUNSIGNED lx, ly;
-    byte *xb = convertToLong(x, x_extend, &lx);
-    byte *yb = convertToLong(y, y_extend, &ly);
+    byte *xb = convertToLong(x, x_extend, &lx, NULL);
+    byte *yb = convertToLong(y, y_extend, &ly, NULL);
 
     byte *u; /* byte-pointer alias for larger number  */
     byte *v; /* byte-pointer alias for smaller number */
@@ -981,73 +937,39 @@ Handle sub_longc(TaskData *taskData, Handle y, Handle x)
 
 Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 {
-
-#if USE_GMP
-    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend, y_extend;
-#endif
     int sign_x, sign_y;
 #if USE_GMP
+    mp_limb_t    x_extend, y_extend;
     mp_size_t lx, ly;
+    (void)convertToLong(x, &x_extend, &lx, &sign_x);
+    (void)convertToLong(y, &y_extend, &ly, &sign_y);
 #else
+    byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
     POLYUNSIGNED lx, ly;
+    (void)convertToLong(x, x_extend, &lx, &sign_x);
+    (void)convertToLong(y, y_extend, &ly, &sign_y);
 #endif
-    if (IS_INT(DEREFWORD(x)))
-    {
-        sign_x = UNTAGGED(DEREFWORD(x)) >= 0 ? 0 : -1;
-        setShort(x, (byte*)&x_extend,  &lx);
-    }
-    else
-    {
-        sign_x = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
-#ifdef USE_GMP
-        lx = numLimbs(DEREFWORD(x));
-#else
-        lx = get_length(DEREFWORD(x));
-#endif
-    }
-    if (IS_INT(DEREFWORD(y)))
-    {
-        sign_y = UNTAGGED(DEREFWORD(y)) >= 0 ? 0 : -1;
-        setShort(y, (byte*)&y_extend, &ly);
-    }
-    else
-    {
-        sign_y = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))) ? -1 : 0;
-#ifdef USE_GMP
-        ly = numLimbs(DEREFWORD(y));
-#else
-        ly = get_length(DEREFWORD(y));
-#endif
-    }
-
-#if USE_GMP
     // Check for zero args.
     if (lx == 0 || ly == 0) return taskData->saveVec.push(TAGGED(0));
 
+#if USE_GMP
     Handle z = alloc_and_save(taskData, WORDS((lx+ly)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
     mp_limb_t *w = DEREFLIMBHANDLE(z);
-    mp_limb_t *u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
-    mp_limb_t *v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+    mp_limb_t *u = IS_INT(DEREFWORD(x)) ? &x_extend : DEREFLIMBHANDLE(x);
+    mp_limb_t *v = IS_INT(DEREFWORD(y)) ? &y_extend : DEREFLIMBHANDLE(y);
 
     // The first argument must be the longer.
     if (lx < ly) mpn_mul(w, v, ly, u, lx);
     else mpn_mul(w, u, lx, v, ly);
 
     return make_canonical(taskData, z, sign_x ^ sign_y);
-
 #else
-    // Check for zero args.
-    if (lx == 0 || ly == 0) return taskData->saveVec.push(TAGGED(0));
-
     /* Get space for result */
     Handle long_z = alloc_and_save(taskData, WORDS(lx+ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
     /* Can now load the actual addresses because they will not change now. */
-    byte *u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
-    byte *v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+    byte *u = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x);
+    byte *v = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y);
     byte *w = DEREFBYTEHANDLE(long_z);
 
     for(POLYUNSIGNED i = 0; i < lx; i++)
@@ -1186,25 +1108,13 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
         }
     }
 
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
     int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
 
-#ifdef USE_GMP
-    /* Get lengths of args. */
-    mp_size_t lx = numLimbs(DEREFWORD(long_x));
-    mp_size_t ly = numLimbs(DEREFWORD(long_y));
+#if USE_GMP
+    mp_limb_t    x_extend, y_extend;
+    mp_size_t lx, ly;
+    (void)convertToLong(x, &x_extend, &lx, &sign_x);
+    (void)convertToLong(y, &y_extend, &ly, &sign_y);
 
     // If length of v is zero raise divideerror.
     if (ly == 0) raise_exception0(taskData, EXC_divide);
@@ -1214,8 +1124,8 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
         return;
     }
 
-    Handle remRes = alloc_and_save(taskData, WORDS(ly*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
-    Handle divRes = alloc_and_save(taskData, WORDS((lx-ly+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle remRes = alloc_and_save(taskData, WORDS(ly * sizeof(mp_limb_t)), F_MUTABLE_BIT | F_BYTE_OBJ);
+    Handle divRes = alloc_and_save(taskData, WORDS((lx - ly + 1) * sizeof(mp_limb_t)), F_MUTABLE_BIT | F_BYTE_OBJ);
 
     mp_limb_t *u = DEREFLIMBHANDLE(long_x), *v = DEREFLIMBHANDLE(long_y);
     mp_limb_t *quotient = DEREFLIMBHANDLE(divRes);
@@ -1228,9 +1138,10 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
     remHandle = make_canonical(taskData, remRes, sign_x /* Same sign as dividend */);
     divHandle = make_canonical(taskData, divRes, sign_x ^ sign_y);
 #else
-    /* Get lengths of args. */
-    POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
+    byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
+    POLYUNSIGNED lx, ly;
+    (void)convertToLong(x, x_extend, &lx, &sign_x);
+    byte *long_y = convertToLong(y, y_extend, &ly, &sign_y);
 
     /* If length of y is zero raise divideerror */
     if (ly == 0) raise_exception0(taskData, EXC_divide);
@@ -1242,14 +1153,17 @@ static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, H
     }
 
     /* copy in case it needs shifting */
-    long_y = copy_long(taskData, long_y, ly);
+    Handle longCopyHndl = alloc_and_save(taskData, WORDS(ly), F_BYTE_OBJ | F_MUTABLE_BIT);
+    byte *u = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y);
+    memcpy(DEREFBYTEHANDLE(longCopyHndl), u, ly);
 
     Handle divRes = alloc_and_save(taskData, WORDS(lx-ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
     Handle remRes = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
+    byte *long_x = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x);
     div_unsigned_long
-        (DEREFBYTEHANDLE(long_x),
-        DEREFBYTEHANDLE(long_y),
+        (long_x,
+        DEREFBYTEHANDLE(longCopyHndl),
         DEREFBYTEHANDLE(remRes), DEREFBYTEHANDLE(divRes),
         lx, ly);
 
