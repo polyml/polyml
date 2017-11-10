@@ -294,7 +294,7 @@ static Handle get_long(Handle x, Handle extend, int *sign)
             *sign = -1;
             x_v   = -x_v;
         }
- #ifdef USE_GMP
+#ifdef USE_GMP
         mp_limb_t *u = DEREFLIMBHANDLE(extend);
         *u = x_v;
 #else
@@ -340,6 +340,51 @@ static void setShort(Handle x, byte *u, POLYUNSIGNED *length)
     }
 #endif
 }
+
+// Convert short values to long.  Returns a pointer to the memory.
+#ifdef USE_GMP
+static mp_limb_t *convertToLong(Handle x, byte *mp_limb_t, mp_size_t *length)
+{
+    if (IS_INT(x->Word()))
+    {
+        // Short form - put it in the temporary.
+        POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
+        if (x_v < 0) x_v = -x_v;
+        *extend = x_v;
+        if (x_v == 0) *length = 0; else *length = 1;
+        return extend;
+    }
+    else
+    {
+        *length = numLimbs(DEREFWORD(x));
+        return DEREFLIMBHANDLE(x);
+    }
+}
+#else
+static byte *convertToLong(Handle x, byte *extend, POLYUNSIGNED *length)
+{
+    if (IS_INT(x->Word()))
+    {
+        // Short form - put it in the temporary.
+        POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
+        if (x_v < 0) x_v = -x_v;
+        /* Put into extend buffer, low order byte first. */
+        *length = 0;
+        for (unsigned i = 0; i < sizeof(PolyWord); i++)
+        {
+            if (x_v != 0) *length = i + 1;
+            extend[i] = x_v & 0xff;
+            x_v = x_v >> 8;
+        }
+        return extend;
+    }
+    else
+    {
+        *length = get_length(DEREFWORD(x));
+        return DEREFBYTEHANDLE(x);
+    }
+}
+#endif
 
 #ifndef USE_GMP
 static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
@@ -607,23 +652,18 @@ Handle neg_longc(TaskData *taskData, Handle x)
 #ifdef USE_GMP
 static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
+    /* find the longer number */
+    mp_size_t lx, ly;
+    mp_limb_t    x_extend;
+    mp_limb_t    y_extend;
+    mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
+    mp_limb_t *yb = convertToLong(x, &x_extend, &ly);
+
     mp_limb_t *u; /* limb-pointer for longer number  */
     mp_limb_t *v; /* limb-pointer for shorter number */
     Handle z;
     mp_size_t lu;   /* length of u in limbs */
     mp_size_t lv;   /* length of v in limbs */
-    /* find the longer number */
-    mp_size_t lx, ly;
-    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
-
-    if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)&x_extend, &lx);
-    else lx = numLimbs(DEREFWORD(x));
-
-    if (IS_INT(DEREFWORD(y)))
-        setShort(y, (byte*)&y_extend, &ly);
-    else ly = numLimbs(DEREFWORD(y));
 
     if (lx < ly)
     {
@@ -632,8 +672,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS((ly+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
-        v = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        u = IS_INT(DEREFWORD(y)) ? yb : DEREFLIMBHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? xb : DEREFLIMBHANDLE(x);
         lu = ly;
         lv = lx;
     }
@@ -644,8 +684,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS((lx+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
-        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        u = IS_INT(DEREFWORD(x)) ? xb : DEREFLIMBHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? yb : DEREFLIMBHANDLE(y);
         lu = lx;
         lv = ly;
     }
@@ -663,25 +703,16 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 #else
 static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
-    PolyWord    x_extend, y_extend;
+    byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
+    POLYUNSIGNED lx;   /* length of u in bytes */
+    POLYUNSIGNED ly;   /* length of v in bytes */
 
-    byte *u; /* byte-pointer for longer number  */
-    byte *v; /* byte-pointer for shorter number */
+    byte *xb = convertToLong(x, x_extend, &lx);
+    byte *yb = convertToLong(x, x_extend, &ly);
     Handle z;
-
-    POLYUNSIGNED lu;   /* length of u in bytes */
-    POLYUNSIGNED lv;   /* length of v in bytes */
-
-    /* find the longer number */
-    POLYUNSIGNED lx, ly;
-
-    if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)&x_extend, &lx);
-    else lx = get_length(DEREFWORD(x));
-
-    if (IS_INT(DEREFWORD(y)))
-        setShort(y, (byte*)&y_extend, &ly);
-    else ly = get_length(DEREFWORD(y));
+    byte *u;  /* byte-pointer for longer number  */
+    byte *v; /* byte-pointer for shorter number */
+    POLYUNSIGNED lu, lv;
 
     /* Make ``u'' the longer. */
     if (lx < ly)
@@ -691,8 +722,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
-        v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        u = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
         lu = ly;
         lv = lx;
     }
@@ -704,8 +735,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(lx+2), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
-        v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        u = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
         lu = lx;
         lv = ly;
     }
@@ -751,27 +782,16 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     /* This is necessary so that we can discard */
     /* the borrow at the end of the subtraction */
     mp_size_t lx, ly;
-    PolyWord    x_extend[WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[WORDS(sizeof(mp_limb_t))];
-    
-    if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)&x_extend, &lx);
-    else lx = numLimbs(DEREFWORD(x));
-    
-    if (IS_INT(DEREFWORD(y)))
-        setShort(y, (byte*)&y_extend, &ly);
-    else ly = numLimbs(DEREFWORD(y));
+    mp_limb_t    x_extend;
+    mp_limb_t    y_extend;
+    mp_limb_t *xb = convertToLong(x, &x_extend, &lx);
+    mp_limb_t *yb = convertToLong(y, &y_extend, &ly);
 
-    // Find the larger number.  Check the lengths first and if they're equal the values.
+    // Find the larger number.  Check the lengths first and if they're equal check the values.
     int res;
     if (lx < ly) res = -1;
     else if (lx > ly) res = 1;
-    else
-    {
-        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
-        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
-        res = mpn_cmp(u, v, lx);
-    }
+    else res = mpn_cmp(xb, yb, lx);
 
     // If they're equal the result is zero.
     if (res == 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
@@ -782,8 +802,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(ly*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
-        v = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
+        u = IS_INT(DEREFWORD(y)) ? yb : DEREFLIMBHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? xb : DEREFLIMBHANDLE(x);
         lu = ly;
         lv = lx;
     }
@@ -792,8 +812,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(lx*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(x)) ? (mp_limb_t*)&x_extend : DEREFLIMBHANDLE(x);
-        v = IS_INT(DEREFWORD(y)) ? (mp_limb_t*)&y_extend : DEREFLIMBHANDLE(y);
+        u = IS_INT(DEREFWORD(x)) ? xb : DEREFLIMBHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? yb : DEREFLIMBHANDLE(y);
         lu = lx;
         lv = ly;
     }
@@ -809,7 +829,13 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 #else
 static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
-    PolyWord    x_extend, y_extend;
+    byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
+    /* This is necessary so that we can discard */
+    /* the borrow at the end of the subtraction */
+    POLYUNSIGNED lx, ly;
+    byte *xb = convertToLong(x, x_extend, &lx);
+    byte *yb = convertToLong(y, y_extend, &ly);
+
     byte *u; /* byte-pointer alias for larger number  */
     byte *v; /* byte-pointer alias for smaller number */
     POLYUNSIGNED lu;   /* length of u in bytes */
@@ -817,26 +843,14 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     Handle z;
 
     /* get the larger argument into ``u'' */
-    /* This is necessary so that we can discard */
-    /* the borrow at the end of the subtraction */
-    POLYUNSIGNED lx, ly;
-
-    if (IS_INT(DEREFWORD(x)))
-        setShort(x, (byte*)&x_extend, &lx);
-    else lx = get_length(DEREFWORD(x));
-
-    if (IS_INT(DEREFWORD(y)))
-        setShort(y, (byte*)&y_extend, &ly);
-    else ly = get_length(DEREFWORD(y));
-
     if (lx < ly)
     {
         sign ^= -1; // swap sign of result
         z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
-        v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+        u = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
+        v = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
         lu = ly;
         lv = lx;
     }
@@ -845,8 +859,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
-        v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+        u = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
+        v = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
         lu = lx;
         lv = ly;
     }
@@ -854,18 +868,18 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     else /* lx == ly */
     { /* Must look at the numbers to decide which is bigger. */
         POLYUNSIGNED i = lx;
-        while (i > 0 && DEREFBYTEHANDLE(x)[i-1] == DEREFBYTEHANDLE(y)[i-1]) i--;
+        while (i > 0 && xb[i-1] == yb[i-1]) i--;
 
         if (i == 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
 
-        if (DEREFBYTEHANDLE(x)[i-1] < DEREFBYTEHANDLE(y)[i-1])
+        if (xb[i-1] < yb[i-1])
         {
             sign ^= -1; /* swap sign of result SPF 21/1/94 */
             z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
             /* now safe to dereference pointers */
-            u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
-            v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
+            u = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
+            v = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
             lu = ly;
             lv = lx;
         }
@@ -874,8 +888,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
             z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
             /* now safe to dereference pointers */
-            u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x);
-            v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y);
+            u = IS_INT(DEREFWORD(x)) ? xb : DEREFBYTEHANDLE(x);
+            v = IS_INT(DEREFWORD(y)) ? yb : DEREFBYTEHANDLE(y);
             lu = lx;
             lv = ly;
         }
