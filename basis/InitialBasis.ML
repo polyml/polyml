@@ -285,10 +285,12 @@ struct
 
     local
         infix 8 << >> ~>> (* The shift operations are not infixed in the global basis. *)
+        val zero = Word.toLargeWord 0w0
         (* As with Word.word shifts we have to check that the shift does not exceed the
            word length.  N.B.  The shift amount is always a Word.word value. *)
-        val maxBits = Word.*(RunCall.bytesPerWord, 0w8) (* One bit more than Word.word. *)
-        val zero = Word.toLargeWord 0w0
+        (* This is the same as wordSize in native 32-bit and 64-bit but different in 32-in-64. *)
+        val sysWordSize = Word.*(RunCall.memoryCellLength zero, RunCall.bytesPerWord)
+        val maxBits = Word.*(sysWordSize, 0w8) (* 32 or 64-bits. *)
     in
         val op << = fn (a, b) => if Word.>=(b, maxBits) then zero else a << b
         val op >> = fn (a, b) => if Word.>=(b, maxBits) then zero else a >> b

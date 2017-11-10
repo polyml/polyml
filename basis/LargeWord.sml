@@ -164,8 +164,6 @@ local
         val maxWord: LargeInt.int = maxWordP1 - 1
         val largeWordSize = bitsInLargeWord
         val maxLargeWord = power2 largeWordSize - 1
-        val maxLargeWordP1: LargeInt.int = power2 (bitsInLargeWord - 1)
-        val largeWordTopBit: LargeInt.int = maxLargeWordP1 (* The top bit of a large word *)
         val maxWordAsWord = wordFromLargeInt maxWord
     end
 
@@ -242,10 +240,9 @@ in
 
         local
             val shortToWord: LargeInt.int -> largeword = Word.toLargeWordX o RunCall.unsafeCast
-            val longToInt: largeword -> LargeInt.int = RunCall.unsafeCast o Word.fromLargeWord
             val zero: largeword = shortToWord 0
 
-            infix << orb andb
+            infix << >> orb andb
 
             local
                 open Int
@@ -254,28 +251,22 @@ in
                     (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
             end
 
-            fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
+            fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero
+            
+            val maxWordValueP1 = shortToWord 1 << Word.fromInt Word.wordSize
         in
-
             fun toLargeInt x =
-            let
-                val asInt: LargeInt.int = longToInt x
-                open LargeInt (* <, + and - are all LargeInt ops. *)
-            in
-                (if asInt < 0 then maxWordP1 + asInt else asInt) +
-                (if topBitClear x then 0 else largeWordTopBit)
-            end
-            and toLargeIntX x =
-            let
-                val asInt: LargeInt.int = longToInt x
-                open LargeInt
-            in
-                (if asInt < 0 then maxWordP1 + asInt else asInt) -
-                (if topBitClear x then 0 else largeWordTopBit)
-            end
-           
+                if x < maxWordValueP1
+                then Word.toLargeInt(Word.fromLargeWord x)
+                else let open LargeInt in toLargeInt(x >> Word.fromInt Word.wordSize) * maxWordP1 + Word.toLargeInt(Word.fromLargeWord x) end
+
             val zero = zero
             val maxLargeWordAsLargeWord = fromLargeInt maxLargeWord
+
+            fun toLargeIntX x =
+                if topBitClear x
+                then toLargeInt x
+                else LargeInt.~(toLargeInt(zero - x))
         end
 
         fun ~ x = zero - x
