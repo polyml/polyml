@@ -1297,6 +1297,8 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y,
 
     (void)convertToLong(x, &x_extend, &lx, &signX);
     (void)convertToLong(y, &y_extend, &ly, &signY);
+    lx = lx*sizeof(mp_limb_t); // We want these in bytes
+    ly = ly*sizeof(mp_limb_t);
 #else
     byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
     POLYUNSIGNED    lx, ly;
@@ -1322,8 +1324,8 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y,
         z = alloc_and_save(taskData, WORDS(ly), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y); lu = ly;
-        v = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x); lv = lx;
+        u = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y); lu = ly;
+        v = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x); lv = lx;
         signU = signY; signV = signX;
     }
 
@@ -1333,8 +1335,8 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y,
         z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
         /* now safe to dereference pointers */
-        u = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x); lu = lx;
-        v = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y); lv = ly;
+        u = IS_INT(DEREFWORD(x)) ? (byte*)&x_extend : DEREFBYTEHANDLE(x); lu = lx;
+        v = IS_INT(DEREFWORD(y)) ? (byte*)&y_extend : DEREFBYTEHANDLE(y); lv = ly;
         signU = signX; signV = signY;
     }
 
