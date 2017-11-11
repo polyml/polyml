@@ -1,7 +1,7 @@
 /*
     Title:  rtsentry.cpp - Entry points to the run-time system
 
-    Copyright (c) 2016 David C. J. Matthews
+    Copyright (c) 2016, 2017 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -122,8 +122,8 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
 // Return the string entry point.
 const char *getEntryPointName(PolyObject *p)
 {
-    if (p->Length() <= 1) return 0; // Doesn't contain an entry point
-    return (const char *)(p->AsBytePtr() + sizeof(PolyWord));
+    if (p->Length() <= sizeof(polyRTSFunction*)/sizeof(PolyWord)) return 0; // Doesn't contain an entry point
+    return (const char *)(p->AsBytePtr() + sizeof(polyRTSFunction*));
 }
 
 // Sets the address of the entry point in an entry point object.
