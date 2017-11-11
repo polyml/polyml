@@ -282,40 +282,6 @@ int get_C_int(TaskData *taskData, PolyWord number)
 }
 #endif
 
-static Handle get_long(Handle x, Handle extend, int *sign)
-{
-    if (IS_INT(DEREFWORD(x)))
-    {
-        // Short form - put it in the temporary.
-        POLYSIGNED x_v = UNTAGGED(DEREFWORD(x));
-        if (x_v >= 0) *sign = 0;
-        else /* Negative */
-        {
-            *sign = -1;
-            x_v   = -x_v;
-        }
-#ifdef USE_GMP
-        mp_limb_t *u = DEREFLIMBHANDLE(extend);
-        *u = x_v;
-#else
-        byte *u = DEREFBYTEHANDLE(extend);
-
-        /* Put into extend buffer, low order byte first. */
-        for (unsigned i = 0; i < sizeof(PolyWord); i++)
-        {
-            u[i] = x_v & 0xff;
-            x_v = x_v >> 8;
-        }
-#endif
-        return extend;
-    }
-    else
-    { /* Long-form - x is an address. */
-        *sign = OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))) ? -1 : 0;
-        return x;
-    }
-}
-
 // Convert short values to long.  Returns a pointer to the memory.
 // This is generally called before allocating memory for the result.
 // It is unsafe to use the result after the allocation if the value is
@@ -1321,9 +1287,23 @@ int compareLong(PolyWord y, PolyWord x)
 } /* compareLong */
 
 /* logical_long.  General purpose function for binary logical operations. */
-static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, int signY,
+static Handle logical_long(TaskData *taskData, Handle x, Handle y,
                            unsigned(*op)(unsigned, unsigned))
 {
+    int signX, signY;
+#if USE_GMP
+    mp_limb_t   x_extend, y_extend;
+    mp_size_t   lx, ly;
+
+    (void)convertToLong(x, &x_extend, &lx, &signX);
+    (void)convertToLong(y, &y_extend, &ly, &signY);
+#else
+    byte    x_extend[sizeof(PolyWord)], y_extend[sizeof(PolyWord)];
+    POLYUNSIGNED    lx, ly;
+    (void)convertToLong(x, x_extend, &lx, &signX);
+    (void)convertToLong(y, y_extend, &ly, &signY);
+#endif
+
     byte *u; /* byte-pointer for longer number  */
     byte *v; /* byte-pointer for shorter number */
     Handle z;
@@ -1332,38 +1312,30 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, in
     POLYUNSIGNED lu;   /* length of u in bytes */
     POLYUNSIGNED lv;   /* length of v in bytes */
 
-    { /* find the longer number */
-#ifdef USE_GMP
-        POLYUNSIGNED lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
-        POLYUNSIGNED ly = numLimbs(DEREFWORD(y)) * sizeof(mp_limb_t);
-#else
-        POLYUNSIGNED lx = get_length(DEREFWORD(x));
-        POLYUNSIGNED ly = get_length(DEREFWORD(y));
-#endif
+    /* find the longer number */
 
-        /* Make ``u'' the longer. */
-        if (lx < ly)
-        {
-            // Get result vector. There can't be any carry at the end so
-            // we just need to make this as large as the larger number.
-            z = alloc_and_save(taskData, WORDS(ly), F_MUTABLE_BIT|F_BYTE_OBJ);
+    /* Make ``u'' the longer. */
+    if (lx < ly)
+    {
+        // Get result vector. There can't be any carry at the end so
+        // we just need to make this as large as the larger number.
+        z = alloc_and_save(taskData, WORDS(ly), F_MUTABLE_BIT|F_BYTE_OBJ);
 
-            /* now safe to dereference pointers */
-            u = DEREFBYTEHANDLE(y); lu = ly;
-            v = DEREFBYTEHANDLE(x); lv = lx;
-            signU = signY; signV = signX;
-        }
+        /* now safe to dereference pointers */
+        u = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y); lu = ly;
+        v = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x); lv = lx;
+        signU = signY; signV = signX;
+    }
 
-        else
-        {
-            /* Get result vector. */
-            z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
+    else
+    {
+        /* Get result vector. */
+        z = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
-            /* now safe to dereference pointers */
-            u = DEREFBYTEHANDLE(x); lu = lx;
-            v = DEREFBYTEHANDLE(y); lv = ly;
-            signU = signX; signV = signY;
-        }
+        /* now safe to dereference pointers */
+        u = IS_INT(DEREFWORD(x)) ? x_extend : DEREFBYTEHANDLE(x); lu = lx;
+        v = IS_INT(DEREFWORD(y)) ? y_extend : DEREFBYTEHANDLE(y); lv = ly;
+        signU = signX; signV = signY;
     }
 
     sign = (*op)(signU, signV); /* -1 if negative, 0 if positive. */
@@ -1450,23 +1422,7 @@ Handle and_longc(TaskData *taskData, Handle y, Handle x)
         return taskData->saveVec.push(TAGGED(t));
     }
 
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    // Convert to long form.
-    int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
-
-    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doAnd);
+    return logical_long(taskData, x, y, doAnd);
 }
 
 Handle or_longc(TaskData *taskData, Handle y, Handle x)
@@ -1480,23 +1436,7 @@ Handle or_longc(TaskData *taskData, Handle y, Handle x)
         return taskData->saveVec.push(TAGGED(t));
     }
 
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    // Convert to long form.
-    int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
-
-    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doOr);
+    return logical_long(taskData, x, y, doOr);
 }
 
 Handle xor_longc(TaskData *taskData, Handle y, Handle x)
@@ -1509,24 +1449,7 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
         POLYSIGNED t = UNTAGGED(DEREFWORD(x)) ^ UNTAGGED(DEREFWORD(y));
         return taskData->saveVec.push(TAGGED(t));
     }
-
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    // Convert to long form.
-    int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
-
-    return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
+    return logical_long(taskData, x, y, doXor);
 }
 
 // Convert a long precision value to floating point
@@ -1571,18 +1494,12 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
        no longer than its second.  This requires shifting before the call and after
        the result has been returned.  This code is modelled roughly on the high level
        mpz_gcd call in GMP. */
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
+    mp_limb_t    x_extend, y_extend;
     int sign_x, sign_y; // Signs are ignored - the result is always positive.
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
+    mp_size_t lx, ly;
 
-    mp_size_t lx = numLimbs(DEREFWORD(long_x));
-    mp_size_t ly = numLimbs(DEREFWORD(long_y));
+    mp_limb_t *longX = convertToLong(x, &x_extend, &lx, &sign_x);
+    mp_limb_t *longY = convertToLong(y, &y_extend, &ly, &sign_y);
 
     // Test for zero length and therefore zero argument
     if (lx == 0)
@@ -1604,9 +1521,7 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
     // overwrite the arguments.
     if (lx == 1 || ly == 1)
     {
-        mp_limb_t g =
-            (lx == 1) ? mpn_gcd_1(DEREFLIMBHANDLE(long_y), ly, *DEREFLIMBHANDLE(long_x)) :
-                mpn_gcd_1(DEREFLIMBHANDLE(long_x), lx, *DEREFLIMBHANDLE(long_y));
+        mp_limb_t g = (lx == 1) ? mpn_gcd_1(longY, ly, *longX) : mpn_gcd_1(longX, lx, *longY);
         if (g <= MAXTAGGED)
             return taskData->saveVec.push(TAGGED(g));
         // Need to allocate space.
@@ -1619,8 +1534,8 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
     // We rely on this zero the memory because we may not set every word here.
     Handle r = alloc_and_save(taskData, WORDS((lx < ly ? lx : ly)*sizeof(mp_limb_t)), F_BYTE_OBJ|F_MUTABLE_BIT);
     // Can now dereference the handles.
-    mp_limb_t *xl = DEREFLIMBHANDLE(long_x);
-    mp_limb_t *yl = DEREFLIMBHANDLE(long_y);
+    mp_limb_t *xl = IS_INT(DEREFWORD(x)) ? &x_extend : DEREFLIMBHANDLE(x);
+    mp_limb_t *yl = IS_INT(DEREFWORD(y)) ? &y_extend : DEREFLIMBHANDLE(y);
     mp_limb_t *rl = DEREFLIMBHANDLE(r);
 
     unsigned xZeroLimbs = 0, xZeroBits = 0;
