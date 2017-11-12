@@ -924,7 +924,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
             // It's in this segment: relocate it to the current position.
             unsigned i = tr->index;
             SavedStateSegmentDescr *descr = &descrs[i];
-            PolyWord *newAddress = targetAddresses[i];
+            PolyWord *newAddress = targetAddresses[descr->segmentIndex];
             ASSERT(val.AsAddress() > descr->originalAddress &&
                 val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize);
             ASSERT(newAddress != 0);
@@ -1112,8 +1112,11 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
         for (unsigned i = 0; i <= maxIndex; i++)
         {
             relocate.targetAddresses[i] = 0;
-            relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
-                (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
+            if (relocate.descrs[i].originalAddress != 0)
+            {
+                relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
+                    (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
+            }
         }
     }
 
