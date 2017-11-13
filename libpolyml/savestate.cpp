@@ -912,7 +912,8 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
     if (val.IsTagged()) return;
 
     // Which segment is this address in?
-    uintptr_t t = (uintptr_t)val.AsAddress();
+    // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
+    uintptr_t t = (uintptr_t)(val.AsStackAddr() - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
