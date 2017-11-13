@@ -1106,18 +1106,14 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     {
         unsigned maxIndex = 0;
         for (unsigned i = 0; i < relocate.nDescrs; i++)
+        {
             if (relocate.descrs[i].segmentIndex > maxIndex)
                 maxIndex = relocate.descrs[i].segmentIndex;
-        relocate.targetAddresses = new PolyWord*[maxIndex+1];
-        for (unsigned i = 0; i <= maxIndex; i++)
-        {
-            relocate.targetAddresses[i] = 0;
-            if (relocate.descrs[i].originalAddress != 0)
-            {
-                relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
-                    (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
-            }
+            relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
+                (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
         }
+        relocate.targetAddresses = new PolyWord*[maxIndex+1];
+        for (unsigned i = 0; i <= maxIndex; i++) relocate.targetAddresses[i] = 0;
     }
 
     // Read in and create the new segments first.  If we have problems,
