@@ -92,7 +92,7 @@ void PECOFFExport::addExternalReference(void *relocAddr, const char *name)
 void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
 {
     unsigned area = findArea(p);
-    DWORD offset = (DWORD)((char*)p - (char*)memTable[area].mtAddr);
+    DWORD offset = (DWORD)((char*)p - (char*)memTable[area].mtOriginalAddr);
     *reloc = offset;
 }
 
@@ -104,7 +104,7 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     setRelocationAddress(relocAddr, &reloc.VirtualAddress);
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
     reloc.SymbolTableIndex = addrArea;
     reloc.Type = DIRECT_WORD_RELOCATION;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -163,7 +163,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
 
     setRelocationAddress(addr, &reloc.VirtualAddress);
     // Set the value at the address to the offset relative to the symbol.
-    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtAddr;
+    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
     reloc.SymbolTableIndex = aArea;
 
     // The value we store here is the offset whichever relocation method
@@ -270,7 +270,7 @@ void PECOFFExport::exportStore(void)
         relocationCount = 1;
 
         // Create the relocation table and turn all addresses into offsets.
-        char *start = (char*)memTable[i].mtAddr;
+        char *start = (char*)memTable[i].mtOriginalAddr;
         char *end = start + memTable[i].mtLength;
         for (p = (PolyWord*)start; p < (PolyWord*)end; )
         {
@@ -279,9 +279,11 @@ void PECOFFExport::exportStore(void)
             POLYUNSIGNED length = obj->Length();
             // Update any constants before processing the object
             // We need that for relative jumps/calls in X86/64.
+#ifndef POLYML32IN64
             if (length != 0 && obj->IsCodeObject())
                 machineDependent->ScanConstantsWithinCode(obj, this);
             relocateObject(obj);
+#endif
             p += length;
         }
             // If there are more than 64k relocations set this bit and set the value to 64k-1.
@@ -326,7 +328,7 @@ void PECOFFExport::exportStore(void)
         reloc.Type = DIRECT_WORD_RELOCATION;
         reloc.SymbolTableIndex = i; // Relative to base symbol
         reloc.VirtualAddress =
-            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr);
+            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtCurrentAddr);
         fwrite(&reloc, sizeof(reloc), 1, exportFile);
         relocationCount++;
     }
@@ -338,7 +340,7 @@ void PECOFFExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
     {
         sections[i].PointerToRawData = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
     }
 
     sections[memTableEntries].PointerToRawData = ftell(exportFile);
@@ -347,7 +349,7 @@ void PECOFFExport::exportStore(void)
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
     exports.memTable = (memoryTableEntry *)sizeof(exports); // It follows immediately after this.
-    exports.rootFunction = (void*)((char*)rootFunction - (char*)memTable[rootAddrArea].mtAddr);
+    exports.rootFunction = (void*)((char*)rootFunction - (char*)memTable[rootAddrArea].mtOriginalAddr);
     exports.timeStamp = now;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
@@ -355,7 +357,7 @@ void PECOFFExport::exportStore(void)
     // Set the address values to zero before we write.  They will always
     // be relative to their base symbol.
     for (i = 0; i < memTableEntries; i++)
-        memTable[i].mtAddr = 0;
+        memTable[i].mtCurrentAddr = 0;
 
     fwrite(&exports, sizeof(exports), 1, exportFile);
     fwrite(memTable, sizeof(memoryTableEntry), memTableEntries, exportFile);

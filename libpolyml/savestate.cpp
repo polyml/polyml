@@ -108,6 +108,9 @@ typedef char TCHAR;
 #include "rtsentry.h"
 #include "check_objects.h"
 
+#include "../polyexports.h" // For InitHeaderFromExport
+#include "version.h" // For InitHeaderFromExport
+
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
 #pragma warning(disable:4996)
@@ -303,7 +306,7 @@ protected:
 void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)
 {
     unsigned area = findArea(p);
-    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
+    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtOriginalAddr;
     *reloc = offset;
 }
 
@@ -316,7 +319,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
     setRelocationAddress(relocAddr, &reloc.relocAddress);
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    reloc.targetAddress = (char*)addr - (char*)memTable[addrArea].mtAddr;
+    reloc.targetAddress = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
     reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
     reloc.relKind = PROCESS_RELOC_DIRECT;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -346,7 +349,7 @@ void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationK
     // Set the value at the address to the offset relative to the symbol.
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
-    reloc.targetAddress = (char*)a - (char*)memTable[aArea].mtAddr;
+    reloc.targetAddress = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
     reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -499,7 +502,7 @@ void SaveRequest::Perform()
         if (space->hierarchy < newHierarchy)
         {
             memoryTableEntry *entry = &exports.memTable[memTableCount++];
-            entry->mtAddr = space->bottom;
+            entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
             entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
             entry->mtIndex = space->index;
             entry->mtFlags = 0;
@@ -520,7 +523,7 @@ void SaveRequest::Perform()
     {
         memoryTableEntry *entry = &exports.memTable[memTableCount++];
         PermanentMemSpace *space = *i;
-        entry->mtAddr = space->bottom;
+        entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = space->index;
         entry->mtFlags = 0;
@@ -629,7 +632,7 @@ void SaveRequest::Perform()
         descrs[j].relocationSize = sizeof(RelocationEntry);
         descrs[j].segmentIndex = (unsigned)entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
-        descrs[j].originalAddress = entry->mtAddr;
+        descrs[j].originalAddress = entry->mtOriginalAddr;
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             descrs[j].segmentFlags |= SSF_WRITABLE;
@@ -660,7 +663,7 @@ void SaveRequest::Perform()
             // Have to write this out.
             exports.relocationCount = 0;
             // Create the relocation table.
-            char *start = (char*)entry->mtAddr;
+            char *start = (char*)entry->mtOriginalAddr;
             char *end = start + entry->mtLength;
             for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
             {
@@ -678,7 +681,7 @@ void SaveRequest::Perform()
             descrs[k].relocationCount = exports.relocationCount;
             // Write out the data.
             descrs[k].segmentData = ftell(exports.exportFile);
-            fwrite(entry->mtAddr, entry->mtLength, 1, exports.exportFile);
+            fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exports.exportFile);
        }
     }
 
@@ -1519,7 +1522,7 @@ void ModuleExport::exportStore(void)
         unsigned rootArea = findArea(this->rootFunction);
         struct _memTableEntry *mt = &memTable[rootArea];
         modHeader.rootSegment = mt->mtIndex;
-        modHeader.rootOffset = (char*)this->rootFunction - (char*)mt->mtAddr;
+        modHeader.rootOffset = (char*)this->rootFunction - (char*)mt->mtOriginalAddr;
     }
     modHeader.timeStamp = getBuildTime();
     modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.
@@ -1537,7 +1540,7 @@ void ModuleExport::exportStore(void)
         thisDescr->relocationSize = sizeof(RelocationEntry);
         thisDescr->segmentIndex = (unsigned)entry->mtIndex;
         thisDescr->segmentSize = entry->mtLength; // Set this even if we don't write it.
-        thisDescr->originalAddress = entry->mtAddr;
+        thisDescr->originalAddress = entry->mtOriginalAddr;
         if (entry->mtFlags & MTF_WRITEABLE)
         {
             thisDescr->segmentFlags |= SSF_WRITABLE;
@@ -1566,7 +1569,7 @@ void ModuleExport::exportStore(void)
             // Have to write this out.
             this->relocationCount = 0;
             // Create the relocation table.
-            char *start = (char*)entry->mtAddr;
+            char *start = (char*)entry->mtOriginalAddr;
             char *end = start + entry->mtLength;
             for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
             {
@@ -1583,7 +1586,7 @@ void ModuleExport::exportStore(void)
             thisDescr->relocationCount = this->relocationCount;
             // Write out the data.
             thisDescr->segmentData = ftell(exportFile);
-            fwrite(entry->mtAddr, entry->mtLength, 1, exportFile);
+            fwrite(entry->mtOriginalAddr, entry->mtLength, 1, exportFile);
         }
     }
 
@@ -1804,3 +1807,75 @@ Handle LoadModule(TaskData *taskData, Handle args)
     return loader.rootHandle;
 }
 
+
+void InitHeaderFromExport(struct _exportDescription *exports)
+{
+    // Check the structure sizes stored in the export structure match the versions
+    // used in this library.
+    if (exports->structLength != sizeof(exportDescription) ||
+        exports->memTableSize != sizeof(memoryTableEntry) ||
+        exports->rtsVersion < FIRST_supported_version ||
+        exports->rtsVersion > LAST_supported_version)
+    {
+#if (FIRST_supported_version == LAST_supported_version)
+        Exit("The exported object file has version %0.2f but this library supports %0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0);
+#else
+        Exit("The exported object file has version %0.2f but this library supports %0.2f-%0.2f",
+            ((float)exports->rtsVersion) / 100.0,
+            ((float)FIRST_supported_version) / 100.0,
+            ((float)LAST_supported_version) / 100.0);
+#endif
+    }
+    // We could also check the RTS version and the architecture.
+    exportTimeStamp = exports->timeStamp; // Needed for load and save.
+
+    memoryTableEntry *memTable = exports->memTable;
+#ifdef POLYML32IN64
+    // We need to copy this into the heap before beginning execution.
+    // This is very like loading a saved state and the code should probably
+    // be merged.
+    LoadRelocate relocate;
+    relocate.nDescrs = exports->memTableEntries;
+    relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
+    relocate.targetAddresses = new PolyWord*[exports->memTableEntries];
+
+    for (unsigned i = 0; i < exports->memTableEntries; i++)
+    {
+        unsigned int perms = PERMISSION_READ | PERMISSION_WRITE;
+        if (memTable[i].mtFlags & MTF_EXECUTABLE) perms |= PERMISSION_EXEC;
+        relocate.descrs[i].originalAddress = memTable[i].mtOriginalAddr;
+        relocate.descrs[i].segmentSize = memTable[i].mtLength;
+        size_t actualSize = memTable[i].mtLength;
+        PolyWord *mem = (PolyWord*)osMemoryManager->Allocate(actualSize, perms);
+        if (mem == 0)
+            Exit("Unable to allocate memory");
+
+        memcpy(mem, memTable[i].mtCurrentAddr, memTable[i].mtLength);
+        gMem.FillUnusedSpace(mem + memTable[i].mtLength / sizeof(PolyWord),
+            (actualSize - memTable[i].mtLength) / sizeof(PolyWord));
+
+        // At the moment we leave all segments with write access.
+        PermanentMemSpace *newSpace =
+            gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
+                (unsigned)memTable[i].mtIndex);
+
+        if (newSpace == 0)
+            Exit("Unable to initialise a permanent memory space");
+
+        relocate.targetAddresses[i] = mem;
+    }
+
+#else
+    for (unsigned i = 0; i < exports->memTableEntries; i++)
+    {
+        // Construct a new space for each of the entries.
+        if (gMem.NewPermanentSpace(
+            (PolyWord*)memTable[i].mtCurrentAddr,
+            memTable[i].mtLength / sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
+            (unsigned)memTable[i].mtIndex) == 0)
+            Exit("Unable to initialise a permanent memory space");
+    }
+#endif
+}

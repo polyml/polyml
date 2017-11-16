@@ -51,7 +51,8 @@ This header contains the structures used in saved state created by "export".
 
 // There are several entries 
 typedef struct _memTableEntry {
-    void *mtAddr;                       // The address of the area of memory
+    void *mtCurrentAddr;             // The address of the area of memory
+    void *mtOriginalAddr;            // The original address, for saved states and 32-in-64.
     uintptr_t mtLength;              // The length in bytes of the area
     uintptr_t mtFlags;               // Flags describing the area.
     uintptr_t mtIndex;               // An index to identify permanent spaces.

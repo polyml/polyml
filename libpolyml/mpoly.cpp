@@ -80,6 +80,7 @@
 #include "polystring.h"
 #include "statistics.h"
 #include "noreturn.h"
+#include "savestate.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -89,7 +90,6 @@ static const TCHAR *lpszServiceName = 0; // DDE service name
 
 FILE *polyStdout, *polyStderr; // Redirected in the Windows GUI
 
-static void  InitHeaderFromExport(exportDescription *exports);
 NORETURNFN(static void Usage(const char *message, ...));
 
 
@@ -497,39 +497,4 @@ char *RTSArgHelp(void)
     }
     ASSERT((unsigned)(p - buff) < (unsigned)sizeof(buff));
     return buff;
-}
-
-void InitHeaderFromExport(exportDescription *exports)
-{
-    // Check the structure sizes stored in the export structure match the versions
-    // used in this library.
-    if (exports->structLength != sizeof(exportDescription) ||
-        exports->memTableSize != sizeof(memoryTableEntry) ||
-        exports->rtsVersion < FIRST_supported_version ||
-        exports->rtsVersion > LAST_supported_version)
-    {
-#if (FIRST_supported_version == LAST_supported_version)
-        Exit("The exported object file has version %0.2f but this library supports %0.2f",
-            ((float)exports->rtsVersion) / 100.0,
-            ((float)FIRST_supported_version) / 100.0);
-#else
-        Exit("The exported object file has version %0.2f but this library supports %0.2f-%0.2f",
-            ((float)exports->rtsVersion) / 100.0,
-            ((float)FIRST_supported_version) / 100.0,
-            ((float)LAST_supported_version) / 100.0);
-#endif
-    }
-    // We could also check the RTS version and the architecture.
-    exportTimeStamp = exports->timeStamp; // Needed for load and save.
-
-    memoryTableEntry *memTable = exports->memTable;
-    for (unsigned i = 0; i < exports->memTableEntries; i++)
-    {
-        // Construct a new space for each of the entries.
-        if (gMem.NewPermanentSpace(
-                (PolyWord*)memTable[i].mtAddr,
-                memTable[i].mtLength/sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
-                (unsigned)memTable[i].mtIndex) == 0)
-            Exit("Unable to initialise a permanent memory space");
-    }
 }

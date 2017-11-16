@@ -555,7 +555,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
             if (space->hierarchy < hierarchy)
             {
                 memoryTableEntry *entry = &exports->memTable[memEntry++];
-                entry->mtAddr = space->bottom;
+                entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
                 entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
                 entry->mtIndex = space->index;
                 entry->mtFlags = 0;
@@ -570,7 +570,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     {
         memoryTableEntry *entry = &exports->memTable[memEntry++];
         PermanentMemSpace *space = *i;
-        entry->mtAddr = space->bottom;
+        entry->mtOriginalAddr = entry->mtCurrentAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
         entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
         entry->mtFlags = 0;
@@ -719,8 +719,8 @@ unsigned Exporter::findArea(void *p)
 {
     for (unsigned i = 0; i < memTableEntries; i++)
     {
-        if (p > memTable[i].mtAddr &&
-            p <= (char*)memTable[i].mtAddr + memTable[i].mtLength)
+        if (p > memTable[i].mtOriginalAddr &&
+            p <= (char*)memTable[i].mtOriginalAddr + memTable[i].mtLength)
             return i;
     }
     { ASSERT(0); }

@@ -259,8 +259,8 @@ void PExport::exportStore(void)
     {
         totalBytes += (unsigned long)memTable[i].mtLength;
         // Get the lowest address.
-        if (startAddr == 0 || memTable[i].mtAddr < startAddr)
-            startAddr = memTable[i].mtAddr;
+        if (startAddr == 0 || memTable[i].mtOriginalAddr < startAddr)
+            startAddr = memTable[i].mtOriginalAddr;
     }
     // Create a map entry for each entry.  Allow five words per object.
     nMapSize = totalBytes/(sizeof(PolyWord)*5);
@@ -280,7 +280,7 @@ void PExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
     {
         unsigned j = items;
-        while (j > 0 && memTable[i].mtAddr < memTable[indexOrder[j-1]].mtAddr)
+        while (j > 0 && memTable[i].mtOriginalAddr < memTable[indexOrder[j-1]].mtOriginalAddr)
         {
             indexOrder[j] = indexOrder[j-1];
             j--;
@@ -294,7 +294,7 @@ void PExport::exportStore(void)
     for (i = 0; i < items; i++)
     {
         unsigned index = indexOrder[i];
-        char *start = (char*)memTable[index].mtAddr;
+        char *start = (char*)memTable[index].mtOriginalAddr;
         char *end = start + memTable[index].mtLength;
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
         {
@@ -325,7 +325,7 @@ void PExport::exportStore(void)
     // Generate each of the areas.
     for (i = 0; i < memTableEntries; i++)
     {
-        char *start = (char*)memTable[i].mtAddr;
+        char *start = (char*)memTable[i].mtOriginalAddr;
         char *end = start + memTable[i].mtLength;
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
         {
