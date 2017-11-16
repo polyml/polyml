@@ -388,10 +388,7 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
     PolyObject *rootFunction = 0;
 
     if (exports != 0)
-    {
-        InitHeaderFromExport(exports);
-        rootFunction = (PolyObject *)exports->rootFunction;
-    }
+        rootFunction = InitHeaderFromExport(exports);
     else
     {
         if (importFileName != 0)

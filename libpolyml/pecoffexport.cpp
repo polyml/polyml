@@ -279,11 +279,9 @@ void PECOFFExport::exportStore(void)
             POLYUNSIGNED length = obj->Length();
             // Update any constants before processing the object
             // We need that for relative jumps/calls in X86/64.
-#ifndef POLYML32IN64
             if (length != 0 && obj->IsCodeObject())
                 machineDependent->ScanConstantsWithinCode(obj, this);
             relocateObject(obj);
-#endif
             p += length;
         }
             // If there are more than 64k relocations set this bit and set the value to 64k-1.

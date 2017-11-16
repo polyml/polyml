@@ -708,9 +708,11 @@ Exporter::~Exporter()
 
 void Exporter::relocateValue(PolyWord *pt)
 {
+#ifndef POLYML32IN64
     PolyWord q = *pt;
     if (IS_INT(q) || q == PolyWord::FromUnsigned(0)) {}
     else createRelocation(pt);
+#endif
 }
 
 // Check through the areas to see where the address is.  It must be
@@ -738,8 +740,8 @@ void Exporter::relocateObject(PolyObject *p)
             const char *entryName = getEntryPointName(p);
             if (entryName != 0) addExternalReference(p, entryName);
             // Clear the first word of the data.
-            ASSERT(p->Length() > 0);
-            p->Set(0, PolyWord::FromSigned(0));
+            ASSERT(p->Length() >= sizeof(uintptr_t)/sizeof(PolyWord));
+            *(uintptr_t*)p = 0;
         }
     }
     else if (p->IsCodeObject())

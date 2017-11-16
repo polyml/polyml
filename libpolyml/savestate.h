@@ -46,7 +46,7 @@ Handle StoreModule(TaskData *taskData, Handle args);
 // Load a module.
 Handle LoadModule(TaskData *taskData, Handle args);
 
-void InitHeaderFromExport(struct _exportDescription *exports);
+PolyObject *InitHeaderFromExport(struct _exportDescription *exports);
 
 #endif
 

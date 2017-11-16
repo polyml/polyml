@@ -1808,7 +1808,7 @@ Handle LoadModule(TaskData *taskData, Handle args)
 }
 
 
-void InitHeaderFromExport(struct _exportDescription *exports)
+PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
 {
     // Check the structure sizes stored in the export structure match the versions
     // used in this library.
@@ -1841,10 +1841,13 @@ void InitHeaderFromExport(struct _exportDescription *exports)
     relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
     relocate.targetAddresses = new PolyWord*[exports->memTableEntries];
 
+    PolyObject *root = 0;
+
     for (unsigned i = 0; i < exports->memTableEntries; i++)
     {
         unsigned int perms = PERMISSION_READ | PERMISSION_WRITE;
         if (memTable[i].mtFlags & MTF_EXECUTABLE) perms |= PERMISSION_EXEC;
+        relocate.descrs[i].segmentIndex = memTable[i].mtIndex;
         relocate.descrs[i].originalAddress = memTable[i].mtOriginalAddr;
         relocate.descrs[i].segmentSize = memTable[i].mtLength;
         size_t actualSize = memTable[i].mtLength;
@@ -1865,7 +1868,32 @@ void InitHeaderFromExport(struct _exportDescription *exports)
             Exit("Unable to initialise a permanent memory space");
 
         relocate.targetAddresses[i] = mem;
+        relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
+            (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize - 1));
+
+        // Relocate the root function.
+        if (exports->rootFunction >= memTable[i].mtCurrentAddr && exports->rootFunction < (char*)memTable[i].mtCurrentAddr + memTable[i].mtLength)
+        {
+            root = (PolyObject*)((char*)mem + ((char*)exports->rootFunction - (char*)memTable[i].mtCurrentAddr));
+        }
     }
+
+    // Now relocate the addresses
+    for (unsigned j = 0; j < exports->memTableEntries; j++)
+    {
+        SavedStateSegmentDescr *descr = &relocate.descrs[j];
+        MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        for (PolyWord *p = space->bottom; p < space->top; )
+        {
+            p++;
+            PolyObject *obj = (PolyObject*)p;
+            POLYUNSIGNED length = obj->Length();
+            relocate.RelocateObject(obj);
+            p += length;
+        }
+    }
+
+    return root;
 
 #else
     for (unsigned i = 0; i < exports->memTableEntries; i++)
@@ -1877,5 +1905,6 @@ void InitHeaderFromExport(struct _exportDescription *exports)
             (unsigned)memTable[i].mtIndex) == 0)
             Exit("Unable to initialise a permanent memory space");
     }
+    return (PolyObject *)exports->rootFunction;
 #endif
 }
