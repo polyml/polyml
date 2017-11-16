@@ -353,7 +353,18 @@ struct
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
                 fun doBindings([], context, tailCode) = (tailCode, context)
-                    
+ 
+                |   doBindings(BICDeclar{value=BICExtract(BICLoadLocal l), addr, ...} :: decs, context, tailCode) =
+                    let
+                        (* Giving a new name to an existing entry.  This should have been removed
+                           at a higher level but it doesn't always seem to be.  In particular we
+                           must treat this specially if it's a container. *)
+                        val original = Array.sub(locToPregArray, l)
+                        val () = Array.update(locToPregArray, addr, original)
+                    in
+                        doBindings(decs, context, tailCode)
+                    end
+
                 |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
                     let
                         val (code, dest) = codeToPRegRev(value, context, tailCode)

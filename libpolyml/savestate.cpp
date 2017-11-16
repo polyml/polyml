@@ -915,7 +915,8 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
     if (val.IsTagged()) return;
 
     // Which segment is this address in?
-    uintptr_t t = (uintptr_t)val.AsAddress();
+    // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
+    uintptr_t t = (uintptr_t)(val.AsStackAddr() - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
@@ -927,7 +928,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
             // It's in this segment: relocate it to the current position.
             unsigned i = tr->index;
             SavedStateSegmentDescr *descr = &descrs[i];
-            PolyWord *newAddress = targetAddresses[i];
+            PolyWord *newAddress = targetAddresses[descr->segmentIndex];
             ASSERT(val.AsAddress() > descr->originalAddress &&
                 val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize);
             ASSERT(newAddress != 0);
@@ -1109,15 +1110,14 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     {
         unsigned maxIndex = 0;
         for (unsigned i = 0; i < relocate.nDescrs; i++)
+        {
             if (relocate.descrs[i].segmentIndex > maxIndex)
                 maxIndex = relocate.descrs[i].segmentIndex;
-        relocate.targetAddresses = new PolyWord*[maxIndex+1];
-        for (unsigned i = 0; i <= maxIndex; i++)
-        {
-            relocate.targetAddresses[i] = 0;
             relocate.AddTreeRange(&relocate.spaceTree, i, (uintptr_t)relocate.descrs[i].originalAddress,
                 (uintptr_t)((char*)relocate.descrs[i].originalAddress + relocate.descrs[i].segmentSize-1));
         }
+        relocate.targetAddresses = new PolyWord*[maxIndex+1];
+        for (unsigned i = 0; i <= maxIndex; i++) relocate.targetAddresses[i] = 0;
     }
 
     // Read in and create the new segments first.  If we have problems,
