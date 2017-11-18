@@ -920,7 +920,8 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
 
     // Which segment is this address in?
     // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
-    uintptr_t t = (uintptr_t)(val.AsStackAddr(baseAddr) - 1);
+    PolyWord *valAddr = val.AsStackAddr(baseAddr);
+    uintptr_t t = (uintptr_t)(valAddr - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
@@ -933,10 +934,10 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
             unsigned i = tr->index;
             SavedStateSegmentDescr *descr = &descrs[i];
             PolyWord *newAddress = targetAddresses[descr->segmentIndex];
-            ASSERT(val.AsAddress() > descr->originalAddress &&
-                val.AsAddress() <= (char*)descr->originalAddress + descr->segmentSize);
+            ASSERT((char*)valAddr > descr->originalAddress &&
+                (char*)valAddr <= (char*)descr->originalAddress + descr->segmentSize);
             ASSERT(newAddress != 0);
-            byte *setAddress = (byte*)newAddress + ((char*)val.AsAddress() - (char*)descr->originalAddress);
+            byte *setAddress = (byte*)newAddress + ((char*)valAddr - (char*)descr->originalAddress);
             *pt = PolyWord::FromCodePtr(setAddress);
             return;
         }
@@ -1892,7 +1893,7 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
-            relocate.RelocateObject(obj);
+            relocate.RelocateObject(obj, (PolyWord*)exports->originalBaseAddr);
             p += length;
         }
     }
