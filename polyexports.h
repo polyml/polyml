@@ -72,6 +72,7 @@ typedef struct _exportDescription {
     time_t timeStamp;              // Creation time stamp
     unsigned architecture;         // Machine architecture
     unsigned rtsVersion;           // Run-time system version
+    void *originalBaseAddr;        // Original base address (32-in-64 only)
 } exportDescription;
 
 extern exportDescription poly_exports;

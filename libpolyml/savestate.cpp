@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -851,8 +851,12 @@ public:
     LoadRelocate(): descrs(0), targetAddresses(0), nDescrs(0), errorMessage(0), spaceTree(0) {}
     ~LoadRelocate();
 
-    void RelocateObject(PolyObject *p);
-    void RelocateAddressAt(PolyWord *pt);
+#ifdef POLYML32IN64
+    void RelocateObject(PolyObject *p, PolyWord *baseAddr = globalHeapBase);
+#else
+    void RelocateObject(PolyObject *p, PolyWord *baseAddr = 0);
+#endif
+    void RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr);
     void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
 
     SavedStateSegmentDescr *descrs;
@@ -908,7 +912,7 @@ void LoadRelocate::AddTreeRange(SpaceBTree **tt, unsigned index, uintptr_t start
 
 
 // Update the addresses in a group of words.
-void LoadRelocate::RelocateAddressAt(PolyWord *pt)
+void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
 {
     PolyWord val = *pt;
 
@@ -916,7 +920,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
 
     // Which segment is this address in?
     // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
-    uintptr_t t = (uintptr_t)(val.AsStackAddr() - 1);
+    uintptr_t t = (uintptr_t)(val.AsStackAddr(baseAddr) - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
@@ -947,7 +951,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt)
 // This is based on Exporter::relocateObject but does the reverse.
 // It attempts to adjust all the addresses in the object when it has
 // been read in.
-void LoadRelocate::RelocateObject(PolyObject *p)
+void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
 {
     if (p->IsByteObject())
     {
@@ -959,14 +963,14 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         ASSERT(! p->IsMutable() );
         p->GetConstSegmentForCode(cp, constCount);
         /* Now the constant area. */
-        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
+        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]), baseAddr);
         // N.B. This does not deal with constants within the code.  These have
         // to be handled by real relocation entries.
     }
     else /* Ordinary objects, essentially tuples. */
     {
         POLYUNSIGNED length = p->Length();
-        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i));
+        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i), baseAddr);
     }
 }
 

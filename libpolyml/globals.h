@@ -166,13 +166,13 @@ public:
     POLYUNSIGNED UnTaggedUnsigned(void) const { return contents.unsignedInt >> POLY_TAGSHIFT; }
 #ifdef POLYML32IN64
     PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
-    PolyWord *AsStackAddr(void) const { return globalHeapBase + contents.objectPtr; }
+    PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + contents.objectPtr; }
     POLYOBJPTR AsObjPtr(void) const { return (POLYOBJPTR)AsStackAddr(); }
 #else
     // An object pointer can become a word directly.
     PolyWord(POLYOBJPTR p) { contents.objectPtr = p; }
     POLYOBJPTR AsObjPtr(void) const { return contents.objectPtr; }
-    PolyWord *AsStackAddr(void) const { return (PolyWord *)contents.objectPtr; }
+    PolyWord *AsStackAddr(PolyWord *base=0) const { return (PolyWord *)contents.objectPtr; }
 #endif
     POLYCODEPTR AsCodePtr(void) const { return (POLYCODEPTR)AsObjPtr(); }
     void *AsAddress(void)const { return AsCodePtr(); }

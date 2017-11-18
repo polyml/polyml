@@ -351,6 +351,11 @@ void PECOFFExport::exportStore(void)
     exports.timeStamp = now;
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
+#ifdef POLYML32IN64
+    exports.originalBaseAddr = globalHeapBase;
+#else
+    exports.originalBaseAddr = 0; 
+#endif
 
     // Set the address values to zero before we write.  They will always
     // be relative to their base symbol.

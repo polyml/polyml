@@ -483,6 +483,11 @@ void MachoExport::exportStore(void)
     exports.timeStamp = getBuildTime();
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
+#ifdef POLYML32IN64
+    exports.originalBaseAddr = globalHeapBase;
+#else
+    exports.originalBaseAddr = 0;
+#endif
 
     sections[memTableEntries].offset = ftell(exportFile);
     fwrite(&exports, sizeof(exports), 1, exportFile);
