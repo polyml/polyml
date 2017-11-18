@@ -940,9 +940,9 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
                     Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
-                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
-                        get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
                     /* If the timeout time is earlier than the current time
                        we must return, otherwise we block. */
                     taskData->saveVec.reset(hSave);
@@ -1014,9 +1014,9 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
                     Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
-                        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
-                        get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+                        get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
                     taskData->saveVec.reset(hSave);
                     /* If the timeout time is earlier than the current time
                        we must return, otherwise we block. */
@@ -1400,9 +1400,9 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
         Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
         /* N.B. Arguments to div_longc and rem_longc are in reverse order. */
         unsigned secs =
-            get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+            get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
         unsigned usecs =
-            get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
         times[0].tv_sec = times[1].tv_sec = secs;
         times[0].tv_usec = times[1].tv_usec = usecs;
         if (utimes(cFileName, times) != 0)
