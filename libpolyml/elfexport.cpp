@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-17 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -273,7 +273,7 @@ void ELFExport::addExternalReference(void *relocAddr, const char *name)
 void ELFExport::setRelocationAddress(void *p, ElfXX_Addr *reloc)
 {
     unsigned area = findArea(p);
-    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
+    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtOriginalAddr;
     *reloc = offset;
 }
 
@@ -282,7 +282,7 @@ PolyWord ELFExport::createRelocation(PolyWord p, void *relocAddr)
 {
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
     return writeRelocation(offset, relocAddr, AreaToSym(addrArea), false);
 }
 
@@ -330,7 +330,7 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         return;
 
     // Set the value at the address to the offset relative to the symbol.
-    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtAddr;
+    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
 
     switch (code)
     {
@@ -415,7 +415,7 @@ void ELFExport::alignFile(int align)
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
 
-void ELFExport::createStructsRelocation(unsigned sym, POLYUNSIGNED offset, POLYSIGNED addend)
+void ELFExport::createStructsRelocation(unsigned sym, size_t offset, size_t addend)
 {
 #if USE_RELA
     ElfXX_Rela reloc;
@@ -596,7 +596,7 @@ void ELFExport::exportStore(void)
         sections[relocSection].sh_offset = ftell(exportFile);
         relocationCount = 0;
         // Create the relocation table and turn all addresses into offsets.
-        char *start = (char*)memTable[i].mtAddr;
+        char *start = (char*)memTable[i].mtOriginalAddr;
         char *end = start + memTable[i].mtLength;
         for (p = (PolyWord*)start; p < (PolyWord*)end; )
         {
@@ -625,19 +625,19 @@ void ELFExport::exportStore(void)
 
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
-    POLYSIGNED memTableOffset = (POLYSIGNED)sizeof(exportDescription); // It follows immediately after this.
+    size_t memTableOffset = sizeof(exportDescription); // It follows immediately after this.
     createStructsRelocation(AreaToSym(memTableEntries), offsetof(exportDescription, memTable), memTableOffset);
 
     // Address of "rootFunction" within "exports"
     unsigned rootAddrArea = findArea(rootFunction);
-    POLYSIGNED rootOffset = (char*)rootFunction - (char*)memTable[rootAddrArea].mtAddr;
+    size_t rootOffset = (char*)rootFunction - (char*)memTable[rootAddrArea].mtOriginalAddr;
     createStructsRelocation(AreaToSym(rootAddrArea), offsetof(exportDescription, rootFunction), rootOffset);
 
     // Addresses of the areas within memtable.
     for (i = 0; i < memTableEntries; i++)
     {
         createStructsRelocation(AreaToSym(i),
-            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr),
+            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtCurrentAddr),
             0 /* No offset relative to base symbol*/);
     }
 
@@ -679,7 +679,7 @@ void ELFExport::exportStore(void)
         sections[dataSection].sh_size = memTable[i].mtLength;
         alignFile(sections[dataSection].sh_addralign);
         sections[dataSection].sh_offset = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
     }
 
     exportDescription exports;
@@ -698,7 +698,7 @@ void ELFExport::exportStore(void)
     // Set the address values to zero before we write.  They will always
     // be relative to their base symbol.
     for (i = 0; i < memTableEntries; i++)
-        memTable[i].mtAddr = 0;
+        memTable[i].mtCurrentAddr = 0;
 
     // Now the binary data.
     alignFile(sections[sect_table_data].sh_addralign);

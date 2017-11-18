@@ -2,7 +2,7 @@
     Title:     Export memory as an ELF object file
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2016 David C. J. Matthews
+    Copyright (c) 2006, 2016-17 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -114,7 +114,7 @@ private:
     void writeSymbol(const char *symbolName, long value, long size, int binding, int sttype, int section);
     unsigned long makeStringTableEntry(const char *str, ExportStringTable *stab);
     void alignFile(int align);
-    void createStructsRelocation(unsigned area, POLYUNSIGNED offset, POLYSIGNED addend);
+    void createStructsRelocation(unsigned area, size_t offset, size_t addend);
 
     unsigned relocationCount;
 
