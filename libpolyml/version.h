@@ -24,15 +24,15 @@
 #define VERSION_H_INCLUDED
 
 // Poly/ML system interface level
-#define POLY_version_number    570
+#define POLY_version_number    571
 // POLY_version_number is written into all exported files and tested
 // when we start up.  The idea is to ensure that if a file is exported
 // from one version of the library it will run successfully if linked
 // with a different version.
-// This only supports version 5.7
-#define FIRST_supported_version 570
-#define LAST_supported_version  570
+// This only supports version 5.7.1
+#define FIRST_supported_version 571
+#define LAST_supported_version  571
 
-#define TextVersion             "5.7"
+#define TextVersion             "5.7.1"
 
 #endif
