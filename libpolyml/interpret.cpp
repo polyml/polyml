@@ -618,7 +618,7 @@ int IntTaskData::SwitchToPoly()
             // Check there is space on the stack
             if (sp - stackCheck < sl)
             {
-                uintptr_t min_size = this->stack->top - (PolyWord*)(sp + OVERFLOW_STACK_SIZE + stackCheck);
+                uintptr_t min_size = (this->stack->top - (PolyWord*)sp) + OVERFLOW_STACK_SIZE + stackCheck;
                 SaveInterpreterState(pc, sp);
                 CheckAndGrowStack(this, min_size);
                 LoadInterpreterState(pc, sp);
