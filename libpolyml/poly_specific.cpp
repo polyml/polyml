@@ -71,7 +71,7 @@ extern "C" {
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
+    "Copyright (c) 2002-17 David C.J. Matthews, CUTS and contributors.";
 
 #ifndef GIT_VERSION
 #define GIT_VERSION             ""
