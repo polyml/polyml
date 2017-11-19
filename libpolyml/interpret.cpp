@@ -1695,7 +1695,7 @@ int IntTaskData::SwitchToPoly()
             // This is similar to loadMLByte except that the base address is a boxed large-word.
             // Also the index is SIGNED.
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr()));
             *sp = TAGGED(p[index]); // Have to tag the result
             break;
         }
@@ -1706,7 +1706,7 @@ int IntTaskData::SwitchToPoly()
             // index and offset values.
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             POLYUNSIGNED r = ((uint16_t*)p)[index];
             *sp = TAGGED(r);
             break;
@@ -1716,7 +1716,7 @@ int IntTaskData::SwitchToPoly()
         {
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             uintptr_t r = ((uint32_t*)p)[index];
 #ifdef IS64BITS
             // This is tagged in 64-bit mode
@@ -1737,7 +1737,7 @@ int IntTaskData::SwitchToPoly()
         {
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             uintptr_t r = ((uint64_t*)p)[index];
             // This must be boxed.
             PolyObject *t = this->allocateMemory(LGWORDSIZE, pc, sp);
@@ -1753,7 +1753,7 @@ int IntTaskData::SwitchToPoly()
         {
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             double r = ((float*)p)[index];
             // This must be boxed.
             PolyObject *t = this->boxDouble(r, pc, sp);
@@ -1766,7 +1766,7 @@ int IntTaskData::SwitchToPoly()
         {
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             double r = ((double*)p)[index];
             // This must be boxed.
             PolyObject *t = this->boxDouble(r, pc, sp);
@@ -1811,7 +1811,7 @@ int IntTaskData::SwitchToPoly()
             // Similar to storeMLByte except that the base address is a boxed large-word.
             POLYUNSIGNED toStore = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr()));
             p[index] = (byte)toStore;
             *sp = Zero;
             break; 
@@ -1822,7 +1822,7 @@ int IntTaskData::SwitchToPoly()
             uint16_t toStore = (uint16_t)UNTAGGED(*sp++);
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             ((uint16_t*)p)[index] = toStore;
             *sp = Zero;
             break;
@@ -1839,7 +1839,7 @@ int IntTaskData::SwitchToPoly()
 #endif
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             ((uint32_t*)p)[index] = toStore;
             *sp = Zero;
             break;
@@ -1852,7 +1852,7 @@ int IntTaskData::SwitchToPoly()
             uint64_t toStore = *(uintptr_t*)((*sp++).w().AsObjPtr());
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             ((uint64_t*)p)[index] = toStore;
             *sp = Zero;
             break;
@@ -1865,7 +1865,7 @@ int IntTaskData::SwitchToPoly()
             float toStore = (float)unboxDouble(*sp++);
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             ((float*)p)[index] = toStore;
             *sp = Zero;
             break;
@@ -1877,7 +1877,7 @@ int IntTaskData::SwitchToPoly()
             double toStore = unboxDouble(*sp++);
             POLYSIGNED offset = UNTAGGED(*sp++);
             POLYSIGNED index = UNTAGGED(*sp++);
-            POLYCODEPTR p = (*sp).w().AsObjPtr()->Get(0).AsCodePtr() + offset;
+            POLYCODEPTR p = *((byte **)((*sp).w().AsObjPtr())) + offset;
             ((double*)p)[index] = toStore;
             *sp = Zero;
             break;

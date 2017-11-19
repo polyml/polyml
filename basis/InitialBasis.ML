@@ -292,6 +292,7 @@ struct
         val sysWordSize = Word.*(RunCall.memoryCellLength zero, RunCall.bytesPerWord)
         val maxBits = Word.*(sysWordSize, 0w8) (* 32 or 64-bits. *)
     in
+        val wordSize = maxBits
         val op << = fn (a, b) => if Word.>=(b, maxBits) then zero else a << b
         val op >> = fn (a, b) => if Word.>=(b, maxBits) then zero else a >> b
         val op ~>> = fn (a, b) => a ~>> (if Word.>(b, maxBits) then maxBits else b)
@@ -348,11 +349,11 @@ struct
     (* Add wrappers to these functions so that they raise exceptions if they are called. *)
     val get64 =
         fn (s, i) =>
-            if RunCall.bytesPerWord = 0w4
+            if LargeWord.wordSize < 0w64
             then raise RunCall.Foreign "64-bit operations not available" else get64(s, i)
     and set64 =
         fn (s, i, v) =>
-            if RunCall.bytesPerWord = 0w4
+            if LargeWord.wordSize < 0w64
             then raise RunCall.Foreign "64-bit operations not available" else set64(s, i, v)
 end;
 
