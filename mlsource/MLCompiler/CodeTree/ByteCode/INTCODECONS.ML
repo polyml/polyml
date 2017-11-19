@@ -63,15 +63,16 @@ struct
     and opcode_pad               = 0wx0e
     and opcode_raiseEx           = 0wx10
     and opcode_getStoreW         = 0wx11
-    and opcode_nonLocal          = 0wx12
     and opcode_localW            = 0wx13
     and opcode_indirectW         = 0wx14
     and opcode_moveToVecW        = 0wx15
+    and opcode_setContainerW     = 0wx16
     and opcode_setStackValW      = 0wx17
     and opcode_resetW            = 0wx18
     and opcode_resetR_w          = 0wx19
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
+    and opcode_setContainerB     = 0wx1c
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
@@ -125,9 +126,6 @@ struct
     and opcode_getStore_3        = 0wx53
     and opcode_getStore_4        = 0wx54
     and opcode_tuple_containerW  = 0wx55
-    and opcode_nonLocalL_1       = 0wx56
-    and opcode_nonLocalL_2       = 0wx57
-    and opcode_nonLocalL_3       = 0wx58
     and opcode_resetR_1          = 0wx64
     and opcode_resetR_2          = 0wx65
     and opcode_resetR_3          = 0wx66
@@ -138,6 +136,11 @@ struct
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
+    and opcode_setContainer_0    = 0wx6e
+    and opcode_setContainer_1    = 0wx6f
+    and opcode_setContainer_2    = 0wx70
+    and opcode_setContainer_3    = 0wx71
+    and opcode_setContainer_4    = 0wx72
     and opcode_pushHandler       = 0wx78
     and opcode_tailbb            = 0wx7b
     and opcode_tail              = 0wx7c
@@ -291,15 +294,16 @@ struct
         val () = repUpdate(opcode_pad,          "pad");
         val () = repUpdate(opcode_raiseEx,      "raiseEx");
         val () = repUpdate(opcode_getStoreW,    "getStoreW");
-        val () = repUpdate(opcode_nonLocal,     "nonLocal");
         val () = repUpdate(opcode_localW,       "localW");
         val () = repUpdate(opcode_indirectW,    "indirectW");
         val () = repUpdate(opcode_moveToVecW,   "moveToVecW");
+        val () = repUpdate(opcode_setContainerW, "setContainerW");
         val () = repUpdate(opcode_setStackValW, "setStackValW");
         val () = repUpdate(opcode_resetW,        "resetW");
         val () = repUpdate(opcode_resetR_w,      "resetR_w");
         val () = repUpdate(opcode_constAddr16,   "constAddr16");
         val () = repUpdate(opcode_constIntW,     "constIntW");
+        val () = repUpdate(opcode_setContainerB, "setContainerB");
         val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
         val () = repUpdate(opcode_returnB,       "returnB");
         val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
@@ -352,9 +356,6 @@ struct
         val () = repUpdate(opcode_getStore_2,    "getStore_2");
         val () = repUpdate(opcode_getStore_3,    "getStore_3");
         val () = repUpdate(opcode_getStore_4,    "getStore_4");
-        val () = repUpdate(opcode_nonLocalL_1,   "nonLocalL_1");
-        val () = repUpdate(opcode_nonLocalL_2,   "nonLocalL_2");
-        val () = repUpdate(opcode_nonLocalL_3,   "nonLocalL_3");
         val () = repUpdate(opcode_resetR_1,      "resetR_1");
         val () = repUpdate(opcode_resetR_2,      "resetR_2");
         val () = repUpdate(opcode_resetR_3,      "resetR_3");
@@ -365,6 +366,11 @@ struct
         val () = repUpdate(opcode_tuple_4,       "tuple_4");
         val () = repUpdate(opcode_lock,          "lock");
         val () = repUpdate(opcode_ldexc,         "ldexc");
+        val () = repUpdate(opcode_setContainer_0,   "setContainer_0");
+        val () = repUpdate(opcode_setContainer_1,   "setContainer_1");
+        val () = repUpdate(opcode_setContainer_2,   "setContainer_2");
+        val () = repUpdate(opcode_setContainer_3,   "setContainer_3");
+        val () = repUpdate(opcode_setContainer_4,   "setContainer_4");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
         val () = repUpdate(opcode_tailbb,        "tailbb");
@@ -511,10 +517,10 @@ struct
         val () = sizeUpdate(opcode_case16      , 3);
         val () = sizeUpdate(opcode_returnW     , 3);
         val () = sizeUpdate(opcode_getStoreW   , 3);
-        val () = sizeUpdate(opcode_nonLocal    , 7);
         val () = sizeUpdate(opcode_localW      , 3);
         val () = sizeUpdate(opcode_indirectW   , 3);
         val () = sizeUpdate(opcode_moveToVecW  , 3);
+        val () = sizeUpdate(opcode_setContainerW  , 3);
         val () = sizeUpdate(opcode_setStackValW, 3);
         val () = sizeUpdate(opcode_resetW      , 3);
         val () = sizeUpdate(opcode_resetR_w    , 3);
@@ -527,13 +533,11 @@ struct
         val () = sizeUpdate(opcode_localB      , 2);
         val () = sizeUpdate(opcode_indirectB   , 2);
         val () = sizeUpdate(opcode_moveToVecB  , 2);
+        val () = sizeUpdate(opcode_setContainerB, 2);
         val () = sizeUpdate(opcode_setStackValB, 2);
         val () = sizeUpdate(opcode_resetB      , 2);
         val () = sizeUpdate(opcode_resetRB     , 2);
         val () = sizeUpdate(opcode_constIntB   , 2);
-        val () = sizeUpdate(opcode_nonLocalL_1 , 2);
-        val () = sizeUpdate(opcode_nonLocalL_2 , 2);
-        val () = sizeUpdate(opcode_nonLocalL_3 , 2);
         val () = sizeUpdate(opcode_tupleW      , 3);
         val () = sizeUpdate(opcode_tupleB      , 2);
         val () = sizeUpdate(opcode_setHandler  , 2);
@@ -720,9 +724,6 @@ struct
                     printHex((!ptr - 0w1) - getB(2, !ptr, seg));
                     ptr := !ptr + 0w2
                 )
-     
-                else if opc = opcode_nonLocal
-                then ( printOp (2, "\t"); printOp (2, ","); printOp(2, ","))
 
                 else if opc = opcode_case16
                 then
@@ -1246,7 +1247,10 @@ struct
             gen1 (opcode_indirectW, opcode_indirectB, opcode_indirect_0, 0, 5, arg1, cvec);
 
         fun genMoveToVec (arg1, cvec) =
-            gen1 (opcode_moveToVecW, opcode_moveToVecB, opcode_moveToVec_0, 0, 7, arg1, cvec);
+            gen1 (opcode_moveToVecW, opcode_moveToVecB, opcode_moveToVec_0, 0, 7, arg1, cvec)
+            
+        fun genSetContainer (arg1, cvec) =
+            gen1 (opcode_setContainerW, opcode_setContainerB, opcode_setContainer_0, 0, 4, arg1, cvec)
 
         fun genSetStackVal (arg1, cvec) =
             gen1 (opcode_setStackValW, opcode_setStackValB,

@@ -44,7 +44,7 @@ POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
 endif
 else
 if ARCHINTERPRET32IN64
-POLYIMPORT = $(srcdir)/imports/polymlint.txt
+POLYIMPORT = $(srcdir)/imports/polymlint32in64.txt
 else
 endif
 endif

@@ -40,15 +40,16 @@
 #define INSTR_jump_i_u      0x0f    // Legacy
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
-#define INSTR_non_local     0x12
 #define INSTR_local_w       0x13
 #define INSTR_indirect_w    0x14
 #define INSTR_move_to_vec_w 0x15
+#define INSTR_set_container_w   0x16
 #define INSTR_set_stack_val_w   0x17
 #define INSTR_reset_w       0x18
 #define INSTR_reset_r_w     0x19
 #define INSTR_constAddr16   0x1a
 #define INSTR_const_int_w   0x1b
+#define INSTR_set_container_b   0x1c
 #define INSTR_jump_back8    0x1e
 #define INSTR_return_b      0x1f
 #define INSTR_jump_back16   0x20
@@ -102,9 +103,6 @@
 #define INSTR_get_store_3   0x53
 #define INSTR_get_store_4   0x54
 #define INSTR_tuple_container 0x55
-#define INSTR_non_local_l_1 0x56
-#define INSTR_non_local_l_2 0x57
-#define INSTR_non_local_l_3 0x58
 #define INSTR_reset_r_1     0x64
 #define INSTR_reset_r_2     0x65
 #define INSTR_reset_r_3     0x66
@@ -115,6 +113,11 @@
 #define INSTR_tuple_4       0x6b
 #define INSTR_lock          0x6c
 #define INSTR_ldexc         0x6d
+#define INSTR_set_container_0   0x6e
+#define INSTR_set_container_1   0x6f
+#define INSTR_set_container_2   0x70
+#define INSTR_set_container_3   0x71
+#define INSTR_set_container_4   0x72
 #define INSTR_push_handler  0x78
 #define INSTR_tail_b_b      0x7b
 #define INSTR_tail          0x7c

@@ -419,7 +419,7 @@ struct
                                 gencde (v, ToStack, NotEnd, loopAddr);
                                 (* Move the entry into the container. This instruction
                                    pops the value to be moved but not the destination. *)
-                                genMoveToVec(destOffset, cvec);
+                                genSetContainer(destOffset, cvec);
                                 decsp();
                                 setValues(tl, sourceOffset+1, destOffset+1)
                             )
@@ -443,7 +443,7 @@ struct
                                 (* Duplicate the tuple address . *)
                                 genLocal(1, cvec);
                                 genIndirect(sourceOffset, cvec);
-                                genMoveToVec(destOffset, cvec);
+                                genSetContainer(destOffset, cvec);
                                 if sourceOffset = last
                                 then ()
                                 else copy (sourceOffset+1, destOffset+1)
@@ -646,7 +646,6 @@ struct
 
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
-                wordSize = 8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
                 genNonByteAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()

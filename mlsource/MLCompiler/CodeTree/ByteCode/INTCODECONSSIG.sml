@@ -138,6 +138,7 @@ sig
    val genLocal       : int * code -> unit
    val genIndirect    : int * code -> unit
    val genMoveToVec   : int * code -> unit
+   val genSetContainer   : int * code -> unit
    val genSetStackVal : int * code -> unit
    val genCase        : int * code -> labels list
    val genTuple       : int * code -> unit

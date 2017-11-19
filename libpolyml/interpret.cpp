@@ -700,6 +700,7 @@ int IntTaskData::SwitchToPoly()
             *sp = (*sp).w().AsObjPtr()->Get(arg1); pc += 2; break;
 
         case INSTR_move_to_vec_w:
+        case INSTR_set_container_w:
             {
                 PolyWord u = *sp++;
                 (*sp).w().AsObjPtr()->Set(arg1, u);
@@ -779,6 +780,7 @@ int IntTaskData::SwitchToPoly()
             *sp = (*sp).w().AsObjPtr()->Get(*pc); pc += 1; break;
 
         case INSTR_move_to_vec_b:
+        case INSTR_set_container_b:
             { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(*pc, u); pc += 1; break; }
 
         case INSTR_set_stack_val_b:
@@ -829,11 +831,17 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_4: *(--sp) = TAGGED(4); break;
         case INSTR_const_10: *(--sp) = TAGGED(10); break;
 
-        case INSTR_move_to_vec_0:  { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(0, u); break; }
-        case INSTR_move_to_vec_1: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(1, u); break; }
-        case INSTR_move_to_vec_2: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(2, u); break; }
-        case INSTR_move_to_vec_3: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(3, u); break; }
-        case INSTR_move_to_vec_4: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(4, u); break; }
+            // Move-to-vec is now only used for closures.
+        case INSTR_move_to_vec_0: case INSTR_set_container_0:
+        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(0, u); break; }
+        case INSTR_move_to_vec_1: case INSTR_set_container_1:
+        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(1, u); break; }
+        case INSTR_move_to_vec_2: case INSTR_set_container_2:
+        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(2, u); break; }
+        case INSTR_move_to_vec_3: case INSTR_set_container_3:
+        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(3, u); break; }
+        case INSTR_move_to_vec_4: case INSTR_set_container_4:
+        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(4, u); break; }
         case INSTR_move_to_vec_5: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(5, u); break; }
         case INSTR_move_to_vec_6: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(6, u); break; }
         case INSTR_move_to_vec_7: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(7, u); break; }

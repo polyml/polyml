@@ -630,14 +630,6 @@ bool PImport::DoImport()
             fscanf(f, "%" POLYUFMT, &nBytes);
             /* Round up to appropriate number of words. */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
-#ifdef POLYML32IN64
-            if ((objBits & F_MUTABLE_BIT) && (objBits & F_WEAK_BIT) && nWords > 2)
-            {
-                // Backwards compatibility - we need to make it slightly larger
-                // to accommodate the larger entry point address.
-                nWords += 1;
-            }
-#endif
             break;
 
         case 'S': /* String. */
@@ -746,11 +738,6 @@ bool PImport::DoImport()
                 // If this is an entry point object set its value.
                 if (p->IsMutable() && p->IsWeakRefObject() && p->Length() > 2 && p->Get(2).AsUnsigned() != 0)
                 {
-#ifdef POLYML32IN64
-                    // Backwards compatibility hack.  The 32-bit values are too small.
-                    if (*(uintptr_t*)p != 0)
-                        memmove(u + 4, u, nBytes);
-#endif
                     bool loadEntryPt = setEntryPoint(p);
                     ASSERT(loadEntryPt);
                 }
