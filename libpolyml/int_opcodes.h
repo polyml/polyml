@@ -28,16 +28,12 @@
 
 #define INSTR_jump8         0x02
 #define INSTR_jump8false    0x03
-#define INSTR_del_handler   0x05    // Legacy
 #define INSTR_alloc_ref     0x06
-#define INSTR_jump_i_false  0x07    // Legacy
-#define INSTR_del_handler_i 0x09    // Legacy
 #define INSTR_case16        0x0a
 #define INSTR_stack_container 0x0b
 #define INSTR_call_closure  0x0c
 #define INSTR_return_w      0x0d
 #define INSTR_pad           0x0e
-#define INSTR_jump_i_u      0x0f    // Legacy
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
 #define INSTR_local_w       0x13
@@ -126,7 +122,6 @@
 #define INSTR_tail_3_2      0x7f
 #define INSTR_tail_3_3      0x80
 #define INSTR_setHandler8   0x81
-#define INSTR_set_handler_new_i 0x82    // Legacy
 #define INSTR_callFastRTS0      0x83
 #define INSTR_callFastRTS1      0x84
 #define INSTR_callFastRTS2      0x85

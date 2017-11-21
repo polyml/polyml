@@ -428,19 +428,6 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
-        case INSTR_del_handler: /* Delete handler retaining the result. */
-            {
-                stackItem u = *sp++;
-                sp = this->hr;
-                if ((*sp).w() == TAGGED(0)) sp++; // Legacy
-                sp++; // Skip handler entry point
-                // Restore old handler
-                this->hr = (*sp).stackAddr;
-                *sp = u; // Put back the result
-                pc += *pc + 1; /* Skip the handler */
-                break;
-            }
-
         case INSTR_deleteHandler: /* Delete handler retaining the result. */
         {
             stackItem u = *sp++;
@@ -450,41 +437,6 @@ int IntTaskData::SwitchToPoly()
             *sp = u; // Put back the result
             break;
         }
-
-        case INSTR_jump_i_false:
-            if ((*sp++).w() == True) { pc += 1; break; }
-            /* else - false - take the jump */
-
-        case INSTR_jump_i_u: /* Indirect jump */
-            {
-                // This is always a forward jump
-                pc += *pc + 1;
-                pc += arg1 + 2;
-                break;
-            }
-
-        case INSTR_set_handler_new_i: /* Set up a handler */
-            {
-                byte *u = pc + *pc + 1;
-                (*(--sp)).codeAddr = u + u[0] + u[1] * 256 + 2; // Address of handler
-                this->hr = sp;
-                pc += 1;
-                break;
-            }
-
-        case INSTR_del_handler_i: /* Delete handler retaining the result. */
-            {
-                stackItem u = *sp++;
-                stackItem *t;
-                sp = this->hr;
-                stackItem *endStack = (stackItem *)this->stack->top;
-                while((t = (*sp).stackAddr) < sp || t > endStack) sp++;
-                this->hr = t;
-                *sp = u;
-                pc += *pc + 1; /* Skip the handler */
-                pc += arg1 + 2;
-                break;
-            }
 
         case INSTR_case16:
             {
