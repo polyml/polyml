@@ -112,14 +112,14 @@ struct
     and opcode_return_1          = 0wx42
     and opcode_return_2          = 0wx43
     and opcode_return_3          = 0wx44
-    and opcode_moveToVec_0       = 0wx45
+(*    and opcode_moveToVec_0       = 0wx45
     and opcode_moveToVec_1       = 0wx46
     and opcode_moveToVec_2       = 0wx47
     and opcode_moveToVec_3       = 0wx48
     and opcode_moveToVec_4       = 0wx49
     and opcode_moveToVec_5       = 0wx4a
     and opcode_moveToVec_6       = 0wx4b
-    and opcode_moveToVec_7       = 0wx4c
+    and opcode_moveToVec_7       = 0wx4c*)
     and opcode_reset_1           = 0wx50
     and opcode_reset_2           = 0wx51
     and opcode_getStore_2        = 0wx52
@@ -141,6 +141,11 @@ struct
     and opcode_setContainer_2    = 0wx70
     and opcode_setContainer_3    = 0wx71
     and opcode_setContainer_4    = 0wx72
+    and opcode_indContainerB     = 0wx73
+    and opcode_indContainerW     = 0wx74
+    and opcode_indContainer0     = 0wx75
+    and opcode_indContainer1     = 0wx76
+    and opcode_indContainer2     = 0wx77
     and opcode_pushHandler       = 0wx78
     and opcode_tailbb            = 0wx7b
     and opcode_tail              = 0wx7c
@@ -343,14 +348,6 @@ struct
         val () = repUpdate(opcode_return_1,      "return_1");
         val () = repUpdate(opcode_return_2,      "return_2");
         val () = repUpdate(opcode_return_3,      "return_3");
-        val () = repUpdate(opcode_moveToVec_0,   "moveToVec_0");
-        val () = repUpdate(opcode_moveToVec_1,   "moveToVec_1");
-        val () = repUpdate(opcode_moveToVec_2,   "moveToVec_2");
-        val () = repUpdate(opcode_moveToVec_3,   "moveToVec_3");
-        val () = repUpdate(opcode_moveToVec_4,   "moveToVec_4");
-        val () = repUpdate(opcode_moveToVec_5,   "moveToVec_5");
-        val () = repUpdate(opcode_moveToVec_6,   "moveToVec_6");
-        val () = repUpdate(opcode_moveToVec_7,   "moveToVec_7");
         val () = repUpdate(opcode_reset_1,       "reset_1");
         val () = repUpdate(opcode_reset_2,       "reset_2");
         val () = repUpdate(opcode_getStore_2,    "getStore_2");
@@ -371,6 +368,11 @@ struct
         val () = repUpdate(opcode_setContainer_2,   "setContainer_2");
         val () = repUpdate(opcode_setContainer_3,   "setContainer_3");
         val () = repUpdate(opcode_setContainer_4,   "setContainer_4");
+        val () = repUpdate(opcode_indContainerB,    "indContainerB");
+        val () = repUpdate(opcode_indContainerW,    "indContainerW");
+        val () = repUpdate(opcode_indContainer0,    "indContainer0");
+        val () = repUpdate(opcode_indContainer1,    "indContainer1");
+        val () = repUpdate(opcode_indContainer2,    "indContainer2");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
         val () = repUpdate(opcode_tailbb,        "tailbb");
@@ -521,6 +523,7 @@ struct
         val () = sizeUpdate(opcode_indirectW   , 3);
         val () = sizeUpdate(opcode_moveToVecW  , 3);
         val () = sizeUpdate(opcode_setContainerW  , 3);
+        val () = sizeUpdate(opcode_indContainerW  , 3);
         val () = sizeUpdate(opcode_setStackValW, 3);
         val () = sizeUpdate(opcode_resetW      , 3);
         val () = sizeUpdate(opcode_resetR_w    , 3);
@@ -534,6 +537,7 @@ struct
         val () = sizeUpdate(opcode_indirectB   , 2);
         val () = sizeUpdate(opcode_moveToVecB  , 2);
         val () = sizeUpdate(opcode_setContainerB, 2);
+        val () = sizeUpdate(opcode_indContainerB, 2);
         val () = sizeUpdate(opcode_setStackValB, 2);
         val () = sizeUpdate(opcode_resetB      , 2);
         val () = sizeUpdate(opcode_resetRB     , 2);
@@ -1227,9 +1231,9 @@ struct
     end
     
     local
-        fun gen1 (opW, opB, opF, first, last, arg1, cvec) =
-            if (first <= arg1 andalso arg1 <= last)
-            then addItemToList(SimpleCode[opF + Word8.fromInt(arg1 - first)], cvec)
+        fun gen1 (opW, opB, opF, first, arg1, cvec) =
+            if first <= arg1 andalso arg1 < first+List.length opF
+            then addItemToList(SimpleCode[List.nth(opF, arg1 - first)], cvec)
 
             else if 0 <= arg1 andalso arg1 <= 255
             then addItemToList(SimpleCode [opB, Word8.fromInt arg1], cvec)
@@ -1238,26 +1242,57 @@ struct
                 SimpleCode [opW, Word8.fromInt arg1, Word8.fromInt(arg1 div 256)], cvec)
     in
         fun genReturn (arg1, cvec) =
-            gen1 (opcode_returnW, opcode_returnB, opcode_return_0, 0, 3, arg1, cvec)
+        let
+            val ops = [opcode_return_0, opcode_return_1, opcode_return_2, opcode_return_3]
+        in
+            gen1 (opcode_returnW, opcode_returnB, ops, 0, arg1, cvec)
+        end
 
         fun genLocal (arg1, cvec) =
-            gen1 (opcode_localW, opcode_localB, opcode_local_0, 0, 11, arg1, cvec);
+        let
+            val ops = [opcode_local_0, opcode_local_1, opcode_local_2, opcode_local_3, opcode_local_4,
+                       opcode_local_5, opcode_local_6, opcode_local_7, opcode_local_8, opcode_local_9,
+                       opcode_local_10, opcode_local_11]
+        in
+            gen1 (opcode_localW, opcode_localB, ops, 0, arg1, cvec)
+        end
 
         fun genIndirect (arg1, cvec) =
-            gen1 (opcode_indirectW, opcode_indirectB, opcode_indirect_0, 0, 5, arg1, cvec);
+        let
+            val ops = [opcode_indirect_0, opcode_indirect_1, opcode_indirect_2, opcode_indirect_3,
+                       opcode_indirect_4, opcode_indirect_5]
+        in
+            gen1 (opcode_indirectW, opcode_indirectB, ops, 0, arg1, cvec)
+        end
 
+        fun genIndirectContainer (arg1, cvec) =
+        let
+            val ops = [opcode_indContainer0, opcode_indContainer1, opcode_indContainer2]
+        in
+            gen1 (opcode_indContainerW, opcode_indContainerB, ops, 0, arg1, cvec)
+        end
+
+        (* genMoveToVec is now only used for mutually recursive closures. *)
         fun genMoveToVec (arg1, cvec) =
-            gen1 (opcode_moveToVecW, opcode_moveToVecB, opcode_moveToVec_0, 0, 7, arg1, cvec)
+            gen1 (opcode_moveToVecW, opcode_moveToVecB, [], 0, arg1, cvec)
             
         fun genSetContainer (arg1, cvec) =
-            gen1 (opcode_setContainerW, opcode_setContainerB, opcode_setContainer_0, 0, 4, arg1, cvec)
+        let
+            val ops = [opcode_setContainer_0, opcode_setContainer_1, opcode_setContainer_2,
+                       opcode_setContainer_3, opcode_setContainer_4]
+        in
+            gen1 (opcode_setContainerW, opcode_setContainerB, ops, 0, arg1, cvec)
+        end
 
         fun genSetStackVal (arg1, cvec) =
-            gen1 (opcode_setStackValW, opcode_setStackValB,
-                    opcode_setStackValB, (* Don't care - no "implied" form exists *) 1, 0, arg1, cvec);
+            gen1 (opcode_setStackValW, opcode_setStackValB, [], 0, arg1, cvec)
 
         fun genTuple (arg1, cvec) =
-            gen1 (opcode_tupleW, opcode_tupleB, opcode_tuple_2, 2, 4, arg1, cvec)
+        let
+            val ops = [opcode_tuple_2, opcode_tuple_3, opcode_tuple_4]
+        in
+            gen1 (opcode_tupleW, opcode_tupleB, ops, 2, arg1, cvec)
+        end
     end
     
     (* Unused - only used for bootstrapping. *)

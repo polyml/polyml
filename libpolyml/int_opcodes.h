@@ -85,14 +85,14 @@
 #define INSTR_return_1      0x42
 #define INSTR_return_2      0x43
 #define INSTR_return_3      0x44
-#define INSTR_move_to_vec_0 0x45
-#define INSTR_move_to_vec_1 0x46
-#define INSTR_move_to_vec_2 0x47
-#define INSTR_move_to_vec_3 0x48
-#define INSTR_move_to_vec_4 0x49
-#define INSTR_move_to_vec_5 0x4a
-#define INSTR_move_to_vec_6 0x4b
-#define INSTR_move_to_vec_7 0x4c
+#define INSTR_move_to_vec_0 0x45    // Legacy
+#define INSTR_move_to_vec_1 0x46    // Legacy
+#define INSTR_move_to_vec_2 0x47    // Legacy
+#define INSTR_move_to_vec_3 0x48    // Legacy
+#define INSTR_move_to_vec_4 0x49    // Legacy
+#define INSTR_move_to_vec_5 0x4a    // Legacy
+#define INSTR_move_to_vec_6 0x4b    // Legacy
+#define INSTR_move_to_vec_7 0x4c    // Legacy
 #define INSTR_reset_1       0x50
 #define INSTR_reset_2       0x51
 #define INSTR_get_store_2   0x52
@@ -114,6 +114,11 @@
 #define INSTR_set_container_2   0x70
 #define INSTR_set_container_3   0x71
 #define INSTR_set_container_4   0x72
+#define INSTR_indContainerB     0x73
+#define INSTR_indContainerW     0x74
+#define INSTR_indContainer0     0x75
+#define INSTR_indContainer1     0x76
+#define INSTR_indContainer2     0x77
 #define INSTR_push_handler  0x78
 #define INSTR_tail_b_b      0x7b
 #define INSTR_tail          0x7c

@@ -137,6 +137,7 @@ sig
    val genReturn      : int * code -> unit
    val genLocal       : int * code -> unit
    val genIndirect    : int * code -> unit
+   val genIndirectContainer: int * code -> unit
    val genMoveToVec   : int * code -> unit
    val genSetContainer   : int * code -> unit
    val genSetStackVal : int * code -> unit

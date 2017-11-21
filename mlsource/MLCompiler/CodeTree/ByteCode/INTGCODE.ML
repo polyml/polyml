@@ -175,7 +175,7 @@ struct
                 (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
 
         |   BICLoadContainer {base, offset} =>
-                (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
+                (gencde (base, ToStack, NotEnd, loopAddr); genIndirectContainer (offset, cvec))
        
         |   BICLambda lam => genProc (lam, false, fn () => ())
            

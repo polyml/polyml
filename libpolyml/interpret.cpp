@@ -649,6 +649,7 @@ int IntTaskData::SwitchToPoly()
             }
 
         case INSTR_indirect_w:
+        case INSTR_indContainerW:
             *sp = (*sp).w().AsObjPtr()->Get(arg1); pc += 2; break;
 
         case INSTR_move_to_vec_w:
@@ -729,6 +730,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_b: { stackItem u = sp[*pc]; *(--sp) = u; pc += 1; break; }
 
         case INSTR_indirect_b:
+        case INSTR_indContainerB:
             *sp = (*sp).w().AsObjPtr()->Get(*pc); pc += 1; break;
 
         case INSTR_move_to_vec_b:
@@ -759,12 +761,15 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_11: { stackItem u = sp[11]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
+        case INSTR_indContainer0:
             *sp = ((*sp)).w().AsObjPtr()->Get(0); break;
 
         case INSTR_indirect_1:
+        case INSTR_indContainer1:
             *sp = ((*sp)).w().AsObjPtr()->Get(1); break;
 
         case INSTR_indirect_2:
+        case INSTR_indContainer2:
             *sp = ((*sp)).w().AsObjPtr()->Get(2); break;
 
         case INSTR_indirect_3:
