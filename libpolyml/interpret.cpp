@@ -649,17 +649,26 @@ int IntTaskData::SwitchToPoly()
             }
 
         case INSTR_indirect_w:
-        case INSTR_indContainerW:
             *sp = (*sp).w().AsObjPtr()->Get(arg1); pc += 2; break;
 
+        case INSTR_indContainerW:
+            *sp = (*sp).stackAddr[arg1]; pc += 2; break;
+
         case INSTR_move_to_vec_w:
-        case INSTR_set_container_w:
             {
                 PolyWord u = *sp++;
                 (*sp).w().AsObjPtr()->Set(arg1, u);
                 pc += 2;
                 break;
             }
+
+        case INSTR_set_container_w:
+        {
+            PolyWord u = *sp++;
+            (*sp).stackAddr[arg1] = u;
+            pc += 2;
+            break;
+        }
 
         case INSTR_set_stack_val_w:
             {
@@ -730,12 +739,16 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_b: { stackItem u = sp[*pc]; *(--sp) = u; pc += 1; break; }
 
         case INSTR_indirect_b:
-        case INSTR_indContainerB:
             *sp = (*sp).w().AsObjPtr()->Get(*pc); pc += 1; break;
 
+        case INSTR_indContainerB:
+            *sp = (*sp).stackAddr[*pc]; pc += 1; break;
+
         case INSTR_move_to_vec_b:
-        case INSTR_set_container_b:
             { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(*pc, u); pc += 1; break; }
+
+        case INSTR_set_container_b:
+        { PolyWord u = *sp++; (*sp).stackAddr[*pc] = u; pc += 1; break; }
 
         case INSTR_set_stack_val_b:
             { stackItem u = *sp++; sp[*pc-1] = u; pc += 1; break; }
@@ -761,16 +774,13 @@ int IntTaskData::SwitchToPoly()
         case INSTR_local_11: { stackItem u = sp[11]; *(--sp) = u; break; }
 
         case INSTR_indirect_0:
-        case INSTR_indContainer0:
-            *sp = ((*sp)).w().AsObjPtr()->Get(0); break;
+            *sp = (*sp).w().AsObjPtr()->Get(0); break;
 
         case INSTR_indirect_1:
-        case INSTR_indContainer1:
-            *sp = ((*sp)).w().AsObjPtr()->Get(1); break;
+            *sp = (*sp).w().AsObjPtr()->Get(1); break;
 
         case INSTR_indirect_2:
-        case INSTR_indContainer2:
-            *sp = ((*sp)).w().AsObjPtr()->Get(2); break;
+            *sp = (*sp).w().AsObjPtr()->Get(2); break;
 
         case INSTR_indirect_3:
             *sp = (*sp).w().AsObjPtr()->Get(3); break;
@@ -781,6 +791,15 @@ int IntTaskData::SwitchToPoly()
         case INSTR_indirect_5:
             *sp = (*sp).w().AsObjPtr()->Get(5); break;
 
+        case INSTR_indContainer0:
+            *sp = (*sp).stackAddr[0]; break;
+
+        case INSTR_indContainer1:
+            *sp = (*sp).stackAddr[1]; break;
+
+        case INSTR_indContainer2:
+            *sp = (*sp).stackAddr[2]; break;
+
         case INSTR_const_0: *(--sp) = Zero; break;
         case INSTR_const_1: *(--sp) = TAGGED(1); break;
         case INSTR_const_2: *(--sp) = TAGGED(2); break;
@@ -789,19 +808,20 @@ int IntTaskData::SwitchToPoly()
         case INSTR_const_10: *(--sp) = TAGGED(10); break;
 
             // Move-to-vec is now only used for closures.
-        case INSTR_move_to_vec_0: case INSTR_set_container_0:
-        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(0, u); break; }
-        case INSTR_move_to_vec_1: case INSTR_set_container_1:
-        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(1, u); break; }
-        case INSTR_move_to_vec_2: case INSTR_set_container_2:
-        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(2, u); break; }
-        case INSTR_move_to_vec_3: case INSTR_set_container_3:
-        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(3, u); break; }
-        case INSTR_move_to_vec_4: case INSTR_set_container_4:
-        { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(4, u); break; }
+        case INSTR_move_to_vec_0: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(0, u); break; }
+        case INSTR_move_to_vec_1: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(1, u); break; }
+        case INSTR_move_to_vec_2: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(2, u); break; }
+        case INSTR_move_to_vec_3: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(3, u); break; }
+        case INSTR_move_to_vec_4: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(4, u); break; }
         case INSTR_move_to_vec_5: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(5, u); break; }
         case INSTR_move_to_vec_6: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(6, u); break; }
         case INSTR_move_to_vec_7: { PolyWord u = *sp++; (*sp).w().AsObjPtr()->Set(7, u); break; }
+
+        case INSTR_set_container_0: { PolyWord u = *sp++; (*sp).stackAddr[0] = u; break; }
+        case INSTR_set_container_1: { PolyWord u = *sp++; (*sp).stackAddr[1] = u; break; }
+        case INSTR_set_container_2: { PolyWord u = *sp++; (*sp).stackAddr[2] = u; break; }
+        case INSTR_set_container_3: { PolyWord u = *sp++; (*sp).stackAddr[3] = u; break; }
+        case INSTR_set_container_4: { PolyWord u = *sp++; (*sp).stackAddr[4] = u; break; }
 
         case INSTR_reset_r_1: { stackItem u = *sp; sp += 1; *sp = u; break; }
         case INSTR_reset_r_2: { stackItem u = *sp; sp += 2; *sp = u; break; }
@@ -815,7 +835,7 @@ int IntTaskData::SwitchToPoly()
             POLYUNSIGNED words = arg1; pc += 2;
             while (words-- > 0) *(--sp) = Zero;
             sp--;
-            *sp = PolyWord::FromStackAddr((PolyWord*)(sp+1));
+            (*sp).stackAddr = sp+1;
             break;
         }
 
@@ -828,7 +848,7 @@ int IntTaskData::SwitchToPoly()
                 for(; storeWords > 0; )
                 {
                     storeWords--;
-                    t->Set(storeWords, (*sp).w().AsObjPtr()->Get(storeWords));
+                    t->Set(storeWords, (*sp).stackAddr[storeWords]);
                 }
                 *sp = (PolyWord)t;
                 pc += 2;
