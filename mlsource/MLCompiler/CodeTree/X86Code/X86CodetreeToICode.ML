@@ -520,7 +520,18 @@ struct
                         [] => AddressConstant(toMachineWord(valOf closureOpt))
                     |   _ => RegisterArgument closureRegAddr)
 
-        |   codeToICodeRev(BICField{base, offset}, context as { stackPtr, ...}, _, destination, tailCode) =
+        |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
+            let
+                val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, Allowed allowInPReg, tailCode)
+            in
+                (* This should not be used with a container. *)
+                case baseEntry of
+                    RegisterArgument baseR =>
+                        moveIfNotAllowedRev(destination, codeBase, wordOffsetAddress(offset, baseR))
+                |   _ =>   raise InternalError "codeToICodeRev-BICField"                      
+            end
+
+        |   codeToICodeRev(BICLoadContainer{base, offset}, context as { stackPtr, ...}, _, destination, tailCode) =
             let
                 val (codeBase, baseEntry, _) = codeToICodeRev(base, context, false, Allowed allowInPReg, tailCode)
             in

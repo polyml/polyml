@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2012,13 David C.J. Matthews
+    Copyright (c) 2012,13, 17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -247,10 +246,10 @@ struct
 
                 (* Select a field from a tuple.  We can't do this for selection from datatypes because
                    some fields may not be present on all paths. *)
-            |   doClean codeUse (Indirect{base, offset, isVariant = false}) =
+            |   doClean codeUse (Indirect{base, offset, indKind = IndTuple}) =
                     (* Try to pass down the use.  If the "base" is an Extract or another Indirect
                        we may be able to record this information.  If it is something else we can't. *)
-                    SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, isVariant=false})
+                    SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = IndTuple})
 
             |   doClean codeUse (Tuple{ fields, isVariant = false}) =
                 let

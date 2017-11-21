@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2016 David C.J. Matthews
+    Copyright (c) 2013, 2016-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -182,8 +182,8 @@ struct
     |   simpGeneral context (Tuple { fields, isVariant }) =
             SOME(specialToGeneral(simpTuple(fields, isVariant, context, RevList [])))
 
-    |   simpGeneral context (Indirect{ base, offset, isVariant }) =
-            SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context, RevList [])))
+    |   simpGeneral context (Indirect{ base, offset, indKind }) =
+            SOME(specialToGeneral(simpFieldSelect(base, offset, indKind, context, RevList [])))
 
     |   simpGeneral context (SetContainer{container, tuple, filter}) =
         let
@@ -475,7 +475,7 @@ struct
 
     |   simpSpecial (Tuple { fields, isVariant }, context, tailDecs) = simpTuple(fields, isVariant, context, tailDecs)
 
-    |   simpSpecial (Indirect{ base, offset, isVariant }, context, tailDecs) = simpFieldSelect(base, offset, isVariant, context, tailDecs)
+    |   simpSpecial (Indirect{ base, offset, indKind }, context, tailDecs) = simpFieldSelect(base, offset, indKind, context, tailDecs)
 
     |   simpSpecial (c: codetree, s: simpContext, tailDecs): codetree * revlist * envSpecial =
         let
@@ -1445,7 +1445,7 @@ struct
         (genRec, allBindings, specRec)
     end
 
-    and simpFieldSelect(base, offset, isVariant, context, tailDecs) =
+    and simpFieldSelect(base, offset, indKind, context, tailDecs) =
     let
         val (genSource, decSource, specSource) = simpSpecial(base, context, tailDecs)
     in
@@ -1465,7 +1465,15 @@ struct
                    
         |   _ => (* No special case possible. If the tuple is a constant mkInd/mkVarField
                     will do the selection immediately. *)
-                ((if isVariant then mkVarField else mkInd) (offset, genSource), decSource, EnvSpecNone)
+            let
+                val genSelect =
+                    case indKind of
+                        IndTuple => mkInd(offset, genSource)
+                    |   IndVariant => mkVarField(offset, genSource)
+                    |   IndContainer => mkIndContainer(offset, genSource)
+            in
+                (genSelect, decSource, EnvSpecNone)
+            end
     end
 
     (* Process a SetContainer.  Unlike the other simpXXX functions this is called
@@ -1489,7 +1497,7 @@ struct
             fun checkFields(last, Extract(LoadLocal a) :: tl) =
                 (
                     case findOriginal a of
-                        SOME(Declar{value=Indirect{base=Extract ext, isVariant=false, offset, ...}, ...}) =>
+                        SOME(Declar{value=Indirect{base=Extract ext, indKind=IndTuple, offset, ...}, ...}) =>
                         (
                             case last of
                                 NONE => checkFields(SOME(ext, [offset]), tl)

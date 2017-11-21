@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012-13, 2015-16 David C.J. Matthews
+    Copyright (c) 2012-13, 2015-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -223,6 +223,8 @@ struct
                        set to true since the only cases where a closure is not needed,
                        eval and load-andStore, are handled separately. *)
                     BICExtract(locaddr(ext, (* closure = *) true))
+
+            |   insert(Indirect {base, offset, indKind=IndContainer}) = BICLoadContainer {base = insert base, offset = offset}
 
             |   insert(Indirect {base, offset, ...}) = BICField {base = insert base, offset = offset}
 

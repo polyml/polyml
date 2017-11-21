@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,16 David C.J. Matthews
+    Copyright (c) 2012,13,16-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -389,7 +389,7 @@ struct
             end
 
         |   findEntryInBlock(base, offset, isVar) =
-                Indirect {base = base, offset = offset, isVariant = isVar} (* anything else *)
+                Indirect {base = base, offset = offset, indKind = if isVar then IndVariant else IndTuple} (* anything else *)
      end
         
     (* Exported indirect load operation i.e. load a field from a tuple.
@@ -399,15 +399,18 @@ struct
        side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
     local
         fun mkIndirect isVar (addr, base as Constnt _) = findEntryInBlock(base, addr, isVar)
-        |   mkIndirect isVar (addr, base) = Indirect {base = base, offset = addr, isVariant = isVar}
+        |   mkIndirect isVar (addr, base) =
+                Indirect {base = base, offset = addr, indKind = if isVar then IndVariant else IndTuple}
     
     in
         val mkInd = mkIndirect false and mkVarField = mkIndirect true
     end
+    
+    fun mkIndContainer(addr, base) = Indirect{offset=addr, base=base, indKind=IndContainer}
 
     (* Create a tuple from a container. *)
     fun mkTupleFromContainer(addr, size) =
-        Tuple{fields = List.tabulate(size, fn n => mkInd(n, mkLoadLocal addr)), isVariant = false}
+        Tuple{fields = List.tabulate(size, fn n => mkIndContainer(n, mkLoadLocal addr)), isVariant = false}
 
     (* Get the value from the code. *)
     fun evalue (Constnt(c, _)) = SOME c

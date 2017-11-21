@@ -80,6 +80,8 @@ sig
             tuple:     backendIC,
             filter:    BoolVector.vector
         }
+    
+    |   BICLoadContainer of {base: backendIC, offset: int } 
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 

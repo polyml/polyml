@@ -170,8 +170,11 @@ struct
             (* This may just be being used to discard a value which isn't
               used on this branch. *)
                 if whereto = NoResult then () else locaddr ext
-       
+
         |   BICField {base, offset} =>
+                (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
+
+        |   BICLoadContainer {base, offset} =>
                 (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
        
         |   BICLambda lam => genProc (lam, false, fn () => ())
@@ -1015,6 +1018,7 @@ struct
         |   safeToLeave (BICLambda _) = true
         |   safeToLeave (BICExtract _) = true
         |   safeToLeave (BICField {base, ...}) = safeToLeave base
+        |   safeToLeave (BICLoadContainer {base, ...}) = safeToLeave base
         |   safeToLeave _ = false
 
         val () =

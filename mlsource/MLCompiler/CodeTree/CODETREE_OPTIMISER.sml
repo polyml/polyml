@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15 David C.J. Matthews
+    Copyright (c) 2012,13,15,17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -618,7 +618,7 @@ struct
                             }
                         }
                     ],
-                    buildFullTuple(filter, fn n => mkInd(n, mkLoadLocal 0))
+                    buildFullTuple(filter, fn n => mkIndContainer(n, mkLoadLocal 0))
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
@@ -748,7 +748,7 @@ struct
                                                     argList = argList @ [(mkLoadLocal 0, GeneralType)] }
                                             }
                                         ],
-                                        buildFullTuple(filter, fn n => mkInd(n, mkLoadLocal 0))
+                                        buildFullTuple(filter, fn n => mkIndContainer(n, mkLoadLocal 0))
                                     )
                         end
                     |   curryPack(hd :: tl, fnclosure) =
@@ -1010,9 +1010,9 @@ struct
                 })
         end
 
-    |   optimise (context, use) (Indirect{base, offset, isVariant = false}) =
+    |   optimise (context, use) (Indirect{base, offset, indKind = IndTuple}) =
         SOME(Indirect{base = mapCodetree (optimise(context, [UseField(offset, use)])) base,
-                      offset = offset, isVariant = false})
+                      offset = offset, indKind = IndTuple})
 
     |   optimise (context, use) (code as Cond _) =
         (* If the result of the if-then-else is always taken apart as fields
@@ -1340,7 +1340,7 @@ struct
                     let
                         fun mkField(n, m, hd::tl) =
                             if n = hd 
-                            then mkInd(m, loadContainer) :: mkField(n+1, m+1, tl)
+                            then mkIndContainer(m, loadContainer) :: mkField(n+1, m+1, tl)
                             else CodeZero :: mkField(n+1, m, hd::tl)
                         |   mkField _ = []
                     in

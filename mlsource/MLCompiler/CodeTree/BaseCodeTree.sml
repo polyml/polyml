@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,8 +55,8 @@ struct
 
     |   Extract of loadForm (* Get a local variable, an argument or a closure value *)
     
-    |   Indirect of {base: codetree, offset: int, isVariant: bool }
-         (* Load a value from a heap record *)
+    |   Indirect of {base: codetree, offset: int, indKind: indKind }
+         (* Load a value from the heap or the stack. *)
     
     |   Eval of (* Evaluate a function with an argument list. *)
         {
@@ -150,6 +150,12 @@ struct
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
     |   EnvSpecUnary of BuiltIns.unaryOps * codetree
     |   EnvSpecBinary of BuiltIns.binaryOps * codetree * codetree
+
+    (* Indirection types.
+       IndTuple is from a tuple so the field will always be present;
+       IndVariant is from a datatype which may have other variants that do not have the field;
+       IndContainer is from a container (a set of words on the stack). *)
+    and indKind = IndTuple | IndVariant | IndContainer
     
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -304,12 +310,13 @@ struct
         |   Extract(LoadClosure addr) => string ("Closure" ^ Int.toString addr)
         |   Extract LoadRecursive => string "Recursive"
 
-        |   Indirect {base, offset, isVariant} =>
+        |   Indirect {base, offset, indKind} =>
                 PrettyBlock(2, false, [],
                     [
                         pretty base,
                         PrettyBreak(0, 2),
-                        string(concat["[", Int.toString offset, "]", if isVariant then "(*V*)" else ""])
+                        string(concat["[", Int.toString offset, "]",
+                            case indKind of IndTuple => "" | IndVariant => "(*V*)" | IndContainer => "(*C*)"])
                     ]
                 )
         
@@ -630,8 +637,8 @@ struct
             end
         |   mapt (c as Constnt _) = c
         |   mapt (e as Extract _) = e
-        |   mapt (Indirect { base, offset, isVariant }) =
-                Indirect{ base = mapCodetree f base, offset = offset, isVariant = isVariant }
+        |   mapt (Indirect { base, offset, indKind }) =
+                Indirect{ base = mapCodetree f base, offset = offset, indKind = indKind }
         |   mapt (Eval { function, argList, resultType }) =
                 Eval {
                     function = mapCodetree f function, 

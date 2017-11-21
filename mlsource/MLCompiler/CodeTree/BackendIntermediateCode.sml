@@ -190,6 +190,8 @@ struct
             tuple:     backendIC,
             filter:    BoolVector.vector
         }
+    
+    |   BICLoadContainer of {base: backendIC, offset: int } 
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
     
@@ -585,6 +587,15 @@ struct
                         PrettyBreak (0, 0),
                         PrettyString ")"
                     ]
+                )
+            end
+
+        |   BICLoadContainer {base, offset} =>
+            let
+                val str = "INDIRECTCONTAINER(" ^ Int.toString offset ^ ", ";
+            in
+                PrettyBlock(0, false, [],
+                    [ PrettyString str, pretty base, PrettyString ")" ]
                 )
             end
 

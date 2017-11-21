@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -69,8 +69,8 @@ sig
 
     |   Extract of loadForm
     
-    |   Indirect of {base: codetree, offset: int, isVariant: bool }
-        (* Load a value from a heap record *)
+    |   Indirect of {base: codetree, offset: int, indKind: indKind }
+         (* Load a value from the heap or the stack. *)
 
     |   Eval of (* Evaluate a function with an argument list. *)
         {
@@ -148,6 +148,12 @@ sig
     |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
     |   EnvSpecUnary of BuiltIns.unaryOps * codetree
     |   EnvSpecBinary of BuiltIns.binaryOps * codetree * codetree
+
+    (* Indirection types.
+       IndTuple is from a tuple so the field will always be present;
+       IndVariant is from a datatype which may have other variants that do not have the field;
+       IndContainer is from a container (a set of words on the stack). *)
+    and indKind = IndTuple | IndVariant | IndContainer
 
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
