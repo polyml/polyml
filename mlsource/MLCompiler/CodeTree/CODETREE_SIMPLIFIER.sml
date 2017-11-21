@@ -598,6 +598,11 @@ struct
                         val _ = List.length resultTuple = size
                                     orelse raise InternalError "copyDecs: Container/SetContainer size"
                         val containerDec = Declar{addr=newDecAddr, use=[], value=mkTuple resultTuple}
+                        (* TODO:  We're replacing a container with what is notionally a tuple on the
+                           heap.  It should be optimised away as a result of a further pass but we
+                           currently have indirections from a container for these.
+                           On the native platforms that doesn't matter but on 32-in-64 indirecting
+                           from the heap and from the stack are different. *)
                         val _ = reprocess := true
                     in
                         copyDecs(vs, RevList(containerDec :: tupleDec :: setDecs @ decs))
