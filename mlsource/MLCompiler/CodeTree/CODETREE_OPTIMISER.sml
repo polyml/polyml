@@ -1512,7 +1512,9 @@ struct
                 val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
                 
                 val (llCode, llCount, llAgain) =
-                    if ! reprocess (* Re-optimise *)
+                    (* If we have optimised it or the simplifier has run something that it wants to
+                       run again we must rerun these before we try to generate any code. *)
+                    if ! reprocess (* Re-optimise *) orelse simpAgain (* The simplifier wants to run again on this. *)
                     then (optCode, ! addressAllocator, ! reprocess)
                     else (* We didn't detect any inlineable functions.  Check for lambda-lifting. *)
                         lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator)
