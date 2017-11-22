@@ -227,7 +227,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             liTime.LowPart = ftSeconds.dwLowDateTime;
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
-            theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
+            theTime = get_C_long(taskData, DEREFWORD(args)); /* May raise exception. */
 #endif
 
             {
@@ -276,7 +276,7 @@ static Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             liTime.LowPart = ftSeconds.dwLowDateTime;
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
-            theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
+            theTime = get_C_long(taskData, DEREFWORD(args)); /* May raise exception. */
 #endif
             int isDst = 0;
 #ifdef HAVE_LOCALTIME_R

@@ -995,7 +995,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 101: /* Get password entry by uid. */
         {
-            int uid = get_C_long(taskData, DEREFWORDHANDLE(args));
+            int uid = get_C_long(taskData, DEREFWORD(args));
             struct passwd *pw = getpwuid(uid);
             if (pw == NULL)
                 raise_syscall(taskData, "Password entry not found", ENOENT);
@@ -1018,7 +1018,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         
     case 103: /* Get group entry by gid. */
         {
-            int gid = get_C_long(taskData, DEREFWORDHANDLE(args));
+            int gid = get_C_long(taskData, DEREFWORD(args));
             struct group *grp = getgrgid(gid);
             if (grp == NULL)
                 raise_syscall(taskData, "Group entry not found", ENOENT);
@@ -1334,8 +1334,8 @@ TryAgain:
         resHandle = Make_fixed_precision(taskData, pres == 0 ? 0: status);
 
         result = ALLOC(2);
-        DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(pidHandle));
-        DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resHandle));
+        DEREFHANDLE(result)->Set(0, DEREFWORD(pidHandle));
+        DEREFHANDLE(result)->Set(1, DEREFWORD(resHandle));
         return result;
     }
 }

@@ -592,9 +592,9 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
     // On Unix we represent times as a number of microseconds.
     Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
     tWake.tv_sec =
-        get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hWakeTime)));
+        get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hWakeTime)));
     tWake.tv_nsec =
-        1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hWakeTime)));
+        1000*get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hWakeTime)));
 #endif
     schedLock.Lock();
     // Atomically release the mutex.  This is atomic because we hold schedLock
