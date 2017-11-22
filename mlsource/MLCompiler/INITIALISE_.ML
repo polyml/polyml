@@ -411,38 +411,6 @@ struct
                 outerLambda
             end
 
-            (* This is a general function that calls an RTS function with a set of arguments
-               whose last argument is a container.  This is only used for quotRem so
-               it is only made available through LargeInt.callQuotRem. *)
-            fun makeRunCallTupledWithContainer (width:int, containerWidth, callN) : codetree =
-            let 
-                val name =
-                    String.concat["run_call", Int.toString width, "C", Int.toString containerWidth]
-                
-                val innerLambda : codetree =
-                let
-                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
-                    val tuple = mkLoadArgument 0       (* the inner parameter *)
-                    val ca = 0 (* Address of container *)
-                    val args  =
-                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal ca]
-                in
-                    mkInlproc(
-                        mkEnv([mkContainer(ca, containerWidth, mkEval (f, args))],
-                              mkTupleFromContainer(ca, containerWidth)),
-                        1, name ^ "(1)", [mkLoadLocal 0], 1)
-                end
-
-                val outerLambda =
-                let
-                    val f = mkEval(mkConst callN, [mkLoadArgument 0])
-                in
-                    mkInlproc(mkEnv([mkDec (0, f)], innerLambda), 1, name, [], 1)
-                end
-            in
-                outerLambda
-            end
-
             local
                 val a = makeTV ()
                 and b = makeTV ()
@@ -495,7 +463,6 @@ struct
             val () = enterRunCall ("rtsCallFull3", rtsCallFull3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast3", rtsCallFast3Entry, rtsCall3Type)
             val () = enterRunCall ("rtsCallFast4", rtsCallFast4Entry, rtsCall4Type)
-            val quotRemCall = makeRunCallTupledWithContainer(2, 2, toMachineWord(makeFullCall 3))
         end
 
         local
@@ -568,8 +535,6 @@ struct
                 mkProductType[intInfType, intInfType, intInfType ** intInfType ->> fixedIntType] ->> Bool
             val arithType =
                 mkProductType[intInfType, intInfType, intInfType ** intInfType ->> intInfType] ->> intInfType
-            val callQuotRemType = String ->> intInfType ** intInfType ->> intInfType ** intInfType
-            val callQuotRem = mkGvar ("callQuotRem", callQuotRemType, quotRemCall, declInBasis)
 
             fun enterArbitrary(name, oper, typ) =
             let
@@ -587,8 +552,6 @@ struct
             val () = enterArbitrary("add", ArbArith BuiltIns.ArithAdd, arithType)
             val () = enterArbitrary("subtract", ArbArith BuiltIns.ArithSub, arithType)
             val () = enterArbitrary("multiply", ArbArith BuiltIns.ArithMult, arithType)
-            
-            val () = #enterVal largeIntEnv ("callQuotRem", callQuotRem)
         end
 
         local

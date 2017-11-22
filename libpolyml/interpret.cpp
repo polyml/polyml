@@ -139,6 +139,7 @@ union stackItem
     operator PolyWord () { return words[0]; }
     POLYCODEPTR codeAddr; // Return addresses
     stackItem *stackAddr; // Stack addresses
+    intptr_t argValue; // Treat an address as an int
 };
 
 
@@ -306,17 +307,17 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 
 extern "C" {
     typedef POLYUNSIGNED(*callFastRts0)();
-    typedef POLYUNSIGNED(*callFastRts1)(PolyWord);
-    typedef POLYUNSIGNED(*callFastRts2)(PolyWord, PolyWord);
-    typedef POLYUNSIGNED(*callFastRts3)(PolyWord, PolyWord, PolyWord);
-    typedef POLYUNSIGNED(*callFastRts4)(PolyWord, PolyWord, PolyWord, PolyWord);
-    typedef POLYUNSIGNED(*callFastRts5)(PolyWord, PolyWord, PolyWord, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFastRts1)(intptr_t);
+    typedef POLYUNSIGNED(*callFastRts2)(intptr_t, intptr_t);
+    typedef POLYUNSIGNED(*callFastRts3)(intptr_t, intptr_t, intptr_t);
+    typedef POLYUNSIGNED(*callFastRts4)(intptr_t, intptr_t, intptr_t, intptr_t);
+    typedef POLYUNSIGNED(*callFastRts5)(intptr_t, intptr_t, intptr_t, intptr_t, intptr_t);
     typedef POLYUNSIGNED(*callFullRts0)(PolyObject *);
-    typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, PolyWord);
-    typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, PolyWord, PolyWord);
-    typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, PolyWord, PolyWord, PolyWord);
+    typedef POLYUNSIGNED(*callFullRts1)(PolyObject *, intptr_t);
+    typedef POLYUNSIGNED(*callFullRts2)(PolyObject *, intptr_t, intptr_t);
+    typedef POLYUNSIGNED(*callFullRts3)(PolyObject *, intptr_t, intptr_t, intptr_t);
     typedef double (*callRTSFtoF) (double);
-    typedef double (*callRTSGtoF) (PolyWord);
+    typedef double (*callRTSGtoF) (intptr_t);
 }
 
 void IntTaskData::InterruptCode()
@@ -866,7 +867,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS1:
             {
                 callFastRts1 doCall = *(callFastRts1*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 POLYUNSIGNED result = doCall(rtsArg1);
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
@@ -875,8 +876,8 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS2:
             {
                 callFastRts2 doCall = *(callFastRts2*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg1 = (*sp++).argValue;
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2);
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
@@ -885,9 +886,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS3:
             {
                 callFastRts3 doCall = *(callFastRts3*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg2 = *sp++;
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg2 = (*sp++).argValue;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3);
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
@@ -896,10 +897,10 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS4:
             {
                 callFastRts4 doCall = *(callFastRts4*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg4 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg3 = *sp++;
-                PolyWord rtsArg2 = *sp++;
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg4 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg3 = (*sp++).argValue;
+                intptr_t rtsArg2 = (*sp++).argValue;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4);
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
@@ -908,11 +909,11 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFastRTS5:
             {
                 callFastRts5 doCall = *(callFastRts5*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg5 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg4 = *sp++;
-                PolyWord rtsArg3 = *sp++;
-                PolyWord rtsArg2 = *sp++;
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg5 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg4 = (*sp++).argValue;
+                intptr_t rtsArg3 = (*sp++).argValue;
+                intptr_t rtsArg2 = (*sp++).argValue;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 POLYUNSIGNED result = doCall(rtsArg1, rtsArg2, rtsArg3, rtsArg4, rtsArg5);
                 *(--sp) = PolyWord::FromUnsigned(result);
                 break;
@@ -934,7 +935,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFullRTS1:
             {
                 callFullRts1 doCall = *(callFullRts1*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 this->raiseException = false;
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1);
@@ -948,8 +949,8 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFullRTS2:
             {
                 callFullRts2 doCall = *(callFullRts2*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg2 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg2 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg1 = (*sp++).argValue;
                 this->raiseException = false;
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2);
@@ -963,9 +964,9 @@ int IntTaskData::SwitchToPoly()
         case INSTR_callFullRTS3:
             {
                 callFullRts3 doCall = *(callFullRts3*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg3 = *sp++; // Pop off the args, last arg first.
-                PolyWord rtsArg2 = *sp++;
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg3 = (*sp++).argValue; // Pop off the args, last arg first.
+                intptr_t rtsArg2 = (*sp++).argValue;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 this->raiseException = false;
                 SaveInterpreterState(pc, sp);
                 POLYUNSIGNED result = doCall(this->threadObject, rtsArg1, rtsArg2, rtsArg3);
@@ -995,7 +996,7 @@ int IntTaskData::SwitchToPoly()
             {
                 // Call that takes a POLYUNSIGNED argument and returns a double.
                 callRTSGtoF doCall = *(callRTSGtoF*)(*sp++).w().AsObjPtr();
-                PolyWord rtsArg1 = *sp++;
+                intptr_t rtsArg1 = (*sp++).argValue;
                 // Allocate memory for the result.
                 double result = doCall(rtsArg1);
                 PolyObject *t = boxDouble(result, pc, sp);

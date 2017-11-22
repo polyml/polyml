@@ -100,6 +100,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyDivideArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYSIGNED PolyCompareArbitrary(PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyGCDArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLCMArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
@@ -111,7 +112,6 @@ extern "C" {
 
 static Handle add_longc(TaskData *taskData, Handle,Handle);
 static Handle sub_longc(TaskData *taskData, Handle,Handle);
-static Handle quot_rem_c(TaskData *taskData, Handle,Handle,Handle);
 static Handle or_longc(TaskData *taskData, Handle,Handle);
 static Handle and_longc(TaskData *taskData, Handle,Handle);
 static Handle xor_longc(TaskData *taskData, Handle,Handle);
@@ -1161,19 +1161,6 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
     return remHandle;
 }
 
-// Return quot and rem as a pair.
-Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
-{
-    // The result handle will almost certainly point into the stack.
-    // This should now be safe within the GC.
-    Handle remHandle, divHandle;
-    quotRem(taskData, y, x, remHandle, divHandle);
-
-    DEREFHANDLE(result)->Set(0, divHandle->Word());
-    DEREFHANDLE(result)->Set(1, remHandle->Word());
-    return taskData->saveVec.push(TAGGED(0));
-}
-
 #if defined(_WIN32)
 // Return a FILETIME from an arbitrary precision number.  On both 32-bit and 64-bit Windows
 // this is a pair of 32-bit values.
@@ -1764,6 +1751,7 @@ POLYUNSIGNED PolyRemainderArbitrary(PolyObject *threadId, PolyWord arg1, PolyWor
     else return result->Word().AsUnsigned();
 }
 
+// This is the older version that took a container as an argument.
 POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2, PolyWord arg3)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -1772,18 +1760,58 @@ POLYUNSIGNED PolyQuotRemArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord 
     Handle reset = taskData->saveVec.mark();
     Handle pushedArg1 = taskData->saveVec.push(arg1);
     Handle pushedArg2 = taskData->saveVec.push(arg2);
-    Handle pushedArg3 = taskData->saveVec.push(arg3);
-    
+    // arg3 is an address on the stack.  It is not a PolyWord.
+
     if (profileMode == kProfileEmulation)
         taskData->addProfileCount(1);
 
     try {
-        quot_rem_c(taskData, pushedArg3, pushedArg2, pushedArg1);
+        // The result handle will almost certainly point into the stack.
+        // This should now be safe within the GC.
+        Handle remHandle, divHandle;
+        quotRem(taskData, pushedArg2, pushedArg1, remHandle, divHandle);
+
+        arg3.AsObjPtr()->Set(0, divHandle->Word());
+        arg3.AsObjPtr()->Set(1, remHandle->Word());
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
     taskData->PostRTSCall();
     return 0; // Result is unit
+}
+
+// This is the newer version that returns a pair.  It's simpler and works with 32-in-64.
+POLYUNSIGNED PolyQuotRemArbitraryPair(PolyObject *threadId, PolyWord arg1, PolyWord arg2)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg1 = taskData->saveVec.push(arg1);
+    Handle pushedArg2 = taskData->saveVec.push(arg2);
+    Handle result = 0;
+    // arg3 is an address on the stack.  It is not a PolyWord.
+
+    if (profileMode == kProfileEmulation)
+        taskData->addProfileCount(1);
+
+    try {
+        // The result handle will almost certainly point into the stack.
+        // This should now be safe within the GC.
+        Handle remHandle, divHandle;
+        quotRem(taskData, pushedArg2, pushedArg1, remHandle, divHandle);
+
+        result = alloc_and_save(taskData, 2);
+
+        result->WordP()->Set(0, divHandle->Word());
+        result->WordP()->Set(1, remHandle->Word());
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 // This can be a fast call.  It does not need to allocate or use handles.
@@ -1952,6 +1980,7 @@ struct _entrypts arbitraryPrecisionEPT[] =
     { "PolyDivideArbitrary",            (polyRTSFunction)&PolyDivideArbitrary},
     { "PolyRemainderArbitrary",         (polyRTSFunction)&PolyRemainderArbitrary},
     { "PolyQuotRemArbitrary",           (polyRTSFunction)&PolyQuotRemArbitrary},
+    { "PolyQuotRemArbitraryPair",       (polyRTSFunction)&PolyQuotRemArbitraryPair },
     { "PolyCompareArbitrary",           (polyRTSFunction)&PolyCompareArbitrary},
     { "PolyGCDArbitrary",               (polyRTSFunction)&PolyGCDArbitrary},
     { "PolyLCMArbitrary",               (polyRTSFunction)&PolyLCMArbitrary},
