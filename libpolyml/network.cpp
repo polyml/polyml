@@ -1126,8 +1126,8 @@ TryAgain: // Used for various retries.
                 IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE | IO_BIT_SOCKET ;
             /* Return the two streams as a pair. */
             pair = ALLOC(2);
-            DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(str_token1));
-            DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(str_token2));
+            DEREFHANDLE(pair)->Set(0, DEREFWORD(str_token1));
+            DEREFHANDLE(pair)->Set(1, DEREFWORD(str_token2));
             return pair;
         }
 #endif
@@ -1442,9 +1442,9 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
             Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
             unsigned long secs =
-                get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
+                get_C_ulong(taskData, DEREFWORD(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs =
-                get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+                get_C_ulong(taskData, DEREFWORD(rem_longc(taskData, hMillion, hTime)));
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (gettimeofday(&tv, NULL) != 0)
