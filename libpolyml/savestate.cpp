@@ -171,6 +171,7 @@ typedef struct _savedStateHeader
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
     time_t      timeStamp;            // The time stamp for this file.
     time_t      parentTimeStamp;      // The time stamp for the parent.
+    void       *originalBaseAddr;        // Original base address (32-in-64 only)
 } SavedStateHeader;
 
 // Entry for segment table.  This describes the segments on the disc that
@@ -618,6 +619,9 @@ void SaveRequest::Perform()
     }
     saveHeader.timeStamp = getBuildTime();
     saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
+#ifdef POLYML32IN64
+    saveHeader.originalBaseAddr = globalHeapBase;
+#endif
     // Write out the header.
     fwrite(&saveHeader, sizeof(saveHeader), 1, exports.exportFile);
 
@@ -1213,7 +1217,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                relocate.RelocateObject(obj);
+                relocate.RelocateObject(obj, (PolyWord*)header.originalBaseAddr);
                 p += length;
             }
         }
