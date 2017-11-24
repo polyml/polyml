@@ -213,7 +213,7 @@ public:
         return baseAddr;
     }
 
-    virtual bool UncommitPages(void *baseAddr, size_t space)
+    virtual bool UncommitPages(void *p, size_t space)
     {
         if (!mprotect(FIXTYPE p, space, PROT_NONE))
             return false;
