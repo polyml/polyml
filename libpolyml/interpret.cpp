@@ -90,8 +90,6 @@
 
 #define arg1    (pc[0] + pc[1]*256)
 #define arg2    (pc[2] + pc[3]*256)
-#define arg3    (pc[4] + pc[5]*256)
-#define arg4    (pc[6] + pc[7]*256)
 
 const PolyWord True = TAGGED(1);
 const PolyWord False = TAGGED(0);
@@ -362,6 +360,7 @@ int IntTaskData::SwitchToPoly()
 //        char buff[1000];
 //        sprintf(buff, "addr = %p sp=%p instr=%02x *sp=%p\n", pc, sp, *pc, (*sp).stackAddr);
 //        OutputDebugStringA(buff);
+
         switch(*pc++) {
 
         case INSTR_enter_int: pc++; /* Skip the argument. */ break;
@@ -518,23 +517,6 @@ int IntTaskData::SwitchToPoly()
             sp[1].codeAddr = pc; /* Save return address. */
             pc = u.AsCodePtr();    /* Get entry point. */
             this->taskPc = pc; // Update in case we're profiling
-            // Legacy: Check for stack overflow.  This is needed because
-            // old code does not have stack check instructions.
-            if (sp < sl)
-            {
-                uintptr_t min_size = this->stack->top - (PolyWord*)sp + OVERFLOW_STACK_SIZE;
-                SaveInterpreterState(pc, sp);
-                CheckAndGrowStack(this, min_size);
-                LoadInterpreterState(pc, sp);
-                sl = (stackItem*)((PolyWord*)this->stack->stack() + OVERFLOW_STACK_SIZE);
-            }
-            if (this->interrupt_requested)
-            {
-                // Check for interrupts
-                this->interrupt_requested = false;
-                SaveInterpreterState(pc, sp);
-                return -1;
-            }
             break;
         }
 
