@@ -128,16 +128,49 @@ void Bitmap::SetBits(uintptr_t bitno, uintptr_t length)
     m_bits[byte_index] |= mask;
 }
 
-// Clear a range of bits.  This is only used to clear the bitmap so
-// it does not need to be exact so long as at least the range specified
-// is zero.
+// This previously cleared whole bytes.  It now works the same as
+// SetBits to clear a range of bits and is a modified version of that code.
 void Bitmap::ClearBits(uintptr_t bitno, uintptr_t length)
 {
     uintptr_t byte_index = bitno >> 3;
-    length += bitno & 7;
-    size_t bytes = length >> 3;
-    if (length & 7) bytes++;
-    memset(m_bits+byte_index, 0, bytes);
+    uintptr_t start_bit_index = bitno & 7;
+    uintptr_t stop_bit_index = start_bit_index + length;
+    /* Do we need to change more than one byte? */
+    if (stop_bit_index < 8)
+    {
+        const unsigned mask1 = 0xff << start_bit_index;
+        const unsigned mask2 = 0xff << stop_bit_index;
+        const unsigned mask = mask1 & ~mask2;
+        m_bits[byte_index] &= 0xff ^ mask;
+        return;
+    }
+    else /* Clear all the bits we can in the first byte */
+    {
+        const unsigned mask = 0xff << start_bit_index;
+        m_bits[byte_index] &= 0xff ^ mask;
+        length = stop_bit_index - 8;
+    }
+
+    /* Clear as many full bytes as possible */
+    if (8 <= length)
+    {
+        memset(m_bits + byte_index + 1, 0, length >> 3);
+        byte_index += length >> 3;
+        length &= 7;
+    }
+
+    /* Invariant: 0 <= length < 8 */
+    ASSERT(length < 8);
+    if (length == 0) return;
+
+    /* Invariant: 0 < length < 8 */
+
+    /* Clear the final part byte */
+    byte_index++;
+    const unsigned mask = 0xff & ~(0xff << length);
+    //    ASSERT((m_bits[byte_index] & mask) == 0);
+    m_bits[byte_index] &= 0xff ^ mask;
+
 }
 
 // How many zero bits (maximum n) are there in the bitmap, starting at location start? */

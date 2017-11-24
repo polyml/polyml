@@ -47,8 +47,7 @@ public:
     void ClearBit(uintptr_t n) { m_bits[n >> 3] &= (0xff ^ BitN(n)); }
     // Set a range of bits
     void SetBits(uintptr_t bitno, uintptr_t length);
-    // Clear a range of bits.  May already be partly clear
-    // N.B.  This may clear more than just the bits specified
+    // Clear a range of bits.
     void ClearBits(uintptr_t bitno, uintptr_t length);
     // Test a bit
     bool TestBit(uintptr_t n) const { return (m_bits[n >> 3] & BitN(n)) != 0; }
