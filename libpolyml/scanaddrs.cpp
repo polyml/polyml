@@ -228,9 +228,10 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
         break;
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            size_t newDisp = p.AsCodePtr() - addressOfConstant - 4;
+            // This offset may be positive or negative
+            intptr_t newDisp = p.AsCodePtr() - addressOfConstant - 4;
 #if (SIZEOF_VOIDP != 4)
-            ASSERT(newDisp < (size_t)0x80000000 && newDisp >= -(size_t)0x80000000);
+            ASSERT(newDisp < (intptr_t)0x80000000 && newDisp >= -(intptr_t)0x80000000);
 #endif
             for (unsigned i = 0; i < 4; i++) {
                 addressOfConstant[i] = (byte)(newDisp & 0xff);
