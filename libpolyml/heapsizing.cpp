@@ -124,7 +124,7 @@ HeapSizeParameters::HeapSizeParameters()
 #define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
 
 // Returns physical memory size in bytes
-static POLYUNSIGNED GetPhysicalMemorySize(void);
+static size_t GetPhysicalMemorySize(void);
 
 // These are the maximum values for the number of words.
 #if (SIZEOF_VOIDP == 4)
@@ -907,9 +907,9 @@ void HeapSizing::Stop()
     gHeapSizeParameters.Final();
 }
 
-static POLYUNSIGNED GetPhysicalMemorySize(void)
+static size_t GetPhysicalMemorySize(void)
 {
-    POLYUNSIGNED maxMem = 0-1; // Maximum unsigned value.
+    size_t maxMem = (size_t)0-1; // Maximum unsigned value.
 #if defined(HAVE_WINDOWS_H)
     {
         MEMORYSTATUSEX memStatEx;
@@ -923,7 +923,7 @@ static POLYUNSIGNED GetPhysicalMemorySize(void)
             if (memStatEx.ullTotalPhys > dwlMax)
                 return maxMem;
             else
-                return (POLYUNSIGNED)memStatEx.ullTotalPhys;
+                return (size_t)memStatEx.ullTotalPhys;
         }
     }
 
