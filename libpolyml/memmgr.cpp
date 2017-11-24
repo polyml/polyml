@@ -1219,17 +1219,6 @@ void MemMgr::RemoveProfilingBitmaps()
         (*i)->profileCode.Destroy();
 }
 
-
-#ifdef POLYML32IN64
-// Limit this to 8Gbytes for the moment.
-#ifdef _WIN32
-// Windows
-PolyWord *globalHeapBase = (PolyWord*)0x7FE00000000; // 0x7FC00000000
-#else
-// Linux, but only under GDB at the moment.
-PolyWord *globalHeapBase = (PolyWord*)0x7fff80000000;
-#endif
-
 POLYOBJECTPTR AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);

@@ -35,6 +35,13 @@
 #include <sys/mman.h>
 #endif
 
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x)   assert(x)
+#else
+#define ASSERT(x)
+#endif
+
 #include "osmem.h"
 #include "bitmap.h"
 #include "globals.h"
@@ -44,6 +51,95 @@
 #ifdef MAP_ANONYMOUS
 #define MAP_ANON MAP_ANONYMOUS 
 #endif
+#endif
+
+
+#ifdef POLYML32IN64
+
+// This contains the address of the base of the heap.
+PolyWord *globalHeapBase;
+
+// Higher level allocator for 32-in-64.  We need to reserve the heap
+// first to get a contiguous 16Gbyte area and then allocate within it.
+class Alloc32In64 : public OSMem
+{
+public:
+    Alloc32In64() : pageSize(4096), lastAllocated(0) {}
+    virtual ~Alloc32In64() {}
+    bool Initialise();
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions) = 0;
+
+protected:
+    virtual size_t PageSize() = 0;
+    virtual void *ReserveHeap(size_t space) = 0;
+    virtual bool UnreserveHeap(void *baseAddr, size_t space) = 0;
+    virtual void *CommitPages(void *baseAddr, size_t space, unsigned permissions) = 0;
+    virtual bool UncommitPages(void *baseAddr, size_t space) = 0;
+
+    Bitmap pageMap;
+    size_t pageSize;
+    uintptr_t lastAllocated;
+};
+
+bool Alloc32In64::Initialise()
+{
+    pageSize = PageSize();
+
+    // Allocate a single 8G area but with no access.
+    // This currently only allocates 8G because we need two bits in the header
+    // for the sharing scans.
+    size_t space = (size_t)8 * 1024 * 1024 * 1024;
+
+    globalHeapBase = (PolyWord*)ReserveHeap(space);
+    if (globalHeapBase == 0)
+        return 0;
+    // We need the heap to be such that the top 32-bits are non-zero.
+    if ((uintptr_t)globalHeapBase < ((uintptr_t)1 << 32))
+    {
+        void *newHeap = ReserveHeap(space);
+        ASSERT((uintptr_t)newHeap >= ((uintptr_t)1 << 32));
+        UnreserveHeap(globalHeapBase, space);
+        globalHeapBase = (PolyWord*)newHeap;
+    }
+
+    // Create a bitmap with a bit for each page.
+    if (!pageMap.Create(space / pageSize))
+        return false;
+    lastAllocated = space / pageSize; // Beyond the last page in the area
+    return true;
+}
+
+void *Alloc32In64::Allocate(size_t &space, unsigned permissions)
+{
+    uintptr_t pages = (space + pageSize - 1) / pageSize;
+    // Round up to an integral number of pages.
+    space = pages * pageSize;
+    // Find some space
+    while (pageMap.TestBit(lastAllocated-1)) // Skip the wholly allocated area.
+        lastAllocated--;
+    uintptr_t free = pageMap.FindFree(0, lastAllocated, pages);
+    if (free == lastAllocated)
+        return 0; // Can't find the space.
+    pageMap.SetBits(free, pages);
+    // TODO: Do we need to zero this?  It may have previously been set.
+    char *baseAddr = (char*)globalHeapBase + free * pageSize;
+    return CommitPages(baseAddr, space, permissions);
+}
+
+bool Alloc32In64::Free(void *p, size_t space)
+{
+    char *addr = (char*)p;
+    uintptr_t offset = (addr - (char*)globalHeapBase) / pageSize;
+    if (!UncommitPages(p, space))
+        return false;
+    uintptr_t pages = space / pageSize;
+    pageMap.ClearBits(offset, pages);
+    if (offset+pages > lastAllocated) // We allocate from the top down.
+        lastAllocated = offset+pages;
+    return true;
+}
 #endif
 
 #if (defined(HAVE_MMAP) && defined(MAP_ANON))
@@ -91,77 +187,44 @@ static int ConvertPermissions(unsigned perm)
 }
 
 #ifdef POLYML32IN64
-// The memory allocator for 32-in-64 Linux works differently.
 
-class Linux32In64Mem : public OSMem
+class Linux32In64Mem : public Alloc32In64
 {
 public:
-    Linux32In64Mem(): pageSize(4096), firstFree(0) {}
-    virtual ~Linux32In64Mem() {}
-    bool Initialise();
-    virtual void *Allocate(size_t &bytes, unsigned permissions);
-    virtual bool Free(void *p, size_t space);
+    Linux32In64Mem() {}
     virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+    virtual size_t PageSize() { return getpagesize();  }
 
-    Bitmap pageMap;
-    long pageSize;
-    uintptr_t firstFree;
+    virtual void *ReserveHeap(size_t space)
+    {
+        return mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    }
+
+    virtual bool UnreserveHeap(void *p, size_t space)
+    {
+        return munmap(FIXTYPE p, space) == 0;
+    }
+
+    virtual void *CommitPages(void *baseAddr, size_t space, unsigned permissions)
+    {
+        int res = mprotect(baseAddr, space, ConvertPermissions(permissions));
+        if (res != 0)
+            return 0;
+        return baseAddr;
+    }
+
+    virtual bool UncommitPages(void *baseAddr, size_t space)
+    {
+        if (!mprotect(FIXTYPE p, space, PROT_NONE))
+            return false;
+        return true;
+    }
 };
-
-bool Linux32In64Mem::Initialise()
-{
-    // Allocate a single 8G area but with no access.  In Linux this does not
-    // actually allocate memory which is only allocated when we unprotect it.
-    // This currently only allocates 8G because we need two bits in the header
-    size_t space = (size_t)8 * 1024 * 1024 * 1024; // 16Gbytes
-    void *result = mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (result == MAP_FAILED)
-        return false;
-    globalHeapBase = (PolyWord*)result;
-    pageSize = getpagesize();
-    // Create a bitmap with a bit for each page.
-    if (!pageMap.Create(space / pageSize))
-        return false;
-    firstFree = space / pageSize - 1; // Last page in the area
-    return true;
-}
-
-void *Linux32In64Mem::Allocate(size_t &space, unsigned permissions)
-{
-    uintptr_t pages = (space + pageSize - 1) / pageSize;
-    // Round up to an integral number of pages.
-    space = pages * pageSize;
-    // Find some space
-    while (pageMap.TestBit(firstFree)) // Skip the wholly allocated area.
-        firstFree--;
-    uintptr_t free = pageMap.FindFree(0, firstFree, pages);
-    if (free == firstFree)
-        return 0; // Can't find the space.
-    pageMap.SetBits(free, pages);
-    // TODO: Do we need to zero this?  It may have previously been set.
-    char *baseAddr = (char*)globalHeapBase + free * pageSize;
-    int res = mprotect(baseAddr, space, ConvertPermissions(permissions));
-    if (res != 0)
-        return 0;
-    return baseAddr;
-}
 
 bool Linux32In64Mem::SetPermissions(void *p, size_t space, unsigned permissions)
 {
     int res = mprotect(FIXTYPE p, space, ConvertPermissions(permissions));
     return res != -1;
-}
-
-bool Linux32In64Mem::Free(void *p, size_t space)
-{
-    char *addr = (char*)p;
-    uintptr_t offset = (addr - (char*)globalHeapBase) / pageSize;
-    if (!mprotect(FIXTYPE p, space, PROT_NONE))
-        return false;
-    pageMap.ClearBits(offset, space / pageSize);
-    if (offset < firstFree)
-        firstFree = offset;
-    return true;
 }
 
 // Create the global object for the memory manager.
@@ -222,16 +285,6 @@ OSMem *osMemoryManager = &unixMemMan;
 // Use Windows memory management.
 #include <windows.h>
 
-class WinMem : public OSMem
-{
-public:
-    WinMem() {}
-    virtual ~WinMem() {}
-    virtual void *Allocate(size_t &bytes, unsigned permissions);
-    virtual bool Free(void *p, size_t space);
-    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
-};
-
 static int ConvertPermissions(unsigned perm)
 {
     if (perm & PERMISSION_WRITE)
@@ -256,6 +309,68 @@ static int ConvertPermissions(unsigned perm)
         return PAGE_NOACCESS;
 }
 
+#ifdef POLYML32IN64
+
+class Windows32In64Mem : public Alloc32In64
+{
+public:
+    Windows32In64Mem() {}
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+    virtual size_t PageSize();
+
+    virtual void *ReserveHeap(size_t space)
+    {
+        return VirtualAlloc(0, space, MEM_RESERVE, PAGE_NOACCESS);
+    }
+
+    virtual bool UnreserveHeap(void *p, size_t space)
+    {
+        return VirtualFree(p, 0, MEM_RELEASE) == TRUE;
+    }
+
+    virtual void *CommitPages(void *baseAddr, size_t space, unsigned permissions)
+    {
+        return VirtualAlloc(baseAddr, space, MEM_COMMIT, ConvertPermissions(permissions));
+    }
+
+    virtual bool UncommitPages(void *baseAddr, size_t space)
+    {
+        return VirtualFree(baseAddr, space, MEM_DECOMMIT) == TRUE;
+    }
+
+};
+
+size_t Windows32In64Mem::PageSize()
+{
+    // Get the page size and round up to that multiple.
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    // Get the page size.  Put it in a size_t variable otherwise the rounding
+    // up of "space" may go wrong on 64-bits.
+    return sysInfo.dwPageSize;
+}
+
+bool Windows32In64Mem::SetPermissions(void *p, size_t space, unsigned permissions)
+{
+    DWORD oldProtect;
+    return VirtualProtect(p, space, ConvertPermissions(permissions), &oldProtect) == TRUE;
+}
+
+// Create the global object for the memory manager.
+static Windows32In64Mem winMemMan;
+OSMem *osMemoryManager = &winMemMan;
+#else
+
+class WinMem : public OSMem
+{
+public:
+    WinMem() {}
+    virtual ~WinMem() {}
+    virtual void *Allocate(size_t &bytes, unsigned permissions);
+    virtual bool Free(void *p, size_t space);
+    virtual bool SetPermissions(void *p, size_t space, unsigned permissions);
+};
+
 // Allocate space and return a pointer to it.  The size is the minimum
 // size requested and it is updated with the actual space allocated.
 // Returns NULL if it cannot allocate the space.
@@ -267,7 +382,7 @@ void *WinMem::Allocate(size_t &space, unsigned permissions)
     // Get the page size.  Put it in a size_t variable otherwise the rounding
     // up of "space" may go wrong on 64-bits.
     size_t pageSize = sysInfo.dwPageSize;
-    space = (space + pageSize-1) & ~(pageSize-1);
+    space = (space + pageSize - 1) & ~(pageSize - 1);
     DWORD options = MEM_RESERVE | MEM_COMMIT;
 #ifdef POLYML32IN64
     options |= MEM_TOP_DOWN;
@@ -293,6 +408,7 @@ bool WinMem::SetPermissions(void *p, size_t space, unsigned permissions)
 // Create the global object for the memory manager.
 static WinMem winMemMan;
 OSMem *osMemoryManager = &winMemMan;
+#endif
 
 #else
 
