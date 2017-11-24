@@ -128,7 +128,10 @@ class PolyWord;
 extern PolyWord *globalHeapBase;
 typedef uint32_t POLYOBJECTPTR; // This is an index into globalHeapBase
 
-extern POLYOBJECTPTR AddressToObjectPtr(void *address);
+#ifdef POLYML32IN64DEBUG
+extern POLYOBJECTPTR AddressToObjectPtrDebug(void *address);
+#endif
+
 // If a 64-bit value if in the range of the object pointers.
 inline bool IsHeapAddress(void *addr) { return (uintptr_t)addr <= 0xffffffff; }
 #else
@@ -150,15 +153,20 @@ public:
     static PolyWord FromStackAddr(PolyWord *sp) { return PolyWord(sp); }
     static PolyWord FromCodePtr(POLYCODEPTR p) { return PolyWord(p); }
 
-
     // Tests for the various cases.
     bool IsTagged(void) const { return (contents.unsignedInt & 1) != 0; }
 #ifndef POLYML32IN64
     // In native 32-bit and 64-bit addresses are on word boundaries
-    bool IsDataPtr(void) const { return (contents.unsignedInt & (sizeof(PolyWord)-1)) == 0; }
+    bool IsDataPtr(void) const { return (contents.unsignedInt & (sizeof(PolyWord) - 1)) == 0; }
 #else
     // In 32-in-64 addresses are anything that isn't tagged.
     bool IsDataPtr(void) const { return (contents.unsignedInt & 1) == 0; }
+#ifdef POLYML32IN64DEBUG
+    static POLYOBJECTPTR AddressToObjectPtr(void *address) { return AddressToObjectPtrDebug(address); }
+#else
+    static POLYOBJECTPTR AddressToObjectPtr(void *address)
+        { return (POLYOBJECTPTR)((PolyWord*)address - globalHeapBase); }
+#endif
 #endif
 
     // Extract the various cases.
@@ -309,7 +317,7 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_GC_BIT; }
 #ifdef POLYML32IN64
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
 #else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_GC_BIT; }
@@ -323,7 +331,7 @@ inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_PRIVATE_DEPT
 inline bool OBJ_IS_CHAINED(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
 #ifdef POLYML32IN64
 inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
-inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return  AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
+inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
 #else
 inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
 inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_DEPTH_MASK; }
