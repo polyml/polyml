@@ -230,7 +230,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
         {
             size_t newDisp = p.AsCodePtr() - addressOfConstant - 4;
 #if (SIZEOF_VOIDP != 4)
-            ASSERT(newDisp < 0x80000000 && newDisp >= -(POLYSIGNED)0x80000000);
+            ASSERT(newDisp < (size_t)0x80000000 && newDisp >= -(size_t)0x80000000);
 #endif
             for (unsigned i = 0; i < 4; i++) {
                 addressOfConstant[i] = (byte)(newDisp & 0xff);
