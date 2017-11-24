@@ -1220,7 +1220,7 @@ void MemMgr::RemoveProfilingBitmaps()
 }
 
 #ifdef POLYML32IN64DEBUG
-POLYOBJECTPTR AddressToObjectPtrDebug(void *address)
+POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);
     uintptr_t offset = (PolyWord*)address - globalHeapBase;

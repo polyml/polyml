@@ -95,10 +95,16 @@
 #include "gctaskfarm.h"
 #include "heapsizing.h"
 
+#ifdef POLYML32IN64
+#define ENDOFLIST ((PolyObject*)globalHeapBase)
+#else
+#define ENDOFLIST 0
+#endif
+
 class ObjEntry
 {
 public:
-    ObjEntry(): objList(0), objCount(0), shareCount(0) {}
+    ObjEntry(): objList(ENDOFLIST), objCount(0), shareCount(0) {}
     PolyObject *objList;
     POLYUNSIGNED objCount;
     POLYUNSIGNED shareCount;
@@ -272,9 +278,9 @@ void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &s
         PolyObject *median = head;
         head = head->GetShareChain();
         median->SetLengthWord(lengthWord);
-        PolyObject *left = 0, *right = 0;
+        PolyObject *left = ENDOFLIST, *right = ENDOFLIST;
         POLYUNSIGNED leftCount = 0, rightCount = 0;
-        while (head != 0)
+        while (head != ENDOFLIST)
         {
             PolyObject *next = head->GetShareChain();
             int res = memcmp(median, head, bytesToCompare);
@@ -352,10 +358,10 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
     SortVector *s = (SortVector*)a;
     // Partition the objects between those that have pointers to objects that are
     // still to be processed and those that have been processed.
-    if (s->baseObject.objList == 0)
+    if (s->baseObject.objList == ENDOFLIST)
         return;
     PolyObject *h = s->baseObject.objList;
-    s->baseObject.objList = 0;
+    s->baseObject.objList = ENDOFLIST;
     s->baseObject.objCount = 0;
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(s->lengthWord);
     s->carryOver = 0;
@@ -363,11 +369,11 @@ void SortVector::wordDataTask(GCTaskId*, void *a, void *)
     for (unsigned i = 0; i < 256; i++)
     {
         // Clear the entries in the hash table but not the sharing count.
-        s->processObjects[i].objList = 0;
+        s->processObjects[i].objList = ENDOFLIST;
         s->processObjects[i].objCount = 0;
     }
 
-    while (h != 0)
+    while (h != ENDOFLIST)
     {
         PolyObject *next = h->GetShareChain();
         bool deferred = false;
@@ -456,12 +462,12 @@ void SortVector::hashAndSortAllTask(GCTaskId*, void *a, void *b)
     for (unsigned i = 0; i < 256; i++)
     {
         // Clear the entries in the hash table but not the sharing count.
-        s->processObjects[i].objList = 0;
+        s->processObjects[i].objList = ENDOFLIST;
         s->processObjects[i].objCount = 0;
     }
     PolyObject *h = s->baseObject.objList;
     POLYUNSIGNED bytes = OBJ_OBJECT_LENGTH(s->lengthWord)*sizeof(PolyWord);
-    while (h != 0)
+    while (h != ENDOFLIST)
     {
         PolyObject *next = h->GetShareChain();
         unsigned char hash = 0;
