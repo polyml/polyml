@@ -104,7 +104,7 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     setRelocationAddress(relocAddr, &reloc.VirtualAddress);
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
+    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     reloc.SymbolTableIndex = addrArea;
     reloc.Type = DIRECT_WORD_RELOCATION;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -163,7 +163,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
 
     setRelocationAddress(addr, &reloc.VirtualAddress);
     // Set the value at the address to the offset relative to the symbol.
-    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
+    uintptr_t offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
     reloc.SymbolTableIndex = aArea;
 
     // The value we store here is the offset whichever relocation method

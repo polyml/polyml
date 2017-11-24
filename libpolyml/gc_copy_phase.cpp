@@ -90,7 +90,7 @@ static PLock copyLock("Copy");
 // Return the address of the word if successful or 0 on failure.
 // "limit" is the bit position of the bottom of the area or, if we're compacting an area,
 // the bit position of the object we'd like to move to a higher address.
-static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED limit, POLYUNSIGNED n)
+static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, uintptr_t limit, uintptr_t n)
 {
     if (dst == 0) return 0; // No current space
 
@@ -113,7 +113,7 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     }
 
     dst->start_index = truncated_n;
-    POLYUNSIGNED start = dst->start[truncated_n];
+    uintptr_t start = dst->start[truncated_n];
     if (start <= limit)
         return 0;
 
@@ -121,11 +121,11 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     // This is complicated.  We need the eventual address to be on an even word boundary
     // which means the length word is on an odd boundary.  We might find an exact match that
     // fits this or we may need to keep looking.
-    POLYUNSIGNED free = start;
-    POLYUNSIGNED m = n & 1 ? n + 1 : n; // If n is odd round up.
+    uintptr_t free = start;
+    uintptr_t m = n & 1 ? n + 1 : n; // If n is odd round up.
     for (;;)
     {
-        POLYUNSIGNED lastFree = free;
+        uintptr_t lastFree = free;
         free = dst->bitmap.FindFree(limit, free, m);
         if (free == lastFree) { free = start;  break; } // Not there - return with free = start
         if (free & 1) break;  // It's odd aligned - that's fine
@@ -255,7 +255,7 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
         // We start at fullGCLowerLimit which is the lowest marked object in the heap
         // N.B.  It's essential that the first set bit at or above this corresponds
         // to the length word of a real object.
-        POLYUNSIGNED  bitno   = src->wordNo(src->fullGCLowerLimit);
+        uintptr_t  bitno   = src->wordNo(src->fullGCLowerLimit);
         // Set the limit to the top so we won't rescan this.  That can
         // only happen if copying takes a very short time and the same
         // thread runs multiple tasks.
@@ -263,7 +263,7 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
 
         // src->highest is the bit position that corresponds to the top of
         // generation we're copying.
-        POLYUNSIGNED  highest = src->wordNo(src->top);
+        uintptr_t  highest = src->wordNo(src->top);
 
         for (;;)
         {
@@ -350,7 +350,7 @@ void GCCopyPhase()
     for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
         LocalMemSpace *lSpace = *i;
-        POLYUNSIGNED highest = lSpace->wordNo(lSpace->top);
+        uintptr_t highest = lSpace->wordNo(lSpace->top);
         for (unsigned i = 0; i < NSTARTS; i++)
             lSpace->start[i] = highest;
         lSpace->start_index = NSTARTS - 1;

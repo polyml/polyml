@@ -693,7 +693,7 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
             if (L & _OBJ_GC_MARK)
             {
                 obj->SetLengthWord(L & ~(_OBJ_GC_MARK));
-                POLYUNSIGNED bitno = space->wordNo(pt);
+                uintptr_t bitno = space->wordNo(pt);
                 space->bitmap.SetBits(bitno - 1, n + 1);
 
                 if (OBJ_IS_MUTABLE_OBJECT(L))
@@ -833,7 +833,7 @@ void GCMarkPhase(void)
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Bitmap");
 
-    POLYUNSIGNED totalLive = 0;
+    uintptr_t totalLive = 0;
     for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
         LocalMemSpace *lSpace = *i;

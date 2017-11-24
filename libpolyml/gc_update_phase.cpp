@@ -129,8 +129,8 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 {
     PolyWord *pt      = area->upperAllocPtr;
-    POLYUNSIGNED   bitno   = area->wordNo(pt);
-    POLYUNSIGNED   highest = area->wordNo(area->top);
+    uintptr_t   bitno   = area->wordNo(pt);
+    uintptr_t   highest = area->wordNo(area->top);
 
     for (;;)
     {

@@ -68,17 +68,15 @@ extern "C" {
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
 
-/******************************************************************************/
-/*                                                                            */
-/*      STORAGE ALLOCATION                                                    */
-/*                                                                            */
-/******************************************************************************/
-
 // This is the storage allocator for allocating heap objects in the RTS.
-PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
+PolyObject *alloc(TaskData *taskData, uintptr_t data_words, unsigned flags)
 /* Allocate a number of words. */
 {
-    POLYUNSIGNED words = data_words + 1;
+    // Check the size.  This might possibly happen with a long string.
+    if (data_words > MAX_OBJECT_SIZE)
+        raise_exception0(taskData, EXC_size);
+
+    POLYUNSIGNED words = (POLYUNSIGNED)data_words + 1;
     
     if (profileMode == kProfileStoreAllocation)
         taskData->addProfileCount(words);
@@ -91,7 +89,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     }
 
     PolyObject *pObj = (PolyObject*)(foundSpace + 1);
-    pObj->SetLengthWord(data_words, flags);
+    pObj->SetLengthWord((POLYUNSIGNED)data_words, flags);
     
     // Must initialise object here, because GC doesn't clean store.
     // Is this necessary any more?  This used to be necessary when we used
@@ -101,15 +99,10 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     return pObj;
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      alloc_and_save - called by run-time system                            */
-/*                                                                            */
-/******************************************************************************/
-Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED size, unsigned flags)
+Handle alloc_and_save(TaskData *taskData, uintptr_t size, unsigned flags)
 /* Allocate and save the result on the vector. */
 {
-    return SAVE(alloc(taskData, size, flags));
+    return taskData->saveVec.push(alloc(taskData, size, flags));
 }
 
 POLYUNSIGNED PolyFullGC(PolyObject *threadId)
@@ -369,14 +362,14 @@ Handle Make_fixed_precision(TaskData *taskData, long long val)
 {
     if (val > MAXTAGGED || val < -MAXTAGGED-1)
         raise_exception0(taskData, EXC_overflow);
-    return taskData->saveVec.push(TAGGED(val));
+    return taskData->saveVec.push(TAGGED((POLYSIGNED)val));
 }
 
 Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
 {
     if (uval > MAXTAGGED)
         raise_exception0(taskData, EXC_overflow);
-    return taskData->saveVec.push(TAGGED(uval));
+    return taskData->saveVec.push(TAGGED((POLYUNSIGNED)uval));
 }
 #endif
 

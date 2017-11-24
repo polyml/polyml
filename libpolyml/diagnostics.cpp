@@ -184,11 +184,11 @@ void Log(const char *msg, ...)
 }
 
 // Log the size of a space as a comprehensible number
-void LogSize(POLYUNSIGNED wordSize)
+void LogSize(uintptr_t wordSize)
 {
-    POLYUNSIGNED size = wordSize * sizeof(PolyWord);
+    uintptr_t size = wordSize * sizeof(PolyWord);
     if (size < 10*1024)
-        Log("%" POLYUFMT, size);
+        Log("%zu", size);
     else
     {
         double s = (double)size;

@@ -143,7 +143,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (space->hierarchy >= hierarchy) {
             // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
-            POLYUNSIGNED size = (space->top-space->bottom)/4;
+            size_t size = (space->top-space->bottom)/4;
             if (space->noOverwrite)
                 defaultNoOverSize += size;
             else if (space->isMutable)
@@ -175,7 +175,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
         LocalMemSpace *space = *i;
-        POLYUNSIGNED size = space->allocatedSpace();
+        uintptr_t size = space->allocatedSpace();
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
         if (space->isMutable)
@@ -186,7 +186,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
     for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
     {
         CodeSpace *space = *i;
-        POLYUNSIGNED size = space->spaceSize();
+        uintptr_t size = space->spaceSize();
         defaultCodeSize += size/2;
     }
     if (isExport)
@@ -309,7 +309,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             isCodeObj == space->isCode)
         {
             ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
-            POLYUNSIGNED spaceLeft = space->top - space->topPointer;
+            size_t spaceLeft = space->top - space->topPointer;
             if (spaceLeft > words)
             {
                 newObj = (PolyObject*)(space->topPointer+1);
@@ -329,7 +329,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     if (newObj == 0)
     {
         // Didn't find room in the existing spaces.  Create a new space.
-        POLYUNSIGNED spaceWords;
+        uintptr_t spaceWords;
         if (isMutableObj)
         {
             if (isNoOverwrite) spaceWords = defaultNoOverSize;
@@ -440,13 +440,13 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
     }
 }
 
-static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
+static void FixForwarding(PolyWord *pt, size_t space)
 {
     while (space)
     {
         pt++;
         PolyObject *obj = (PolyObject*)pt;
-        POLYUNSIGNED length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
+        size_t length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
         pt += length;
         ASSERT(space > length);
         space -= length+1;

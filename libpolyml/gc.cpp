@@ -158,7 +158,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         /* Mark phase */
         GCMarkPhase();
         
-        POLYUNSIGNED bitCount = 0, markCount = 0;
+        uintptr_t bitCount = 0, markCount = 0;
         
         for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
@@ -200,8 +200,8 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     // mutable and immutable data is no more than 90% of the
     // corresponding areas.  This is a very coarse adjustment.
     {
-        POLYUNSIGNED iMarked = 0, mMarked = 0;
-        POLYUNSIGNED iSpace = 0, mSpace = 0;
+        uintptr_t iMarked = 0, mMarked = 0;
+        uintptr_t iSpace = 0, mSpace = 0;
         for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
             LocalMemSpace *lSpace = *i;
@@ -234,7 +234,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Update");
 
     {
-        POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
+        uintptr_t iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
         for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
             LocalMemSpace *lSpace = *i;
@@ -271,7 +271,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
         LocalMemSpace *space = *i;
-        POLYUNSIGNED free = space->freeSpace();
+        uintptr_t free = space->freeSpace();
         globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
         globalStats.incSize(PSS_AFTER_LAST_FULLGC, free*sizeof(PolyWord));
         if (space->allocationSpace)

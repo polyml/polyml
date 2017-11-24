@@ -135,13 +135,13 @@ static POLYUNSIGNED GetPhysicalMemorySize(void);
 
 // Set the initial size based on any parameters specified on the command line.
 // Any of these can be zero indicating they should default.
-void HeapSizeParameters::SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED maxsize, POLYUNSIGNED initialsize, unsigned percent)
+void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent)
 {
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
-    POLYUNSIGNED initialSize = K_to_words(initialsize);
+    uintptr_t initialSize = K_to_words(initialsize);
 
-    POLYUNSIGNED memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
+    uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
@@ -200,7 +200,7 @@ void HeapSizeParameters::SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED ma
     }
 }
 
-void HeapSizeParameters::SetReservation(POLYUNSIGNED rsize)
+void HeapSizeParameters::SetReservation(uintptr_t rsize)
 {
     gMem.SetReservation(K_to_words(rsize));
 }
@@ -208,14 +208,14 @@ void HeapSizeParameters::SetReservation(POLYUNSIGNED rsize)
 // Called in the minor GC if a GC thread needs to grow the heap.
 // Returns zero if the heap cannot be grown. "space" is the space required for the
 // object (and length field) in case this is larger than the default size.
-LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(POLYUNSIGNED space, bool isMutable)
+LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(uintptr_t space, bool isMutable)
 {
     // See how much space is allocated to the major heap.
-    POLYUNSIGNED spaceAllocated = gMem.CurrentHeapSize() - gMem.CurrentAllocSpace();
+    uintptr_t spaceAllocated = gMem.CurrentHeapSize() - gMem.CurrentAllocSpace();
 
     // The new segment is either the default size or as large as
     // necessary for the object.
-    POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
+    uintptr_t spaceSize = gMem.DefaultSpaceSize();
     if (space > spaceSize) spaceSize = space;
 
     // We allow for extension if the total heap size after extending it
@@ -260,7 +260,7 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 // Growing the heap is just a matter of adjusting the limits.  We
 // don't actually need to allocate the space here.
 // See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
-void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
+void HeapSizeParameters::AdjustSizeAfterMajorGC(uintptr_t wordsRequired)
 {
     // Cumulative times since the last major GC
     TIMEDATA gc, nonGc;
@@ -271,7 +271,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 
     if (highWaterMark < heapSizeAtStart) highWaterMark = heapSizeAtStart;
 
-    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    uintptr_t heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     currentSpaceUsed = wordsRequired;
     for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
     {
@@ -290,7 +290,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     if (performSharingPass)
     {
         // We ran the sharing pass last time: calculate the actual recovery rate.
-        POLYUNSIGNED originalSpaceUsed = currentSpaceUsed + sharingWordsRecovered;
+        uintptr_t originalSpaceUsed = currentSpaceUsed + sharingWordsRecovered;
         sharingRecoveryRate = (double)sharingWordsRecovered / (double)originalSpaceUsed;
         if (debugOptions & DEBUG_HEAPSIZE)
             Log("Heap: Sharing recovery rate was %0.3f and cost %0.3f seconds (%0.3f%% of total).\n",
@@ -307,7 +307,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
-        POLYUNSIGNED currentFreeSpace = currentSpaceUsed < heapSpace ? 0: heapSpace - currentSpaceUsed;
+        uintptr_t currentFreeSpace = currentSpaceUsed < heapSpace ? 0: heapSpace - currentSpaceUsed;
         Log("Heap: GC cpu time %2.3f non-gc time %2.3f ratio %0.3f for free space ",
             gc.toSeconds(), nonGc.toSeconds(), lastMajorGCRatio);
         LogSize((lastFreeSpace + currentFreeSpace)/2);
@@ -349,7 +349,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     }
 
     // Calculate the new heap size and the predicted cost.
-    POLYUNSIGNED newHeapSize;
+    uintptr_t newHeapSize;
     double cost;
     bool atTarget = getCostAndSize(newHeapSize, cost, false);
     // If we have been unable to allocate any more memory we may already
@@ -368,7 +368,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     }
     else
     {
-        POLYUNSIGNED newHeapSizeWithSharing;
+        uintptr_t newHeapSizeWithSharing;
         double costWithSharing;
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
@@ -428,7 +428,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     // Also, if we use the whole of the heap we may not then be able to allocate
     // new areas in the major heap without going over the limit.  Restrict it to
     // half of the available heap.
-    POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
+    uintptr_t nextLimit = highWaterMark + highWaterMark / 32;
     if (nextLimit > newHeapSize) nextLimit = newHeapSize;
     // gMem.CurrentHeapSize() is the live space size.
     if (gMem.CurrentHeapSize() > nextLimit)
@@ -441,9 +441,9 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 
 // Called after a minor GC.  Currently does nothing.
 // See also adjustHeapSize for adjustments after a major GC.
-bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC)
+bool HeapSizeParameters::AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC)
 {
-    POLYUNSIGNED spaceCopiedOut = spaceAfterGC-spaceBeforeGC;
+    uintptr_t spaceCopiedOut = spaceAfterGC-spaceBeforeGC;
     TIMEDATA gc, total;
     minorGCsSinceMajor++;
     // The major costs are cumulative so we use those
@@ -467,7 +467,7 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
 
     if (highWaterMark < gMem.CurrentHeapSize()) highWaterMark = gMem.CurrentHeapSize();
 
-    POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
+    uintptr_t nextLimit = highWaterMark + highWaterMark / 32;
     if (nextLimit > gMem.SpaceForHeap()) nextLimit = gMem.SpaceForHeap();
 
     // Set the space available for the allocation area to be the difference between the
@@ -475,15 +475,15 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
     // on this GC.  That allows for the next minor GC to copy the same amount without
     // extending the heap.  If the next minor GC adds more than this the heap will be
     // extended and a corresponding amount deducted so that the heap shrinks again.
-    POLYUNSIGNED currHeap = gMem.CurrentHeapSize();
-    POLYUNSIGNED currAlloc = gMem.CurrentAllocSpace();
-    POLYUNSIGNED nonAlloc = currHeap - currAlloc + spaceCopiedOut;
+    uintptr_t currHeap = gMem.CurrentHeapSize();
+    uintptr_t currAlloc = gMem.CurrentAllocSpace();
+    uintptr_t nonAlloc = currHeap - currAlloc + spaceCopiedOut;
     // TODO: If we have limited the space to the high water mark + 1/32 but that is less
     // than we really need we should increase it further.
-    POLYUNSIGNED allowedAlloc = nonAlloc >= nextLimit ? 0 : nextLimit - nonAlloc;
+    uintptr_t allowedAlloc = nonAlloc >= nextLimit ? 0 : nextLimit - nonAlloc;
     // Normally the allocation area will be empty but if we've failed to copy
     // everything out, especially a big object, it may not be.
-    POLYUNSIGNED allocatedInAlloc = gMem.AllocatedInAlloc();
+    uintptr_t allocatedInAlloc = gMem.AllocatedInAlloc();
 
     // If we hit the limit at the last major GC we have to be much more careful.
     // If the minor GC cannot allocate a major GC space when it needs it the minor
@@ -517,18 +517,18 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
 // Estimate the GC cost for a given heap size.  The result is the ratio of
 // GC time to application time.
 // This is really guesswork.
-double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing, bool withSharingCost)
+double HeapSizeParameters::costFunction(uintptr_t heapSize, bool withSharing, bool withSharingCost)
 {
-    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
-    POLYUNSIGNED currentFreeSpace = heapSpace < currentSpaceUsed ? 0: heapSpace - currentSpaceUsed;
-    POLYUNSIGNED averageFree = (lastFreeSpace + currentFreeSpace) / 2;
-    POLYUNSIGNED spaceUsed = currentSpaceUsed; // N.B.  currentSpaceUsed includes the new space we want
+    uintptr_t heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    uintptr_t currentFreeSpace = heapSpace < currentSpaceUsed ? 0: heapSpace - currentSpaceUsed;
+    uintptr_t averageFree = (lastFreeSpace + currentFreeSpace) / 2;
+    uintptr_t spaceUsed = currentSpaceUsed; // N.B.  currentSpaceUsed includes the new space we want
     if (heapSize <= currentSpaceUsed)
         return 1.0E6;
     // If we run the sharing pass the live space will be smaller.
     if (withSharing)
         spaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
-    POLYUNSIGNED estimatedFree = heapSize - spaceUsed;
+    uintptr_t estimatedFree = heapSize - spaceUsed;
     // The cost scales as the inverse of the amount of free space.
     double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
     // If we run the sharing pass the GC cost will increase.
@@ -557,21 +557,21 @@ double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing,
 // the user GC ratio and false if we minimised the cost
 // TODO: This could definitely be improved although it's not likely to contribute much to
 // the overall cost of a GC.
-bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing)
+bool HeapSizeParameters::getCostAndSize(uintptr_t &heapSize, double &cost, bool withSharing)
 {
     bool isBounded = false;
-    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    uintptr_t heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     // Calculate a new heap size.  We allow a maximum doubling or halving of size.
     // It's probably more important to limit the increase in case we hit paging.
-    POLYUNSIGNED sizeMax = heapSpace * 2;
+    uintptr_t sizeMax = heapSpace * 2;
     if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
-    POLYUNSIGNED sizeMin = heapSpace / 2;
+    uintptr_t sizeMin = heapSpace / 2;
     if (sizeMin < minHeapSize) sizeMin = minHeapSize;
     // We mustn't reduce the heap size too far.  If the application does a lot
     // of work with few allocations and particularly if it calls PolyML.fullGC
     // explicitly we could attempt to shrink the heap below the current live data size.
     // Add 3*space size here.  We require 2* after a minor GC. Add 1 for rounding.
-    POLYUNSIGNED minForAllocation = gMem.CurrentHeapSize() + gMem.DefaultSpaceSize() * 3;
+    uintptr_t minForAllocation = gMem.CurrentHeapSize() + gMem.DefaultSpaceSize() * 3;
     if (minForAllocation > maxHeapSize) minForAllocation = maxHeapSize;
     if (sizeMin < minForAllocation) sizeMin = minForAllocation;
 
@@ -585,7 +585,7 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
         double costMax = costFunction(sizeMax, withSharing, true);
         while (sizeMax > sizeMin + gMem.DefaultSpaceSize())
         {
-            POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
+            uintptr_t sizeNext = (sizeMin + sizeMax) / 2;
             double cost = costFunction(sizeNext, withSharing, true);
             if (cost < userGCRatio)
                 isBounded = true;

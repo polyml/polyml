@@ -111,7 +111,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                     LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsStackAddr());
                     if (space != 0) // If the ref is permanent it's always there.
                     {
-                        POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
+                        uintptr_t new_bitno = space->wordNo(refAddress.AsStackAddr());
                         // It wasn't marked so it's otherwise unreferenced.
                         if (! space->bitmap.TestBit(new_bitno)) deleteRef = true;
                     }

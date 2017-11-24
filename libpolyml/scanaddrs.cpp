@@ -228,7 +228,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
         break;
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            POLYSIGNED newDisp = p.AsCodePtr() - addressOfConstant - 4;
+            size_t newDisp = p.AsCodePtr() - addressOfConstant - 4;
 #if (SIZEOF_VOIDP != 4)
             ASSERT(newDisp < 0x80000000 && newDisp >= -(POLYSIGNED)0x80000000);
 #endif

@@ -307,7 +307,7 @@ protected:
 void SaveStateExport::setRelocationAddress(void *p, POLYUNSIGNED *reloc)
 {
     unsigned area = findArea(p);
-    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtOriginalAddr;
+    POLYUNSIGNED offset = (POLYUNSIGNED)((char*)p - (char*)memTable[area].mtOriginalAddr);
     *reloc = offset;
 }
 
@@ -320,7 +320,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
     setRelocationAddress(relocAddr, &reloc.relocAddress);
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    reloc.targetAddress = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
+    reloc.targetAddress = (POLYUNSIGNED)((char*)addr - (char*)memTable[addrArea].mtOriginalAddr);
     reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
     reloc.relKind = PROCESS_RELOC_DIRECT;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -350,7 +350,7 @@ void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationK
     // Set the value at the address to the offset relative to the symbol.
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
-    reloc.targetAddress = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
+    reloc.targetAddress = (POLYUNSIGNED)((char*)a - (char*)memTable[aArea].mtOriginalAddr);
     reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
@@ -1531,7 +1531,7 @@ void ModuleExport::exportStore(void)
         unsigned rootArea = findArea(this->rootFunction);
         struct _memTableEntry *mt = &memTable[rootArea];
         modHeader.rootSegment = mt->mtIndex;
-        modHeader.rootOffset = (char*)this->rootFunction - (char*)mt->mtOriginalAddr;
+        modHeader.rootOffset = (POLYUNSIGNED)((char*)this->rootFunction - (char*)mt->mtOriginalAddr);
     }
     modHeader.timeStamp = getBuildTime();
     modHeader.segmentDescrCount = this->memTableEntries; // One segment for each space.

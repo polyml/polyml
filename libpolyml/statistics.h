@@ -94,7 +94,7 @@ public:
     struct timeval gcUserTime, gcSystemTime;
 #endif
     
-    void updatePeriodicStats(POLYUNSIGNED freeSpace, unsigned threadsInML);
+    void updatePeriodicStats(size_t freeSpace, unsigned threadsInML);
 
     bool exportStats;
 

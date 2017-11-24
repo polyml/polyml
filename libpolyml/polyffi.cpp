@@ -594,12 +594,12 @@ POLYUNSIGNED PolyFFIGeneral(PolyObject *threadId, PolyWord code, PolyWord arg)
 // These functions are needed in the compiler
 POLYUNSIGNED PolySizeFloat()
 {
-    return TAGGED(ffi_type_float.size).AsUnsigned();
+    return TAGGED((POLYSIGNED)ffi_type_float.size).AsUnsigned();
 }
 
 POLYUNSIGNED PolySizeDouble()
 {
-    return TAGGED(ffi_type_double.size).AsUnsigned();
+    return TAGGED((POLYSIGNED)ffi_type_double.size).AsUnsigned();
 }
 
 // Get either errno or GetLastError

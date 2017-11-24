@@ -34,21 +34,21 @@ public:
     Handle getGCUtime(TaskData *taskData) const;
     Handle getGCStime(TaskData *taskData) const;
 
-    void SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED maxsize, POLYUNSIGNED initialsize, unsigned percent);
+    void SetHeapParameters(uintptr_t minsize, uintptr_t maxsize, uintptr_t initialsize, unsigned percent);
 
-    void SetReservation(POLYUNSIGNED rsize);
+    void SetReservation(uintptr_t rsize);
 
     // Called in the minor GC if a GC thread needs to grow the heap.
     // Returns zero if the heap cannot be grown.
-    LocalMemSpace *AddSpaceInMinorGC(POLYUNSIGNED space, bool isMutable);
+    LocalMemSpace *AddSpaceInMinorGC(uintptr_t space, bool isMutable);
 
     // Called in the major GC before the copy phase if the heap is more than
     // 90% full.  This should improve the efficiency of copying.
     LocalMemSpace *AddSpaceBeforeCopyPhase(bool isMutable);
 
     bool PerformSharingPass() const { return performSharingPass; }
-    void AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired);
-    bool AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC);
+    void AdjustSizeAfterMajorGC(uintptr_t wordsRequired);
+    bool AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC);
 
     // Returns true if we should run a major GC at this point
     bool RunMajorGCImmediately();
@@ -75,9 +75,9 @@ public:
 private:
     // Estimate the GC cost for a given heap size.  The result is the ratio of
     // GC time to application time.
-    double costFunction(POLYUNSIGNED heapSize, bool withSharing, bool withSharingCost);
+    double costFunction(uintptr_t heapSize, bool withSharing, bool withSharingCost);
 
-    bool getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing);
+    bool getCostAndSize(uintptr_t &heapSize, double &cost, bool withSharing);
 
     // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;
@@ -94,7 +94,7 @@ private:
     double cumulativeSharingSaving;
 
     // Maximum and minimum heap size as given by the user.
-    POLYUNSIGNED minHeapSize, maxHeapSize;
+    uintptr_t minHeapSize, maxHeapSize;
 
     // Target GC cost requested by the user.
     double userGCRatio;
@@ -103,7 +103,7 @@ private:
     // Predicted ratio for the next GC
     double predictedRatio;
 
-    POLYUNSIGNED lastFreeSpace, currentSpaceUsed;
+    uintptr_t lastFreeSpace, currentSpaceUsed;
     // Set to false if an allocation failed.  Indicates that
     // we may have reached some virtual memory limit.
     bool lastAllocationSucceeded;
@@ -112,13 +112,13 @@ private:
 
     // The estimated boundary where the paging will become
     // a significant factor.
-    POLYUNSIGNED pagingLimitSize;
+    uintptr_t pagingLimitSize;
 
     // The maximum size the heap has reached so far. 
-    POLYUNSIGNED highWaterMark;
+    uintptr_t highWaterMark;
 
     // The heap size at the start of the current GC before any spaces have been deleted.
-    POLYUNSIGNED heapSizeAtStart;
+    uintptr_t heapSizeAtStart;
 
     // The start of the clock.
     TIMEDATA startTime;

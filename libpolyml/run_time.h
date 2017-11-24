@@ -53,8 +53,8 @@ public:
 };
 
 /* storage allocation functions */
-extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
-extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
+extern PolyObject *alloc(TaskData *taskData, uintptr_t words, unsigned flags = 0);
+extern Handle alloc_and_save(TaskData *taskData, uintptr_t words, unsigned flags = 0);
 
 extern Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
                        Handle (mkEntry)(TaskData *, void*, char*));

@@ -76,7 +76,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffL
     PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(buffLen) + 1, F_BYTE_OBJ));
     
     /* Set length of string, then copy the characters. */
-    result->length = buffLen;
+    result->length = (POLYUNSIGNED)buffLen;
     memcpy(result->chars,buffer,buffLen);
     return result;
 } /* C_string_to_Poly */

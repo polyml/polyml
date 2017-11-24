@@ -109,7 +109,7 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
     TempCString entryName(Poly_string_to_C_alloc(entryH->Word()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // Create space for the address followed by the name as a C string.
-    POLYUNSIGNED space = 1 + (strlen(entryName) + 1 + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);
+    uintptr_t space = 1 + (strlen(entryName) + 1 + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);
     // Allocate a byte, weak, mutable, no-overwrite cell.  It's not clear if
     // it actually needs to be mutable but if it is it needs to be no-overwrite.
     Handle refH = alloc_and_save(taskData, space, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT|F_NO_OVERWRITE);

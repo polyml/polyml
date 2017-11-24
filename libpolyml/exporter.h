@@ -104,7 +104,7 @@ public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
     // Default sizes of the segments.
-    POLYUNSIGNED defaultImmSize, defaultCodeSize, defaultMutSize, defaultNoOverSize;
+    uintptr_t defaultImmSize, defaultCodeSize, defaultMutSize, defaultNoOverSize;
     unsigned hierarchy;
 
     GraveYard *graveYard;

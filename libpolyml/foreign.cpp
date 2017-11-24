@@ -340,11 +340,11 @@ static Handle vol_alloc (TaskData *taskData)
 }
 
 /* Allocate a new "vol" in the table which points to a C object of size "size". */
-static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
+static Handle vol_alloc_with_c_space (TaskData *taskData, size_t size)
 {
     PLocker plocker(&volLock);
     Handle res = vol_alloc(taskData);
-    trace(("size= %" POLYUFMT "\n",size));
+    trace(("size= %zu\n",size));
     void *p = malloc(size);
     if (p == 0)
         RAISE_EXN("Insufficient memory");

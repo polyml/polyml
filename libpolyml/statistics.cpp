@@ -562,7 +562,7 @@ void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval
 
 // Update the statistics that are not otherwise copied.  Called from the
 // root thread every second.
-void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords, unsigned threadsInML)
+void Statistics::updatePeriodicStats(size_t freeWords, unsigned threadsInML)
 {
     setSize(PSS_ALLOCATION_FREE, freeWords*sizeof(PolyWord));
 

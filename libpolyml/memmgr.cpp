@@ -1083,7 +1083,7 @@ uintptr_t MemMgr::AllocatedInAlloc()
 // Report heap sizes and occupancy before and after GC
 void MemMgr::ReportHeapSizes(const char *phase)
 {
-    POLYUNSIGNED alloc = 0, nonAlloc = 0, inAlloc = 0, inNonAlloc = 0;
+    uintptr_t alloc = 0, nonAlloc = 0, inAlloc = 0, inNonAlloc = 0;
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
     {
         LocalMemSpace *sp = *i;
@@ -1109,7 +1109,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
     Log(" %1.0f%% full.\n", (float)(inAlloc + inNonAlloc) / (float)spaceForHeap * 100.0F);
     Log("Heap: Local spaces %u, permanent spaces %u, code spaces %u, stack spaces %u\n",
         lSpaces.size(), pSpaces.size(), cSpaces.size(), sSpaces.size());
-    POLYUNSIGNED cTotal = 0, cOccupied = 0;
+    uintptr_t cTotal = 0, cOccupied = 0;
     for (std::vector<CodeSpace*>::iterator c = cSpaces.begin(); c != cSpaces.end(); c++)
     {
         cTotal += (*c)->spaceSize();
@@ -1132,7 +1132,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
         }
     }
     Log("Heap: Code area: total "); LogSize(cTotal); Log(" occupied: "); LogSize(cOccupied); Log("\n");
-    POLYUNSIGNED stackSpace = 0;
+    uintptr_t stackSpace = 0;
     for (std::vector<StackSpace*>::iterator s = sSpaces.begin(); s != sSpaces.end(); s++)
     {
         stackSpace += (*s)->spaceSize();
@@ -1180,7 +1180,7 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
     // Work back to find the first set bit before this.
     // Normally we will find one but if we're looking up a value that
     // is actually an integer it might be in a piece of code that is now free.
-    POLYUNSIGNED bitOffset = profMap->FindLastSet(wordAddr - space->bottom);
+    uintptr_t bitOffset = profMap->FindLastSet(wordAddr - space->bottom);
     if (space->spaceType == ST_CODE)
     {
         PolyWord *ptr = space->bottom+bitOffset;

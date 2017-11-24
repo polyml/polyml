@@ -180,7 +180,7 @@ void PExport::printObject(PolyObject *p)
             */
             byte *u = (byte*)p;
             putc('B', exportFile);
-            fprintf(exportFile, "%" POLYUFMT "|", length*sizeof(PolyWord));
+            fprintf(exportFile, "%zu|", length*sizeof(PolyWord));
             for (unsigned i = 0; i < (unsigned)(length*sizeof(PolyWord)); i++)
             {
                 fprintf(exportFile, "%02x", u[i]);
@@ -360,10 +360,10 @@ public:
     PolyObject *NewObj(POLYUNSIGNED objWords);
     bool AddToTable(void);
 
-    POLYUNSIGNED defaultSize;
-    POLYUNSIGNED currentSize;
+    size_t defaultSize;
+    size_t currentSize;
     PolyWord *base;
-    POLYUNSIGNED used;
+    size_t used;
     bool isMutable;
     unsigned spaceIndex;
 };
@@ -439,7 +439,7 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
         // Need some more space.
         if (!AddToTable())
             return 0;
-        POLYUNSIGNED size = defaultSize;
+        size_t size = defaultSize;
         if (size <= rounded)
             size = rounded + 1;
         size_t iSpace = size * sizeof(PolyWord);

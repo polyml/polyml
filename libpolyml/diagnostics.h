@@ -39,7 +39,7 @@ NORETURNFN(extern void ExitWithError(const char *, int err));
 
 extern void SetLogFile(const TCHAR *fileName);
 extern void Log(const char *, ...);
-extern void LogSize(POLYUNSIGNED wordSize);
+extern void LogSize(uintptr_t wordSize);
 
 extern unsigned    debugOptions; // debugging  flags
 
