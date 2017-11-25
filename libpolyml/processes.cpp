@@ -1929,6 +1929,7 @@ void Processes::Exit(int n)
     // Just set the exit request and go.
     exitResult = n;
     exitRequest = true;
+    PLocker lock(&schedLock); // Lock so w know the main thread is waiting
     initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
