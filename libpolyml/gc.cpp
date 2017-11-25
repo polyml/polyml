@@ -186,6 +186,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         // limits of the retained data.
 #ifdef POLYML32IN64
         lSpace->lowerAllocPtr = lSpace->bottom+1; // Must be odd-word aligned
+        lSpace->lowerAllocPtr[-1] = PolyWord::FromUnsigned(0);
 #else
         lSpace->lowerAllocPtr = lSpace->bottom;
 #endif

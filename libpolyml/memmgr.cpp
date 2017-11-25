@@ -315,7 +315,7 @@ void MemMgr::RemoveEmptyLocals()
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); )
     {
         LocalMemSpace *space = *i;
-        if (space->allocatedSpace() == 0)
+        if (space->isEmpty())
             DeleteLocalSpace(i);
         else i++;
     }
@@ -810,7 +810,7 @@ void MemMgr::RemoveExcessAllocation(uintptr_t words)
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end();)
     {
         LocalMemSpace *space = *i;
-        if (space->allocationSpace && space->allocatedSpace() == 0 &&
+        if (space->allocationSpace && space->isEmpty() &&
                 space->spaceSize() != defaultSpaceSize)
             DeleteLocalSpace(i);
         else i++;
@@ -818,7 +818,7 @@ void MemMgr::RemoveExcessAllocation(uintptr_t words)
     for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); currentAllocSpace > words && i < lSpaces.end(); )
     {
         LocalMemSpace *space = *i;
-        if (space->allocationSpace && space->allocatedSpace() == 0)
+        if (space->allocationSpace && space->isEmpty())
             DeleteLocalSpace(i);
         else i++;
     }

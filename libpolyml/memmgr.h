@@ -161,11 +161,18 @@ public:
     uintptr_t i_marked;        /* count of immutable words marked.                  */
     uintptr_t m_marked;        /* count of mutable words marked.                    */
     uintptr_t updated;         /* count of words updated.                           */
-    
+
     uintptr_t allocatedSpace(void)const // Words allocated
         { return (top-upperAllocPtr) + (lowerAllocPtr-bottom); }
     uintptr_t freeSpace(void)const // Words free
         { return upperAllocPtr-lowerAllocPtr; }
+
+#ifdef POLYML32IN64
+    // We will generally set a zero cell for alignment.
+    bool isEmpty(void)const { return allocatedSpace() <= 1; }
+#else
+    bool isEmpty(void)const { return allocatedSpace() == 0; }
+#endif
 
     virtual const char *spaceTypeString()
         { return allocationSpace ? "allocation" : MemSpace::spaceTypeString(); }
