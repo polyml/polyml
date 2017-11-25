@@ -591,7 +591,14 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
         // that to happen so that we can successfully allocate very large objects even if
         // we have a new GC very shortly.
         uintptr_t spaceSize = defaultSpaceSize;
+#ifdef POLYML32IN64
+        // When we create the allocation space we take one word so that the first
+        // length word is on an odd-word boundary.  We need to allow for that otherwise
+        // we may have available < minWords.
+        if (minWords >= spaceSize) spaceSize = minWords+1; // If we really want a large space.
+#else
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
+#endif
         LocalMemSpace *space = CreateAllocationSpace(spaceSize);
         if (space == 0) return 0; // Can't allocate it
         // Allocate our space in this new area.
