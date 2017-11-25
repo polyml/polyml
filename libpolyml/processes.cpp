@@ -1500,7 +1500,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             if (p)
             {
                 if (p == sigTask) signalThreadRunning = true;
-                else noUserThreads = false;
+                else if (! p->threadExited) noUserThreads = false;
 
                 if (p->inMLHeap)
                 {
