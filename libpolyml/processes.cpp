@@ -195,7 +195,7 @@ public:
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
-    void Exit(int n); // Request all ML threads to exit and set the process result code.
+    void RequestProcessExit(int n); // Request all ML threads to exit and set the process result code.
     // Called when a thread has completed - doesn't return.
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
 
@@ -313,16 +313,6 @@ public:
 
     int exitResult;
     bool exitRequest;
-    // Shutdown locking.
-    void CrowBarFn(void);
-    PLock shutdownLock;
-    PCondVar crowbarLock;
-    bool crowbarRunning;
-#if (defined(HAVE_PTHREAD))
-    pthread_t crowBarThreadId;
-#elif defined(HAVE_WINDOWS_H)
-    HANDLE hCrowBarThread;
-#endif
 
 #ifdef HAVE_WINDOWS_H
     // Used in profiling
@@ -341,13 +331,8 @@ ProcessExternal *processes = &processesModule;
 
 Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0),
     schedLock("Scheduler"), interrupt_exn(0),
-    threadRequest(0), exitResult(0), exitRequest(false),
-    crowbarRunning(false), sigTask(0)
+    threadRequest(0), exitResult(0), exitRequest(false), sigTask(0)
 {
-#if (defined(HAVE_PTHREAD))
-#elif defined(HAVE_WINDOWS_H)
-    hCrowBarThread = NULL;
-#endif
 #ifdef HAVE_WINDOWS_H
     Waiter::hWakeupEvent = NULL;
     hStopEvent = NULL;
@@ -1111,7 +1096,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     catch(KillException &)
                     {
                         // The thread may have been killed.
-                        processes->ThreadExit(taskData);
+                        ThreadExit(taskData);
                     }
                     // Not interrupted: pause this thread to allow for other
                     // interrupted threads to free something.
@@ -1125,8 +1110,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 else {
                     // That didn't work.  Exit.
                     fprintf(polyStderr,"Failed to recover - exiting\n");
-                    Exit(1); // Begins the shutdown process
-                    processes->ThreadExit(taskData); // And terminate this thread.
+                    RequestProcessExit(1); // Begins the shutdown process
+                    ThreadExit(taskData); // And terminate this thread.
                 }
              }
             // Try again.  There should be space now.
@@ -1417,6 +1402,7 @@ static void NewThreadFunction(void *parameter)
 // on the inital thread.
 void Processes::BeginRootThread(PolyObject *rootFunction)
 {
+    int exitLoopCount = 100; // Maximum 100 * 400 ms.
     if (taskArraySize < 1)
     {
         taskArray = (TaskData **)realloc(taskArray, sizeof(TaskData *));
@@ -1559,9 +1545,24 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         }
 
         // Now release schedLock and wait for a thread
-        // to wake us up.  Use a timed wait to avoid the race with
-        // setting exitRequest.
-        initialThreadWait.WaitFor(&schedLock, 400);
+        // to wake us up or for the timer to expire to update the statistics.
+        if (! initialThreadWait.WaitFor(&schedLock, 400))
+        {
+            // We didn't receive a request in the last 400ms
+            if (exitRequest)
+            {
+                if (--exitLoopCount < 0)
+                {
+                    // The loop count has expired and there is at least one thread that hasn't exited.
+                    // Assume we've deadlocked.
+#if defined(HAVE_WINDOWS_H)
+                    ExitProcess(1);
+#else
+                    _exit(1); // Something is stuck.  Get out without calling destructors.
+#endif
+                }
+            }
+        }
         // Update the periodic stats.
         // Calculate the free memory.  We have to be careful here because although
         // we have the schedLock we don't have any lock that prevents a thread
@@ -1593,21 +1594,6 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         globalStats.updatePeriodicStats(freeSpace, threadsInML);
     }
     schedLock.Unlock();
-    // We are about to return normally.  Stop any crowbar function
-    // and wait until it stops.
-    shutdownLock.Lock();
-    if (crowbarRunning)
-    {
-        crowbarLock.Signal();
-        shutdownLock.Unlock();
-        // Wait for the thread to terminate.
-#if (defined(HAVE_PTHREAD))
-        pthread_join(crowBarThreadId, NULL);
-#elif defined(HAVE_WINDOWS_H)
-        WaitForSingleObject(hCrowBarThread, 10000);
-#endif
-    }
-    else shutdownLock.Unlock(); // So it's always unlocked when it's destroyed.
     finish(exitResult); // Close everything down and exit.
 }
 
@@ -1862,73 +1848,17 @@ void Processes::TestAnyEvents(TaskData *taskData)
         throw IOException();
 }
 
-// Stop.  Exit is usually called by one of the ML threads but
-// in the Windows version can also be called by the GUI.
-// The normal shut-down routine is to wake up the main thread
-// and have it wait until all the ML threads have exited.  This
-// "crow-bar" thread is intended to force a shut-down if that
-// doesn't happen within 40s.  It has been increased from 20s because
-// of a report that this was insufficient on a heavily loaded machine.
-void Processes::CrowBarFn(void)
-{
-#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
-    shutdownLock.Lock();
-    crowbarRunning = true;
-    if (crowbarLock.WaitFor(&shutdownLock, 40000)) // Wait for 40s
-    {
-        // We've been woken by the main thread.  Let it do the shutdown.
-        shutdownLock.Unlock();
-    }
-    else
-    {
-#if defined(HAVE_WINDOWS_H)
-        ExitProcess(1);
-#else
-        _exit(1); // Something is stuck.  Get out without calling destructors.
-#endif
-    }
-#endif
-}
-
-#ifdef HAVE_PTHREAD
-static void *crowBarFn(void*)
-{
-    processesModule.CrowBarFn();
-    return 0;
-}
-#elif defined(HAVE_WINDOWS_H)
-static DWORD WINAPI crowBarFn(LPVOID arg)
-{
-    processesModule.CrowBarFn();
-    return 0;
-}
-#endif
-
-void Processes::Exit(int n)
+// Request that the process should exit.
+// This will usually be called from an ML thread as a result of
+// a call to OS.Process.exit but on Windows it can be called from the GUI thread.
+void Processes::RequestProcessExit(int n)
 {
     if (singleThreaded)
         finish(n);
 
-#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
-    {
-        // Start a crowbar thread.  This will stop everything if the main thread
-        // does not reach the point of stopping within 5 seconds.
-        PLocker l(&shutdownLock);
-        if (!crowbarRunning)
-        {
-#if (defined(HAVE_PTHREAD))
-            crowbarRunning = pthread_create(&crowBarThreadId, NULL, crowBarFn, 0) == 0;
-#elif defined(HAVE_WINDOWS_H)
-            hCrowBarThread = CreateThread(NULL, 0, crowBarFn, 0, 0, NULL);
-            crowbarRunning = hCrowBarThread != NULL;
-#endif
-        }
-    }
-#endif
-    // We may be in an interrupt handler with schedLock held.
-    // Just set the exit request and go.
     exitResult = n;
     exitRequest = true;
+    PLocker lock(&schedLock); // Lock so we know the main thread is waiting
     initialThreadWait.Signal(); // Wake it if it's sleeping.
 }
 
