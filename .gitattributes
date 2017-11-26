@@ -15,3 +15,5 @@ depcomp         eol=lf
 compile         eol=lf
 *.texi          eol=lf
 *.in            eol=lf
+.gitattributes  export-ignore  
+.gitignore      export-ignore
