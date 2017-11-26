@@ -186,7 +186,7 @@ void RequestConsoleInterrupt(void)
 {
     // The default action for SIGINT is to exit.
     if (findHandler(SIGINT) == TAGGED(DEFAULT_SIG))
-        processes->Exit(2); // Exit with the signal value.
+        processes->RequestProcessExit(2); // Exit with the signal value.
     else signalArrived(SIGINT);
 }
 #endif

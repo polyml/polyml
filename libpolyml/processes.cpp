@@ -195,7 +195,7 @@ public:
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
-    void Exit(int n); // Request all ML threads to exit and set the process result code.
+    void RequestProcessExit(int n); // Request all ML threads to exit and set the process result code.
     // Called when a thread has completed - doesn't return.
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
 
@@ -1111,7 +1111,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     catch(KillException &)
                     {
                         // The thread may have been killed.
-                        processes->ThreadExit(taskData);
+                        ThreadExit(taskData);
                     }
                     // Not interrupted: pause this thread to allow for other
                     // interrupted threads to free something.
@@ -1125,8 +1125,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 else {
                     // That didn't work.  Exit.
                     fprintf(polyStderr,"Failed to recover - exiting\n");
-                    Exit(1); // Begins the shutdown process
-                    processes->ThreadExit(taskData); // And terminate this thread.
+                    RequestProcessExit(1); // Begins the shutdown process
+                    ThreadExit(taskData); // And terminate this thread.
                 }
              }
             // Try again.  There should be space now.
@@ -1904,7 +1904,10 @@ static DWORD WINAPI crowBarFn(LPVOID arg)
 }
 #endif
 
-void Processes::Exit(int n)
+// Request that the process should exit.
+// This will usually be called from an ML thread as a result of
+// a call to OS.Process.exit but on Windows it can be called from the GUI thread.
+void Processes::RequestProcessExit(int n)
 {
     if (singleThreaded)
         finish(n);
