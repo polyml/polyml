@@ -2325,8 +2325,8 @@ struct
 
         and codeToICodeBlock({kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
-                (* TODO: If we have a short fixed length comparison we might well be better loading the value into
-                   a register and comparing with memory. *)
+                (* This is effectively a big-endian comparison since we compare the bytes until we
+                   find an inequality. *)
                 val target = asTarget destination
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
@@ -2364,22 +2364,70 @@ struct
 
         |   codeToICodeBlock({kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
             let
-                (* TODO: If we have a short fixed length move we might well be better loading the value into
-                   a register and storing it. *)
-                val lengthReg = newPReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
-                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddress(sourceLeft, isByteMove, context)
-                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddress(destRight, isByteMove, context)
-                val code =
-                    leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
-                    leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
-                    rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
-                    [BlockSimple(UntagValue{source=lengthReg, dest=lenReg, isSigned=false, cache=NONE}),
-                     BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
+                (* Moves of 4 or 8 bytes can be done as word moves provided the alignment is correct.
+                   Although this will work for strings it is really to handle moves between SysWord and
+                   volatileRef in Foreign.Memory.  Moves of 1, 2 or 3 bytes or words are converted into a
+                   sequence of byte or word moves. *)
+                val isWordMove =
+                    case (isByteMove, length) of
+                        (true, BICConstnt(l, _)) =>
+                        if not (isShort l) orelse (toShort l <> 0w4 andalso toShort l <> Word.fromInt wordSize)
+                        then NONE
+                        else
+                        let
+                            val leng = toShort l
+                            val moveKind =
+                                if toShort l = Word.fromInt wordSize
+                                then MoveWord
+                                else Move32Bit
+                            val isLeftAligned =
+                                case sourceLeft of
+                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                |   _ => false
+                            val isRightAligned =
+                                case destRight of
+                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                |   _ => false
+                        in
+                            if isLeftAligned andalso isRightAligned
+                            then SOME moveKind
+                            else NONE
+                        end
+                    |   _ => NONE
             in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                case isWordMove of
+                    SOME moveKind =>
+                    let
+                        val (leftCode, leftUntag, leftMem) =
+                            codeAddress(sourceLeft, isByteMove, context)
+                        val (rightCode, rightUntag, {base, offset, index, ...}) =
+                            codeAddress(destRight, isByteMove, context)
+                        val untaggedResReg = newUReg()
+                        val code =
+                            leftCode @ rightCode @ leftUntag @ rightUntag @
+                            [BlockSimple(LoadArgument { source=MemoryLocation leftMem, dest=untaggedResReg, kind=moveKind}),
+                             BlockSimple(StoreArgument
+                                {source=RegisterArgument untaggedResReg, base=base, offset=offset, index=index, kind=moveKind, isMutable=true})]
+                    in
+                        moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                    end
+                |   _ =>
+                    let
+                        val vec1Reg = newUReg() and vec2Reg = newUReg()
+                        val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
+                            codeAddress(sourceLeft, isByteMove, context)
+                        val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
+                            codeAddress(destRight, isByteMove, context)
+                        val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
+                        val code =
+                            leftCode @ rightCode @ lengthCode @
+                            leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                            rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
+                            lengthUntag @
+                            [BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lengthArg, isByteMove=isByteMove })]
+                    in
+                        moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                    end
             end
 
         |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
