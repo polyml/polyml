@@ -383,13 +383,13 @@ struct
             val (genDstAddress, RevList decDstAddress) = simpAddress(destRight, multiplier, context)
             val (genLength, RevList decLength, _) = simpSpecial(length, context, RevList [])
             (* If we have a short length move we're better doing it as a sequence of loads and stores.
-               Comparisons are probably too complicated though it might be possible to
-               handle single bytes.  This is particularly useful with string concatenation.
-               Small here means four. *)
+               This is particularly useful with string concatenation.  Small here means three or less.
+               Four and eight byte moves are handled as single instructions in the code-generator
+               provided the alignment is correct. *)
             val shortLength =
                 case genLength of
                     Constnt(lenConst, _) =>
-                        if isShort lenConst then let val l = toShort lenConst in if l <= 0w4 then SOME l else NONE end else NONE
+                        if isShort lenConst then let val l = toShort lenConst in if l <= 0w3 then SOME l else NONE end else NONE
                 |   _ => NONE
             val combinedDecs = List.rev decSrcAddress @ List.rev decDstAddress @ List.rev decLength
             val operation =
@@ -413,6 +413,27 @@ struct
                     in
                         mkEnv(combinedDecs @ makeMoves 0w0, CodeZero (* unit result *))
                     end
+
+                |   (SOME length, BlockOpEqualByte) => (* Comparing with the null string and up to 3 characters. *)
+                    let
+                        val {base=baseSrc, index=indexSrc, offset=offsetSrc} = genSrcAddress
+                        and {base=baseDst, index=indexDst, offset=offsetDst} = genDstAddress
+                        val moveKind = LoadStoreMLByte{isImmutable=false}
+                        
+                        (* Build andalso tree to check each byte.  For the null string this simply returns "true". *)
+                        fun makeComparison offset =
+                        if offset = length
+                        then CodeTrue
+                        else Cond(
+                                Binary{oper=WordComparison{test=TestEqual, isSigned=false},
+                                    arg1=LoadOperation{kind=moveKind, address={base=baseSrc, index=indexSrc, offset=offsetSrc+offset*multiplier}},
+                                    arg2=LoadOperation{kind=moveKind, address={base=baseDst, index=indexDst, offset=offsetDst+offset*multiplier}}},
+                                makeComparison(offset+0w1),
+                                CodeFalse)
+                    in
+                        mkEnv(combinedDecs, makeComparison 0w0)
+                    end
+
                 |   _ =>
                     mkEnv(combinedDecs, 
                         BlockOperation{kind=kind, sourceLeft=genSrcAddress, destRight=genDstAddress, length=genLength})
