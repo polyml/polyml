@@ -341,6 +341,17 @@ struct
     val () = PolyML.addPrettyPrinter(fn _ => fn _ => fn r => PolyML.PrettyString(regRepr r))
     
     datatype argType = ArgGeneral | ArgFP
+    
+    (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
+    datatype opSize = OpSize32 | OpSize64
+    
+    (* polyWordOpSize is the size of a PolyWord.  This is normally the native word size. *)
+    val polyWordOpSize = if isX64 then OpSize64 else OpSize32
+    (* nativeWordOpSize is the size of an address.  It may be different from polyWordSize
+       if we support 32-bit words in 64-bit mode. *) 
+    val nativeWordOpSize =
+        if isX64 orelse RunCall.memoryCellLength(0w0: SysWord.word) > 0w1
+        then OpSize64 else OpSize32
 
     structure RegSet =
     struct
@@ -541,102 +552,135 @@ struct
 
     (* Primary opCodes.  N.B. only opCodes actually used are listed here.
        If new instruction are added check they will be handled by the
-       run-time system in the event of trap. *)
+       run-time system in the event of trap. *)    
     datatype opCode =
-        Group1_8_A
-    |   Group1_32_A
+        Group1_8_A32
+    |   Group1_8_A64
+    |   Group1_32_A32
+    |   Group1_32_A64
     |   Group1_8_a
     |   JMP_8
     |   JMP_32
     |   CALL_32
-    |   MOVL_A_R
-    |   MOVL_R_A
-    |   MOVL_R_A16
+    |   MOVL_A_R32
+    |   MOVL_A_R64
     |   MOVL_R_A32
-    |   MOVB_R_A of {forceRex: bool}
+    |   MOVL_R_A64
+    |   MOVL_R_A16
+    |   MOVB_R_A32
+    |   MOVB_R_A64 of {forceRex: bool}
     |   PUSH_R of Word8.word
     |   POP_R  of Word8.word
     |   Group5
     |   NOP
-    |   LEAL
-    |   MOVL_32_64_R of Word8.word
-    |   MOVL_32_A
+    |   LEAL32
+    |   LEAL64
+    |   MOVL_32_R of Word8.word
+    |   MOVL_64_R of Word8.word
+    |   MOVL_32_A32
+    |   MOVL_32_A64
     |   MOVB_8_A
     |   POP_A
     |   RET
     |   RET_16
     |   CondJump of branchOps
     |   CondJump32 of branchOps
-    |   Arith of arithOp * Word8.word
-    |   Group3_A
+    |   Arith32 of arithOp * Word8.word
+    |   Arith64 of arithOp * Word8.word
+    |   Group3_A32
+    |   Group3_A64
     |   Group3_a
-    |   Group2_8_A
-    |   Group2_CL_A
-    |   Group2_1_A
+    |   Group2_8_A32
+    |   Group2_8_A64
+    |   Group2_CL_A32
+    |   Group2_CL_A64
+    |   Group2_1_A32
+    |   Group2_1_A64
     |   PUSH_8
     |   PUSH_32
     |   TEST_ACC8
-    |   LOCK_XADD
+    |   LOCK_XADD32
+    |   LOCK_XADD64
     |   FPESC of Word8.word
-    |   XCHNG
+    |   XCHNG32
+    |   XCHNG64
     |   REP (* Rep prefix *)
-    |   MOVZB (* Needs escape code. *)
-    |   MOVZW (* Needs escape code. *)
-    |   MOVL_A_R32 (* As MOVL_A_R but without RAX.W *)
-    |   IMUL (* Needs escape code. *)
+    |   MOVZB32 (* Needs escape code. *)
+    |   MOVZW32 (* Needs escape code. *)
+    |   IMUL32 (* Needs escape code. *)
+    |   IMUL64 (* Needs escape code. *)
     |   SSE2StoreSingle (* movss with memory destination - needs escape sequence. *)
     |   SSE2StoreDouble (* movsd with memory destination - needs escape sequence. *)
-    |   CQO_CDQ (* Sign extend before divide.. *)
+    |   CQO_CDQ32 (* Sign extend before divide.. *)
+    |   CQO_CDQ64 (* Sign extend before divide.. *)
     |   SSE2Ops of sse2Operations (* SSE2 instructions. *)
-    |   CVTSI2SD
+    |   CVTSI2SD32
+    |   CVTSI2SD64
     |   HLT     (* End of code marker. *)
-    |   IMUL_C8
-    |   IMUL_C32
+    |   IMUL_C8_32
+    |   IMUL_C8_64
+    |   IMUL_C32_32
+    |   IMUL_C32_64
 
-    fun opToInt Group1_8_A    =  0wx83
-    |   opToInt Group1_32_A   =  0wx81
-    |   opToInt Group1_8_a    =  0wx80
-    |   opToInt JMP_8         =  0wxeb
-    |   opToInt JMP_32        =  0wxe9
-    |   opToInt CALL_32       =  0wxe8
-    |   opToInt MOVL_A_R      =  0wx8b
-    |   opToInt MOVL_R_A      =  0wx89
-    |   opToInt MOVL_R_A16    =  0wx89 (* Also has an OPSIZE prefix. *)
-    |   opToInt MOVL_R_A32    =  0wx89 (* Suppresses the REX.W prefix. *)
-    |   opToInt (MOVB_R_A _)  =  0wx88
-    |   opToInt (PUSH_R reg)  =  0wx50 + reg
-    |   opToInt (POP_R  reg)  =  0wx58 + reg
-    |   opToInt Group5        =  0wxff
-    |   opToInt NOP           =  0wx90
-    |   opToInt LEAL          =  0wx8d
-    |   opToInt (MOVL_32_64_R reg) =  0wxb8 + reg
-    |   opToInt MOVL_32_A     =  0wxc7
-    |   opToInt MOVB_8_A      =  0wxc6
-    |   opToInt POP_A         =  0wx8f
-    |   opToInt RET           = 0wxc3
-    |   opToInt RET_16        = 0wxc2
-    |   opToInt (CondJump opc) = 0wx70 + branchOpToWord opc
+    fun opToInt Group1_8_A32    =  0wx83
+    |   opToInt Group1_8_A64    =  0wx83
+    |   opToInt Group1_32_A32   =  0wx81
+    |   opToInt Group1_32_A64   =  0wx81
+    |   opToInt Group1_8_a      =  0wx80
+    |   opToInt JMP_8           =  0wxeb
+    |   opToInt JMP_32          =  0wxe9
+    |   opToInt CALL_32         =  0wxe8
+    |   opToInt MOVL_A_R32      =  0wx8b
+    |   opToInt MOVL_A_R64      =  0wx8b
+    |   opToInt MOVL_R_A32      =  0wx89
+    |   opToInt MOVL_R_A64      =  0wx89
+    |   opToInt MOVL_R_A16      =  0wx89 (* Also has an OPSIZE prefix. *)
+    |   opToInt MOVB_R_A32      =  0wx88
+    |   opToInt (MOVB_R_A64 _)  =  0wx88
+    |   opToInt (PUSH_R reg)    =  0wx50 + reg
+    |   opToInt (POP_R  reg)    =  0wx58 + reg
+    |   opToInt Group5          =  0wxff
+    |   opToInt NOP             =  0wx90
+    |   opToInt LEAL32          =  0wx8d
+    |   opToInt LEAL64          =  0wx8d
+    |   opToInt (MOVL_32_R reg) =  0wxb8 + reg
+    |   opToInt (MOVL_64_R reg) =  0wxb8 + reg
+    |   opToInt MOVL_32_A32     =  0wxc7
+    |   opToInt MOVL_32_A64     =  0wxc7
+    |   opToInt MOVB_8_A        =  0wxc6
+    |   opToInt POP_A           =  0wx8f
+    |   opToInt RET             = 0wxc3
+    |   opToInt RET_16          = 0wxc2
+    |   opToInt (CondJump opc)  = 0wx70 + branchOpToWord opc
     |   opToInt (CondJump32 opc) = 0wx80 + branchOpToWord opc (* Needs 0F prefix *)
-    |   opToInt (Arith (ao,dw)) = arithOpToWord ao * 0w8 + dw
-    |   opToInt Group3_A      = 0wxf7
-    |   opToInt Group3_a      = 0wxf6
-    |   opToInt Group2_8_A    = 0wxc1
-    |   opToInt Group2_1_A    = 0wxd1
-    |   opToInt Group2_CL_A   = 0wxd3
-    |   opToInt PUSH_8        = 0wx6a
-    |   opToInt PUSH_32       = 0wx68
-    |   opToInt TEST_ACC8     = 0wxa8
-    |   opToInt LOCK_XADD     = 0wxC1 (* Needs lock and escape prefixes. *)
-    |   opToInt (FPESC n)     = 0wxD8 orb8 n
-    |   opToInt XCHNG         = 0wx87
-    |   opToInt REP           = 0wxf3
-    |   opToInt MOVZB         = 0wxb6 (* Needs escape code. *)
-    |   opToInt MOVZW         = 0wxb7 (* Needs escape code. *)
-    |   opToInt MOVL_A_R32    = 0wx8b
-    |   opToInt IMUL          = 0wxaf (* Needs escape code. *)
-    |   opToInt SSE2StoreSingle     = 0wx11 (* Needs F3 0F escape. *)
-    |   opToInt SSE2StoreDouble     = 0wx11 (* Needs F2 0F escape. *)
-    |   opToInt CQO_CDQ       = 0wx99
+    |   opToInt (Arith32 (ao,dw)) = arithOpToWord ao * 0w8 + dw
+    |   opToInt (Arith64 (ao,dw)) = arithOpToWord ao * 0w8 + dw
+    |   opToInt Group3_A32      = 0wxf7
+    |   opToInt Group3_A64      = 0wxf7
+    |   opToInt Group3_a        = 0wxf6
+    |   opToInt Group2_8_A32    = 0wxc1
+    |   opToInt Group2_8_A64    = 0wxc1
+    |   opToInt Group2_1_A32    = 0wxd1
+    |   opToInt Group2_1_A64    = 0wxd1
+    |   opToInt Group2_CL_A32   = 0wxd3
+    |   opToInt Group2_CL_A64   = 0wxd3
+    |   opToInt PUSH_8          = 0wx6a
+    |   opToInt PUSH_32         = 0wx68
+    |   opToInt TEST_ACC8       = 0wxa8
+    |   opToInt LOCK_XADD32     = 0wxC1 (* Needs lock and escape prefixes. *)
+    |   opToInt LOCK_XADD64     = 0wxC1 (* Needs lock and escape prefixes. *)
+    |   opToInt (FPESC n)       = 0wxD8 orb8 n
+    |   opToInt XCHNG32         = 0wx87
+    |   opToInt XCHNG64         = 0wx87
+    |   opToInt REP             = 0wxf3
+    |   opToInt MOVZB32         = 0wxb6 (* Needs escape code. *)
+    |   opToInt MOVZW32         = 0wxb7 (* Needs escape code. *)
+    |   opToInt IMUL32          = 0wxaf (* Needs escape code. *)
+    |   opToInt IMUL64          = 0wxaf (* Needs escape code. *)
+    |   opToInt SSE2StoreSingle = 0wx11 (* Needs F3 0F escape. *)
+    |   opToInt SSE2StoreDouble = 0wx11 (* Needs F2 0F escape. *)
+    |   opToInt CQO_CDQ32       = 0wx99
+    |   opToInt CQO_CDQ64       = 0wx99
     |   opToInt (SSE2Ops SSE2Move) = 0wx10 (* Needs F2 0F escape. *)
     |   opToInt (SSE2Ops SSE2Comp) = 0wx2E (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2Add)  = 0wx58 (* Needs F2 0F escape. *)
@@ -647,10 +691,13 @@ struct
     |   opToInt (SSE2Ops SSE2Xor)  = 0wx57 (* Needs 66 0F escape. *)
     |   opToInt (SSE2Ops SSE2MoveSingle)  = 0wx5A (* Needs F3 0F escape. *)
     |   opToInt (SSE2Ops SSE2DoubleToFloat)  = 0wx5A (* Needs F2 0F escape. *)
-    |   opToInt CVTSI2SD      = 0wx2a (* Needs F2 0F escape. *)
-    |   opToInt HLT           = 0wxf4
-    |   opToInt IMUL_C8       = 0wx6b
-    |   opToInt IMUL_C32      = 0wx69
+    |   opToInt CVTSI2SD32      = 0wx2a (* Needs F2 0F escape. *)
+    |   opToInt CVTSI2SD64      = 0wx2a (* Needs F2 0F escape. *)
+    |   opToInt HLT             = 0wxf4
+    |   opToInt IMUL_C8_32      = 0wx6b
+    |   opToInt IMUL_C8_64      = 0wx6b
+    |   opToInt IMUL_C32_32     = 0wx69
+    |   opToInt IMUL_C32_64     = 0wx69
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -683,7 +730,8 @@ struct
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
     (* Lock, Opsize and REPNE prefixes come before the REX. *)
-    fun opcodePrefix LOCK_XADD                  = [0wxF0] (* Requires LOCK prefix. *)
+    fun opcodePrefix LOCK_XADD32                = [0wxF0] (* Requires LOCK prefix. *)
+    |   opcodePrefix LOCK_XADD64                = [0wxF0] (* Requires LOCK prefix. *)
     |   opcodePrefix MOVL_R_A16                 = [0wx66] (* Requires OPSIZE prefix. *)
     |   opcodePrefix SSE2StoreSingle            = [0wxf3]
     |   opcodePrefix SSE2StoreDouble            = [0wxf2]
@@ -692,14 +740,17 @@ struct
     |   opcodePrefix(SSE2Ops SSE2Xor)           = [0wx66]
     |   opcodePrefix(SSE2Ops SSE2MoveSingle)    = [0wxf3]
     |   opcodePrefix(SSE2Ops _)                 = [0wxf2]
-    |   opcodePrefix CVTSI2SD                   = [0wxf2]
+    |   opcodePrefix CVTSI2SD32                 = [0wxf2]
+    |   opcodePrefix CVTSI2SD64                 = [0wxf2]
     |   opcodePrefix _                          = []
 
     (* A few instructions require an escape.  Escapes come after the REX. *)
-    fun escapePrefix MOVZB                      = [0wx0f]
-    |   escapePrefix MOVZW                      = [0wx0f]
-    |   escapePrefix LOCK_XADD                  = [0wx0f]
-    |   escapePrefix IMUL                       = [0wx0f]
+    fun escapePrefix MOVZB32                    = [0wx0f]
+    |   escapePrefix MOVZW32                    = [0wx0f]
+    |   escapePrefix LOCK_XADD32                = [0wx0f]
+    |   escapePrefix LOCK_XADD64                = [0wx0f]
+    |   escapePrefix IMUL32                     = [0wx0f]
+    |   escapePrefix IMUL64                     = [0wx0f]
     |   escapePrefix(CondJump32 _)              = [0wx0f]
     |   escapePrefix SSE2StoreSingle            = [0wx0f]
     |   escapePrefix SSE2StoreDouble            = [0wx0f]
@@ -708,7 +759,8 @@ struct
     |   escapePrefix(SSE2Ops SSE2Xor)           = [0wx0f]
     |   escapePrefix(SSE2Ops SSE2MoveSingle)    = [0wx0f]
     |   escapePrefix(SSE2Ops _)                 = [0wx0f]
-    |   escapePrefix CVTSI2SD                   = [0wx0f]
+    |   escapePrefix CVTSI2SD32                 = [0wx0f]
+    |   escapePrefix CVTSI2SD64                 = [0wx0f]
     |   escapePrefix _                          = []
 
     (* Generate an opCode byte after doing any pending operations. *)
@@ -729,37 +781,32 @@ struct
         (* We need a rex prefix if we need to set the length to 64-bit. *)
         val need64bit =
             case opb of
-                Group1_8_A => isX64 (* Arithmetic operations - must be 64-bit *)
-            |   Group1_32_A => isX64 (* Arithmetic operations - must be 64-bit *)
-            |   Group2_1_A => isX64 (* 1-bit shifts - must be 64-bit *)
-            |   Group2_8_A => isX64 (* n-bit shifts - must be 64-bit *)
-            |   Group2_CL_A => isX64 (* Shifts by value in CL *)
-            |   Group3_A => isX64 (* Test, Not, Mul etc. *)
-            |   Arith _ => isX64
-            |   MOVL_A_R => isX64 (* Needed *)
-            |   MOVL_R_A => isX64 (* Needed *)
-            |   XCHNG => isX64
-            |   LEAL => isX64 (* Needed to ensure the result is 64-bits *)
-            |   MOVZB => isX64 (* Needed to ensure the result is 64-bits *)
-            |   MOVZW => isX64 (* Needed to ensure the result is 64-bits *)
-            |   MOVL_32_64_R _ => isX64 (* Needed *)
-            |   MOVL_32_A => isX64 (* Needed *)
-            |   IMUL => isX64 (* Needed to ensure the result is 64-bits *)
-            |   LOCK_XADD => isX64 (* Needed to ensure the result is 64-bits *)
-            |   CQO_CDQ => isX64 (* It's only CQO if there's a Rex prefix. *)
-            |   CVTSI2SD => isX64 (* This affects the size of the integer source. *)
-            |   IMUL_C8 => isX64
-            |   IMUL_C32 => isX64
+                Group1_8_A64 => true (* Arithmetic operations - must be 64-bit *)
+            |   Group1_32_A64 => true (* Arithmetic operations - must be 64-bit *)
+            |   Group2_1_A64 => true (* 1-bit shifts - must be 64-bit *)
+            |   Group2_8_A64 => true (* n-bit shifts - must be 64-bit *)
+            |   Group2_CL_A64 => true (* Shifts by value in CL *)
+            |   Group3_A64 => true (* Test, Not, Mul etc. *)
+            |   Arith64 (_, _) => true
+            |   MOVL_A_R64 => true (* Needed *)
+            |   MOVL_R_A64 => true (* Needed *)
+            |   XCHNG64 => true
+            |   LEAL64 => true (* Needed to ensure the result is 64-bits *)
+            |   MOVL_64_R _ => true (* Needed *)
+            |   MOVL_32_A64 => true (* Needed *)
+            |   IMUL64 => true (* Needed to ensure the result is 64-bits *)
+            |   LOCK_XADD64 => true (* Needed to ensure the result is 64-bits *)
+            |   CQO_CDQ64 => true (* It's only CQO if there's a Rex prefix. *)
+            |   CVTSI2SD64 => true (* This affects the size of the integer source. *)
+            |   IMUL_C8_64 => true
+            |   IMUL_C32_64 => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
            That's only possible in 64-bit mode. *)
         val forceRex =
             case opb of
-                MOVB_R_A {forceRex=true} => (* This is allowed in X86/64 but not in X86/32. *)
-                    if isX64
-                    then true
-                    else raise InternalError "rexByte: MOVB_R_A accessing low order byte of ESI/EDI"
+                MOVB_R_A64 {forceRex=true} => true (* This is allowed in X86/64 but not in X86/32. *)
             |   _ => false
     in
         if need64bit orelse rrX orelse rbX orelse riX orelse forceRex
@@ -855,6 +902,8 @@ struct
            the modrm byte is actually a code.  *)
         and opPlus2(opb, offset, rb, op2) = opIndexedGen(opb, offset, SOME rb, NoIndex, (op2, false))
         
+        and opIndexedPlus2(opb, offset, rb, ri, op2) = opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
+        
         fun opIndexed (opb, offset, rb, ri, rd) =
             opIndexedGen(opb, offset, rb, ri, getReg rd) 
         
@@ -864,23 +913,24 @@ struct
             opIndexedGen(opb, offset, SOME rb, ri, (op2, false))
     end
 
-    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int) =
+    fun immediateOperand (opn: arithOp, rd: genReg, imm: LargeInt.int, opIs64) =
     if is8BitL imm
     then (* Can use one byte immediate *)
-        opRegPlus2(Group1_8_A, rd, arithOpToWord opn) @ [Word8.fromLargeInt imm]
+        opRegPlus2(if opIs64 then Group1_8_A64 else Group1_8_A32, rd, arithOpToWord opn) @ [Word8.fromLargeInt imm]
     else if is32bit imm
     then (* Need 32 bit immediate. *)
-        opRegPlus2(Group1_32_A, rd, arithOpToWord opn) @ int32Signed imm
+        opRegPlus2(if opIs64 then Group1_32_A64 else Group1_32_A32, rd, arithOpToWord opn) @ int32Signed imm
     else (* It won't fit in the immediate; put it in the non-address area. *)
     let
         val (rc, rx) = getReg rd
-        val opb = opCodeBytes(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false})
+        val opb = opCodeBytes((if opIs64 then Arith64 else Arith32) (opn, 0w3 (* r/m to reg *)), SOME{w=opIs64, r=rx, b=false, x = false})
         val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
     in
         opb @ [mdrm] @ int32Signed(tag 0)
     end
     
-    fun arithOpReg(opn: arithOp, rd: genReg, rs: genReg) = opReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs)
+    fun arithOpReg(opn: arithOp, rd: genReg, rs: genReg, opIs64) =
+        opReg ((if opIs64 then Arith64 else Arith32) (opn, 0w3 (* r/m to reg *)), rd, rs)
 
     type handlerLab = addrs ref
 
@@ -942,13 +992,13 @@ struct
     |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
-    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
-    |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
+    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
+    |   ArithMemConst of { opc: arithOp, address: memoryAddress, source: LargeInt.int, opSize: opSize }
+    |   ArithMemLongConst of { opc: arithOp, address: memoryAddress, source: machineWord }
+    |   ArithByteMemConst of { opc: arithOp, address: memoryAddress, source: Word8.word }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
-    |   LockMutableSegment of genReg
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
@@ -964,7 +1014,7 @@ struct
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
     |   ReturnFromFunction of int
-    |   RaiseException
+    |   RaiseException of { workReg: genReg }
     |   UncondBranch of label
     |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
@@ -1029,6 +1079,9 @@ struct
         fun printSize Size8Bit = "Byte"
         |   printSize Size16Bit = "16Bit"
         |   printSize Size32Bit = "32Bit"
+        
+        fun printOpSize OpSize32 = "32"
+        |   printOpSize OpSize64 = "64"
      in
         case operation of
             MoveToRegister { source, output } =>
@@ -1037,20 +1090,26 @@ struct
         |   LoadNonWord { size, source, output } =>
                 (stream "Load"; printSize size; stream " "; printGReg output; stream " <= "; printMemAddress source )
 
-        |   ArithToGenReg { opc, output, source } =>
-                (stream (arithOpRepr opc ^ "RR "); printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
+        |   ArithToGenReg { opc, output, source, opSize } =>
+                (stream (arithOpRepr opc); stream "RR"; stream(printOpSize opSize); stream " "; printGReg output; stream " <= "; printRegOrMemoryArg printGReg source )
 
-        |   ArithMemConst { opc, offset, base, source } =>
+        |   ArithMemConst { opc, address, source, opSize } =>
             (
-                stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, NoIndex, offset);
+                stream (arithOpRepr opc); stream "MC"; stream(printOpSize opSize); stream " ";
+                printMemAddress address;
                 stream " "; stream(LargeInt.toString source)
             )
 
-        |   ArithMemLongConst { opc, offset, base, source } =>
+        |   ArithMemLongConst { opc, address, source } =>
             (
-                stream (arithOpRepr opc ^ "MC ");
-                printBaseOffset(base, NoIndex, offset);
+                stream (arithOpRepr opc ^ "MC "); printMemAddress address;
                 stream " <= "; stream(Address.stringOfWord source)
+            )
+
+        |   ArithByteMemConst { opc, address, source } =>
+            (
+                stream (arithOpRepr opc); stream "MC8"; stream " ";
+                printMemAddress address; stream " "; stream(Word8.toString source)
             )
 
         |   ShiftConstant { shiftType, output, shift } =>
@@ -1072,8 +1131,6 @@ struct
                 |   PredictTaken => stream " PredictTaken"
                 |   PredictNotTaken => stream " PredictNotTaken"
             )
-
-        |   LockMutableSegment reg => (stream "LockMutableSegment "; printGReg reg)
 
         |   PushToStack source => (stream "Push "; printRegOrMemoryArg printGReg source)
 
@@ -1150,8 +1207,7 @@ struct
         |   ReturnFromFunction argsToRemove =>
                 (stream "ReturnFromFunction "; stream(Int.toString argsToRemove))
 
-        |   RaiseException =>
-                stream "RaiseException"
+        |   RaiseException { workReg } => (stream "RaiseException "; printGReg workReg)
         |   UncondBranch(Label{labelNo, ...})=>
                 (stream "UncondBranch L"; stream(Int.toString labelNo))
         |   ResetStack{numWords, preserveCC} =>
@@ -1232,17 +1288,15 @@ struct
             printStream "\n"
         )
         else ()
+    
+(*    val opLen = if isX64 then OpSize64 else OpSize32 *)
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
     fun codeGenerate ops =
     let
-        fun cgOp(LockMutableSegment baseReg) =
-                (* Remove the mutable bit from the flag byte. *)(*andb CONST(0xff-0x40),-1[Reax]*)
-                opPlus2(Group1_8_a, ~1, baseReg, arithOpToWord AND) @ [0wxff - 0wx40]
-
-        |   cgOp(MoveToRegister{ source=RegisterArg source, output }) =
+        fun cgOp(MoveToRegister{ source=RegisterArg source, output }) =
                 (* Move from one general register to another. *)
-                opReg(MOVL_R_A, source, output)
+                opReg(if isX64 then MOVL_R_A64 else MOVL_R_A32, source, output)
 
         |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output}) =
             if isX64
@@ -1252,11 +1306,11 @@ struct
                 then (* Signed 32-bits. *)
                     (* This is not scanned in 64-bit mode because 32-bit values aren't
                        big enough to contain addresses. *)
-                    opRegPlus2(MOVL_32_A, output, 0w0) @ int32Signed source
+                    opRegPlus2(if isX64 then MOVL_32_A64 else MOVL_32_A32, output, 0w0) @ int32Signed source
                 else (* Too big for 32-bits; put it in the non-word area. *)
                 let
                     val (rc, rx) = getReg output
-                    val opb = opCodeBytes(MOVL_A_R, SOME{w=true, r=rx, b=false, x = false})
+                    val opb = opCodeBytes(if isX64 then MOVL_A_R64 else MOVL_A_R32, SOME{w=true, r=rx, b=false, x = false})
                     val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
                 in
                     opb @ [mdrm] @ int32Signed(tag 0)
@@ -1272,13 +1326,13 @@ struct
                    be done with an OR whatever the initial value.  INC can be used
                    in 32-bit mode instead of ADD for 1. LEAL isn't a good idea. *)
                 if source mod 2 = 0
-                then arithOpReg(XOR, output, output) @
+                then arithOpReg(XOR, output, output, false) @
                         (if source = 0 then []
-                         else immediateOperand(ADD, output, source))
+                         else immediateOperand(ADD, output, source, false))
                 else
                 let
                     val (rc, _) = getReg output
-                    val opb = opCodeBytes(MOVL_32_64_R rc, NONE)
+                    val opb = opCodeBytes(MOVL_32_R rc, NONE)
                 in
                     opb @ int32Signed source
                 end
@@ -1288,8 +1342,9 @@ struct
             let
                 val (rc, rx) = getReg output
                 val opb =
-                    opCodeBytes(MOVL_32_64_R rc,
-                            if isX64 then SOME {w=true, r=false, b=rx, x=false} else NONE)
+                    if isX64
+                    then opCodeBytes(MOVL_64_R rc, SOME {w=true, r=false, b=rx, x=false})
+                    else opCodeBytes(MOVL_32_R rc, NONE)
                 val constnt =
                     if wordSize = 8
                     then wordUnsigned(LargeWord.fromLargeInt(tag 0))
@@ -1299,26 +1354,29 @@ struct
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output }) =
-                opAddress(MOVL_A_R, LargeInt.fromInt offset, base, index, output)
+                opAddress(if isX64 then MOVL_A_R64 else MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size8Bit, source={base, offset, index}, output }) =
-                opAddress(MOVZB, LargeInt.fromInt offset, base, index, output)
+                (* We don't need a REX.W bit here because the top 32-bits of a
+                   64-bit register will always be zeroed. *)
+                opAddress(MOVZB32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size16Bit, source={base, offset, index}, output }) =
-                opAddress(MOVZW, LargeInt.fromInt offset, base, index, output)
+                (* Likewise *)
+                opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
-                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
+                opAddress(if isX64 then MOVL_A_R64 else MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadAddress{ offset, base, index, output }) =
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
-                opIndexed(LEAL, LargeInt.fromInt offset, base, index, output)
+                opIndexed(if isX64 then LEAL64 else LEAL32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source }) =
-                arithOpReg (opc, output, source)
+        |   cgOp(ArithToGenReg{ opc, output, source=RegisterArg source, opSize }) =
+                arithOpReg (opc, output, source, opSize=OpSize64)
 
-        |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source }) =
+        |   cgOp(ArithToGenReg{ opc, output, source=NonAddressConstArg source, opSize }) =
             let
                 (* On the X86/32 we use CMP with literal sources to compare with an
                    address and the RTS searches for them in the code.  Any
@@ -1330,10 +1388,10 @@ struct
                     then ()
                     else raise InternalError "CMP with constant that looks like an address"
             in
-                immediateOperand(opc, output, source)
+                immediateOperand(opc, output, source, opSize=OpSize64)
             end
 
-        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _ }) =
+        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
             let
                 val (rc, rx) = getReg output
@@ -1341,51 +1399,58 @@ struct
                 if isX64
                 then
                 let
-                    val opb = opCodeBytes(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
+                    val _ = opSize = OpSize64 orelse raise InternalError "opsize"
+                    val opb = opCodeBytes(Arith64 (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
 			        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
                 in
                     opb @ [mdrm] @ int32Signed(tag 0) (* This is the address of the constant. *)
                 end
                 else
                 let
-                    val opb = opCodeBytes(Group1_32_A (* group1, 32 bit immediate *), NONE)
+                    val _ = opSize = OpSize32 orelse raise InternalError "opsize"
+                    val opb = opCodeBytes(Group1_32_A32 (* group1, 32 bit immediate *), NONE)
                     val mdrm = modrm(Register, arithOpToWord opc, rc)
                 in
                     opb @ [mdrm] @ int32Signed(tag 0)
                 end
             end
 
-        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index} }) =
-                opAddress(Arith (opc, 0w3), LargeInt.fromInt offset, base, index, output)
+        |   cgOp(ArithToGenReg{ opc, output, source=MemoryArg{offset, base, index}, opSize }) =
+                opAddress((case opSize of OpSize64 => Arith64 | OpSize32 => Arith32) (opc, 0w3),
+                    LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(ArithMemConst{ opc, offset, base, source }) =
+        |   cgOp(ArithByteMemConst{ opc, address={offset, base, index}, source }) =
+                opIndexedPlus2(Group1_8_a (* group1, 8 bit immediate *),
+                               LargeInt.fromInt offset, base, index, arithOpToWord opc) @ [source]
+
+        |   cgOp(ArithMemConst{ opc, address={offset, base, index}, source, opSize }) =
                 if is8BitL source
                 then (* Can use one byte immediate *) 
-                    opPlus2(Group1_8_A (* group1, 8 bit immediate *),
-                               LargeInt.fromInt offset, base, arithOpToWord opc) @ [Word8.fromLargeInt source]
+                    opIndexedPlus2(case opSize of OpSize64 => Group1_8_A64 | OpSize32 => Group1_8_A32 (* group1, 8 bit immediate *),
+                               LargeInt.fromInt offset, base, index, arithOpToWord opc) @ [Word8.fromLargeInt source]
                 else (* Need 32 bit immediate. *)
-                    opPlus2(Group1_32_A (* group1, 32 bit immediate *), 
-                               LargeInt.fromInt offset, base, arithOpToWord opc) @ int32Signed source
+                    opIndexedPlus2(case opSize of OpSize64 => Group1_32_A64 | OpSize32 => Group1_32_A32(* group1, 32 bit immediate *), 
+                               LargeInt.fromInt offset, base, index, arithOpToWord opc) @ int32Signed source
 
-        |   cgOp(ArithMemLongConst{ opc, offset, base, ... }) =
+        |   cgOp(ArithMemLongConst{ opc, address={offset, base, index}, ... }) =
                 (* Currently this is always a comparison.  It is only valid in 32-bit mode because
                    the constant is only 32-bits. *)
                 if isX64
                 then raise InternalError "ArithMemLongConst in 64-bit mode"
                 else 
                 let
-                    val opb = opPlus2 (Group1_32_A, LargeInt.fromInt offset, base, arithOpToWord opc)
+                    val opb = opIndexedPlus2 (Group1_32_A32, LargeInt.fromInt offset, base, index, arithOpToWord opc)
                 in
                     opb @ int32Signed(tag 0)
                 end
 
         |   cgOp(ShiftConstant { shiftType, output, shift }) =
                 if shift = 0w1
-                then opRegPlus2(Group2_1_A, output, shiftTypeToWord shiftType)
-                else opRegPlus2(Group2_8_A, output, shiftTypeToWord shiftType) @ [shift]
+                then opRegPlus2(if isX64 then Group2_1_A64 else Group2_1_A32, output, shiftTypeToWord shiftType)
+                else opRegPlus2(if isX64 then Group2_8_A64 else Group2_8_A32, output, shiftTypeToWord shiftType) @ [shift]
 
         |   cgOp(ShiftVariable { shiftType, output }) =
-                opRegPlus2(Group2_CL_A, output, shiftTypeToWord shiftType)
+                opRegPlus2(if isX64 then Group2_CL_A64 else Group2_CL_A32, output, shiftTypeToWord shiftType)
 
         |   cgOp(TestTagR reg) =
             let
@@ -1417,7 +1482,7 @@ struct
                 end
                 else
                 let
-                    val opb = opCodeBytes(Group3_A, NONE)
+                    val opb = opCodeBytes(Group3_A32, NONE)
                     val mdrm = modrm (Register, 0w0 (* test *), regNum)
                 in
                     opb @ mdrm :: word32Unsigned 0w1
@@ -1446,14 +1511,15 @@ struct
                 opb @ optRex @ [repOp]
             end
 
-        |   cgOp(DivideAccR{arg, isSigned}) = opRegPlus2(Group3_A, arg, if isSigned then 0w7 else 0w6)
+        |   cgOp(DivideAccR{arg, isSigned}) =
+                opRegPlus2(if isX64 then Group3_A64 else Group3_A32, arg, if isSigned then 0w7 else 0w6)
 
         |   cgOp(DivideAccM{base, offset, isSigned}) =
-                opPlus2(Group3_A, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6)
+                opPlus2(if isX64 then Group3_A64 else Group3_A32, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6)
 
         |   cgOp(AtomicXAdd{base, output}) =
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
-                opEA(LOCK_XADD, 0, base, output)
+                opEA(if isX64 then LOCK_XADD64 else LOCK_XADD32, 0, base, output)
 
         |   cgOp(PushToStack(RegisterArg reg)) =
             let
@@ -1499,7 +1565,7 @@ struct
                 end
 
         |   cgOp(StoreRegToMemory{toStore, address={offset, base, index}}) =
-                opAddress(MOVL_R_A, LargeInt.fromInt offset, base, index, toStore)
+                opAddress(if isX64 then MOVL_R_A64 else MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreConstToMemory{ toStore=toStore, address={offset, base, index} }) =
             (
@@ -1509,7 +1575,7 @@ struct
                    memory. *)
                 isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
-                opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @
+                opAddressPlus2(if isX64 then MOVL_32_A64 else MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
             )
 
@@ -1517,15 +1583,17 @@ struct
                 (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
                 if isX64
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
-                else opAddressPlus2(MOVL_32_A, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
+                else opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
         |   cgOp(StoreNonWord{ size = Size8Bit, toStore, address={offset, base, index} }) =
             let
                 val (rrC, _) = getReg toStore
                 (* In 64-bit mode we can specify the low-order byte of RSI/RDI but we
                    must use a REX prefix.  This isn't possible in 32-bit mode. *)
-                val opcode = MOVB_R_A{forceRex= rrC >= 0w4}
-                val _ = isX64 orelse rrC < 0w4 orelse raise InternalError "High byte register"
+                val opcode =
+                    if isX64 then MOVB_R_A64{forceRex= rrC >= 0w4}
+                    else if rrC < 0w4 then MOVB_R_A32
+                    else raise InternalError "High byte register"
             in
                 opAddress(opcode, LargeInt.fromInt offset, base, index, toStore)
             end
@@ -1608,16 +1676,9 @@ struct
                 opCodeBytes(RET_16, NONE) @ [wordToWord8 offset, wordToWord8(offset >> 0w8)]
             end
 
-        |   cgOp RaiseException =
-            let
-                (* Load the current handler into ebx.  Any register will do since we
-                   don't preserve registers across exceptions. *)
-                val loadInstr = opEA(MOVL_A_R, LargeInt.fromInt memRegHandlerRegister, ebp, ebx)
-                val opb = opCodeBytes(Group5, NONE)
-                val mdrm = modrm (Based0, 0w4 (* jmp *), #1 (getReg ebx))
-            in
-                loadInstr @ opb @ [mdrm]
-            end
+        |   cgOp (RaiseException { workReg }) =
+                opEA(if isX64 then MOVL_A_R64 else MOVL_A_R32, LargeInt.fromInt memRegHandlerRegister, ebp, workReg) @
+                    opAddressPlus2(Group5, 0, workReg, NoIndex, 0w4 (* jmp *))
 
         |   cgOp(UncondBranch _) = opToInt JMP_32 :: word32Unsigned 0w0
 
@@ -1628,8 +1689,8 @@ struct
                 (* If we don't need to preserve the CC across the reset we use ADD since
                    it's shorter. *)
                 if preserveCC
-                then opEA(LEAL, bytes, esp, esp)
-                else immediateOperand(ADD, esp, bytes)
+                then opEA(if isX64 then LEAL64 else LEAL32, bytes, esp, esp)
+                else immediateOperand(ADD, esp, bytes, isX64)
             end
 
         |   cgOp(JumpLabel _) = [] (* No code. *)
@@ -1645,13 +1706,13 @@ struct
                 if isX64
                 then
                 let
-                    val opb = opCodeBytes(LEAL, SOME {w=true, r=rx, b=false, x=false})
+                    val opb = opCodeBytes(if isX64 then LEAL64 else LEAL32, SOME {w=true, r=rx, b=false, x=false})
                     val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
                 in
                     opb @ mdrm :: int32Signed 0
                 end
-                else opCodeBytes(MOVL_32_64_R rc, NONE) @ int32Signed(tag 0) @
-                        opRegPlus2(Group1_32_A, output, arithOpToWord ADD) @ int32Signed 0
+                else opCodeBytes(if isX64 then MOVL_64_R rc else MOVL_32_R rc , NONE) @ int32Signed(tag 0) @
+                        opRegPlus2(if isX64 then Group1_32_A64 else Group1_32_A32, output, arithOpToWord ADD) @ int32Signed 0
             end
 
         |   cgOp (FPLoadFromMemory {address={ base, offset, index }, precision}) =
@@ -1755,24 +1816,24 @@ struct
                    because the former allows us to specify the destination register.
                    The Group3 forms produce double length results in RAX:RDX/EAX:EDX
                    but we only ever want the low-order half. *)
-                opReg(IMUL (* 2 byte opcode *), output, srcReg)
+                opReg(if isX64 then IMUL64 else IMUL32 (* 2 byte opcode *), output, srcReg)
 
         |   cgOp (MultiplyR {source=MemoryArg{base, offset, index}, output}) =
                 (* This may be used for large-word multiplication. *)
-                opAddress(IMUL (* 2 byte opcode *), LargeInt.fromInt offset, base, index, output)
+                opAddress(if isX64 then IMUL64 else IMUL32 (* 2 byte opcode *), LargeInt.fromInt offset, base, index, output)
         
         |   cgOp(MultiplyR {source=NonAddressConstArg constnt, output}) =
                 (* If the constant is an 8-bit or 32-bit value we are actually using a
                    three-operand instruction where the argument can be a register or memory
                    and the destination register does not need to be the same as the source. *)
                 if is8BitL constnt
-                then opReg(IMUL_C8, output, output) @ [Word8.fromLargeInt constnt]
+                then opReg(if isX64 then IMUL_C8_64 else IMUL_C8_32, output, output) @ [Word8.fromLargeInt constnt]
                 else if is32bit constnt
-                then opReg(IMUL_C32, output, output) @ int32Signed constnt
+                then opReg(if isX64 then IMUL_C32_64 else IMUL_C32_32, output, output) @ int32Signed constnt
                 else
                 let
                     val (rc, rx) = getReg output
-                    val opb = opCodeBytes(IMUL, SOME{w=true, r=rx, b=false, x = false})
+                    val opb = opCodeBytes(IMUL64, SOME{w=true, r=rx, b=false, x = false})
                     val mdrm = modrm(Based0, rc, 0w5 (* PC rel *))
                 in
                     opb @ [mdrm] @ int32Signed(tag 0)
@@ -1825,24 +1886,27 @@ struct
                 (* The source is a general register and the output a XMM register. *)
                 (* TODO: The source can be a memory location. *)
                 val (rbC, rbX) = getReg source
+                val oper = if isX64 then CVTSI2SD64 else CVTSI2SD32
             in
                 (* This is a special case with both an XMM and general register. *)
-                opcodePrefix CVTSI2SD @ rexByte(CVTSI2SD, false, rbX, false) @
-                    escapePrefix CVTSI2SD @ [opToInt CVTSI2SD, modrm(Register, rrC, rbC)]
+                opcodePrefix oper @ rexByte(oper, false, rbX, false) @
+                    escapePrefix oper @ [opToInt oper, modrm(Register, rrC, rbC)]
             end
 
         |   cgOp SignExtendForDivide =
-                opCodeBytes(CQO_CDQ, if isX64 then SOME {w=true, r=false, b=false, x=false} else NONE)
+                if isX64
+                then opCodeBytes(CQO_CDQ64, SOME {w=true, r=false, b=false, x=false})
+                else opCodeBytes(CQO_CDQ32, NONE)
             
-        |   cgOp (XChng { reg, arg=RegisterArg regY }) = opReg(XCHNG, reg, regY)
+        |   cgOp (XChng { reg, arg=RegisterArg regY }) = opReg(if isX64 then XCHNG64 else XCHNG32, reg, regY)
             
         |   cgOp (XChng { reg, arg=MemoryArg{offset, base, index} }) =
-                opAddress(XCHNG, LargeInt.fromInt offset, base, index, reg)
+                opAddress(if isX64 then XCHNG64 else XCHNG32, LargeInt.fromInt offset, base, index, reg)
                 
         |   cgOp (XChng _) = raise InternalError "cgOp: XChng"
 
         |   cgOp (Negative {output}) =
-                opRegPlus2(Group3_A, output, 0w3 (* neg *))
+                opRegPlus2(if isX64 then Group3_A64 else Group3_A32, output, 0w3 (* neg *))
 
         |   cgOp (JumpTable{cases, jumpSize=ref jumpSize}) =
             let
@@ -1858,7 +1922,7 @@ struct
                 jumpSize = JumpSize8 orelse raise InternalError "cgOp: IndexedJumpCalc";
                 (* Should currently be JumpSize8 which requires a multiplier of 4 and
                    4 to be subtracted to remove the shifted tag. *)
-                opAddress(LEAL, ~4, addrReg, Index4 indexReg, addrReg)
+                opAddress(if isX64 then LEAL64 else LEAL32, ~4, addrReg, Index4 indexReg, addrReg)
             )
     in
         List.rev(List.foldl (fn (c, list) => Word8Vector.fromList(cgOp c) :: list) [] ops)
@@ -2014,7 +2078,7 @@ struct
             (* If we've shortened a jump table we have to change the indexing. *)
         |   fixupAddress(IndexedJumpCalc{ addrReg, indexReg, jumpSize=ref JumpSize2 }, _, _, list) =
                 (* On x86/32 it might be shorter to use DEC addrReg; ADD addrReg, indexReg. *)
-                Word8Vector.fromList(opAddress(LEAL, ~1, addrReg, Index1 indexReg, addrReg)) :: list
+                Word8Vector.fromList(opAddress(if isX64 then LEAL64 else LEAL32, ~1, addrReg, Index1 indexReg, addrReg)) :: list
 
         |   fixupAddress(CallFunction Recursive, brCode, ic, list) =
             let
@@ -2161,7 +2225,8 @@ struct
         fun allocStoreCommonCode (resultReg, isVarAlloc, regSaveSet: genReg list) =
         let
             val compare =
-                ArithToGenReg{opc=CMP, output=resultReg, source=MemoryArg{base=ebp, offset=memRegLocalMbottom, index=NoIndex}}
+                ArithToGenReg{opc=CMP, output=resultReg,
+                    source=MemoryArg{base=ebp, offset=memRegLocalMbottom, index=NoIndex}, opSize=polyWordOpSize}
             (* Normally we won't have run out of store so we want the default
                branch prediction to skip the test here. However doing that
                involves adding an extra branch which lengthens the code so
@@ -2185,7 +2250,7 @@ struct
                     val extraLabel = mkLabel()
                 in
                     [ConditionalBranch{test=JB, label=extraLabel, predict=PredictNotTaken},
-                     ArithToGenReg{opc=CMP, output=resultReg, source=localPointer},
+                     ArithToGenReg{opc=CMP, output=resultReg, source=localPointer, opSize=polyWordOpSize},
                      ConditionalBranch{test=JB, label=destLabel, predict=PredictTaken},
                      JumpLabel extraLabel]
                 end
@@ -2228,7 +2293,7 @@ struct
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
                 (* Negate the length and add it to the current heap pointer. *)
                 val startCode =
-                    [Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer}]
+                    [Negative{output=output}, ArithToGenReg{opc=ADD, output=output, source=localPointer, opSize=polyWordOpSize}]
                 val resultCode = startCode @ allocStoreCommonCode(output, true, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)
@@ -2443,8 +2508,8 @@ struct
             print "\t";
             printEA(rex, sz);
             print ",";
-            if opByte = opToInt Group2_1_A then print "1"
-            else if opByte = opToInt Group2_CL_A then print "cl"
+            if opByte = opToInt Group2_1_A32 then print "1"
+            else if opByte = opToInt Group2_CL_A32 then print "cl"
             else print8 ()
         end
         
@@ -3234,6 +3299,7 @@ struct
         and  fpOps          = fpOps
         and  fpUnaryOps     = fpUnaryOps
         and  sse2Operations = sse2Operations
+        and opSize          = opSize
     end
 
 end (* struct *) (* CODECONS *);

@@ -110,6 +110,10 @@ sig
     
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int
+    
+    (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
+    datatype opSize = OpSize32 | OpSize64
+    val polyWordOpSize: opSize and nativeWordOpSize: opSize
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -185,6 +189,16 @@ sig
         (* Compare two word values.  The first argument must be a register. *)
     |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
     
+        (* Compare with a literal.  This is generally used to compare a memory
+           or stack location with a literal and overlaps to some extent
+           with WordComparison. *)
+    |   CompareLiteral of { arg1: argument, arg2: LargeInt.int, opSize: opSize, ccRef: ccRef }
+    
+        (* Compare a byte location with a literal.  This is the only operation that
+           specifically deals with single bytes.  Other cases will use word
+           operations. *)
+    |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
+
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
@@ -344,5 +358,6 @@ sig
         and fpUnaryOps      = fpUnaryOps
         and sse2Operations  = sse2Operations
         and ccRef           = ccRef
+        and opSize          = opSize
    end
 end;

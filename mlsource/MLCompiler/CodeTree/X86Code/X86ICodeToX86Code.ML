@@ -499,7 +499,7 @@ struct
                 JumpLabel skipCheckLab,
                 CallRTS{rtsEntry=entryPt, saveRegs=saveRegs},
                 ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
-                ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex} }
+                ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex}, opSize=nativeWordOpSize }
             ]
         end
         
@@ -541,6 +541,8 @@ struct
             |   instructionUses(IndexedCaseOperation{testReg, ...}) = used testReg
             |   instructionUses(LockMutable{addr}) = used addr
             |   instructionUses(WordComparison{arg1, arg2, ...}) = (used arg1; argUses arg2)
+            |   instructionUses(CompareLiteral{arg1, ...}) = argUses arg1
+            |   instructionUses(CompareByteMem{arg1={base, index, ...}, ...}) = (used base; indexUses index)
             |   instructionUses(PushExceptionHandler _) = ()
             |   instructionUses(PopExceptionHandler _) = ()
             |   instructionUses(BeginHandler _) = ()
@@ -757,7 +759,8 @@ struct
                         val addOffset =
                             if adjustedAddr = 0
                             then []
-                            else [ArithMemConst{opc=ADD, offset=0, base=esp, source=LargeInt.fromInt(adjustedAddr*wordSize)}]
+                            else [ArithMemConst{opc=ADD, address={offset=0, base=esp, index=NoIndex},
+                                        source=LargeInt.fromInt(adjustedAddr*wordSize), opSize=nativeWordOpSize}]
                     in
                         pushStackArgs(args, argNum+1, addOffset @ PushToStack(RegisterArg esp) :: code)
                     end
@@ -893,7 +896,9 @@ struct
                 (* The argument must be put into rax. *)
                 val _ = getAllocatedGenReg preg = eax orelse raise InternalError "codeExtended: RaiseExceptionPacket"
             in
-                RaiseException :: code
+                (* We need a work register here.  It can be any register other than eax since
+                   we don't preserve registers across calls. *)
+                RaiseException { workReg=ecx } :: code
             end
 
         |   codeExtended _ ({instr=ReserveContainer{size, ...}, ...}, code) =
@@ -925,10 +930,29 @@ struct
             end
 
         |   codeExtended _ ({instr=LockMutable{addr=PReg pr}, ...}, code) =
-                LockMutableSegment (asGenReg(getAllocatedReg pr)) :: code
+                (* Mask off the mutable bit. *)
+                ArithByteMemConst{opc=AND,
+                    address={base=asGenReg(getAllocatedReg pr), offset= ~1, index=NoIndex}, source=0wxff - F_mutable} :: code
 
         |   codeExtended _ ({instr=WordComparison{ arg1=PReg pr, arg2, ... }, ...}, code) =
-                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2} :: code
+                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2, opSize=polyWordOpSize} :: code
+
+        |   codeExtended _ ({instr=CompareLiteral{ arg1, arg2, opSize, ... }, ...}, code) =
+            (
+                case arg1 of
+                    RegisterArgument(PReg pr) =>
+                        ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=NonAddressConstArg arg2, opSize=opSize} :: code
+                |   MemoryLocation{base=PReg br, index, offset, ...} =>
+                        ArithMemConst{ opc=CMP,
+                            address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2, opSize=opSize } :: code
+                |   StackLocation{wordOffset, ...} =>
+                        ArithMemConst{ opc=CMP, address={offset=wordOffset*wordSize, base=esp, index=NoIndex}, source=arg2, opSize=opSize } :: code
+                |   _ => raise InternalError "CompareLiteral"
+            )
+
+        |   codeExtended _ ({instr=CompareByteMem{ arg1={base=PReg br, offset, index}, arg2, ... }, ...}, code) =
+                ArithByteMemConst{ opc=CMP,
+                    address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2 } :: code
 
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
@@ -1006,7 +1030,7 @@ struct
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
             in
-                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2 } ::
+                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=polyWordOpSize } ::
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
             end
 
@@ -1025,7 +1049,7 @@ struct
                     then (realOp1Reg, code)
                     else (realOp2Reg, MoveToRegister{source=RegisterArg realOp1Reg, output=realDestReg} :: code)
             in
-                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg } :: moveInstr
+                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=polyWordOpSize } :: moveInstr
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1040,7 +1064,7 @@ struct
                    between the result register and the arguments.  What if the second argument is a memory
                    location with the result reg as a base or index? *)
             in
-                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg } ::
+                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=polyWordOpSize } ::
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
             end
 
@@ -1190,7 +1214,7 @@ struct
                    division that means sign-extending rdx, for unsigned division we clear it. *)
                 val setRDX =
                     if isSigned then SignExtendForDivide
-                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx }
+                    else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx, opSize=polyWordOpSize }
             in
                 (* We may need to move one or more of the registers although normally that
                    won't be necessary.  Almost certainly only either the remainder or the
@@ -1233,9 +1257,9 @@ struct
                    case so we need to ensure that is the case.  It's quite possible that the
                    condition code has just been set by shifting RCX/ECX to remove the tag in which
                    case it will have set "equal" if the value was zero.  We use CMP R/ECX,R/ECX which
-                   is two bytes in 32-bit but three in 64-bit.
+                   is two bytes in 32-bit.
                    If we knew the length was non-zero (e.g. a constant) we could avoid this. *)
-                RepeatOperation CMPSB :: ArithToGenReg {opc=CMP, output=ecx, source=RegisterArg ecx} ::
+                RepeatOperation CMPSB :: ArithToGenReg {opc=CMP, output=ecx, source=RegisterArg ecx, opSize=OpSize32} ::
                     moveIfNecessary({src=getAllocatedReg v1Reg, dst=GenReg esi, kind=MoveWord},
                         moveIfNecessary({src=getAllocatedReg v2Reg, dst=GenReg edi, kind=MoveWord},
                             moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))

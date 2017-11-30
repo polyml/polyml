@@ -164,6 +164,12 @@ struct
     |   getInstructionState(WordComparison{arg1, arg2, ccRef, ...}) =
             { sources=arg1 :: argRegs arg2, dests=[], sStacks=argStacks arg2, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
 
+    |   getInstructionState(CompareLiteral{arg1, ccRef, ...}) =
+            { sources=argRegs arg1, dests=[], sStacks=argStacks arg1, dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
+    |   getInstructionState(CompareByteMem{arg1={base, index, ...}, ccRef, ...}) =
+            { sources=base :: argIndex index, dests=[], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCSet ccRef }
+
     |   getInstructionState(PushExceptionHandler{workReg, ...}) =
             { sources=[], dests=[workReg], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCIndeterminate }
 

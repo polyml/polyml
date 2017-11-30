@@ -73,6 +73,10 @@ sig
         val regSetRepr: regSet -> string
         val oneOf: regSet -> reg
     end
+    
+    (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
+    datatype opSize = OpSize32 | OpSize64
+    val polyWordOpSize: opSize and nativeWordOpSize: opSize
 
     datatype arithOp = ADD | OR (*|ADC | SBB*) | AND | SUB | XOR | CMP
     and      shiftType = SHL | SHR | SAR
@@ -119,13 +123,13 @@ sig
     |   LoadNonWord of { size: nonWordSize, source: memoryAddress, output: genReg }
     |   PushToStack of genReg regOrMemoryArg
     |   PopR of genReg
-    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg }
-    |   ArithMemConst of { opc: arithOp, offset: int, base: genReg, source: LargeInt.int }
-    |   ArithMemLongConst of { opc: arithOp, offset: int, base: genReg, source: machineWord }
+    |   ArithToGenReg of { opc: arithOp, output: genReg, source: genReg regOrMemoryArg, opSize: opSize }
+    |   ArithMemConst of { opc: arithOp, address: memoryAddress, source: LargeInt.int, opSize: opSize }
+    |   ArithMemLongConst of { opc: arithOp, address: memoryAddress, source: machineWord }
+    |   ArithByteMemConst of { opc: arithOp, address: memoryAddress, source: Word8.word }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
     |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
-    |   LockMutableSegment of genReg
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
@@ -141,7 +145,7 @@ sig
     |   CallFunction of callKinds
     |   JumpToFunction of callKinds
     |   ReturnFromFunction of int
-    |   RaiseException
+    |   RaiseException of { workReg: genReg }
     |   UncondBranch of label
     |   ResetStack of { numWords: int, preserveCC: bool }
     |   JumpLabel of label
@@ -214,5 +218,6 @@ sig
         and  fpOps          = fpOps
         and  fpUnaryOps     = fpUnaryOps
         and  sse2Operations = sse2Operations
+        and opSize          = opSize
     end
 end;
