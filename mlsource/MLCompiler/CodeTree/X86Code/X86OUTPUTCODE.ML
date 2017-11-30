@@ -1302,7 +1302,19 @@ struct
             if isX64
             then
             (
-                if source >= ~0x40000000 andalso source < 0x40000000
+                (* N.B. There is related code in getConstant that deals with PC-relative values and
+                   also checks the range of constants that need to be in the constant area. *)
+                if source >= 0 andalso source < 0x100000000
+                then (* Unsigned 32 bits.  We can use a 32-bit instruction to set the
+                        value because it will zero extend to 64-bits.
+                        This may also allow us to save a rex byte. *)
+                let
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
+                in
+                    opb @ word32Unsigned(LargeWord.fromLargeInt source)
+                end
+                else if source >= ~0x80000000 andalso source < 0
                 then (* Signed 32-bits. *)
                     (* This is not scanned in 64-bit mode because 32-bit values aren't
                        big enough to contain addresses. *)
@@ -2141,8 +2153,8 @@ struct
             if isX64
             then
             (
-                if source >= ~0x40000000 andalso source < 0x40000000
-                then (* Signed 32-bits. *) l
+                if source >= ~0x80000000 andalso source < 0x100000000
+                then (* Signed or unsigned 32-bits. *) l
                 else (* Too big for 32-bits. *)
                     (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
             )
