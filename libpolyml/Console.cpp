@@ -649,7 +649,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case ID_FILE_QUIT:
                 if (MessageBox(hwnd, _T("Are you sure you want to quit?"),
                                      _T("Confirm Quit"), MB_OKCANCEL) == IDOK)
-                    processes->Exit(0);
+                    processes->RequestProcessExit(0);
                 return 0;
 
             case ID_RUN_INTERRUPT:
@@ -664,7 +664,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_CLOSE:
             if (MessageBox(hwnd, _T("Are you sure you want to quit?"),
                                  _T("Confirm Quit"), MB_OKCANCEL) == IDOK)
-                processes->Exit(0);
+                processes->RequestProcessExit(0);
             return 0;
 
         case WM_ADDTEXT:
@@ -1042,7 +1042,7 @@ HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
                 }
                 if (lstrcmpi(buff, _T(POLYTERMINATE)) == 0)
                 {
-                    processes->Exit(0);
+                    processes->RequestProcessExit(0);
                     return (HDDEDATA) DDE_FACK;
                 }
                 return (HDDEDATA) DDE_FNOTPROCESSED;

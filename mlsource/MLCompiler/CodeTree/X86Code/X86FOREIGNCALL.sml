@@ -154,7 +154,7 @@ struct
                 storeMemory(esp, ebp, memRegStackPtr), (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
@@ -190,13 +190,13 @@ struct
             else []
             ) @
             [
-                ArithMemConst{opc=CMP, offset=memRegExceptionPacket, base=ebp, source=noException},
+                ArithMemConst{opc=CMP, address={offset=memRegExceptionPacket, base=ebp, index=NoIndex}, source=noException, opSize=polyWordOpSize},
                 ConditionalBranch{test=JNE, predict=PredictNotTaken, label=exLabel},
                 (* Remove any arguments that have been passed on the stack. *)
                 ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
                 loadMemory(eax, ebp, memRegExceptionPacket),
-                RaiseException
+                RaiseException { workReg=ecx }
             ]
  
         val profileObject = createProfileObject functionName
@@ -246,7 +246,7 @@ struct
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
@@ -340,7 +340,7 @@ struct
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
                 case abi of
@@ -352,7 +352,7 @@ struct
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
                         FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
-                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8},
+                        ArithToGenReg{ opc=SUB, output=esp, source=NonAddressConstArg 8, opSize=nativeWordOpSize},
                         FPStoreToMemory{ address={base=esp, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true }
                     ]
             ) @
@@ -438,7 +438,7 @@ struct
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
                 (* Set the stack pointer past the data on the stack.  For Windows/64 add in a 32 byte save area *)
-                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace)}
+                ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
                 case abi of

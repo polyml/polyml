@@ -580,8 +580,8 @@ void PolyFinish(PolyObject *threadId, PolyWord arg)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     int i = get_C_int(taskData, arg);
-    // Cause the other threads to exit.
-    processes->Exit(i);
+    // Cause the other threads to exit and set the result code.
+    processes->RequestProcessExit(i);
     // Exit this thread
     processes->ThreadExit(taskData); // Doesn't return.
 }

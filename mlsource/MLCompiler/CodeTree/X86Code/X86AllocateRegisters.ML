@@ -483,6 +483,11 @@ struct
                 allocateArgGeneral arg2
             )
 
+        |   registerAllocate({instr=CompareLiteral{ arg1, ... }, ...}) = allocateArgGeneral arg1
+
+        |   registerAllocate({instr=CompareByteMem{ arg1={base=PReg bReg, index, ...}, ...}, ...}) =
+                (allocateGeneralReg bReg; allocateArgIndex index)
+
             (* Set up an exception handler. *)
         |   registerAllocate({instr=PushExceptionHandler{workReg=PReg hReg}, ...}) = allocateGeneralReg hReg
 

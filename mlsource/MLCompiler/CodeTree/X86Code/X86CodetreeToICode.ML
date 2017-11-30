@@ -45,7 +45,6 @@ struct
     fun revApp([], l) = l
     |   revApp(hd :: tl, l) = revApp(tl, hd :: l)
     
-    
     datatype blockStruct =
         BlockSimple of x86ICode
     |   BlockExit of x86ICode
@@ -2336,8 +2335,8 @@ struct
 
         and codeToICodeBlock({kind=BlockOpCompareByte, sourceLeft, destRight, length}, context, _, destination) =
             let
-                (* TODO: If we have a short fixed length comparison we might well be better loading the value into
-                   a register and comparing with memory. *)
+                (* This is effectively a big-endian comparison since we compare the bytes until we
+                   find an inequality. *)
                 val target = asTarget destination
                 val vec1Reg = newUReg() and vec2Reg = newUReg()
                 val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
@@ -2375,22 +2374,70 @@ struct
 
         |   codeToICodeBlock({kind=BlockOpMove {isByteMove}, sourceLeft, destRight, length}, context, _, destination) =
             let
-                (* TODO: If we have a short fixed length move we might well be better loading the value into
-                   a register and storing it. *)
-                val lengthReg = newPReg()
-                val vec1Reg = newUReg() and vec2Reg = newUReg() and lenReg = newUReg()
-                val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
-                    codeAddress(sourceLeft, isByteMove, context)
-                val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
-                    codeAddress(destRight, isByteMove, context)
-                val code =
-                    leftCode @ rightCode @ codeToICodeTarget(length, context, false, lengthReg) @
-                    leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
-                    rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
-                    [BlockSimple(UntagValue{source=lengthReg, dest=lenReg, isSigned=false, cache=NONE}),
-                     BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lenReg, isByteMove=isByteMove })]
+                (* Moves of 4 or 8 bytes can be done as word moves provided the alignment is correct.
+                   Although this will work for strings it is really to handle moves between SysWord and
+                   volatileRef in Foreign.Memory.  Moves of 1, 2 or 3 bytes or words are converted into a
+                   sequence of byte or word moves. *)
+                val isWordMove =
+                    case (isByteMove, length) of
+                        (true, BICConstnt(l, _)) =>
+                        if not (isShort l) orelse (toShort l <> 0w4 andalso toShort l <> Word.fromInt wordSize)
+                        then NONE
+                        else
+                        let
+                            val leng = toShort l
+                            val moveKind =
+                                if toShort l = Word.fromInt wordSize
+                                then MoveWord
+                                else Move32Bit
+                            val isLeftAligned =
+                                case sourceLeft of
+                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                |   _ => false
+                            val isRightAligned =
+                                case destRight of
+                                    {index=NONE, offset, ...} => offset mod leng = 0w0
+                                |   _ => false
+                        in
+                            if isLeftAligned andalso isRightAligned
+                            then SOME moveKind
+                            else NONE
+                        end
+                    |   _ => NONE
             in
-                moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                case isWordMove of
+                    SOME moveKind =>
+                    let
+                        val (leftCode, leftUntag, leftMem) =
+                            codeAddress(sourceLeft, isByteMove, context)
+                        val (rightCode, rightUntag, {base, offset, index, ...}) =
+                            codeAddress(destRight, isByteMove, context)
+                        val untaggedResReg = newUReg()
+                        val code =
+                            leftCode @ rightCode @ leftUntag @ rightUntag @
+                            [BlockSimple(LoadArgument { source=MemoryLocation leftMem, dest=untaggedResReg, kind=moveKind}),
+                             BlockSimple(StoreArgument
+                                {source=RegisterArgument untaggedResReg, base=base, offset=offset, index=index, kind=moveKind, isMutable=true})]
+                    in
+                        moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                    end
+                |   _ =>
+                    let
+                        val vec1Reg = newUReg() and vec2Reg = newUReg()
+                        val (leftCode, leftUntag, {base=leftBase, offset=leftOffset, index=leftIndex, ...}) =
+                            codeAddress(sourceLeft, isByteMove, context)
+                        val (rightCode, rightUntag, {base=rightBase, offset=rightOffset, index=rightIndex, ...}) =
+                            codeAddress(destRight, isByteMove, context)
+                        val (lengthCode, lengthUntag, lengthArg) = codeAsUntaggedToReg(length, false (* unsigned *), context)
+                        val code =
+                            leftCode @ rightCode @ lengthCode @
+                            leftUntag @ [BlockSimple(loadAddress{base=leftBase, offset=leftOffset, index=leftIndex, dest=vec1Reg})] @
+                            rightUntag @ [BlockSimple(loadAddress{base=rightBase, offset=rightOffset, index=rightIndex, dest=vec2Reg})] @
+                            lengthUntag @
+                            [BlockSimple(BlockMove{ srcAddr=vec1Reg, destAddr=vec2Reg, length=lengthArg, isByteMove=isByteMove })]
+                    in
+                        moveIfNotAllowed(destination, code, (* Unit result *) IntegerConstant(tag 0))
+                    end
             end
 
         |   codeToICodeBlock({kind=BlockOpEqualByte, ...}, _, _, _) =
@@ -2414,8 +2461,9 @@ struct
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=tagReg, arg2=IntegerConstant(tag(Word.toLargeInt tagValue)), ccRef=ccRef}) ::
-                    testCode
+                (* Use CompareLiteral because the tag must fit in 32-bits. *)
+                BlockSimple(CompareLiteral{arg1=RegisterArgument tagReg,
+                            arg2=tag(Word.toLargeInt tagValue), opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
             end
 
         |   codeConditionRev(BICUnary{oper=BuiltIns.NotBoolean, arg1}, context, jumpOn, jumpLabel, tailCode) =
@@ -2443,29 +2491,93 @@ struct
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
-                val arg2Arg = constantAsArgument arg2Value
+                val comparison =
+                    (* If the argument is a tagged value that will fit in 32-bits we can use
+                       the literal version.  Use toLargeIntX here because the value will be
+                       sign-extended even if we're actually doing an unsigned comparison. *)
+                    if isShort arg2Value andalso is32bit(tag(Word.toLargeIntX(toShort arg2Value)))
+                    then
+                    let
+                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
+                    in
+                        (* We're often comparing with a character or a string length field that has to be
+                           untagged.  In that case we can avoid loading it into a register and untagging it
+                           by doing the comparison directly. *)
+                        case arg1 of
+                            BICLoadOperation{kind=LoadStoreUntaggedUnsigned, address} =>
+                            let
+                                val (codeBaseIndex, codeUntag, memLoc) = codeAddressRev(address, false, context, tailCode)
+                                val literal = Word.toLargeIntX(toShort arg2Value)
+                            in
+                                BlockSimple(CompareLiteral{arg1=MemoryLocation memLoc, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
+                                    codeUntag @ codeBaseIndex
+                            end
+                        |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
+                            let
+                                val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
+                                    codeAddressRev(address, false, context, tailCode)
+                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
+                                            orelse raise InternalError "Compare byte not a byte"
+                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
+                            in
+                                BlockSimple(CompareByteMem{arg1={base=base, index=index, offset=offset}, arg2=literal, ccRef=ccRef}) ::
+                                    codeUntag @ codeBaseIndex
+                            end
+                        |    _ =>
+                            let
+                                (* TODO: We could include rarer cases of tagging by looking at
+                                   the code and seeing if it's a TagValue. *)
+                                val (testCode, testDest, _) = codeToICodeRev(arg1, context, false, allow, tailCode)
+                                val literal = tag(Word.toLargeIntX(toShort arg2Value))
+                            in
+                                BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) ::
+                                    testCode
+                            end    
+                    end
+                    else (* Addresses or larger values.  We need to use a register comparison. *)
+                    let
+                        val (testCode, testReg) = codeToPRegRev(arg1, context, tailCode)
+                        val arg2Arg = constantAsArgument arg2Value
+                    in
+                        BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
+                    end
                 val noJumpLabel = newLabel()
             in
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=testReg, arg2=arg2Arg, ccRef=ccRef}) :: testCode
+                    comparison
             end
-            
+    
         |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1=BICConstnt(arg1Value, _), arg2},
                     context, jumpOn, jumpLabel, tailCode) =
             let
                 (* If we have the constant first we need to reverse the test so the first argument is a register. *)
                 val ccRef = newCCRef()
-                val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
-                val arg1Arg = constantAsArgument arg1Value
+                val comparison =
+                    if isShort arg1Value andalso is32bit(tag(Word.toLargeIntX(toShort arg1Value)))
+                    then
+                    let
+                        val allow = Allowed {anyConstant=false, const32s=false, memAddr=true, existingPreg=true}
+                        val (testCode, testDest, _) = codeToICodeRev(arg2, context, false, allow, tailCode)
+                        val literal = tag(Word.toLargeIntX(toShort arg1Value))
+                    in
+                        BlockSimple(CompareLiteral{arg1=testDest, arg2=literal, opSize=polyWordOpSize, ccRef=ccRef}) :: testCode
+                    end
+                    else (* Addresses or larger values.  We need to use a register comparison. *)
+                    let
+                        val (testCode, testReg) = codeToPRegRev(arg2, context, tailCode)
+                        val arg1Arg = constantAsArgument arg1Value
+                    in
+                        BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef}) :: testCode
+                    end
+
                 val noJumpLabel = newLabel()
             in
                 BlockLabel noJumpLabel ::
                 BlockFlow(Conditional{ccRef=ccRef,
                            condition=testAsBranch(leftRightTest test, isSigned, jumpOn), trueJump=jumpLabel, falseJump=noJumpLabel}) ::
-                BlockSimple(WordComparison{arg1=testReg, arg2=arg1Arg, ccRef=ccRef}) :: testCode
+                comparison
             end
 
         |   codeConditionRev(BICBinary{oper=BuiltIns.WordComparison{test, isSigned}, arg1, arg2},

@@ -52,9 +52,9 @@ struct
                 (* Combine adjacent resets. *)
                 forward(ResetStack{numWords=count1+count2, preserveCC=pres1 orelse pres2} :: tl, list, true)
 
-        |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=NonAddressConstArg constA }) ::
-                    (b as ArithToGenReg{ opc=opB, output=outB, source=NonAddressConstArg constB }) :: tl, list, rep) =
-            if outA = outB andalso (opA = ADD orelse opA = SUB) andalso (opB = ADD orelse opB = SUB)
+        |   forward((a as ArithToGenReg{ opc=opA, output=outA, source=NonAddressConstArg constA, opSize=opSizeA }) ::
+                    (b as ArithToGenReg{ opc=opB, output=outB, source=NonAddressConstArg constB, opSize=opSizeB }) :: tl, list, rep) =
+            if outA = outB andalso (opA = ADD orelse opA = SUB) andalso (opB = ADD orelse opB = SUB) andalso opSizeA = opSizeB
             then
             let
                 val (opc, result) =
@@ -71,7 +71,7 @@ struct
             in
                 (* We could extract the case where the result is zero but that
                    doesn't seem to occur. *)
-                forward(ArithToGenReg{ opc=opc, output=outA, source=NonAddressConstArg result } :: tl, list, true)
+                forward(ArithToGenReg{ opc=opc, output=outA, source=NonAddressConstArg result, opSize=opSizeA } :: tl, list, true)
             end
             else forward(b :: tl, a :: list, rep)
 

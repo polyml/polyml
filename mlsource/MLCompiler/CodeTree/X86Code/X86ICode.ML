@@ -72,7 +72,10 @@ struct
     and ccRef = CcRef of int
 
     datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
-
+    
+    (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
+    datatype opSize = datatype opSize
+ 
     datatype x86ICode =
         (* Move a value into a register. *)
         LoadArgument of { source: argument, dest: preg, kind: moveKind }
@@ -146,6 +149,16 @@ struct
 
         (* Compare two word values.  The first argument must be a register. *)
     |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
+    
+        (* Compare with a literal.  This is generally used to compare a memory
+           or stack location with a literal and overlaps to some extent
+           with WordComparison. *)
+    |   CompareLiteral of { arg1: argument, arg2: LargeInt.int, opSize: opSize, ccRef: ccRef }
+    
+        (* Compare a byte location with a literal.  This is the only operation that
+           specifically deals with single bytes.  Other cases will use word
+           operations. *)
+    |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
     
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
@@ -297,6 +310,9 @@ struct
         
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
+        
+        fun printOpsize(OpSize32, stream) = stream "32"
+        |   printOpsize(OpSize64, stream) = stream "64"
 
         fun printArg(RegisterArgument reg, stream, printReg) = printReg(reg, stream)
         |   printArg(AddressConstant m, stream, _) = stream(stringOfWord m)
@@ -456,6 +472,22 @@ struct
 
         |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
                 (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+
+        |   printICode(CompareLiteral{arg1, arg2, opSize, ...}, stream, printReg) =
+            (
+                stream "\tCompareLiteral"; printOpsize(opSize, stream); stream "\t";
+                printArg(arg1, stream, printReg); stream ","; stream(LargeInt.toString arg2)
+            )
+
+        |   printICode(CompareByteMem{arg1={base, offset, index, ...}, arg2,...}, stream, printReg) =
+            (
+                stream "\tCompareByteMem\t";
+                stream(Int.toString offset ^ "(");
+                printReg(base, stream);
+                stream ")";
+                printIndex(index, stream, printReg);
+                stream ","; stream(Word8.toString arg2)
+            )
 
         |   printICode(PushExceptionHandler{workReg }, stream, printReg) =
             (
@@ -734,6 +766,7 @@ struct
         and fpUnaryOps      = fpUnaryOps
         and sse2Operations  = sse2Operations
         and ccRef           = ccRef
+        and opSize          = opSize
     end
 end;
 

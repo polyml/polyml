@@ -850,6 +850,22 @@ struct
                         in
                             WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
                         end
+ 
+                    |   pushRegisters({instr=CompareLiteral{arg1, arg2, opSize, ccRef}, ...}, code) =
+                        let
+                            val (op1Val, op1Code) = mapSource arg1
+                        in
+                            CompareLiteral{arg1=op1Val, arg2=arg2, opSize=opSize, ccRef=ccRef} :: op1Code @ code
+                        end
+ 
+                    |   pushRegisters({instr=CompareByteMem{arg1={base, offset, index, ...}, arg2, ccRef}, ...}, code) =
+                        let
+                            val (baseReg, baseCode) = mapSrcReg base
+                            val (indexValue, indexCode) = mapIndex index
+                            val newArg1 = {base=baseReg, offset=offset, index=indexValue}
+                        in
+                            CompareByteMem{arg1=newArg1, arg2=arg2, ccRef=ccRef} :: indexCode @ baseCode @ code
+                        end
 
                     |   pushRegisters({instr=PushExceptionHandler{workReg}, ...}, code) =
                         let
