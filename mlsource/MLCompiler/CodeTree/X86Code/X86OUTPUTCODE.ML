@@ -1322,7 +1322,7 @@ struct
                 else (* Too big for 32-bits; put it in the non-word area. *)
                 let
                     val (rc, rx) = getReg output
-                    val opb = opCodeBytes(if isX64 then MOVL_A_R64 else MOVL_A_R32, SOME{w=true, r=rx, b=false, x = false})
+                    val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
                     val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
                 in
                     opb @ [mdrm] @ int32Signed(tag 0)
@@ -1351,6 +1351,19 @@ struct
             )
 
         |   cgOp(MoveToRegister{ source=AddressConstArg _, output }) =
+            if isX64
+            then
+            let
+                (* Put address constants in the constant area.  This makes the code a bit
+                   larger but should avoid the need for the GC to scan for addresses in
+                   the code. *)
+                val (rc, rx) = getReg output
+                val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
+                val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
+            in
+                opb @ [mdrm] @ int32Signed(tag 0)
+            end
+            else
             let
                 val (rc, rx) = getReg output
                 val opb =
@@ -2134,15 +2147,15 @@ struct
     (* The handling of constants generally differs between 32- and 64-bits.  In 32-bits we put all constants
        inline and the GC processes the code to find the addresss.  For real values the "constant" is actually
        the address of the boxed real value.
-       In 64-bit mode only the MOV instruction allows a 64-bit quantity so in all other cases only non-addresses
-       that will fit in 32-bits are inline.  Other constants are stored in one of two areas at the end of the
+       In 64-bit mode inline constants were used with the MOV instruction but this has now been removed.
+       All constants are stored in one of two areas at the end of the
        code segment.  Non-addresses, including the actual values of reals, are stored in the non-address area
        and addresses go in the address area.  Only the latter is scanned by the GC.
        The address area is also used in 32-bit mode but only has the address of the function name and the
        address of the profile ref in it. *)
     datatype constnts =
         SelfAddress                             (* The address of the start of the code - inline absolute address 32-bit only *)
-    |   InlineAbsoluteAddress of machineWord    (* An address in the code *)
+    |   InlineAbsoluteAddress of machineWord    (* An address in the code: 32-bit only *)
     |   InlineRelativeAddress of machineWord    (* A relative address: 32-bit only. *)
     |   ConstantArea of machineWord             (* A PC-relative address to the constant area - 64-bit only. *)
     |   RealConstant of machineWord             (* A PC-relative address to the non-address area - 64-bit only.*)
@@ -2161,8 +2174,10 @@ struct
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
-                (* This is the only InlineAbsolute constant form that is valid on X86/64 as well as X86/32. *)
-                (ic + Word.fromInt(Word8Vector.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
+            if isX64
+            then (* Address constants go in the constant area. *)
+                (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
+            else (ic + Word.fromInt(Word8Vector.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
                 if is32bit source
