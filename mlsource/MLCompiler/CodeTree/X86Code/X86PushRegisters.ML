@@ -1055,7 +1055,8 @@ struct
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
                                     val moveKind = case boxKind of BoxLargeWord => MoveWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
-                                    val _ = setMemoryCache(dReg, 0, newCacheReg, true, moveKind)
+                                    (* The value we're putting in the cache is untagged. *)
+                                    val _ = setMemoryCache(dReg, 0, newCacheReg, false, moveKind)
                                 in
                                     [CopyToCache{source=sourceVal, dest=newCacheReg, kind=moveKind}]
                                 end
