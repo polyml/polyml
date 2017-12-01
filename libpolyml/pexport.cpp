@@ -50,9 +50,7 @@
 #include "version.h"
 #include "sys.h"
 #include "polystring.h"
-#include "processes.h" // For IO_SPACING
 #include "memmgr.h"
-#include "osmem.h"
 #include "rtsentry.h"
 
 /*
@@ -355,48 +353,31 @@ Creates "permanent" address entries in the global memory table.
 class SpaceAlloc
 {
 public:
-    SpaceAlloc(bool isMut, POLYUNSIGNED def);
-    ~SpaceAlloc();
+    SpaceAlloc(unsigned *indexCtr, unsigned perms, POLYUNSIGNED def);
     PolyObject *NewObj(POLYUNSIGNED objWords);
-    bool AddToTable(void);
+    bool CompleteLast(void);
 
     size_t defaultSize;
-    size_t currentSize;
-    PolyWord *base;
+    PermanentMemSpace *lastSpace;
     size_t used;
-    bool isMutable;
-    unsigned spaceIndex;
+    unsigned permissions;
+    unsigned *spaceIndexCtr;
 };
 
-SpaceAlloc::SpaceAlloc(bool isMut, POLYUNSIGNED def)
+SpaceAlloc::SpaceAlloc(unsigned *indexCtr, unsigned perms, POLYUNSIGNED def)
 {
-    isMutable = isMut;
+    permissions = perms;
     defaultSize = def;
-    base = 0;
-    currentSize = 0;
+    lastSpace = 0;
     used = 0;
-    spaceIndex = 1;
+    spaceIndexCtr = indexCtr;
 }
 
-SpaceAlloc::~SpaceAlloc()
+bool SpaceAlloc::CompleteLast(void)
 {
-    if (base)
-        osMemoryManager->Free(base, currentSize*sizeof(PolyWord));
-}
-
-bool SpaceAlloc::AddToTable(void)
-{
-    if (base != 0)
-    {
-        // Add the new space to the permanent memory table.
-        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable ? MTF_WRITEABLE : 0, spaceIndex++);
-        if (space == 0)
-        {
-            fprintf(stderr, "Insufficient memory\n");
-            return false;
-        }
-    }
-    base = 0;
+    if (lastSpace != 0)
+        gMem.CompletePermanentSpaceAllocation(lastSpace);
+    lastSpace = 0;
     return true;
 }
 
@@ -405,26 +386,27 @@ bool SpaceAlloc::AddToTable(void)
 #ifndef POLYML32IN64
 PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
-    if (currentSize - used <= objWords)
+    if (lastSpace == 0 || lastSpace->spaceSize() - used <= objWords)
     {
         // Need some more space.
-        if (! AddToTable())
+        if (! CompleteLast())
             return 0;
-        POLYUNSIGNED size = defaultSize;
+        size_t size = defaultSize;
         if (size <= objWords)
             size = objWords+1;
-        size_t iSpace = size*sizeof(PolyWord);
-        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
-        if (base == 0)
+        lastSpace =
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
+        (*spaceIndexCtr)++;
+        // The memory is writable until CompletePermanentSpaceAllocation is called
+        if (lastSpace == 0)
         {
             fprintf(stderr, "Unable to allocate memory\n");
             return 0;
         }
-        currentSize = iSpace/sizeof(PolyWord);
         used = 0;
     }
-    ASSERT(currentSize - used > objWords);
-    PolyObject *newObj = (PolyObject*)(base+used+1);
+    ASSERT(lastSpace->spaceSize() - used > objWords);
+    PolyObject *newObj = (PolyObject*)(lastSpace->bottom + used+1);
     used += objWords+1;
     return newObj;
 }
@@ -432,24 +414,29 @@ PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 // With 32in64 we need to allocate on 8-byte boundaries. 
 PolyObject *SpaceAlloc::NewObj(POLYUNSIGNED objWords)
 {
-    POLYUNSIGNED rounded = objWords;
+    size_t rounded = objWords;
     if ((objWords & 1) == 0) rounded++;
-    if (currentSize - used <= rounded)
+    if (lastSpace == 0 || lastSpace->spaceSize() - used <= rounded)
     {
         // Need some more space.
-        if (!AddToTable())
+        if (!CompleteLast())
             return 0;
         size_t size = defaultSize;
         if (size <= rounded)
             size = rounded + 1;
-        size_t iSpace = size * sizeof(PolyWord);
-        base = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
-        currentSize = iSpace / sizeof(PolyWord);
-        base[0] = PolyWord::FromUnsigned(0);
-        used = 1; 
+        lastSpace =
+            gMem.AllocateNewPermanentSpace(size * sizeof(PolyWord), permissions, *spaceIndexCtr);
+        (*spaceIndexCtr)++;
+        // The memory is writable until CompletePermanentSpaceAllocation is called
+        if (lastSpace == 0)
+        {
+            fprintf(stderr, "Unable to allocate memory\n");
+            return 0;
+        }
+        lastSpace->bottom[0] = PolyWord::FromUnsigned(0);
+        used = 1;
     }
-    ASSERT(currentSize - used > rounded);
-    PolyObject *newObj = (PolyObject*)(base + used + 1);
+    PolyObject *newObj = (PolyObject*)(lastSpace->bottom + used + 1);
     if (rounded != objWords) newObj->Set(objWords, PolyWord::FromUnsigned(0));
     used += rounded + 1;
     ASSERT(((uintptr_t)newObj & 0x7) == 0);
@@ -466,20 +453,25 @@ public:
     FILE *f;
     PolyObject *Root(void) { return objMap[nRoot]; }
 private:
-    PolyObject *NewObject(POLYUNSIGNED words, bool isMutable);
     bool ReadValue(PolyObject *p, POLYUNSIGNED i);
     bool GetValue(PolyWord *result);
     
     POLYUNSIGNED nObjects, nRoot;
     PolyObject **objMap;
 
-    SpaceAlloc mutSpace, immutSpace;
+    unsigned spaceIndex;
+
+    SpaceAlloc mutSpace, immutSpace, codeSpace;
 };
 
-PImport::PImport(): mutSpace(true, 1024*1024), immutSpace(false, 1024*1024)
+PImport::PImport():
+    mutSpace(&spaceIndex, MTF_WRITEABLE, 1024*1024),
+    immutSpace(&spaceIndex, 0, 1024*1024),
+    codeSpace(&spaceIndex, MTF_EXECUTABLE, 1024 * 1024)
 {
     f = NULL;
     objMap = 0;
+    spaceIndex = 1;
 }
 
 PImport::~PImport()
@@ -487,20 +479,6 @@ PImport::~PImport()
     if (f)
         fclose(f);
     free(objMap);
-}
-
-PolyObject *PImport::NewObject(POLYUNSIGNED words, bool isMutableObj)
-{
-    PolyObject *newObj = 0;
-    if (isMutableObj)
-        newObj = mutSpace.NewObj(words);
-    else
-        newObj = immutSpace.NewObj(words);
-    if (newObj == 0)
-        return 0;
-
-    return newObj;
-
 }
 
 bool PImport::GetValue(PolyWord *result)
@@ -524,22 +502,6 @@ bool PImport::GetValue(PolyWord *result)
            with a shorter tagged representation. */
         ASSERT(j >= -MAXTAGGED-1 && j <= MAXTAGGED);
         *result = TAGGED(j);
-    }
-    else if (ch == 'I')
-    {
-        /* IO entry number. */
-        POLYUNSIGNED j;
-        fscanf(f, "%" POLYUFMT, &j);
-        // We may still have references to the old empty string value (j == 48).
-        if (j == 48)
-        {
-            // This is a bit of a hack but it's only temporary.
-            PolyObject  *p = NewObject(1, false);
-            p->SetLengthWord(1, F_BYTE_OBJ);
-            p->Set(0, PolyWord::FromUnsigned(0));
-            *result = p;
-        }
-        else ASSERT(0);
     }
     else
     {
@@ -594,7 +556,6 @@ bool PImport::DoImport()
     /* Now the objects themselves. */
     while (1)
     {
-        bool     isMutable = false;
         unsigned    objBits = 0;
         POLYUNSIGNED  nWords, nBytes;
         do
@@ -612,7 +573,7 @@ bool PImport::DoImport()
         do
         {
             ch = getc(f);
-            if (ch == 'M') { isMutable = true; objBits |= F_MUTABLE_BIT; }
+            if (ch == 'M') objBits |= F_MUTABLE_BIT;
             else if (ch == 'N') objBits |= F_NEGATIVE_BIT;
             if (ch == 'V') objBits |= F_NO_OVERWRITE;
             if (ch == 'W') objBits |= F_WEAK_BIT;
@@ -657,7 +618,12 @@ bool PImport::DoImport()
             return false;
         }
 
-        PolyObject  *p = NewObject(nWords, isMutable);
+        PolyObject  *p;
+        if (objBits & F_MUTABLE_BIT)
+            p = mutSpace.NewObj(nWords);
+        else if ((objBits & 3) == F_CODE_OBJ)
+            p = codeSpace.NewObj(nWords);
+        else p = immutSpace.NewObj(nWords);
         if (p == 0)
             return false;
         objMap[objNo] = p;
@@ -832,7 +798,7 @@ bool PImport::DoImport()
             return false;
         }
     }
-    return mutSpace.AddToTable() && immutSpace.AddToTable();
+    return mutSpace.CompleteLast() && immutSpace.CompleteLast() && codeSpace.CompleteLast();
 }
 
 // Import a file in the portable format and return a pointer to the root object.

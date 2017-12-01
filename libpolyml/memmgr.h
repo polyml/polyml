@@ -23,6 +23,7 @@
 
 #include "bitmap.h"
 #include "locking.h"
+#include "osmem.h"
 #include <vector>
 
 // utility conversion macros
@@ -68,7 +69,7 @@ public:
 class MemSpace: public SpaceTree
 {
 protected:
-    MemSpace();
+    MemSpace(OSMem *alloc);
     virtual ~MemSpace();
 
 public:
@@ -79,6 +80,7 @@ public:
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
+    OSMem           *allocator; // Used to free the area.  May be null.
     
     uintptr_t spaceSize(void)const { return top-bottom; } // No of words
 
@@ -97,8 +99,9 @@ public:
 class PermanentMemSpace: public MemSpace
 {
 protected:
-    PermanentMemSpace(): index(0), hierarchy(0), noOverwrite(false),
+    PermanentMemSpace(OSMem *alloc): MemSpace(alloc), index(0), hierarchy(0), noOverwrite(false),
         byteOnly(false), topPointer(0) {}
+
 public:
     unsigned    index;      // An identifier for the space.  Used when saving and loading.
     unsigned    hierarchy;  // The hierarchy number: 0=from executable, 1=top level saved state, ...
@@ -122,7 +125,7 @@ public:
 class MarkableSpace: public MemSpace
 {
 protected:
-    MarkableSpace();
+    MarkableSpace(OSMem *alloc);
     virtual ~MarkableSpace() {}
 public:
     PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
@@ -134,9 +137,9 @@ public:
 class LocalMemSpace: public MarkableSpace
 {
 protected:
-    LocalMemSpace();
+    LocalMemSpace(OSMem *alloc);
     virtual ~LocalMemSpace() {}
-    bool InitSpace(uintptr_t size, bool mut);
+    bool InitSpace(PolyWord *heapPtr, uintptr_t size, bool mut);
 
 public:
     // Allocation.  The minor GC allocates at the bottom of the areas while the
@@ -190,7 +193,7 @@ class StackObject; // Abstract - Architecture specific
 class StackSpace: public MemSpace
 {
 public:
-    StackSpace() { isOwnSpace = true; }
+    StackSpace(OSMem *alloc): MemSpace(alloc) { }
 
     StackObject *stack()const { return (StackObject *)bottom; }
 };
@@ -199,7 +202,7 @@ public:
 class CodeSpace: public MarkableSpace
 {
     public:
-        CodeSpace(PolyWord *start, uintptr_t spaceSize);
+        CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc);
 
     Bitmap  headerMap; // Map to find the headers during GC or profiling.
     uintptr_t largestFree; // The largest free space in the area
@@ -220,6 +223,14 @@ public:
     // Create an entry for a permanent space.
     PermanentMemSpace *NewPermanentSpace(PolyWord *base, uintptr_t words,
         unsigned flags, unsigned index, unsigned hierarchy = 0);
+
+    // Create a permanent space but allocate memory for it.
+    // Sets bottom and top to the actual memory size.
+    PermanentMemSpace *AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags,
+                            unsigned index, unsigned hierarchy = 0);
+    // Called after an allocated permanent area has been filled in.
+    bool CompletePermanentSpaceAllocation(PermanentMemSpace *space);
+
     // Delete a local space.  Takes the iterator position in lSpaces and returns the
     // iterator after deletion.
     void DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter);
@@ -384,6 +395,8 @@ private:
 
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
+
+    OSMem osMemAlloc;
 };
 
 extern MemMgr gMem;

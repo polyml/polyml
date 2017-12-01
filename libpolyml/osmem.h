@@ -32,6 +32,10 @@
 #include <stdlib.h>
 #endif
 
+#ifdef POLYML32IN64
+#include "bitmap.h"
+#endif
+
 // This class provides access to the memory management provided by the
 // operating system.  It would be nice if we could always use malloc and
 // free for this but we need to have execute permission on the code
@@ -41,29 +45,40 @@
 #define PERMISSION_WRITE    2
 #define PERMISSION_EXEC     4
 
-// This is now subclassed for the various combinations of OS and native address/object index.
 class OSMem
 {
 public:
     OSMem() {}
-    virtual ~OSMem() {}
-    virtual bool Initialise(void) { return true;  }
+    ~OSMem() {}
+    bool Initialise(void);
 
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.
     // Returns NULL if it cannot allocate the space.
-    virtual void *Allocate(size_t &bytes, unsigned permissions) = 0;
+    void *Allocate(size_t &bytes, unsigned permissions);
 
     // Release the space previously allocated.  This must free the whole of
     // the segment.  The space must be the size actually allocated.
-    virtual bool Free(void *p, size_t space) = 0;
+    bool Free(void *p, size_t space);
 
     // Adjust the permissions on a segment.  This must apply to the
     // whole of a segment.
-    virtual bool SetPermissions(void *p, size_t space, unsigned permissions) = 0;
+    bool SetPermissions(void *p, size_t space, unsigned permissions);
+
+protected:
+    size_t pageSize;
+
+#ifdef POLYML32IN64
+    size_t PageSize();
+    void *ReserveHeap(size_t space);
+    bool UnreserveHeap(void *baseAddr, size_t space);
+    void *CommitPages(void *baseAddr, size_t space, unsigned permissions);
+    bool UncommitPages(void *baseAddr, size_t space);
+
+    Bitmap pageMap;
+    uintptr_t lastAllocated;
+
+#endif
 };
-
-
-extern OSMem *osMemoryManager;
 
 #endif

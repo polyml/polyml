@@ -49,27 +49,29 @@
 // heap resizing policy option requested on command line
 unsigned heapsizingOption = 0;
 
-MemSpace::MemSpace(): SpaceTree(true)
+MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
 {
     spaceType = ST_PERMANENT;
     isMutable = false;
     bottom = 0;
     top = 0;
-    isOwnSpace = false;
     isCode = false;
+    isOwnSpace = false;
+    allocator = alloc;
 }
 
 MemSpace::~MemSpace()
 {
-    if (isOwnSpace && bottom != 0)
-        osMemoryManager->Free(bottom, (char*)top - (char*)bottom);
+    ASSERT(isOwnSpace == (allocator != 0));
+    if (allocator != 0 && bottom != 0)
+        allocator->Free(bottom, (char*)top - (char*)bottom);
 }
 
-MarkableSpace::MarkableSpace(): spaceLock("Local space")
+MarkableSpace::MarkableSpace(OSMem *alloc): MemSpace(alloc), spaceLock("Local space")
 {
 }
 
-LocalMemSpace::LocalMemSpace()
+LocalMemSpace::LocalMemSpace(OSMem *alloc): MarkableSpace(alloc)
 {
     spaceType = ST_LOCAL;
     upperAllocPtr = lowerAllocPtr = 0;
@@ -80,22 +82,11 @@ LocalMemSpace::LocalMemSpace()
     allocationSpace = false;
 }
 
-bool LocalMemSpace::InitSpace(uintptr_t size, bool mut)
+bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
 {
     isMutable = mut;
-
-    // Allocate the heap itself.
-    size_t iSpace = size*sizeof(PolyWord);
-    bottom  =
-        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
-
-    if (bottom == 0)
-        return false;
     isOwnSpace = true; // Deallocate when we're finished.
-
-    // The size may have been rounded up to a block boundary.
-    size = iSpace/sizeof(PolyWord);
-
+    bottom = heapSpace;
     top = bottom + size;
     // Initialise all the fields.  The partial GC in particular relies on this.
     upperAllocPtr = partialGCTop = fullGCRescanStart = fullGCLowerLimit = lowestWeak = top;
@@ -149,14 +140,14 @@ MemMgr::~MemMgr()
 
 bool MemMgr::Initialise()
 {
-    return osMemoryManager->Initialise();
+    return osMemAlloc.Initialise();
 }
 
 // Create and initialise a new local space and add it to the table.
 LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
 {
     try {
-        LocalMemSpace *space = new LocalMemSpace;
+        LocalMemSpace *space = new LocalMemSpace(&osMemAlloc);
         // Before trying to allocate the heap temporarily allocate the
         // reserved space.  This ensures that this much space will always
         // be available for C stacks and the C++ heap.
@@ -164,7 +155,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
         size_t rSpace = reservedSpace*sizeof(PolyWord);
 
         if (reservedSpace != 0) {
-            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
+            reservation = osMemAlloc.Allocate(rSpace, PERMISSION_READ);
             if (reservation == 0) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
                 if (debugOptions & DEBUG_MEMMGR)
@@ -174,8 +165,15 @@ LocalMemSpace* MemMgr::NewLocalSpace(uintptr_t size, bool mut)
             }
         }
 
-        bool success = space->InitSpace(size, mut) && AddLocalSpace(space);
-        if (reservation != 0) osMemoryManager->Free(reservation, rSpace);
+        // Allocate the heap itself.
+        size_t iSpace = size * sizeof(PolyWord);
+        PolyWord *heapSpace =
+            (PolyWord*)osMemAlloc.Allocate(iSpace, PERMISSION_READ | PERMISSION_WRITE);
+        // The size may have been rounded up to a block boundary.
+        size = iSpace / sizeof(PolyWord);
+        bool success = heapSpace != 0 && space->InitSpace(heapSpace, size, mut) && AddLocalSpace(space);
+
+        if (reservation != 0) osMemAlloc.Free(reservation, rSpace);
         if (success)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -259,13 +257,12 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     return true;
 }
 
-
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
                                              unsigned flags, unsigned index, unsigned hierarchy /*= 0*/)
 {
     try {
-        PermanentMemSpace *space = new PermanentMemSpace;
+        PermanentMemSpace *space = new PermanentMemSpace(0/* Not freed */);
         space->bottom = base;
         space->topPointer = space->top = space->bottom + words;
         space->spaceType = ST_PERMANENT;
@@ -292,6 +289,56 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
     catch (std::bad_alloc&) {
         return 0;
     }
+}
+
+PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, unsigned hierarchy)
+{
+    try {
+        PermanentMemSpace *space = new PermanentMemSpace(&osMemAlloc);
+        unsigned int perms = PERMISSION_READ | PERMISSION_WRITE;
+        if (flags & MTF_EXECUTABLE) perms |= PERMISSION_EXEC;
+        size_t actualSize = byteSize;
+        PolyWord *base = (PolyWord*)osMemAlloc.Allocate(actualSize, perms);
+        if (base == 0)
+        {
+            delete(space);
+            return 0;
+        }
+        space->bottom = base;
+        space->topPointer = space->top = space->bottom + actualSize/sizeof(PolyWord);
+        space->spaceType = ST_PERMANENT;
+        space->isMutable = flags & MTF_WRITEABLE ? true : false;
+        space->noOverwrite = flags & MTF_NO_OVERWRITE ? true : false;
+        space->byteOnly = flags & MTF_BYTES ? true : false;
+        space->isCode = flags & MTF_EXECUTABLE ? true : false;
+        space->index = index;
+        space->hierarchy = hierarchy;
+        if (index >= nextIndex) nextIndex = index + 1;
+
+        // Extend the permanent memory table and add this space to it.
+        try {
+            AddTree(space);
+            pSpaces.push_back(space);
+        }
+        catch (std::exception&) {
+            RemoveTree(space);
+            delete space;
+            return 0;
+        }
+        return space;
+    }
+    catch (std::bad_alloc&) {
+        return 0;
+    }
+}
+
+bool MemMgr::CompletePermanentSpaceAllocation(PermanentMemSpace *space)
+{
+    // Remove write access unless it is mutable.
+    if (!space->isMutable)
+        osMemAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+            space->isCode ? PERMISSION_READ | PERMISSION_EXEC : PERMISSION_READ);
+    return true;
 }
 
 // Delete a local space and remove it from the table.
@@ -325,7 +372,7 @@ void MemMgr::RemoveEmptyLocals()
 PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code)
 {
     try {
-        PermanentMemSpace *space = new PermanentMemSpace;
+        PermanentMemSpace *space = new PermanentMemSpace(&osMemAlloc);
         space->spaceType = ST_EXPORT;
         space->isMutable = mut;
         space->noOverwrite = noOv;
@@ -334,7 +381,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom  =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            (PolyWord*)osMemAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
 
         if (space->bottom == 0)
         {
@@ -344,7 +391,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
             return 0;
         }
         space->isOwnSpace = true;
- 
+
         // The size may have been rounded up to a block boundary.
         size = iSpace/sizeof(PolyWord);
         space->top = space->bottom + size;
@@ -416,7 +463,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
 
                 if (pSpace->isCode)
                 {
-                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize());
+                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize(), &osMemAlloc);
                     if (! space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
@@ -449,7 +496,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 }
                 else
                 {
-                    LocalMemSpace *space = new LocalMemSpace;
+                    LocalMemSpace *space = new LocalMemSpace(&osMemAlloc);
                     space->top = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
                     // all data is in the old generation.  The area can be recovered by a full GC.
@@ -627,13 +674,12 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
     return 0; // There isn't space even for the minimum.
 }
 
-CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize)
+CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
 {
     isOwnSpace = true;
     bottom = start;
     top = start+spaceSize;
     isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
-    isOwnSpace = true;
     isCode = true;
     spaceType = ST_CODE;
 #ifdef POLYML32IN64
@@ -654,12 +700,12 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
     // Allocate a new mutable, code space. N.B.  This may round up "actualSize".
     size_t actualSize = size * sizeof(PolyWord);
     PolyWord *mem =
-        (PolyWord*)osMemoryManager->Allocate(actualSize,
+        (PolyWord*)osMemAlloc.Allocate(actualSize,
             PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
     if (mem != 0)
     {
         try {
-            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord));
+            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord), &osMemAlloc);
             if (!allocSpace->headerMap.Create(allocSpace->spaceSize()))
             {
                 delete allocSpace;
@@ -680,7 +726,7 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
         }
         if (allocSpace == 0)
         {
-            osMemoryManager->Free(mem, actualSize);
+            osMemAlloc.Free(mem, actualSize);
             mem = 0;
         }
     }
@@ -850,10 +896,10 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
     PLocker lock(&stackSpaceLock);
 
     try {
-        StackSpace *space = new StackSpace;
+        StackSpace *space = new StackSpace(&osMemAlloc);
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom =
-            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+            (PolyWord*)osMemAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
         if (space->bottom == 0)
         {
             if (debugOptions & DEBUG_MEMMGR)
@@ -867,6 +913,7 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
         space->top = space->bottom + size;
         space->spaceType = ST_STACK;
         space->isMutable = true;
+        space->isOwnSpace = true;
 
         // Add the stack space to the tree.  This ensures that operations such as
         // LocalSpaceForAddress will work for addresses within the stack.  We can
@@ -901,7 +948,7 @@ void MemMgr::ProtectImmutable(bool on)
         {
             LocalMemSpace *space = *i;
             if (! space->isMutable)
-                osMemoryManager->SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                osMemAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
                     on ? PERMISSION_READ|PERMISSION_EXEC : PERMISSION_READ|PERMISSION_EXEC|PERMISSION_WRITE);
         }
     }
@@ -911,7 +958,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
 {
     StackSpace *space = taskData->stack;
     size_t iSpace = newSize*sizeof(PolyWord);
-    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+    PolyWord *newSpace = (PolyWord*)osMemAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
     if (newSpace == 0)
     {
         if (debugOptions & DEBUG_MEMMGR)
@@ -937,7 +984,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, uintptr_t newSize)
     size_t oldSize = (char*)space->top - (char*)space->bottom;
     space->bottom = newSpace; // Switch this before freeing - We could get a profile trap during the free
     space->top = newSpace+newSize;
-    osMemoryManager->Free(oldBottom, oldSize);
+    osMemAlloc.Free(oldBottom, oldSize);
     return true;
 }
 
