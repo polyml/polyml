@@ -18641,19 +18641,6 @@ else
 fi
 
 
-# Help strings from libpolyml
-  --with-gmp              use the GMP library for arbitrary precision
-                          arithmetic [default=check]
-  --with-system-libffi    use the version of libffi installed on your system
-                          rather than the version supplied with poly
-                          [default=no]
-  --with-threads          use the pthread library for multi-threading
-                          [default=check]
-  --disable-native-codegeneration
-                          disable the native code generator and use the slow
-                          byte code interpreter instead.
-
-
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 ac_config_commands="$ac_config_commands basis"
