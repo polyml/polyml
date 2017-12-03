@@ -12,13 +12,9 @@ else
 POLYIMPORT_OPTIONS =
 endif
 
-DIST_SUBDIRS = libpolyml libpolymain libffi modules
+DIST_SUBDIRS = libpolyml libpolymain modules
 
-if INTERNAL_LIBFFI
-SUBDIRS = libffi libpolyml libpolymain . modules
-else
 SUBDIRS = libpolyml libpolymain . modules
-endif
 
 bin_PROGRAMS = polyimport poly
 
@@ -84,7 +80,7 @@ POLYOBJECTFILE = polyexport.o
 OBJECTSUFFIX=o
 endif
 
-if EXPMACHO
+if MACOSLDOPTS
 poly_LDFLAGS += -Wl,-no_pie
 endif
 
