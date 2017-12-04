@@ -9,5 +9,5 @@ Description: Poly/ML run-time and main program libraries
 URL: http://www.polyml.org/
 Version: @PACKAGE_VERSION@
 Requires:
-Libs: -L${libdir} -lpolyml
+Libs: -L${libdir} -lpolyml @LIBS@
 Cflags: -I${includedir}

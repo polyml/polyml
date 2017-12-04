@@ -100,18 +100,9 @@ AM_PROG_AS
 # Activate large file mode if needed
 AC_SYS_LARGEFILE
 
-# Checks for libraries.
-AC_CHECK_LIB(gcc, main)
-AC_CHECK_LIB(gcc_s, main)
-AC_CHECK_LIB(stdc++, main)
-
 # These can sometimes be in the standard libraries
 AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
-
-# The next two are only used with mingw
-AC_CHECK_LIB(ws2_32, main)
-AC_CHECK_LIB(gdi32, main)
 
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
@@ -353,23 +344,14 @@ AC_CHECK_SIZEOF(long long)
 AC_C_BIGENDIAN
 
 # Checks for library functions.
-AC_FUNC_CHOWN
-AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_ERROR_AT_LINE
-AC_FUNC_FORK
 AC_FUNC_GETGROUPS
 AC_FUNC_GETPGRP
 AC_PROG_GCC_TRADITIONAL
-AC_FUNC_LSTAT
-AC_FUNC_LSTAT_FOLLOWS_SLASHED_SYMLINK
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_STAT
-AC_FUNC_STRFTIME
 AC_FUNC_STRTOD
-AC_FUNC_VPRINTF
-AC_CHECK_FUNCS([bzero dup2 floor ftruncate getcwd gethostbyaddr gethostname gettimeofday memmove])
-AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select setlocale socket sqrt strdup strerror])
-AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
+AC_CHECK_FUNCS([dlopen strtod dtoa getpagesize sigaltstack mmap mkstemp])
 ## There does not seem to be a declaration for fpsetmask in mingw64.
 AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
 AC_CHECK_FUNCS([sysctl sysctlbyname])
@@ -557,6 +539,8 @@ AC_ARG_WITH([moduledir],
   [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
   [moduledir=$withval],
   [moduledir="\${libdir}/polyml/modules"])
+# Have to use AC_SUBST here because we need to include the install directory
+# and it's possible to override that.
 AC_SUBST([moduledir], [$moduledir])
 
 
