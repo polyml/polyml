@@ -41,9 +41,11 @@ poly_native_windows=no
 # the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 poly_use_windowscc=no
+poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
+        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
@@ -100,9 +102,17 @@ AM_PROG_AS
 # Activate large file mode if needed
 AC_SYS_LARGEFILE
 
+# Checks for libraries.
+AC_CHECK_LIB(gcc, main)
+AC_CHECK_LIB(gcc_s, main)
+AC_CHECK_LIB(stdc++, main)
 # These can sometimes be in the standard libraries
 AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
+
+# The next two are only used with mingw
+AC_CHECK_LIB(ws2_32, main)
+AC_CHECK_LIB(gdi32, main)
 
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
@@ -543,6 +553,39 @@ AC_ARG_WITH([moduledir],
 # and it's possible to override that.
 AC_SUBST([moduledir], [$moduledir])
 
+# We have to configure polyc here so it can include the dependent
+# libraries if necessary.
+
+# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
+# and hurts reproducibility.
+polyc_CFLAGS=
+for cflag in $CFLAGS; do
+    cflag="${cflag##-fdebug-prefix-map=*}"
+    if test -n "$cflag"; then
+        if test -n "$polyc_CFLAGS"; then
+            polyc_CFLAGS="$polyc_CFLAGS $cflag"
+        else
+            polyc_CFLAGS="$cflag"
+        fi
+    fi
+done
+AC_SUBST([polyc_CFLAGS], ["$polyc_CFLAGS"])
+
+# If we're building only the static version of libpolyml
+# then polyc and polyml.pc have to include the dependent libraries.
+dependentlibs = ""
+if test "${enable_shared}" != yes; then
+    dependentlibs=${LIBS}
+fi
+
+AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
+AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
+AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
+
+AC_SUBST([dependentlibs], ["$dependentlibs"])
 
 AC_CONFIG_FILES([Makefile polyml.pc])
+
+AC_CONFIG_FILES([../polyc], [chmod +x ../polyc])
+
 AC_OUTPUT

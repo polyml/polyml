@@ -639,12 +639,8 @@ LTLIBOBJS
 LIBOBJS
 INTINFISINT_FALSE
 INTINFISINT_TRUE
-moduledir
-polyc_CFLAGS
 MACOSLDOPTS_FALSE
 MACOSLDOPTS_TRUE
-NO_UNDEFINED_FALSE
-NO_UNDEFINED_TRUE
 NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
 WINDOWS64CALLS_FALSE
@@ -688,6 +684,8 @@ MANIFEST_TOOL
 RANLIB
 ac_ct_AR
 AR
+DLLTOOL
+OBJDUMP
 LN_S
 NM
 ac_ct_DUMPBIN
@@ -715,13 +713,9 @@ LDFLAGS
 CFLAGS
 CC
 LIBTOOL
-OBJDUMP
-DLLTOOL
-AS
 WINDOWSGUI_FALSE
 WINDOWSGUI_TRUE
 WINDRES
-OSFLAG
 host_os
 host_vendor
 host_cpu
@@ -814,7 +808,6 @@ enable_libtool_lock
 enable_maintainer_mode
 enable_largefile
 enable_native_codegeneration
-with_moduledir
 enable_intinf_as_int
 '
       ac_precious_vars='build_alias
@@ -1470,7 +1463,7 @@ Optional Features:
   --enable-debug          Compiles without optimisation for debugging
   --enable-windows-gui    create a GUI in Windows. If this is disabled use a
                           Windows console. [default=yes]
-  --enable-shared[=PKGS]  build shared libraries [default=no]
+  --enable-shared[=PKGS]  build shared libraries [default=yes]
   --enable-static[=PKGS]  build static libraries [default=yes]
   --enable-fast-install[=PKGS]
                           optimize for fast installation [default=yes]
@@ -1499,7 +1492,6 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot[=DIR]    Search for dependent libraries within DIR (or the
                           compiler's sysroot if not specified).
-  --with-moduledir=DIR    directory for Poly/ML modules
 
 Some influential environment variables:
   CC          C compiler command
@@ -3315,33 +3307,20 @@ IFS=$ac_save_IFS
 case $host_os in *\ *) host_os=`echo "$host_os" | sed 's/ /-/g'`;; esac
 
 
-# Set the OS flag.  This should not really be required but is still used in
-# a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
-# If we are building on cygwin or mingw we need to give the -no-defined flag to
-# build a DLL.  We also have to use Windows calling conventions rather than
+# If we are building on cygwin or mingw we need to use the pre-built
+# compiler that uses Windows calling conventions rather than
 # SysV on 64-bit.
-# On mingw we need the -mthreads flag and this must be included in CFLAGS and
-# CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version and
-# the API version to at least Windows Vista to allow condition variables.
-poly_no_undefined=no
 poly_use_windowscc=no
 poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
-        OSFLAG=-DMACOSX
-
         poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
-        OSFLAG=-DSOLARIS
-
         ;;
     *mingw*)
-        OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
-
         if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
 set dummy ${ac_tool_prefix}windres; ac_word=$2
@@ -3435,21 +3414,14 @@ else
 fi
 
         poly_native_windows=yes
-        poly_no_undefined=yes
         poly_use_windowscc=yes
-        CFLAGS="$CFLAGS -mthreads"
-        CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
-
                 poly_native_windows=yes
-                CFLAGS="$CFLAGS -mthreads"
-                CXXFLAGS="$CXXFLAGS -mthreads"
             fi
         fi
         ;;
@@ -3477,8 +3449,6 @@ else
 fi
 
 
-# libpolyml can be a DLL but libpolymain can't.
-# Disable shared libraries by default.  It complicates installation to "non-standard" places.
 case `pwd` in
   *\ * | *\	*)
     { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Libtool does not cope well with whitespace in \`pwd\`" >&5
@@ -5631,6 +5601,9 @@ test -z "$OBJDUMP" && OBJDUMP=objdump
 
 
 
+
+
+
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking how to recognize dependent libraries" >&5
 $as_echo_n "checking how to recognize dependent libraries... " >&6; }
 if ${lt_cv_deplibs_check_method+:} false; then :
@@ -5966,6 +5939,9 @@ else
 fi
 
 test -z "$DLLTOOL" && DLLTOOL=dlltool
+
+
+
 
 
 
@@ -8215,307 +8191,16 @@ done
 
 
 # Set options
-enable_win32_dll=yes
-
-case $host in
-*-*-cygwin* | *-*-mingw* | *-*-pw32* | *-*-cegcc*)
-  if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}as", so it can be a program name with args.
-set dummy ${ac_tool_prefix}as; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_AS+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$AS"; then
-  ac_cv_prog_AS="$AS" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_AS="${ac_tool_prefix}as"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-AS=$ac_cv_prog_AS
-if test -n "$AS"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AS" >&5
-$as_echo "$AS" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_prog_AS"; then
-  ac_ct_AS=$AS
-  # Extract the first word of "as", so it can be a program name with args.
-set dummy as; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_ac_ct_AS+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$ac_ct_AS"; then
-  ac_cv_prog_ac_ct_AS="$ac_ct_AS" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_ac_ct_AS="as"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-ac_ct_AS=$ac_cv_prog_ac_ct_AS
-if test -n "$ac_ct_AS"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_AS" >&5
-$as_echo "$ac_ct_AS" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_ct_AS" = x; then
-    AS="false"
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    AS=$ac_ct_AS
-  fi
-else
-  AS="$ac_cv_prog_AS"
-fi
-
-  if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}dlltool", so it can be a program name with args.
-set dummy ${ac_tool_prefix}dlltool; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_DLLTOOL+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$DLLTOOL"; then
-  ac_cv_prog_DLLTOOL="$DLLTOOL" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_DLLTOOL="${ac_tool_prefix}dlltool"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-DLLTOOL=$ac_cv_prog_DLLTOOL
-if test -n "$DLLTOOL"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $DLLTOOL" >&5
-$as_echo "$DLLTOOL" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_prog_DLLTOOL"; then
-  ac_ct_DLLTOOL=$DLLTOOL
-  # Extract the first word of "dlltool", so it can be a program name with args.
-set dummy dlltool; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_ac_ct_DLLTOOL+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$ac_ct_DLLTOOL"; then
-  ac_cv_prog_ac_ct_DLLTOOL="$ac_ct_DLLTOOL" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_ac_ct_DLLTOOL="dlltool"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-ac_ct_DLLTOOL=$ac_cv_prog_ac_ct_DLLTOOL
-if test -n "$ac_ct_DLLTOOL"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_DLLTOOL" >&5
-$as_echo "$ac_ct_DLLTOOL" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_ct_DLLTOOL" = x; then
-    DLLTOOL="false"
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    DLLTOOL=$ac_ct_DLLTOOL
-  fi
-else
-  DLLTOOL="$ac_cv_prog_DLLTOOL"
-fi
-
-  if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}objdump", so it can be a program name with args.
-set dummy ${ac_tool_prefix}objdump; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_OBJDUMP+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$OBJDUMP"; then
-  ac_cv_prog_OBJDUMP="$OBJDUMP" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_OBJDUMP="${ac_tool_prefix}objdump"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-OBJDUMP=$ac_cv_prog_OBJDUMP
-if test -n "$OBJDUMP"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $OBJDUMP" >&5
-$as_echo "$OBJDUMP" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_prog_OBJDUMP"; then
-  ac_ct_OBJDUMP=$OBJDUMP
-  # Extract the first word of "objdump", so it can be a program name with args.
-set dummy objdump; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_prog_ac_ct_OBJDUMP+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -n "$ac_ct_OBJDUMP"; then
-  ac_cv_prog_ac_ct_OBJDUMP="$ac_ct_OBJDUMP" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_prog_ac_ct_OBJDUMP="objdump"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-fi
-fi
-ac_ct_OBJDUMP=$ac_cv_prog_ac_ct_OBJDUMP
-if test -n "$ac_ct_OBJDUMP"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_ct_OBJDUMP" >&5
-$as_echo "$ac_ct_OBJDUMP" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_ct_OBJDUMP" = x; then
-    OBJDUMP="false"
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    OBJDUMP=$ac_ct_OBJDUMP
-  fi
-else
-  OBJDUMP="$ac_cv_prog_OBJDUMP"
-fi
-
-  ;;
-esac
-
-test -z "$AS" && AS=as
 
 
 
+        enable_dlopen=no
 
 
-test -z "$DLLTOOL" && DLLTOOL=dlltool
+  enable_win32_dll=no
 
 
-
-
-
-test -z "$OBJDUMP" && OBJDUMP=objdump
-
-
-
-
-# Check whether --enable-shared was given.
+            # Check whether --enable-shared was given.
 if test "${enable_shared+set}" = set; then :
   enableval=$enable_shared; p=${PACKAGE-default}
     case $enableval in
@@ -8535,19 +8220,13 @@ if test "${enable_shared+set}" = set; then :
       ;;
     esac
 else
-  enable_shared=no
+  enable_shared=yes
 fi
 
 
 
 
 
-
-
-
-
-
-        enable_dlopen=no
 
 
 
@@ -17808,44 +17487,9 @@ rm -rf conftest*
 fi
 
 
-# The cast to long int works around a bug in the HP C Compiler
-# version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
-# declarations like `int a3[[(sizeof (unsigned char)) >= 0]];'.
-# This bug is HP SR number 8606223364.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking size of void*" >&5
-$as_echo_n "checking size of void*... " >&6; }
-if ${ac_cv_sizeof_voidp+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if ac_fn_c_compute_int "$LINENO" "(long int) (sizeof (void*))" "ac_cv_sizeof_voidp"        "$ac_includes_default"; then :
+# For some reason libtool doesn't pass up all the libraries
+# that are used in libpolyml. -lstdc++ and -lm at least are missing.
 
-else
-  if test "$ac_cv_type_voidp" = yes; then
-     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error 77 "cannot compute sizeof (void*)
-See \`config.log' for more details" "$LINENO" 5; }
-   else
-     ac_cv_sizeof_voidp=0
-   fi
-fi
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_sizeof_voidp" >&5
-$as_echo "$ac_cv_sizeof_voidp" >&6; }
-
-
-
-cat >>confdefs.h <<_ACEOF
-#define SIZEOF_VOIDP $ac_cv_sizeof_voidp
-_ACEOF
-
-
-
-# These libraries are detected in the config script for libpolyml
-# and it would be better if that information could be inherited here.
-
-# Checks for libraries.
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgcc" >&5
 $as_echo_n "checking for main in -lgcc... " >&6; }
 if ${ac_cv_lib_gcc_main+:} false; then :
@@ -18157,6 +17801,40 @@ _ACEOF
 fi
 
 
+# The cast to long int works around a bug in the HP C Compiler
+# version HP92453-01 B.11.11.23709.GP, which incorrectly rejects
+# declarations like `int a3[[(sizeof (unsigned char)) >= 0]];'.
+# This bug is HP SR number 8606223364.
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking size of void*" >&5
+$as_echo_n "checking size of void*... " >&6; }
+if ${ac_cv_sizeof_voidp+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if ac_fn_c_compute_int "$LINENO" "(long int) (sizeof (void*))" "ac_cv_sizeof_voidp"        "$ac_includes_default"; then :
+
+else
+  if test "$ac_cv_type_voidp" = yes; then
+     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error 77 "cannot compute sizeof (void*)
+See \`config.log' for more details" "$LINENO" 5; }
+   else
+     ac_cv_sizeof_voidp=0
+   fi
+fi
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_sizeof_voidp" >&5
+$as_echo "$ac_cv_sizeof_voidp" >&6; }
+
+
+
+cat >>confdefs.h <<_ACEOF
+#define SIZEOF_VOIDP $ac_cv_sizeof_voidp
+_ACEOF
+
+
+
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
@@ -18215,8 +17893,8 @@ fi
 
 # TODO: May need AC_PATH_XTRA for Solaris
 
-# Check for headers
-for ac_header in time.h stdint.h stddef.h windows.h
+# Check for headers.  These are needed for polyexports.h.
+for ac_header in time.h stdint.h inttypes.h stddef.h windows.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
@@ -18370,6 +18048,9 @@ else
   with_portable=check
 fi
 
+
+# Check which CPU we're building for.  Can we use a native pre-built compiler
+# or do we need to fall back to the interpreter?
 
 case "${host_cpu}" in
       i[3456]86*)
@@ -18573,14 +18254,6 @@ else
   NATIVE_WINDOWS_FALSE=
 fi
 
- if test "$poly_no_undefined" = yes; then
-  NO_UNDEFINED_TRUE=
-  NO_UNDEFINED_FALSE='#'
-else
-  NO_UNDEFINED_TRUE='#'
-  NO_UNDEFINED_FALSE=
-fi
-
 
  if test "$poly_need_macosopt" = yes ; then
   MACOSLDOPTS_TRUE=
@@ -18589,34 +18262,6 @@ else
   MACOSLDOPTS_TRUE='#'
   MACOSLDOPTS_FALSE=
 fi
-
-
-# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
-# and hurts reproducibility.
-polyc_CFLAGS=
-for cflag in $CFLAGS; do
-    cflag="${cflag##-fdebug-prefix-map=*}"
-    if test -n "$cflag"; then
-        if test -n "$polyc_CFLAGS"; then
-            polyc_CFLAGS="$polyc_CFLAGS $cflag"
-        else
-            polyc_CFLAGS="$cflag"
-        fi
-    fi
-done
-polyc_CFLAGS="$polyc_CFLAGS"
-
-
-# Modules directory
-
-# Check whether --with-moduledir was given.
-if test "${with_moduledir+set}" = set; then :
-  withval=$with_moduledir; moduledir=$withval
-else
-  moduledir="\${libdir}/polyml/modules"
-fi
-
-moduledir=$moduledir
 
 
 # Control whether to build the basis library with arbitrary precision as the default int
@@ -18650,7 +18295,6 @@ ac_config_commands="$ac_config_commands mlsource"
 
 ac_config_files="$ac_config_files Makefile libpolymain/Makefile modules/Makefile modules/IntInfAsInt/Makefile"
 
-ac_config_files="$ac_config_files polyc"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -18827,10 +18471,6 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NATIVE_WINDOWS_TRUE}" && test -z "${NATIVE_WINDOWS_FALSE}"; then
   as_fn_error $? "conditional \"NATIVE_WINDOWS\" was never defined.
-Usually this means the macro was only invoked conditionally." "$LINENO" 5
-fi
-if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
-  as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${MACOSLDOPTS_TRUE}" && test -z "${MACOSLDOPTS_FALSE}"; then
@@ -19435,9 +19075,6 @@ double_quote_subst='$double_quote_subst'
 delay_variable_subst='$delay_variable_subst'
 macro_version='`$ECHO "$macro_version" | $SED "$delay_single_quote_subst"`'
 macro_revision='`$ECHO "$macro_revision" | $SED "$delay_single_quote_subst"`'
-AS='`$ECHO "$AS" | $SED "$delay_single_quote_subst"`'
-DLLTOOL='`$ECHO "$DLLTOOL" | $SED "$delay_single_quote_subst"`'
-OBJDUMP='`$ECHO "$OBJDUMP" | $SED "$delay_single_quote_subst"`'
 enable_shared='`$ECHO "$enable_shared" | $SED "$delay_single_quote_subst"`'
 enable_static='`$ECHO "$enable_static" | $SED "$delay_single_quote_subst"`'
 pic_mode='`$ECHO "$pic_mode" | $SED "$delay_single_quote_subst"`'
@@ -19470,10 +19107,12 @@ lt_cv_to_host_file_cmd='`$ECHO "$lt_cv_to_host_file_cmd" | $SED "$delay_single_q
 lt_cv_to_tool_file_cmd='`$ECHO "$lt_cv_to_tool_file_cmd" | $SED "$delay_single_quote_subst"`'
 reload_flag='`$ECHO "$reload_flag" | $SED "$delay_single_quote_subst"`'
 reload_cmds='`$ECHO "$reload_cmds" | $SED "$delay_single_quote_subst"`'
+OBJDUMP='`$ECHO "$OBJDUMP" | $SED "$delay_single_quote_subst"`'
 deplibs_check_method='`$ECHO "$deplibs_check_method" | $SED "$delay_single_quote_subst"`'
 file_magic_cmd='`$ECHO "$file_magic_cmd" | $SED "$delay_single_quote_subst"`'
 file_magic_glob='`$ECHO "$file_magic_glob" | $SED "$delay_single_quote_subst"`'
 want_nocaseglob='`$ECHO "$want_nocaseglob" | $SED "$delay_single_quote_subst"`'
+DLLTOOL='`$ECHO "$DLLTOOL" | $SED "$delay_single_quote_subst"`'
 sharedlib_from_linklib_cmd='`$ECHO "$sharedlib_from_linklib_cmd" | $SED "$delay_single_quote_subst"`'
 AR='`$ECHO "$AR" | $SED "$delay_single_quote_subst"`'
 AR_FLAGS='`$ECHO "$AR_FLAGS" | $SED "$delay_single_quote_subst"`'
@@ -19637,10 +19276,7 @@ _LTECHO_EOF'
 }
 
 # Quote evaled strings.
-for var in AS \
-DLLTOOL \
-OBJDUMP \
-SHELL \
+for var in SHELL \
 ECHO \
 PATH_SEPARATOR \
 SED \
@@ -19653,10 +19289,12 @@ LN_S \
 lt_SP2NL \
 lt_NL2SP \
 reload_flag \
+OBJDUMP \
 deplibs_check_method \
 file_magic_cmd \
 file_magic_glob \
 want_nocaseglob \
+DLLTOOL \
 sharedlib_from_linklib_cmd \
 AR \
 AR_FLAGS \
@@ -19825,7 +19463,6 @@ do
     "libpolymain/Makefile") CONFIG_FILES="$CONFIG_FILES libpolymain/Makefile" ;;
     "modules/Makefile") CONFIG_FILES="$CONFIG_FILES modules/Makefile" ;;
     "modules/IntInfAsInt/Makefile") CONFIG_FILES="$CONFIG_FILES modules/IntInfAsInt/Makefile" ;;
-    "polyc") CONFIG_FILES="$CONFIG_FILES polyc" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
@@ -20569,15 +20206,6 @@ available_tags='CXX '
 macro_version=$macro_version
 macro_revision=$macro_revision
 
-# Assembler program.
-AS=$lt_AS
-
-# DLL creation program.
-DLLTOOL=$lt_DLLTOOL
-
-# Object dumper program.
-OBJDUMP=$lt_OBJDUMP
-
 # Whether or not to build shared libraries.
 build_libtool_libs=$enable_shared
 
@@ -20657,6 +20285,9 @@ to_host_file_cmd=$lt_cv_to_host_file_cmd
 # convert \$build files to toolchain format.
 to_tool_file_cmd=$lt_cv_to_tool_file_cmd
 
+# An object symbol dumper.
+OBJDUMP=$lt_OBJDUMP
+
 # Method to check whether dependent libraries are shared objects.
 deplibs_check_method=$lt_deplibs_check_method
 
@@ -20668,6 +20299,9 @@ file_magic_glob=$lt_file_magic_glob
 
 # Find potential files using nocaseglob when deplibs_check_method = "file_magic".
 want_nocaseglob=$lt_want_nocaseglob
+
+# DLL creation program.
+DLLTOOL=$lt_DLLTOOL
 
 # Command to associate shared and link libraries.
 sharedlib_from_linklib_cmd=$lt_sharedlib_from_linklib_cmd
@@ -21228,7 +20862,6 @@ _LT_EOF
  ;;
     "basis":C) test -e basis || ln -sf ${ac_top_srcdir}/basis . ;;
     "mlsource":C) test -e mlsource || ln -sf ${ac_top_srcdir}/mlsource . ;;
-    "polyc":F) chmod +x polyc ;;
 
   esac
 done # for ac_tag

@@ -1,9 +1,6 @@
 AUTOMAKE_OPTIONS=foreign
 ACLOCAL_AMFLAGS= -I m4 --install
 
-AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
-AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
-
 BOOTSTRAP_OPTIONS =
 
 if INTINFISINT
@@ -132,9 +129,6 @@ compiler: all
 
 reboot: compiler
 	cp polytemp.txt $(POLYIMPORT)
-
-# Retain this target for backwards compatibility.
-cvs: compiler
 
 clean-local:
 	rm -f *.obj polytemp.txt polyc

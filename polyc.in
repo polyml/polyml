@@ -4,7 +4,7 @@ exec_prefix=@exec_prefix@
 BINDIR=@bindir@
 LINK=@CXX@
 LIBDIR=@libdir@
-LIBS="@LIBS@"
+LIBS="@dependentlibs@"
 CFLAGS="@polyc_CFLAGS@"
 
 DEFAULT_COMPILER="${BINDIR}/poly"

@@ -636,6 +636,10 @@ enable_option_checking=no
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
+dependentlibs
+MACOSLDOPTS_FALSE
+MACOSLDOPTS_TRUE
+polyc_CFLAGS
 moduledir
 GIT_VERSION
 gitinstalled
@@ -3640,10 +3644,12 @@ poly_native_windows=no
 # the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 poly_use_windowscc=no
+poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
         OSFLAG=-DMACOSX
 
+        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         OSFLAG=-DSOLARIS
@@ -18096,6 +18102,124 @@ rm -rf conftest*
 fi
 
 
+# Checks for libraries.
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgcc" >&5
+$as_echo_n "checking for main in -lgcc... " >&6; }
+if ${ac_cv_lib_gcc_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgcc  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gcc_main=yes
+else
+  ac_cv_lib_gcc_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gcc_main" >&5
+$as_echo "$ac_cv_lib_gcc_main" >&6; }
+if test "x$ac_cv_lib_gcc_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBGCC 1
+_ACEOF
+
+  LIBS="-lgcc $LIBS"
+
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgcc_s" >&5
+$as_echo_n "checking for main in -lgcc_s... " >&6; }
+if ${ac_cv_lib_gcc_s_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgcc_s  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gcc_s_main=yes
+else
+  ac_cv_lib_gcc_s_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gcc_s_main" >&5
+$as_echo "$ac_cv_lib_gcc_s_main" >&6; }
+if test "x$ac_cv_lib_gcc_s_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBGCC_S 1
+_ACEOF
+
+  LIBS="-lgcc_s $LIBS"
+
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lstdc++" >&5
+$as_echo_n "checking for main in -lstdc++... " >&6; }
+if ${ac_cv_lib_stdcpp_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lstdc++  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_stdcpp_main=yes
+else
+  ac_cv_lib_stdcpp_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_stdcpp_main" >&5
+$as_echo "$ac_cv_lib_stdcpp_main" >&6; }
+if test "x$ac_cv_lib_stdcpp_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBSTDC__ 1
+_ACEOF
+
+  LIBS="-lstdc++ $LIBS"
+
+fi
+
 # These can sometimes be in the standard libraries
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing dlopen" >&5
 $as_echo_n "checking for library containing dlopen... " >&6; }
@@ -18206,6 +18330,86 @@ $as_echo "$ac_cv_search_floor" >&6; }
 ac_res=$ac_cv_search_floor
 if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+
+fi
+
+
+# The next two are only used with mingw
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
+$as_echo_n "checking for main in -lws2_32... " >&6; }
+if ${ac_cv_lib_ws2_32_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lws2_32  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ws2_32_main=yes
+else
+  ac_cv_lib_ws2_32_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ws2_32_main" >&5
+$as_echo "$ac_cv_lib_ws2_32_main" >&6; }
+if test "x$ac_cv_lib_ws2_32_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBWS2_32 1
+_ACEOF
+
+  LIBS="-lws2_32 $LIBS"
+
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgdi32" >&5
+$as_echo_n "checking for main in -lgdi32... " >&6; }
+if ${ac_cv_lib_gdi32_main+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgdi32  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+int
+main ()
+{
+return main ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gdi32_main=yes
+else
+  ac_cv_lib_gdi32_main=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gdi32_main" >&5
+$as_echo "$ac_cv_lib_gdi32_main" >&6; }
+if test "x$ac_cv_lib_gdi32_main" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBGDI32 1
+_ACEOF
+
+  LIBS="-lgdi32 $LIBS"
 
 fi
 
@@ -22179,8 +22383,65 @@ fi
 moduledir=$moduledir
 
 
+# We have to configure polyc here so it can include the dependent
+# libraries if necessary.
+
+# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
+# and hurts reproducibility.
+polyc_CFLAGS=
+for cflag in $CFLAGS; do
+    cflag="${cflag##-fdebug-prefix-map=*}"
+    if test -n "$cflag"; then
+        if test -n "$polyc_CFLAGS"; then
+            polyc_CFLAGS="$polyc_CFLAGS $cflag"
+        else
+            polyc_CFLAGS="$cflag"
+        fi
+    fi
+done
+polyc_CFLAGS="$polyc_CFLAGS"
+
+
+# If we're building only the static version of libpolyml
+# then polyc and polyml.pc have to include the dependent libraries.
+dependentlibs = ""
+if test "${enable_shared}" != yes; then
+    dependentlibs=${LIBS}
+fi
+
+ if test "$poly_no_undefined" = yes; then
+  NO_UNDEFINED_TRUE=
+  NO_UNDEFINED_FALSE='#'
+else
+  NO_UNDEFINED_TRUE='#'
+  NO_UNDEFINED_FALSE=
+fi
+
+ if test "$poly_native_windows" = yes; then
+  NATIVE_WINDOWS_TRUE=
+  NATIVE_WINDOWS_FALSE='#'
+else
+  NATIVE_WINDOWS_TRUE='#'
+  NATIVE_WINDOWS_FALSE=
+fi
+
+ if test "$poly_need_macosopt" = yes ; then
+  MACOSLDOPTS_TRUE=
+  MACOSLDOPTS_FALSE='#'
+else
+  MACOSLDOPTS_TRUE='#'
+  MACOSLDOPTS_FALSE=
+fi
+
+
+dependentlibs="$dependentlibs"
+
 
 ac_config_files="$ac_config_files Makefile polyml.pc"
+
+
+ac_config_files="$ac_config_files ../polyc"
+
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -22374,6 +22635,18 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
   as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${NO_UNDEFINED_TRUE}" && test -z "${NO_UNDEFINED_FALSE}"; then
+  as_fn_error $? "conditional \"NO_UNDEFINED\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${NATIVE_WINDOWS_TRUE}" && test -z "${NATIVE_WINDOWS_FALSE}"; then
+  as_fn_error $? "conditional \"NATIVE_WINDOWS\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${MACOSLDOPTS_TRUE}" && test -z "${MACOSLDOPTS_FALSE}"; then
+  as_fn_error $? "conditional \"MACOSLDOPTS\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 
@@ -23356,6 +23629,7 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "polyml.pc") CONFIG_FILES="$CONFIG_FILES polyml.pc" ;;
+    "../polyc") CONFIG_FILES="$CONFIG_FILES ../polyc" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
@@ -24756,6 +25030,7 @@ compiler_lib_search_path=$lt_compiler_lib_search_path_CXX
 _LT_EOF
 
  ;;
+    "../polyc":F) chmod +x ../polyc ;;
 
   esac
 done # for ac_tag

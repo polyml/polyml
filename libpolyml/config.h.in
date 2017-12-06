@@ -114,11 +114,26 @@
 /* Define to 1 if you have the <io.h> header file. */
 #undef HAVE_IO_H
 
+/* Define to 1 if you have the `gcc' library (-lgcc). */
+#undef HAVE_LIBGCC
+
+/* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
+#undef HAVE_LIBGCC_S
+
+/* Define to 1 if you have the `gdi32' library (-lgdi32). */
+#undef HAVE_LIBGDI32
+
 /* Define to 1 if you have libgmp */
 #undef HAVE_LIBGMP
 
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
+
+/* Define to 1 if you have the `stdc++' library (-lstdc++). */
+#undef HAVE_LIBSTDC__
+
+/* Define to 1 if you have the `ws2_32' library (-lws2_32). */
+#undef HAVE_LIBWS2_32
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11

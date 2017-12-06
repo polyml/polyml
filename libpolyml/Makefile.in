@@ -107,7 +107,7 @@ am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = config.h
-CONFIG_CLEAN_FILES = polyml.pc
+CONFIG_CLEAN_FILES = polyml.pc ../polyc
 CONFIG_CLEAN_VPATH_FILES =
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
 am__vpath_adj = case $$p in \
@@ -297,7 +297,8 @@ am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(srcdir)/polyml.pc.in $(top_srcdir)/../compile \
 	$(top_srcdir)/../config.guess $(top_srcdir)/../config.sub \
 	$(top_srcdir)/../depcomp $(top_srcdir)/../install-sh \
-	$(top_srcdir)/../ltmain.sh $(top_srcdir)/../missing
+	$(top_srcdir)/../ltmain.sh $(top_srcdir)/../missing \
+	$(top_srcdir)/../polyc.in
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -445,6 +446,7 @@ build_vendor = @build_vendor@
 builddir = @builddir@
 datadir = @datadir@
 datarootdir = @datarootdir@
+dependentlibs = @dependentlibs@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
@@ -467,6 +469,7 @@ mkdir_p = @mkdir_p@
 moduledir = @moduledir@
 oldincludedir = @oldincludedir@
 pdfdir = @pdfdir@
+polyc_CFLAGS = @polyc_CFLAGS@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
@@ -659,6 +662,8 @@ $(srcdir)/config.h.in: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 distclean-hdr:
 	-rm -f config.h stamp-h1
 polyml.pc: $(top_builddir)/config.status $(srcdir)/polyml.pc.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+../polyc: $(top_builddir)/config.status $(top_srcdir)/../polyc.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 
 install-libLTLIBRARIES: $(lib_LTLIBRARIES)

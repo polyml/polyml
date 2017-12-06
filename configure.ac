@@ -28,46 +28,30 @@ else
 fi
 
 AC_CANONICAL_HOST
-# Set the OS flag.  This should not really be required but is still used in
-# a few places for OS-specific quirks that can't be handled by more specific tests.
 # Check also for mingw in which case we want to build native Windows.
 poly_native_windows=no
-# If we are building on cygwin or mingw we need to give the -no-defined flag to
-# build a DLL.  We also have to use Windows calling conventions rather than
+# If we are building on cygwin or mingw we need to use the pre-built
+# compiler that uses Windows calling conventions rather than
 # SysV on 64-bit.
-# On mingw we need the -mthreads flag and this must be included in CFLAGS and
-# CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version and
-# the API version to at least Windows Vista to allow condition variables.
-poly_no_undefined=no
 poly_use_windowscc=no
 poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
-        AC_SUBST([OSFLAG], [-DMACOSX])
         poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
-        AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
     *mingw*)
-        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
-        poly_no_undefined=yes
         poly_use_windowscc=yes
-        CFLAGS="$CFLAGS -mthreads"
-        CXXFLAGS="$CXXFLAGS -mthreads"
         ;;
     *cygwin*)
         poly_no_undefined=yes
         poly_use_windowscc=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
                 poly_native_windows=yes
-                CFLAGS="$CFLAGS -mthreads"
-                CXXFLAGS="$CXXFLAGS -mthreads"
             fi
         fi
         ;;
@@ -86,9 +70,7 @@ AC_ARG_ENABLE([windows-gui],
         [enablegui=true])
 AM_CONDITIONAL([WINDOWSGUI], [test x$enablegui = xtrue])
 
-# libpolyml can be a DLL but libpolymain can't.
-# Disable shared libraries by default.  It complicates installation to "non-standard" places.
-LT_INIT([win32-dll disable-shared])
+LT_INIT([])
 AM_MAINTAINER_MODE
 
 
@@ -115,12 +97,9 @@ AM_PROG_AS
 # Activate large file mode if needed
 AC_SYS_LARGEFILE
 
-AC_CHECK_SIZEOF(void*)
+# For some reason libtool doesn't pass up all the libraries
+# that are used in libpolyml. -lstdc++ and -lm at least are missing.
 
-# These libraries are detected in the config script for libpolyml
-# and it would be better if that information could be inherited here.
-
-# Checks for libraries.
 AC_CHECK_LIB(gcc, main)
 AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
@@ -132,6 +111,8 @@ AC_SEARCH_LIBS([floor], [m])
 AC_CHECK_LIB(ws2_32, main)
 AC_CHECK_LIB(gdi32, main)
 
+AC_CHECK_SIZEOF(void*)
+
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
@@ -142,8 +123,8 @@ fi
 
 # TODO: May need AC_PATH_XTRA for Solaris
 
-# Check for headers
-AC_CHECK_HEADERS([time.h stdint.h stddef.h windows.h])
+# Check for headers.  These are needed for polyexports.h.
+AC_CHECK_HEADERS([time.h stdint.h inttypes.h stddef.h windows.h])
 
 PKG_PROG_PKG_CONFIG
 
@@ -161,6 +142,9 @@ AC_ARG_ENABLE([native-codegeneration],
            *) AC_MSG_ERROR([bad value ${enableval} for --enable-native-codegeneration]) ;;
         esac],
         [with_portable=check])
+
+# Check which CPU we're building for.  Can we use a native pre-built compiler
+# or do we need to fall back to the interpreter?
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -287,31 +271,8 @@ AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_size
 AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64])
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
-AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 
 AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
-
-# Strip -fdebug-prefix-map= from CFLAGS; it's meaningless for users of polyc,
-# and hurts reproducibility.
-polyc_CFLAGS=
-for cflag in $CFLAGS; do
-    cflag="${cflag##-fdebug-prefix-map=*}"
-    if test -n "$cflag"; then
-        if test -n "$polyc_CFLAGS"; then
-            polyc_CFLAGS="$polyc_CFLAGS $cflag"
-        else
-            polyc_CFLAGS="$cflag"
-        fi
-    fi
-done
-AC_SUBST([polyc_CFLAGS], ["$polyc_CFLAGS"])
-
-# Modules directory
-AC_ARG_WITH([moduledir],
-  [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
-  [moduledir=$withval],
-  [moduledir="\${libdir}/polyml/modules"])
-AC_SUBST([moduledir], [$moduledir])
 
 # Control whether to build the basis library with arbitrary precision as the default int
 AC_ARG_ENABLE([intinf-as-int],
@@ -331,5 +292,5 @@ AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])
 AC_CONFIG_COMMANDS([mlsource], [test -e mlsource || ln -sf ${ac_top_srcdir}/mlsource .])
 
 AC_CONFIG_FILES([Makefile libpolymain/Makefile modules/Makefile modules/IntInfAsInt/Makefile])
-AC_CONFIG_FILES([polyc], [chmod +x polyc])
+
 AC_OUTPUT
