@@ -639,6 +639,7 @@ LTLIBOBJS
 LIBOBJS
 INTINFISINT_FALSE
 INTINFISINT_TRUE
+moduledir
 MACOSLDOPTS_FALSE
 MACOSLDOPTS_TRUE
 NATIVE_WINDOWS_FALSE
@@ -808,6 +809,7 @@ enable_libtool_lock
 enable_maintainer_mode
 enable_largefile
 enable_native_codegeneration
+with_moduledir
 enable_intinf_as_int
 '
       ac_precious_vars='build_alias
@@ -1492,6 +1494,7 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot[=DIR]    Search for dependent libraries within DIR (or the
                           compiler's sysroot if not specified).
+  --with-moduledir=DIR    directory for Poly/ML modules
 
 Some influential environment variables:
   CC          C compiler command
@@ -18262,6 +18265,19 @@ else
   MACOSLDOPTS_TRUE='#'
   MACOSLDOPTS_FALSE=
 fi
+
+
+# Modules directory.  This needs to be configured here, for the installation step,
+# and in libpolyml for the default location.
+
+# Check whether --with-moduledir was given.
+if test "${with_moduledir+set}" = set; then :
+  withval=$with_moduledir; moduledir=$withval
+else
+  moduledir="\${libdir}/polyml/modules"
+fi
+
+moduledir=$moduledir
 
 
 # Control whether to build the basis library with arbitrary precision as the default int

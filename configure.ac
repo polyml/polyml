@@ -274,6 +274,14 @@ AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 
 AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
 
+# Modules directory.  This needs to be configured here, for the installation step,
+# and in libpolyml for the default location.
+AC_ARG_WITH([moduledir],
+  [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
+  [moduledir=$withval],
+  [moduledir="\${libdir}/polyml/modules"])
+AC_SUBST([moduledir], [$moduledir])
+
 # Control whether to build the basis library with arbitrary precision as the default int
 AC_ARG_ENABLE([intinf-as-int],
     [AS_HELP_STRING([--enable-intinf-as-int], [set arbitrary precision as the default int type])],
