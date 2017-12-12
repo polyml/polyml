@@ -203,8 +203,8 @@ static Handle make_exn(TaskData *taskData, int id, Handle arg, const char *fileN
     }
     
     DEREFEXNHANDLE(exnHandle)->ex_id   = TAGGED(id);
-    DEREFEXNHANDLE(exnHandle)->ex_name = DEREFWORD(pushed_name);
-    DEREFEXNHANDLE(exnHandle)->arg     = DEREFWORDHANDLE(arg);
+    DEREFEXNHANDLE(exnHandle)->ex_name = pushed_name->Word();
+    DEREFEXNHANDLE(exnHandle)->arg     = arg->Word();
     DEREFEXNHANDLE(exnHandle)->ex_location = location->Word();
 
     return exnHandle;
@@ -252,8 +252,8 @@ void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, co
         Handle pushed_option = SAVE(NONE_VALUE); /* NONE */
         Handle pushed_name = SAVE(C_string_to_Poly(taskData, errmsg));
         Handle pair = alloc_and_save(taskData, 2);
-        DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-        DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+        DEREFHANDLE(pair)->Set(0, pushed_name->Word());
+        DEREFHANDLE(pair)->Set(1, pushed_option->Word());
 
         raise_exception(taskData, EXC_syserr, pair, file, line);
     }
@@ -261,11 +261,11 @@ void raiseSycallWithLocation(TaskData *taskData, const char *errmsg, int err, co
     {
         Handle errornum = Make_sysword(taskData, err);
         Handle pushed_option = alloc_and_save(taskData, 1);
-        DEREFHANDLE(pushed_option)->Set(0, DEREFWORDHANDLE(errornum)); /* SOME err */
+        DEREFHANDLE(pushed_option)->Set(0, errornum->Word()); /* SOME err */
         Handle pushed_name = errorMsg(taskData, err); // Generate the string.
         Handle pair = alloc_and_save(taskData, 2);
-        DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(pushed_name));
-        DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(pushed_option));
+        DEREFHANDLE(pair)->Set(0, pushed_name->Word());
+        DEREFHANDLE(pair)->Set(1, pushed_option->Word());
 
         raise_exception(taskData, EXC_syserr, pair, file, line);
     }
@@ -382,7 +382,7 @@ Handle Make_fixed_precision(TaskData *taskData, unsigned long long uval)
 
 Handle Make_sysword(TaskData *taskData, uintptr_t p)
 {
-    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    Handle result = alloc_and_save(taskData, sizeof(uintptr_t)/sizeof(PolyWord), F_BYTE_OBJ);
     *(uintptr_t*)(result->Word().AsCodePtr()) = p;
     return result;
 }

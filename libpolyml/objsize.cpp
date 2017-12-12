@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development David C.J. Matthews 2016
+    Further development David C.J. Matthews 2016, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -368,18 +368,6 @@ static void printfprof(unsigned *counts)
     }
 }
 
-Handle ObjProfile(TaskData *taskData, Handle obj)
-{
-    ProcessVisitAddresses process(false);
-    process.ScanObjectAddress(obj->WordP());
-    fprintf(polyStdout, "\nImmutable object sizes and counts\n");
-    printfprof(process.iprofile);
-    fprintf(polyStdout, "\nMutable object sizes and counts\n");
-    printfprof(process.mprofile);
-    fflush(polyStdout); /* We need this for Windows at least. */
-    return Make_arbitrary_precision(taskData, process.total_length);
-}
-
 POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
@@ -387,7 +375,7 @@ POLYUNSIGNED PolyObjSize(PolyObject *threadId, PolyWord obj)
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(false);
-    process.ScanObjectAddress(obj.AsObjPtr());
+    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
     taskData->PostRTSCall();
@@ -401,7 +389,7 @@ POLYUNSIGNED PolyShowSize(PolyObject *threadId, PolyWord obj)
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(true);
-    process.ScanObjectAddress(obj.AsObjPtr());
+    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
     fflush(polyStdout); /* We need this for Windows at least. */
     Handle result = Make_arbitrary_precision(taskData, process.total_length);
 
@@ -416,7 +404,7 @@ POLYUNSIGNED PolyObjProfile(PolyObject *threadId, PolyWord obj)
     taskData->PreRTSCall();
 
     ProcessVisitAddresses process(false);
-    process.ScanObjectAddress(obj.AsObjPtr());
+    if (!obj.IsTagged()) process.ScanObjectAddress(obj.AsObjPtr());
     fprintf(polyStdout, "\nImmutable object sizes and counts\n");
     printfprof(process.iprofile);
     fprintf(polyStdout, "\nMutable object sizes and counts\n");

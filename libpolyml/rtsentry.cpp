@@ -1,7 +1,7 @@
 /*
     Title:  rtsentry.cpp - Entry points to the run-time system
 
-    Copyright (c) 2016 David C. J. Matthews
+    Copyright (c) 2016, 2017 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -109,11 +109,11 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
     TempCString entryName(Poly_string_to_C_alloc(entryH->Word()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     // Create space for the address followed by the name as a C string.
-    POLYUNSIGNED space = 1 + (strlen(entryName) + 1 + sizeof(PolyWord) - 1) / sizeof(PolyWord);
+    uintptr_t space = 1 + (strlen(entryName) + 1 + sizeof(polyRTSFunction*) - 1) / sizeof(PolyWord);
     // Allocate a byte, weak, mutable, no-overwrite cell.  It's not clear if
     // it actually needs to be mutable but if it is it needs to be no-overwrite.
     Handle refH = alloc_and_save(taskData, space, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT|F_NO_OVERWRITE);
-    strcpy((char*)(refH->WordP()->AsBytePtr() + sizeof(PolyWord)), entryName);
+    strcpy((char*)(refH->WordP()->AsBytePtr() + sizeof(polyRTSFunction*)), entryName);
     if (! setEntryPoint(refH->WordP()))
         raise_fail(taskData, "entry point not found");
     return refH;
@@ -122,17 +122,17 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
 // Return the string entry point.
 const char *getEntryPointName(PolyObject *p)
 {
-    if (p->Length() <= 1) return 0; // Doesn't contain an entry point
-    return (const char *)(p->AsBytePtr() + sizeof(PolyWord));
+    if (p->Length() <= sizeof(polyRTSFunction*)/sizeof(PolyWord)) return 0; // Doesn't contain an entry point
+    return (const char *)(p->AsBytePtr() + sizeof(polyRTSFunction*));
 }
 
 // Sets the address of the entry point in an entry point object.
 bool setEntryPoint(PolyObject *p)
 {
     if (p->Length() == 0) return false;
-    p->Set(0, PolyWord::FromSigned(0)); // Clear it by default
+    *(polyRTSFunction*)p = 0; // Clear it by default
     if (p->Length() == 1) return false;
-    const char *entryName = (const char*)(p->AsBytePtr()+sizeof(PolyWord));
+    const char *entryName = (const char*)(p->AsBytePtr()+sizeof(polyRTSFunction*));
 
     // Search the entry point table list.
     for (entrypts *ept=entryPointTable; *ept != NULL; ept++)

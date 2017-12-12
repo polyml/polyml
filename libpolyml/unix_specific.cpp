@@ -1124,7 +1124,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 116: /* Get the file status and access flags. */
-        
+        {
             PIOSTRUCT strm = get_stream(args->Word());
             int res;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -1538,7 +1538,7 @@ static Handle setTTYattrs(TaskData *taskData, Handle args)
 /* Lock/unlock/test file locks.  Returns the, possibly modified, argument structure. */
 static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
 {
-    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0)));
+    PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0));
     struct flock lock;
     memset(&lock, 0, sizeof(lock)); /* Make sure unused fields are zero. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
