@@ -7,7 +7,7 @@ clean-local:
 
 install-exec-local:
 	$(mkdir_p) $(DESTDIR)$(moduledir)
-	$(INSTALL_PROGRAM) IntInfAsInt $(DESTDIR)$(moduledir)
+	$(INSTALL_DATA) IntInfAsInt $(DESTDIR)$(moduledir)
 
 uninstall-local:
 	-rm -f $(DESTDIR)$(moduledir)/IntInfAsInt

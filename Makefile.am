@@ -1,9 +1,6 @@
 AUTOMAKE_OPTIONS=foreign
 ACLOCAL_AMFLAGS= -I m4 --install
 
-AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
-AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
-
 BOOTSTRAP_OPTIONS =
 
 if INTINFISINT
@@ -12,13 +9,9 @@ else
 POLYIMPORT_OPTIONS =
 endif
 
-DIST_SUBDIRS = libpolyml libpolymain libffi modules
+DIST_SUBDIRS = libpolyml libpolymain modules
 
-if INTERNAL_LIBFFI
-SUBDIRS = libffi libpolyml libpolymain . modules
-else
 SUBDIRS = libpolyml libpolymain . modules
-endif
 
 bin_PROGRAMS = polyimport poly
 
@@ -88,7 +81,7 @@ POLYOBJECTFILE = polyexport.o
 OBJECTSUFFIX=o
 endif
 
-if EXPMACHO
+if MACOSLDOPTS
 poly_LDFLAGS += -Wl,-no_pie
 endif
 
@@ -140,9 +133,6 @@ compiler: all
 
 reboot: compiler
 	cp polytemp.txt $(POLYIMPORT)
-
-# Retain this target for backwards compatibility.
-cvs: compiler
 
 clean-local:
 	rm -f *.obj polytemp.txt polyc

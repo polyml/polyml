@@ -10,8 +10,11 @@ AM_CCASFLAGS = $(OSFLAG)
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 9:0:0
 
+DIST_SUBDIRS = libffi
+
 if INTERNAL_LIBFFI
-libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
+SUBDIRS = libffi
+libpolyml_la_LIBADD = libffi/libffi_convenience.la
 endif
 
 if NO_UNDEFINED

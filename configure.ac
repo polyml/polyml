@@ -3,7 +3,7 @@
 
 AC_INIT([Poly/ML],[5.7.1],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
-AC_PREREQ(2.65)
+AC_PREREQ(2.69)
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -35,15 +35,12 @@ poly_native_windows=no
 # If we are building on cygwin or mingw we need to give the -no-defined flag to
 # build a DLL.  We also have to use Windows calling conventions rather than
 # SysV on 64-bit.
-# On mingw we need the -mthreads flag and this must be included in CFLAGS and
-# CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version and
-# the API version to at least Windows Vista to allow condition variables.
-poly_no_undefined=no
 poly_use_windowscc=no
+poly_need_macosopt=no
 case "${host_os}" in
     darwin*)
         AC_SUBST([OSFLAG], [-DMACOSX])
+        poly_need_macosopt=yes
         ;;
     sunos* | solaris*)
         AC_SUBST([OSFLAG], [-DSOLARIS])
@@ -85,8 +82,9 @@ AC_ARG_ENABLE([windows-gui],
 AM_CONDITIONAL([WINDOWSGUI], [test x$enablegui = xtrue])
 
 # libpolyml can be a DLL but libpolymain can't.
-# Disable shared libraries by default.  It complicates installation to "non-standard" places.
-LT_INIT([win32-dll disable-shared])
+# Enable shared libraries by default.  It complicates installation a bit if the
+# the library is installed to a non-standard location but simplifies polyc.
+LT_INIT([win32-dll])
 AM_MAINTAINER_MODE
 
 
@@ -196,6 +194,7 @@ AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h s
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
+AC_CHECK_HEADERS([stdint.h inttypes.h])
 
 # Only check for the X headers if the user said --with-x.
 if test "${with_x+set}" = set; then
@@ -235,7 +234,7 @@ fi
 
 # libffi
 # libffi must be configured even if we are not building with it so that things like "make dist" work.
-AC_CONFIG_SUBDIRS([libffi])
+AC_CONFIG_SUBDIRS([libpolyml/libffi])
 # Use the internal version unless --with-system-libffi is given.
 AC_ARG_WITH([system-libffi],
             [AS_HELP_STRING([--with-system-libffi],
@@ -259,8 +258,8 @@ if test "x$with_system_libffi" = "xyes"; then
     )
 else
 # Use internal libffi
-    CFLAGS="$CFLAGS -I../libffi/include"
-    CXXFLAGS="$CXXFLAGS -I../libffi/include"
+    CFLAGS="$CFLAGS -Ilibffi/include"
+    CXXFLAGS="$CXXFLAGS -Ilibffi/include"
 fi
 
 AM_CONDITIONAL([INTERNAL_LIBFFI], [test "x$with_system_libffi" != "xyes"])
@@ -367,23 +366,14 @@ AC_CHECK_SIZEOF(long long)
 AC_C_BIGENDIAN
 
 # Checks for library functions.
-AC_FUNC_CHOWN
-AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_ERROR_AT_LINE
-AC_FUNC_FORK
 AC_FUNC_GETGROUPS
 AC_FUNC_GETPGRP
 AC_PROG_GCC_TRADITIONAL
-AC_FUNC_LSTAT
-AC_FUNC_LSTAT_FOLLOWS_SLASHED_SYMLINK
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_STAT
-AC_FUNC_STRFTIME
 AC_FUNC_STRTOD
-AC_FUNC_VPRINTF
-AC_CHECK_FUNCS([bzero dup2 floor ftruncate getcwd gethostbyaddr gethostname gettimeofday memmove])
-AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select setlocale socket sqrt strdup strerror])
-AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
+AC_CHECK_FUNCS([dlopen strtod dtoa getpagesize sigaltstack mmap mkstemp])
 ## There does not seem to be a declaration for fpsetmask in mingw64.
 AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
 AC_CHECK_FUNCS([sysctl sysctlbyname])
@@ -404,8 +394,6 @@ AC_CHECK_MEMBERS([struct mcontext.ss, struct __darwin_mcontext.ss, struct __darw
 AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
    [#include <sys/un.h>])
 
-# Additional checks. AC_CANONICAL_HOST has already been called.
-#AC_CANONICAL_HOST
 
 # Check for .note.GNU-stack support, used for marking the stack as non-executable.
 AC_MSG_CHECKING([whether as supports .note.GNU-stack])
@@ -437,6 +425,9 @@ AC_ARG_ENABLE([native-codegeneration],
            *) AC_MSG_ERROR([bad value ${enableval} for --enable-native-codegeneration]) ;;
         esac],
         [with_portable=check])
+
+# Check which CPU we're building for.  Can we use a native pre-built compiler
+# or do we need to fall back to the interpreter?
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -542,11 +533,6 @@ if test "x$with_portable" = "xno" ; then
     fi
 fi
 
-# Set the define if this is the interpreter.  This is no longer actually used.
-if test "x$polyarch" = "xinterpret" ; then
-       AC_DEFINE([INTERPRETED], [1], [Define if using the interpreter] )
-fi
-
 # Put this test at the end where it's less likely to be missed.
 # If we're compiling on Cygwin (and mingw?) and /usr/bin/file is not present
 # the link step will produce some strange warning messages of the form:
@@ -575,6 +561,17 @@ AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
+
+AM_CONDITIONAL([MACOSLDOPTS], [test "$poly_need_macosopt" = yes ])
+
+# If we're building only the static version of libpolyml
+# then polyc and polyml.pc have to include the dependent libraries.
+dependentlibs = ""
+if test "${enable_shared}" != yes; then
+    dependentlibs=${LIBS}
+fi
+
+AC_SUBST([dependentlibs], ["$dependentlibs"])
 
 # Test whether this is a git directory and set the version if possible
 AC_CHECK_PROG([gitinstalled], [git], [yes], [no])
@@ -624,4 +621,5 @@ AC_CONFIG_COMMANDS([mlsource], [test -e mlsource || ln -sf ${ac_top_srcdir}/mlso
 
 AC_CONFIG_FILES([Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile modules/Makefile modules/IntInfAsInt/Makefile])
 AC_CONFIG_FILES([polyc], [chmod +x polyc])
+
 AC_OUTPUT
