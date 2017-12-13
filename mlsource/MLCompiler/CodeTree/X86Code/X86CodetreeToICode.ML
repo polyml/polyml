@@ -2825,6 +2825,27 @@ struct
                        to the final label. *)
                 BlockFlow(Unconditional jumpLabel) :: BlockLabel isThen :: testElse
             end
+            
+        |   codeConditionRev(
+                condition as BICNewenv([BICDeclar{value, addr}], BICUnary{oper=BuiltIns.NotBoolean, arg1=BICExtract(BICLoadLocal addr2)}),
+                context, jumpOn, jumpLabel, tailCode) =
+            (* Because "not" is a function the higher levels turn this into a block.  We could try turning it back again
+               at the higher level but it's really only useful in this particular case.  *)
+            if addr = addr2
+            then codeConditionRev(value, context, not jumpOn, jumpLabel, tailCode)
+            else (* If addr <> addr2 it implies we have a local binding that isn't used.  That really
+                    shouldn't happen but just in case we treat it as the general case. *)
+            let
+                val ccRef = newCCRef()
+                val (testCode, testReg) = codeToPRegRev(condition, context, tailCode)
+                val noJumpLabel = newLabel()
+            in
+                BlockLabel noJumpLabel ::
+                BlockFlow(Conditional{ccRef=ccRef,
+                           condition=if jumpOn then JE else JNE, trueJump=jumpLabel, falseJump=noJumpLabel}) ::
+                BlockSimple(WordComparison{arg1=testReg, arg2=IntegerConstant(tag 1), ccRef=ccRef}) ::
+                testCode
+            end
 
             (* General case.  Load the value into a register and compare it with 1 (true) *)
         |   codeConditionRev(condition, context, jumpOn, jumpLabel, tailCode) =
