@@ -939,7 +939,7 @@ struct
 
         |   codeExtended _ ({instr=CompareLiteral{ arg1, arg2, opSize, ... }, ...}, code) =
             (
-                case arg1 of
+                case decache arg1 of (* N.B. We MUST decache since we're assuming that the base reg is not used. *)
                     RegisterArgument(PReg pr) =>
                         ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=NonAddressConstArg arg2, opSize=opSize} :: code
                 |   MemoryLocation{base=PReg br, index, offset, ...} =>
