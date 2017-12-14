@@ -2512,6 +2512,17 @@ struct
                                 BlockSimple(CompareByteMem{arg1={base=base, index=index, offset=offset}, arg2=literal, ccRef=ccRef}) ::
                                     codeUntag @ codeBaseIndex
                             end
+                        |   BICUnary({oper=BuiltIns.MemoryCellFlags, arg1}) =>
+                                (* This occurs particularly in arbitrary precision comparisons. *)
+                            let
+                                val (baseCode, baseReg) = codeToPRegRev(arg1, context, tailCode)
+                                val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
+                                            orelse raise InternalError "Compare memory cell not a byte"
+                                val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
+                            in
+                                BlockSimple(CompareByteMem{arg1={base=baseReg, index=NoMemIndex, offset= ~1}, arg2=literal, ccRef=ccRef}) ::
+                                    baseCode
+                            end
                         |    _ =>
                             let
                                 (* TODO: We could include rarer cases of tagging by looking at
