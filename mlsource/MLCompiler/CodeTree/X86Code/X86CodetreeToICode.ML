@@ -2504,7 +2504,7 @@ struct
                         |   BICLoadOperation{kind=LoadStoreMLByte _, address} =>
                             let
                                 val (codeBaseIndex, codeUntag, {base, index, offset, ...}) =
-                                    codeAddressRev(address, false, context, tailCode)
+                                    codeAddressRev(address, true, context, tailCode)
                                 val _ = toShort arg2Value >= 0w0 andalso toShort arg2Value < 0w256
                                             orelse raise InternalError "Compare byte not a byte"
                                 val literal = Word8.fromLargeWord(Word.toLargeWord(toShort arg2Value))
