@@ -978,13 +978,22 @@ struct
                             destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UntagValue{source as PReg srcReg, dest, isSigned, ...}, ...}, code) =
+                    |   pushRegisters({instr=UntagValue{source as PReg srcReg, dest, isSigned, cache, ...}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
-                            val cache = findCachedTagged(srcReg, isSigned)
+                            (* As with MemoryLocation caching, we can try caching it if this is the
+                               first pass but otherwise we can only retain the caching if we have never
+                               marked it to be pushed. *)
+                            val newCache =
+                                case cache of
+                                    NONE => if firstPass then findCachedTagged(srcReg, isSigned) else NONE
+                                |   SOME (PReg c) =>
+                                    if Vector.sub(pushVec, c)
+                                    then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
+                                    else findCachedTagged(srcReg, isSigned)
                         in
-                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=cache} :: sourceCode @ code
+                            destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache} :: sourceCode @ code
                         end
 
                     |   pushRegisters({instr=LoadEffectiveAddress{base, offset, index, dest}, ...}, code) =
