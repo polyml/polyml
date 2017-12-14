@@ -42,10 +42,33 @@ struct
         open RegSet
         (* Print the pre-optimised code if required. *)
         val () = printLowLevelCode(ops, code)
-    
+        
+        (* We want to replace a jump to a label immediately followed by an unconditional jump by
+           a jump to its destination.
+           If a label is never actually used we can remove it.  If we have two unconditional
+           branches in succession (because we've removed a label) we can remove the second. *)
+        (* Initially set every label to itself i.e. no forwarding. *)
+        val labelTargets = Array.tabulate(labelCount, fn i => i)
         (* Optimise the code list by repeated scans up and down the list.
            Scan forward through the list reversing it as we go.  Then scan the
            reversed list and turn it back into the original order. *)
+        
+        local
+            fun forwardLab(labelNo, labels) =
+            let
+                val dest = Array.sub(labelTargets, labelNo)
+            in
+                if dest = labelNo
+                then dest
+                (* This should not happen but just in case... *)
+                else if List.exists(fn i => i = dest) labels
+                then raise InternalError "Infinite loop"
+                else forwardLab(dest, dest::labels)
+            end
+        in
+            fun labelDest(Label{labelNo}) = Label{labelNo=forwardLab(labelNo, [labelNo])}
+        end
+
         fun forward([], list, rep) = reverse(list, [], rep)
 
         |   forward(ResetStack{numWords=count1, preserveCC=pres1} :: ResetStack{numWords=count2, preserveCC=pres2} :: tl, list, _) =
@@ -100,6 +123,17 @@ struct
                         ResetStack{numWords=resetBefore, preserveCC=preserveCC} :: list, true)
             end
             else forward(reset::tl, mv::list, rep)
+        
+        |   forward(JumpLabel(Label{labelNo=srcLab}) :: (ubr as UncondBranch(Label{labelNo=destLab})) :: tl, list, _) =
+            if srcLab = destLab
+            (* We should never get this because there should always be a stack-check to
+               allow a loop to be broken.  If that ever changes we need to retain the label. *)
+            then raise InternalError "Infinite loop detected"
+            else (* Mark this to forward to its destination. *)
+            (
+                Array.update(labelTargets, srcLab, destLab);
+                forward(ubr :: tl, list, true)
+            )
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
@@ -115,6 +149,30 @@ struct
             else (* We're reusing the register later.  Store it there but don't pop. *)
                 reverse(FPStoreToFPReg{output=output, andPop=false} :: tl, list, true)
             else reverse(s :: tl, l :: list, rep)
+        
+        |   reverse(UncondBranch _ :: (ubr as UncondBranch _) :: tl, list, rep) =
+                (* Delete a second unconditional branch after an unconditional branch.
+                   This can occur if we've removed a label.  Any references to the
+                   second branch should have been forwarded.
+                   Leave the first branch so it will be processed by the next step. *)
+                reverse(ubr :: tl, list, rep)
+
+        |   reverse(UncondBranch lab  :: tl, list, rep) =
+                (* Forward unconditional branches. *)
+                reverse(tl, UncondBranch(labelDest lab) :: list, rep)
+
+        |   reverse(ConditionalBranch{test, label, predict} :: tl, list, rep) =
+                (* Forward conditional branches. *)
+                reverse(tl, ConditionalBranch{test=test, label=labelDest label, predict=predict} :: list, rep)
+
+        |   reverse(LoadLabelAddress{output, label} :: tl, list, rep) =
+                (* Forward load labels. *)
+                reverse(tl,
+                    LoadLabelAddress{output=output, label=labelDest label} :: list, rep)
+        
+        |   reverse(JumpTable{ cases, jumpSize } :: tl, list, rep) =
+                (* Forward indexed jumps. *)
+                reverse(tl, JumpTable{cases=List.map labelDest cases, jumpSize=jumpSize} :: list, rep)
 
             (* See if we can merge two allocations. *)
             (* Comment this out for the moment. *)
