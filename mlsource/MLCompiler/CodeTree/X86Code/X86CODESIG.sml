@@ -89,6 +89,8 @@ sig
         SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
         SSE2And | SSE2MoveSingle | SSE2DoubleToFloat
 
+    val invertTest: branchOps -> branchOps
+
     datatype callKinds =
         Recursive
     |   ConstantCode of machineWord
@@ -101,8 +103,6 @@ sig
         NoIndex | Index1 of genReg | Index2 of genReg | Index4 of genReg | Index8 of genReg
 
     type memoryAddress = { base: genReg, offset: int, index: indexType }
-
-    datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
 
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
@@ -129,7 +129,7 @@ sig
     |   ArithByteMemConst of { opc: arithOp, address: memoryAddress, source: Word8.word }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
-    |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
+    |   ConditionalBranch of { test: branchOps, label: label }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }

@@ -134,6 +134,31 @@ struct
                 Array.update(labelTargets, srcLab, destLab);
                 forward(ubr :: tl, list, true)
             )
+        
+        |   forward(JumpLabel(Label{labelNo=jmpLab1}) :: (tl as JumpLabel(Label{labelNo=jmpLab2}) :: _), list, _) =
+                (* Eliminate adjacent labels.  They complicate the other tests. *)
+            (
+                (* Any reference to the first label is forwarded to the second. *)
+                Array.update(labelTargets, jmpLab1, jmpLab2);
+                forward(tl, list, true)
+            )
+        
+        |   forward((ubr as UncondBranch(Label{labelNo=ubrLab})) :: (tl as JumpLabel(Label{labelNo=jumpLab}) :: _), list, rep) =
+                (* Eliminate unconditional jumps to the next instruction. *)
+            if ubrLab = jumpLab
+            then forward(tl, list, true)
+            else forward(tl, ubr :: list, rep)
+        
+        |   forward((cbr as ConditionalBranch{test, label=Label{labelNo=cbrLab}}) :: (ubr as UncondBranch(Label{labelNo=ubrLab})) ::
+                    (tl as JumpLabel(Label{labelNo=jumpLab}) :: _), list, rep) =
+            if cbrLab = jumpLab
+            then (* We have a conditional branch followed by an unconditional branch followed by the destination of
+                    the conditional branch.  Eliminate the unconditional branch by reversing the test.
+                    There is something similar when we generate the code from the icode but that doesn't
+                    deal with the case of an empty block. *)
+                forward(tl (* Leave the label just in case it's used elsewhere*),
+                    ConditionalBranch{test=invertTest test, label=Label{labelNo=ubrLab}} :: list, true)
+            else forward(ubr :: tl, cbr :: list, rep)
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
@@ -161,9 +186,9 @@ struct
                 (* Forward unconditional branches. *)
                 reverse(tl, UncondBranch(labelDest lab) :: list, rep)
 
-        |   reverse(ConditionalBranch{test, label, predict} :: tl, list, rep) =
+        |   reverse(ConditionalBranch{test, label} :: tl, list, rep) =
                 (* Forward conditional branches. *)
-                reverse(tl, ConditionalBranch{test=test, label=labelDest label, predict=predict} :: list, rep)
+                reverse(tl, ConditionalBranch{test=test, label=labelDest label} :: list, rep)
 
         |   reverse(LoadLabelAddress{output, label} :: tl, list, rep) =
                 (* Forward load labels. *)

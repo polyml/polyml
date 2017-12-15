@@ -534,6 +534,24 @@ struct
     |   branchOpRepr JA = "JumpAfter"
     |   branchOpRepr JP = "JumpParity"
     |   branchOpRepr JNP = "JumpNoParity"
+    
+    (* Invert a test.  This is used if we want to change the
+       sense of a test from jumping if the condition is true to
+       jumping if it is false. *)
+    fun invertTest JE  = JNE
+    |   invertTest JNE = JE
+    |   invertTest JA  = JNA
+    |   invertTest JB  = JNB
+    |   invertTest JNA = JA
+    |   invertTest JNB = JB
+    |   invertTest JL  = JGE
+    |   invertTest JG  = JLE
+    |   invertTest JLE = JG
+    |   invertTest JGE = JL
+    |   invertTest JO  = JNO
+    |   invertTest JNO = JO
+    |   invertTest JP  = JNP
+    |   invertTest JNP = JP
 
     datatype sse2Operations =
         SSE2Move | SSE2Comp | SSE2Add | SSE2Sub | SSE2Mul | SSE2Div | SSE2Xor |
@@ -976,8 +994,6 @@ struct
 
     type memoryAddress = { base: genReg, offset: int, index: indexType }
 
-    datatype branchPrediction = PredictNeutral | PredictTaken | PredictNotTaken
-
     datatype 'reg regOrMemoryArg =
         RegisterArg of 'reg
     |   MemoryArg of memoryAddress
@@ -998,7 +1014,7 @@ struct
     |   ArithByteMemConst of { opc: arithOp, address: memoryAddress, source: Word8.word }
     |   ShiftConstant of { shiftType: shiftType, output: genReg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: genReg } (* Shift amount is in ecx *)
-    |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
+    |   ConditionalBranch of { test: branchOps, label: label }
     |   LoadAddress of { output: genReg, offset: int, base: genReg option, index: indexType }
     |   TestTagR of genReg
     |   TestByteMem of { base: genReg, offset: int, bits: word }
@@ -1123,13 +1139,9 @@ struct
                 stream(shiftTypeRepr shiftType); stream " "; printGReg output; stream " by ECX"
             )
 
-        |   ConditionalBranch { test, label=Label{labelNo, ...}, predict } =>
+        |   ConditionalBranch { test, label=Label{labelNo, ...} } =>
             (
-                stream(branchOpRepr test); stream " L"; stream(Int.toString labelNo);
-                case predict of
-                    PredictNeutral => ()
-                |   PredictTaken => stream " PredictTaken"
-                |   PredictNotTaken => stream " PredictNotTaken"
+                stream(branchOpRepr test); stream " L"; stream(Int.toString labelNo)
             )
 
         |   PushToStack source => (stream "Push "; printRegOrMemoryArg printGReg source)
@@ -2276,12 +2288,12 @@ struct
                 let
                     val extraLabel = mkLabel()
                 in
-                    [ConditionalBranch{test=JB, label=extraLabel, predict=PredictNotTaken},
+                    [ConditionalBranch{test=JB, label=extraLabel},
                      ArithToGenReg{opc=CMP, output=resultReg, source=localPointer, opSize=polyWordOpSize},
-                     ConditionalBranch{test=JB, label=destLabel, predict=PredictTaken},
+                     ConditionalBranch{test=JB, label=destLabel},
                      JumpLabel extraLabel]
                 end
-                else [ConditionalBranch{test=JNB, label=destLabel, predict=PredictTaken}]
+                else [ConditionalBranch{test=JNB, label=destLabel}]
             val callRts = CallRTS{rtsEntry=HeapOverflowCall, saveRegs=regSaveSet}
             val fixup = JumpLabel destLabel
             (* Update the heap pointer now we have the store.  This is also

@@ -191,7 +191,7 @@ struct
             ) @
             [
                 ArithMemConst{opc=CMP, address={offset=memRegExceptionPacket, base=ebp, index=NoIndex}, source=noException, opSize=polyWordOpSize},
-                ConditionalBranch{test=JNE, predict=PredictNotTaken, label=exLabel},
+                ConditionalBranch{test=JNE, label=exLabel},
                 (* Remove any arguments that have been passed on the stack. *)
                 ReturnFromFunction(Int.max(case abi of X86_32 => nArgs-2 | _ => nArgs-5, 0)),
                 JumpLabel exLabel, (* else raise the exception *)
