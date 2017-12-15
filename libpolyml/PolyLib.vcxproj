@@ -307,7 +307,6 @@
     <ClCompile Include="diagnostics.cpp" />
     <ClCompile Include="errors.cpp" />
     <ClCompile Include="exporter.cpp" />
-    <ClCompile Include="foreign.cpp" />
     <ClCompile Include="gc.cpp" />
     <ClCompile Include="gctaskfarm.cpp" />
     <ClCompile Include="gc_check_weak_ref.cpp" />
@@ -384,7 +383,6 @@
     <ClInclude Include="diagnostics.h" />
     <ClInclude Include="errors.h" />
     <ClInclude Include="exporter.h" />
-    <ClInclude Include="foreign.h" />
     <ClInclude Include="gc.h" />
     <ClInclude Include="gctaskfarm.h" />
     <ClInclude Include="globals.h" />

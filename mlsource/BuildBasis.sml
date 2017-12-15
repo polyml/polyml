@@ -6,8 +6,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,8 +23,6 @@ val () = Bootstrap.use "basis/build.sml";
 
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)
-PolyML.make "mlsource/extra/CInterface";
-PolyML.use "mlsource/extra/CInterface/clean";
 
 (* XWindows/Motif *)
 let
