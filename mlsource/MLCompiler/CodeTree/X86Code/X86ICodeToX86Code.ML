@@ -498,7 +498,7 @@ struct
             [
                 JumpLabel skipCheckLab,
                 CallRTS{rtsEntry=entryPt, saveRegs=saveRegs},
-                ConditionalBranch{test=JNB, predict=PredictTaken, label=skipCheckLab},
+                ConditionalBranch{test=JNB, label=skipCheckLab},
                 ArithToGenReg{ opc=CMP, output=reg, source=MemoryArg{offset=memRegStackLimit, base=ebp, index=NoIndex}, opSize=nativeWordOpSize }
             ]
         end
@@ -939,7 +939,7 @@ struct
 
         |   codeExtended _ ({instr=CompareLiteral{ arg1, arg2, opSize, ... }, ...}, code) =
             (
-                case arg1 of
+                case decache arg1 of (* N.B. We MUST decache since we're assuming that the base reg is not used. *)
                     RegisterArgument(PReg pr) =>
                         ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=NonAddressConstArg arg2, opSize=opSize} :: code
                 |   MemoryLocation{base=PReg br, index, offset, ...} =>
@@ -1428,7 +1428,7 @@ struct
                         |   Conditional { condition, trueJump, falseJump, ...} =>
                                 [
                                     UncondBranch(getBlockLabel falseJump),
-                                    ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
+                                    ConditionalBranch{test=condition, label=getBlockLabel trueJump}
                                 ]
                         |   SetHandler { continue, ...} => [UncondBranch(getBlockLabel continue)]
                         |   UnconditionalHandle _ => []
@@ -1498,24 +1498,16 @@ struct
                                 if continue = picked then [] else [UncondBranch(getBlockLabel continue)]
                         |   Conditional { condition, trueJump, falseJump, ...} =>
                             if picked = falseJump (* Usual case. *)
-                            then [ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}]
+                            then [ConditionalBranch{test=condition, label=getBlockLabel trueJump}]
                             else if picked = trueJump
                             then (* We have a jump to the true condition. Invert the jump.
                                     This is more than an optimisation.  Because this immediately precedes the
                                     true block we're not going to generate a label. *)
-                            let
-                                val revTest =
-                                    case condition of
-                                        JE  => JNE  |   JNE => JE   |   JA  => JNA  |   JB  => JNB  |   JNA => JA
-                                    |   JNB => JB   |   JL  => JGE  |   JG  => JLE  |   JLE => JG   |   JGE => JL
-                                    |   JO  => JNO  |   JNO => JO   |   JP  => JNP  |   JNP => JP
-                            in
-                                [ConditionalBranch{test=revTest, predict=PredictNeutral, label=getBlockLabel falseJump}]
-                            end
+                                [ConditionalBranch{test=invertTest condition, label=getBlockLabel falseJump}]
                             else
                             [
                                 UncondBranch(getBlockLabel falseJump),
-                                ConditionalBranch{test=condition, predict=PredictNeutral, label=getBlockLabel trueJump}
+                                ConditionalBranch{test=condition, label=getBlockLabel trueJump}
                             ]
 
                     (* Code-generate the body with the code we've done so far
