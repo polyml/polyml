@@ -50,7 +50,7 @@ class OSMem
 public:
     OSMem() {}
     ~OSMem() {}
-    bool Initialise(void);
+    bool Initialise(size_t space = 0, void **pBase = 0);
 
     // Allocate space and return a pointer to it.  The size is the minimum
     // size requested in bytes and it is updated with the actual space allocated.

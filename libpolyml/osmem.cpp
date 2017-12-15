@@ -56,29 +56,14 @@
 
 #ifdef POLYML32IN64
 
-// This contains the address of the base of the heap.
-PolyWord *globalHeapBase;
-
-bool OSMem::Initialise()
+bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = PageSize();
-
-    // Allocate a single 8G area but with no access.
-    // This currently only allocates 8G because we need two bits in the header
-    // for the sharing scans.
-    size_t space = (size_t)8 * 1024 * 1024 * 1024;
-
-    globalHeapBase = (PolyWord*)ReserveHeap(space);
-    if (globalHeapBase == 0)
+    void *memBase = ReserveHeap(space);
+    if (memBase == 0)
         return 0;
-    // We need the heap to be such that the top 32-bits are non-zero.
-    if ((uintptr_t)globalHeapBase < ((uintptr_t)1 << 32))
-    {
-        void *newHeap = ReserveHeap(space);
-        ASSERT((uintptr_t)newHeap >= ((uintptr_t)1 << 32));
-        UnreserveHeap(globalHeapBase, space);
-        globalHeapBase = (PolyWord*)newHeap;
-    }
+
+    if (pBase != 0) *pBase = memBase;
 
     // Create a bitmap with a bit for each page.
     if (!pageMap.Create(space / pageSize))
@@ -203,7 +188,7 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 
 #else
 
-bool OSMem::Initialise(void)
+bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = getpagesize();
 }
@@ -284,7 +269,16 @@ size_t OSMem::PageSize()
 
 void *OSMem::ReserveHeap(size_t space)
 {
-    return VirtualAlloc(0, space, MEM_RESERVE, PAGE_NOACCESS);
+    void *memBase = VirtualAlloc(0, space, MEM_RESERVE, PAGE_NOACCESS);
+    if (memBase == 0) return 0;
+    // We need the heap to be such that the top 32-bits are non-zero.
+    if ((uintptr_t)memBase >= ((uintptr_t)1 << 32))
+        return memBase;
+    // Allocate again.
+    void *newSpace = ReserveHeap(space);
+    UnreserveHeap(memBase, space); // Free the old area that isn't suitable.
+    // Return what we got, or zero if it failed.
+    return newSpace;
 }
 
 bool OSMem::UnreserveHeap(void *p, size_t space)
@@ -310,7 +304,7 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 
 #else
 
-bool OSMem::Initialise(void)
+bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
