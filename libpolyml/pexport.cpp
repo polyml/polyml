@@ -245,17 +245,6 @@ void PExport::exportStore(void)
 {
     unsigned i;
 
-    // Calculate a first guess for the map size based on the space size
-    totalBytes = 0;
-    void *startAddr = 0;
-    for (i = 0; i < memTableEntries; i++)
-    {
-        totalBytes += (unsigned long)memTable[i].mtLength;
-        // Get the lowest address.
-        if (startAddr == 0 || memTable[i].mtAddr < startAddr)
-            startAddr = memTable[i].mtAddr;
-    }
-
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
