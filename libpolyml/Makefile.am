@@ -69,7 +69,6 @@ noinst_HEADERS = \
 	elfexport.h \
 	errors.h \
 	exporter.h \
-	foreign.h \
 	gc.h \
 	gctaskfarm.h \
 	globals.h \
@@ -120,7 +119,6 @@ libpolyml_la_SOURCES = \
     diagnostics.cpp \
     errors.cpp \
     exporter.cpp \
-    foreign.cpp \
     gc.cpp \
     gc_check_weak_ref.cpp \
     gc_copy_phase.cpp \
