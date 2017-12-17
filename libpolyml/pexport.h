@@ -2,7 +2,7 @@
     Title:     Export memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2015 David C. J. Matthews
+    Copyright (c) 2006, 2015, 2017 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -28,6 +28,8 @@
 typedef char TCHAR;
 #endif
 
+#include <vector>
+
 #include "scanaddrs.h" // For base class
 #include "exporter.h"
 #include "globals.h"
@@ -47,7 +49,7 @@ private:
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 
 private:
-    unsigned long getIndex(PolyObject *p);
+    size_t getIndex(PolyObject *p);
     void printAddress(void *p);
     void printValue(PolyWord q);
     void printObject(PolyObject *p);
@@ -55,8 +57,8 @@ private:
     // We don't use the relocation code so just provide a dummy function here.
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) { return p; }
 
-    PolyObject **pMap;
-    unsigned long nMapSize, nObjects, totalBytes;
+    std::vector<PolyObject *> pMap;
+    unsigned long totalBytes;
     unsigned *indexOrder;
 
 };

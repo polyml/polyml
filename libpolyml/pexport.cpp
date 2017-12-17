@@ -62,29 +62,25 @@ in a new session.
 
 PExport::PExport()
 {
-    pMap = 0;
-    nMapSize = 0;
-    nObjects = 0;
     indexOrder = 0;
 }
 
 PExport::~PExport()
 {
-    free(pMap);
     free(indexOrder);
 }
 
 
 // Get the index corresponding to an address.
-unsigned long PExport::getIndex(PolyObject *p)
+size_t PExport::getIndex(PolyObject *p)
 {
     // Binary chop to find the index from the address.
-    unsigned long lower = 0, upper = nObjects;
+    size_t lower = 0, upper = pMap.size();
     while (1)
     {
         ASSERT(lower < upper);
-        unsigned long middle = (lower+upper)/2;
-        ASSERT(middle < nObjects);
+        size_t middle = (lower+upper)/2;
+        ASSERT(middle < pMap.size());
         if (p < pMap[middle])
         {
             // Use lower to middle
@@ -103,7 +99,7 @@ unsigned long PExport::getIndex(PolyObject *p)
 /* Get the index corresponding to an address. */
 void PExport::printAddress(void *p)
 {
-    fprintf(exportFile, "@%lu", getIndex((PolyObject*)p));
+    fprintf(exportFile, "@%zu", getIndex((PolyObject*)p));
 }
 
 void PExport::printValue(PolyWord q)
@@ -119,9 +115,9 @@ void PExport::printObject(PolyObject *p)
     POLYUNSIGNED length = p->Length();
     POLYUNSIGNED i;
 
-    unsigned long myIndex = getIndex(p);
+    size_t myIndex = getIndex(p);
 
-    fprintf(exportFile, "%lu:", myIndex);
+    fprintf(exportFile, "%zu:", myIndex);
 
     if (p->IsMutable())
         putc('M', exportFile);
@@ -259,12 +255,6 @@ void PExport::exportStore(void)
         if (startAddr == 0 || memTable[i].mtAddr < startAddr)
             startAddr = memTable[i].mtAddr;
     }
-    // Create a map entry for each entry.  Allow five words per object.
-    nMapSize = totalBytes/(sizeof(PolyWord)*5);
-    pMap = (PolyObject **)malloc(sizeof(PolyObject*)*nMapSize);
-
-    if (pMap == 0)
-        throw MemoryException();
 
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
@@ -297,24 +287,15 @@ void PExport::exportStore(void)
         {
             p++;
             PolyObject *obj = (PolyObject*)p;
-            if (nObjects == nMapSize)
-            {
-                // Need to expand the array.
-                PolyObject **newMap =
-                    (PolyObject **)realloc(pMap, (nMapSize + nMapSize/2)*sizeof(PolyObject*));
-                if (newMap == 0)
-                    throw MemoryException();
-                pMap = newMap;
-            }
             POLYUNSIGNED length = obj->Length();
-            pMap[nObjects++] = obj;
+            pMap.push_back(obj);
             p += length;
         }
     }
 
     /* Start writing the information. */
-    fprintf(exportFile, "Objects\t%lu\n", nObjects);
-    fprintf(exportFile, "Root\t%lu\n", getIndex(rootFunction));
+    fprintf(exportFile, "Objects\t%zu\n", pMap.size());
+    fprintf(exportFile, "Root\t%zu\n", getIndex(rootFunction));
 
     // Generate each of the areas.
     for (i = 0; i < memTableEntries; i++)
