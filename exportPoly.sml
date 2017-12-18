@@ -1,12 +1,11 @@
 (*
     Title:      Bootstrap code.
     Author:     David Matthews
-    Copyright   David Matthews 2005-2008
+    Copyright   David Matthews 2005-2008, 2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -26,36 +25,21 @@ val () = Bootstrap.use "basis/build.sml";
 
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)
-
-local
-    (* Bootstrap.use adds the path given as -I path but PolyML.make and PolyML.use
-       don't.  Add the path explicitly. *)
-    val args = CommandLine.arguments();
-    fun getPath [] = "." (* Default path *)
-      | getPath ("-I" :: outFile :: _) = outFile
-      | getPath (_::tl) = getPath tl
-    val path = getPath args
-in
-    (* FFI. *)
-    val () = PolyML.make (OS.Path.concat(path, "mlsource/extra/CInterface"));
-    val () = PolyML.use (OS.Path.concat(path, "mlsource/extra/CInterface/clean"));
-
     (* XWindows/Motif *)
-    val () =
-    let
-        val xWindowsGeneralCall = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
-        val xcall: int*int->int*int = xWindowsGeneralCall
-        (* See if the RTS supports the X GetTimeOfDay call. *)
-        val isX = (xcall(30, 0); true) handle _ => false
-    in
-       if isX
-       then
-       (
-            PolyML.make "mlsource/extra/XWindows";
-            PolyML.make "mlsource/extra/Motif"
-       )
-       else ()
-    end
+val () =
+let
+    val xWindowsGeneralCall = RunCall.rtsCallFull1 "PolyXWindowsGeneral"
+    val xcall: int*int->int*int = xWindowsGeneralCall
+    (* See if the RTS supports the X GetTimeOfDay call. *)
+    val isX = (xcall(30, 0); true) handle _ => false
+in
+   if isX
+   then
+   (
+        PolyML.make "mlsource/extra/XWindows";
+        PolyML.make "mlsource/extra/Motif"
+   )
+   else ()
 end;
 
 val () = PolyML.print_depth 10;

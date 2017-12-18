@@ -401,7 +401,9 @@
   objsize.cpp supports PolyML.objSize and PolyML.showSize. poly_specific.cpp has 
   various additional functions. profiling.cpp supports profiling for time and 
   space. sighandler.cpp supports the Signal structure that allows an ML function 
-  to be called as the result of a signal.</p>
+  to be called as the result of a signal. In more recent releases the foreign-function 
+  interface has changed and foreign.cpp is replaced with polyffi.cpp and the Foreign 
+  structure. </p>
 <h2>Basis Library</h2>
 <p>The basis library is compiled when Poly/ML is built for a particular platform. 
   Apart from the entries added by the initialisation process all entries in the 

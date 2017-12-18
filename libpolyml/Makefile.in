@@ -141,7 +141,7 @@ LTLIBRARIES = $(lib_LTLIBRARIES)
 @INTERNAL_LIBFFI_TRUE@	libffi/libffi_convenience.la
 am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	check_objects.cpp diagnostics.cpp errors.cpp exporter.cpp \
-	foreign.cpp gc.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
+	gc.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
 	gc_mark_phase.cpp gc_share_phase.cpp gc_update_phase.cpp \
 	gctaskfarm.cpp heapsizing.cpp locking.cpp memmgr.cpp mpoly.cpp \
 	network.cpp objsize.cpp osmem.cpp pexport.cpp \
@@ -167,7 +167,7 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 @NATIVE_WINDOWS_FALSE@am__objects_3 = unix_specific.lo
 @NATIVE_WINDOWS_TRUE@am__objects_3 = Console.lo windows_specific.lo
 am_libpolyml_la_OBJECTS = arb.lo basicio.lo bitmap.lo check_objects.lo \
-	diagnostics.lo errors.lo exporter.lo foreign.lo gc.lo \
+	diagnostics.lo errors.lo exporter.lo gc.lo \
 	gc_check_weak_ref.lo gc_copy_phase.lo gc_mark_phase.lo \
 	gc_share_phase.lo gc_update_phase.lo gctaskfarm.lo \
 	heapsizing.lo locking.lo memmgr.lo mpoly.lo network.lo \
@@ -496,7 +496,6 @@ noinst_HEADERS = \
 	elfexport.h \
 	errors.h \
 	exporter.h \
-	foreign.h \
 	gc.h \
 	gctaskfarm.h \
 	globals.h \
@@ -547,7 +546,6 @@ libpolyml_la_SOURCES = \
     diagnostics.cpp \
     errors.cpp \
     exporter.cpp \
-    foreign.cpp \
     gc.cpp \
     gc_check_weak_ref.cpp \
     gc_copy_phase.cpp \
@@ -676,7 +674,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/elfexport.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/errors.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/exporter.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/foreign.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gc_check_weak_ref.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gc_copy_phase.Plo@am__quote@

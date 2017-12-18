@@ -1,14 +1,14 @@
 #! /bin/sh
-prefix=@prefix@
-exec_prefix=@exec_prefix@
-BINDIR=@bindir@
-LINK=@CXX@
-LIBDIR=@libdir@
+prefix="@prefix@"
+exec_prefix="@exec_prefix@"
+BINDIR="@bindir@"
+LINK="@CXX@"
+LIBDIR="@libdir@"
 LIBS="@dependentlibs@"
 CFLAGS="@polyc_CFLAGS@"
 
 DEFAULT_COMPILER="${BINDIR}/poly"
-COMPILER=${DEFAULT_COMPILER}
+COMPILER="${DEFAULT_COMPILER}"
 
 # Extra options for Windows.  config.status sets these conditionals to either "" or "#".
 
@@ -25,27 +25,27 @@ COMPILER=${DEFAULT_COMPILER}
 
 # Msys passes the Windows TEMP in temp (lower case)
 # On other systems allow TMPDIR to override /tmp.
-@NATIVE_WINDOWS_TRUE@TEMPORARYDIR=${temp:-/tmp}
-@NATIVE_WINDOWS_FALSE@TEMPORARYDIR=${TMPDIR:-/tmp}
+@NATIVE_WINDOWS_TRUE@TEMPORARYDIR="${temp:-/tmp}"
+@NATIVE_WINDOWS_FALSE@TEMPORARYDIR="${TMPDIR:-/tmp}"
 
 # Extra options for Mac OS X
 @MACOSLDOPTS_TRUE@EXTRALDFLAGS="-Wl,-no_pie"
 
-TMPOBJFILE=${TEMPORARYDIR}/polyobj.$$.$SUFFIX
+TMPOBJFILE="${TEMPORARYDIR}/polyobj.$$.$SUFFIX"
 trap 'rm -f "$TMPOBJFILE"' 0
 
 compile()
 {
-    echo "val () = use (List.nth(CommandLine.arguments(), 2)); val () = PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${COMPILER} -q --error-exit  "$1" "$2"
+    echo "val () = use (List.nth(CommandLine.arguments(), 2)); val () = PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | "${COMPILER}" -q --error-exit  "$1" "$2"
 }
 
 link()
 {
     if [ X"$2" = "X" ]
     then
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -L${LIBDIR} -Wl,-rpath,${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     else
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" -L${LIBDIR} -Wl,-rpath,${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        "${LINK}" ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" "-L${LIBDIR}" "-Wl,-rpath,${LIBDIR}" -lpolymain -lpolyml ${LIBS}
     fi
 }
 
@@ -112,8 +112,8 @@ done
 case "$compileonly" in
      yes)
 	 if [ "x$outputfile" = "x" ]; then
-	     basename=${sourcefile##*/}
-             outputfile=${basename%.*}.o
+	     basename="${sourcefile##*/}"
+             outputfile="${basename%.*}.o"
 	 fi
          compile "$sourcefile" "$outputfile"
          ;;
