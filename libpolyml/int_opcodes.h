@@ -28,6 +28,7 @@
 
 #define INSTR_jump8         0x02
 #define INSTR_jump8false    0x03
+#define INSTR_setclosure    0x04
 #define INSTR_alloc_ref     0x06
 #define INSTR_case16        0x0a
 #define INSTR_stack_container 0x0b

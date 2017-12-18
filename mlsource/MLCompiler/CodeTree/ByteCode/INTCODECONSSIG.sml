@@ -121,6 +121,7 @@ sig
     val opcode_blockEqualByte: opcode
     val opcode_blockCompareByte: opcode
     val opcode_deleteHandler: opcode
+    val opcode_setClosure: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
 

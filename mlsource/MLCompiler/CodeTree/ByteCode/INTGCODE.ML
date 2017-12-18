@@ -64,6 +64,9 @@ struct
     datatype tail =
         EndOfProc
     |   NotEnd
+    
+    (* For the moment this the easiest way to tell. *)
+    val is32In64 = Address.length(toAddress(toMachineWord(0w0:LargeWord.word))) <> 0w1
 
     (* Code generate a function or global declaration *)
     fun codegen (pt, cvec, recReference: machineWord option, numOfArgs, localCount, parameters) : address =
@@ -113,7 +116,7 @@ struct
         |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *)
             (
                 pushLocalStackValue ~1; (* The closure itself. *)
-                genIndirect (locn+1, cvec) (* The value in the closure. +1 because first item is code addr. *)
+                genIndirect (locn+(if is32In64 then 2 else 1), cvec) (* The value in the closure. +1 because first item is code addr. *)
             )
 
         |   locaddr BICLoadRecursive =
@@ -889,22 +892,23 @@ struct
         let (* Full closure required. *)
             val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
-            val res = codegen (body, newCode, NONE, List.length argTypes, localCount, parameters);
-            val sizeOfClosure = List.length closure + 1;
+            val res = codegen (body, newCode, NONE, List.length argTypes, localCount, parameters)
+            val numClosureItems = List.length closure
         in
-            if mutualDecs
+            if mutualDecs orelse is32In64
             then
             let (* Have to make the closure now and fill it in later. *)
                 (* This previously used genGetStore which at one time was widely used. *)
-                val () = pushConst(toMachineWord sizeOfClosure, cvec) (* Length *)
-                val () = pushConst(toMachineWord F_mutable, cvec) (* Flags *)
+                val () = pushConst(toMachineWord (numClosureItems + (if is32In64 then 2 else 1)), cvec) (* Length *)
+                val flags = if is32In64 then Word8.orb(F_mutable, F_closure) else F_mutable
+                val () = pushConst(toMachineWord flags, cvec) (* Flags *)
                 val () = pushConst(toMachineWord 0, cvec) (* Initialise to zero. *)
                 val () = genOpcode(opcode_allocWordMemory, cvec) (* Allocate the memory. *)
                 val () = incsp ()
            
                 (* Put code address into closure *)
                 val () = pushConst(toMachineWord res, cvec) 
-                val () = genMoveToVec(0, cvec)
+                val () = genOpcode(opcode_setClosure, cvec)
            
                 val entryAddr : int = !realstackptr
 
@@ -926,7 +930,7 @@ struct
                     loadItems (vs, addr + 1)
                 end
              
-                val () = loadItems (closure, 1)
+                val () = loadItems (closure, if is32In64 then 2 else 1)
                 val () = genLock cvec (* Lock it. *)
            
                 (* Remove the extra reference. *)
@@ -941,9 +945,9 @@ struct
                 val () = pushConst (toMachineWord res, cvec)
                 val () = incsp ()
                 val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
-                val () = genTuple (sizeOfClosure, cvec)
+                val () = genTuple (numClosureItems + 1, cvec)
             in
-                realstackptr := !realstackptr - (sizeOfClosure - 1)
+                realstackptr := !realstackptr - numClosureItems
             end
         end
 

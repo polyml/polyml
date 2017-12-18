@@ -496,6 +496,7 @@ int IntTaskData::SwitchToPoly()
         case INSTR_call_closure: /* Closure call. */
         {
             PolyWord *t = (*sp).w().AsStackAddr(); /* Closure */
+            ASSERT(! ((*sp).w().AsObjPtr()->IsClosureObject()));
             PolyWord u = *t;   /* Get code address. (1st word of closure) */
             sp--;
             *sp = sp[1];      /* Move closure up. */
@@ -727,6 +728,17 @@ int IntTaskData::SwitchToPoly()
             { stackItem u = *sp; sp += *pc; *sp = u; pc += 1; break; }
 
         case INSTR_const_int_b: *(--sp) = TAGGED(*pc); pc += 1; break;
+
+        case INSTR_setclosure:
+        {
+            PolyObject *srcPtr = (*sp++).w().AsObjPtr();
+            // Temporarily we may actually pass the code address here.
+            if (srcPtr->IsClosureObject())
+                srcPtr = *(PolyObject**)srcPtr;
+            PolyObject **destPtr = (PolyObject **)(*sp).w().AsObjPtr();
+            *destPtr = srcPtr;
+            break;
+        }
 
         case INSTR_local_0: { stackItem u = sp[0]; *(--sp) = u; break; }
         case INSTR_local_1: { stackItem u = sp[1]; *(--sp) = u; break; }

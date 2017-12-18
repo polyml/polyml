@@ -54,6 +54,7 @@ struct
     val opcode_enterInt          = 0wx00
     and opcode_jump              = 0wx02    (* 8-bit unsigned jump forward. *)
     and opcode_jumpFalse         = 0wx03    (* Test top of stack. Take 8-bit unsigned jump if false. *)
+    and opcode_setClosure        = 0wx04
     and opcode_delHandler        = 0wx05
     and opcode_alloc_ref         = 0wx06
     and opcode_case16            = 0wx0a
@@ -291,6 +292,7 @@ struct
         val () = repUpdate(opcode_enterInt,     "enterInt");
         val () = repUpdate(opcode_jump,         "jump");
         val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
+        val () = repUpdate(opcode_setClosure,   "setClosure");
         val () = repUpdate(opcode_delHandler,   "delHandler");
         val () = repUpdate(opcode_alloc_ref,    "alloc_ref");
         val () = repUpdate(opcode_case16,       "case16");
@@ -1398,6 +1400,7 @@ struct
     val opcode_blockEqualByte   = SimpleCode [opcode_blockEqualByte]
     val opcode_blockCompareByte = SimpleCode [opcode_blockCompareByte]
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
+    val opcode_setClosure       = SimpleCode [opcode_setClosure]
 
 end;
 
