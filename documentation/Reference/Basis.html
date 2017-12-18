@@ -45,9 +45,9 @@
   </tr>
   <tr class="identifier"> 
     <td><a href="#CharVectorSlice">CharVectorSlice</a></td>
-    <td><a href="#CInterface">CInterface</a></td>
     <td><a href="#CommandLine">CommandLine</a></td>
     <td><a href="#Date">Date</a></td>
+    <td><a href="#FixedInt">FixedInt</a></td>
 	<td><a href="Foreign.html">Foreign</a></td>
     <td><a href="#General">General</a></td>
     <td><a href="#GenericSock">GenericSock</a></td>
@@ -95,57 +95,57 @@
   </tr>
   <tr class="identifier"> 
     <td><a href="#Posix">Posix</a> </td>
-    <td><a href="#Process">Process</a></td>
     <td><a href="#Real">Real</a></td>
     <td><a href="#RealArray">RealArray</a></td>
     <td><a href="#RealArray2">RealArray2</a></td>
     <td><a href="#RealArraySlice">RealArraySlice</a></td>
     <td><a href="#RealVector">RealVector</a></td>
     <td><a href="#RealVectorSlice">RealVectorSlice</a></td>
+    <td><a href="#RunCall">RunCall</a></td>
   </tr>
   <tr class="identifier"> 
-    <td><a href="#RunCall">RunCall</a></td>
-    <td><a href="#RuntimeCalls">RuntimeCalls</a></td>
     <td><a href="Signal.html">Signal</a></td>
     <td><a href="SingleAssignment.html">SingleAssignment</a></td>
     <td><a href="#SML90">SML90</a></td>
     <td><a href="#Socket">Socket</a></td>
     <td><a href="#String">String</a></td>
     <td><a href="#StringCvt">StringCvt</a></td>
-  </tr>
-  <tr class="identifier"> 
     <td><a href="#Substring">Substring</a></td>
     <td><a href="#SysWord">SysWord</a></td>
+  </tr>
+  <tr class="identifier"> 
     <td><a href="#Text">Text</a></td>
     <td><a href="#TextIO">TextIO</a></td>
     <td><a href="#TextPrimIO">TextPrimIO</a></td>
     <td><a href="Threads.html">Thread</a></td>
     <td><a href="#ThreadLib">ThreadLib</a></td>
     <td><a href="#Time">Time</a></td>
-  </tr>
-  <tr class="identifier"> 
     <td><a href="#Timer">Timer</a></td>
     <td><a href="Universal.html">Universal</a></td>
+  </tr>
+  <tr class="identifier"> 
     <td><a href="#UniversalArray">UniversalArray</a></td>
     <td><a href="#Unix">Unix</a></td>
     <td><a href="#UnixSock">UnixSock</a></td>
     <td><a href="#Vector">Vector</a></td>
     <td><a href="#VectorSlice">VectorSlice</a></td>
     <td><a href="Weak.html">Weak</a></td>
-  </tr>
-  <tr class="identifier"> 
     <td><a href="#Windows">Windows</a></td>
     <td><a href="#Word">Word</a></td>
-    <td><a href="#Word8">Word8</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td height="20"><a href="#Word8">Word8</a></td>
     <td><a href="#Word8Array">Word8Array</a></td>
     <td><a href="#Word8Array2">Word8Array2</a></td>
     <td><a href="#Word8ArraySlice">Word8ArraySlice</a></td>
     <td><a href="#Word8Vector">Word8Vector</a></td>
     <td><a href="#Word8VectorSlice">Word8VectorSlice</a></td>
-  </tr>
-  <tr class="identifier"> 
     <td><a href="#Word32">Word32</a></td>
     <td><a href="#Word64">Word64</a></td>
+  </tr>
+  <tr class="identifier"> 
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
     <td>&nbsp;</td>
     <td>&nbsp;</td>
     <td>&nbsp;</td>
@@ -406,17 +406,20 @@ structure <a name="Bool"></a>Bool: BOOL</pre>
   <pre class="entrycode">signature <a name="INTEGER"></a>INTEGER
 signature <a name="INT_INF"></a>INT_INF
 structure <a name="Int"></a>Int: INTEGER
+structure <a name="FixedInt"></a>FixedInt: INTEGER
 structure <a name="LargeInt"></a>LargeInt: INTEGER
 structure <a name="Position"></a>Position: INTEGER
 structure <a name="Int32"></a>Position: INTEGER
 structure <a name="IntInf"></a>IntInf: INT_INF</pre>
   <div class="entrytext">
-    <p><tt>Int</tt>, <tt>LargeInt</tt> and <tt>Position</tt> are the same structure 
-      and provide operations on type <tt>int</tt>. In Poly/ML that is an 
-      arbitrary precision integer.  Poly/ML does not support any fixed precision 
-      integers. <tt>IntInf</tt> provides additional functions, such as logical 
-      operations on integers. Note: there are functions to compute LCM and GCD 
-      in <a href="PolyMLStructure.html#IntInf"><span class="identifier">PolyML.IntInf</span></a>.</p>
+    <p>As of release 5.7 Poly/ML supports both a fixed-precision integer type 
+      and an arbitrary precision integer type. Normally the default int type will 
+      be fixed-precision but it can be built so that the default is arbitrary 
+      precision. Fixed precision is 31-bits on a 32-architecture and 63-bits on 
+      a 64-bit architecture. <tt>LargeInt</tt> and <tt>Position</tt> are the same 
+      structure and provide operations on arbitrary precision integer. <tt>IntInf</tt> 
+      provides additional functions, such as logical operations on integers. Note: 
+      there are functions to compute LCM and GCD in <a href="PolyMLStructure.html#IntInf"><span class="identifier">PolyML.IntInf</span></a>.</p>
 	  
     <p><span class="identifier">Int32</span> provides a fixed precision 32-bit 
       integer</p>
@@ -816,18 +819,11 @@ signature <a name="ASN1" id="ASN1"></a>ASN1</pre>
   </div>
 </div>
 <div class="entryblock">
-  <pre class="entrycode">structure <a name="CInterface" id="CInterface"></a>CInterface
-signature <a name="CInterfaceSig" id="CInterfaceSig"></a>CInterfaceSig</pre>
-  <div class="entrytext">
-    <p> This is the older version of the foreign-function interface. The new version 
-      is in the <a href="#Foreign">Foreign</a> structure. See the <a href="../Tutorials/CInterface.html">full 
-      documentation</a>.</p>
-  </div>
-</div>
-<div class="entryblock">
   <pre class="entrycode">structure <a name="Foreign" id="Foreign"></a>Foreign
 signature <a name="ForeignSig" id="ForeignSig"></a>FOREIGN</pre>
-  <div class="entrytext">
+</div>
+<div class="entryblock"> 
+  <div class="entrytext"> 
     <p> This is the new version of the foreign-function interface.</p>
   </div>
 </div>
@@ -837,7 +833,7 @@ signature <a name="ForeignSig" id="ForeignSig"></a>FOREIGN</pre>
     <p> Provides a hash-table type and operations.</p>
   </div>
 </div>
-<div class="entryblock">
+<div class="entryblock"> 
   <pre class="entrycode">structure <a name="PolyML" id="PolyML"></a>PolyML</pre>
   <div class="entrytext"> 
     <p> Contains a large number of operations specific to Poly/ML. See <a href="PolyMLStructure.html">here</a> 
@@ -845,24 +841,15 @@ signature <a name="ForeignSig" id="ForeignSig"></a>FOREIGN</pre>
   </div>
 </div>
 <div class="entryblock">
-  <pre class="entrycode">structure <a name="Process" id="Process"></a>Process</pre>
-  <div class="entrytext"> 
-    <p> This is the original implementation of parallelism in 
-      Poly/ML. It has now been reimplemented using the <a href="#Thread"><span class="identifier">Thread</span></a> 
-      structure. It is provided for backwards compatibility only.</p>
-  </div>
-</div>
-<div class="entryblock">
   <pre class="entrycode">structure <a name="RunCall" id="RunCall"></a>RunCall
-structure <a name="RuntimeCalls" id="RuntimeCalls"></a>RuntimeCalls</pre>
+</pre>
   <div class="entrytext"> 
     <p><span class="identifier">RunCall</span> contains various low-level operations 
-      for interface to the run-time system. <span class="identifier">RuntimeCalls</span> 
-      contains symbolic definitions for entry points to the run-time system. These 
-      structures are intended only for use in the basis library itself and should 
-      not be used in user code unless absolutely necessary. It is very easy to 
-      use them in a way that will cause a crash or break the garbage-collector 
-      resulting in a failure at some point in the future.</p>
+      for interface to the run-time system. This structure is intended only for 
+      use in the basis library itself and should not be used in user code unless 
+      absolutely necessary. It is very easy to use these functions in a way that 
+      will cause a crash or break the garbage-collector resulting in a failure 
+      at some point in the future.</p>
   </div>
 </div>
 <div class="entryblock">
