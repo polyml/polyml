@@ -838,6 +838,11 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
                 obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
         }
 
+        else if (obj->IsClosureObject())
+        {
+            ASSERT(0);
+        }
+
         // Immutable local objects.  These can be shared.  We need to compute the
         // depth by computing the maximum of the depth of all the addresses in it.
         else if ((obj->LengthWord() & _OBJ_GC_MARK) && ! obj->IsMutable())

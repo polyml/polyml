@@ -216,6 +216,7 @@ void PExport::printObject(PolyObject *p)
     }
     else /* Ordinary objects, essentially tuples. */
     {
+        ASSERT(!p->IsClosureObject());
         fprintf(exportFile, "O%" POLYUFMT "|", length);
         for (i = 0; i < length; i++)
         {

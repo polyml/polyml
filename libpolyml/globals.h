@@ -257,6 +257,7 @@ SPF 24/1/95
 // Zero bits mean ordinary word object containing addresses or tagged integers.
 #define F_BYTE_OBJ                  0x01  /* byte object (contains no pointers) */
 #define F_CODE_OBJ                  0x02  /* code object (mixed bytes and words) */
+#define F_CLOSURE_OBJ               0x03  /* closure (32-in-64 only).  First word is code addr. */
 #define F_GC_MARK                   0x04  // Used during the GC marking phase
 #define F_NO_OVERWRITE              0x08  /* don't overwrite when loading - mutables only. */
 // This bit is overloaded and has different meanings depending on what other bits are set.
@@ -272,6 +273,7 @@ SPF 24/1/95
 
 #define _OBJ_BYTE_OBJ                _TOP_BYTE(0x01)  /* byte object (contains no pointers) */
 #define _OBJ_CODE_OBJ                _TOP_BYTE(0x02)  /* code object (mixed bytes and words) */
+#define _OBJ_CLOSURE_OBJ             _TOP_BYTE(0x03)  // closure (32-in-64 only).  First word is code addr.
 #define _OBJ_GC_MARK                 _TOP_BYTE(0x04)  // Mark bit
 #define _OBJ_NO_OVERWRITE            _TOP_BYTE(0x08)  /* don't overwrite when loading - mutables only. */
 #define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
@@ -295,6 +297,7 @@ inline byte GetTypeBits(POLYUNSIGNED L)             { return (byte)(L >> OBJ_PRI
 inline POLYUNSIGNED OBJ_OBJECT_LENGTH(POLYUNSIGNED L)   { return L & _OBJ_PRIVATE_LENGTH_MASK; }
 inline bool OBJ_IS_BYTE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L) == F_BYTE_OBJ); }
 inline bool OBJ_IS_CODE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L) == F_CODE_OBJ); }
+inline bool OBJ_IS_CLOSURE_OBJECT(POLYUNSIGNED L)       { return (GetTypeBits(L) == F_CLOSURE_OBJ); }
 inline bool OBJ_IS_NO_OVERWRITE(POLYUNSIGNED L)         { return ((L & _OBJ_NO_OVERWRITE) != 0); }
 inline bool OBJ_IS_NEGATIVE(POLYUNSIGNED L)             { return ((L & _OBJ_NEGATIVE_BIT) != 0); }
 inline bool OBJ_HAS_PROFILE(POLYUNSIGNED L)             { return ((L & _OBJ_PROFILE_BIT) != 0); }
@@ -355,6 +358,7 @@ public:
 
     bool IsByteObject(void) const { return OBJ_IS_BYTE_OBJECT(LengthWord()); }
     bool IsCodeObject(void) const { return OBJ_IS_CODE_OBJECT(LengthWord()); }
+    bool IsClosureObject(void) const { return OBJ_IS_CLOSURE_OBJECT(LengthWord()); }
     bool IsWordObject(void) const { return OBJ_IS_WORD_OBJECT(LengthWord()); }
     bool IsMutable(void) const { return OBJ_IS_MUTABLE_OBJECT(LengthWord()); }
     bool IsWeakRefObject(void) const { return OBJ_IS_WEAKREF_OBJECT(LengthWord()); }

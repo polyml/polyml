@@ -383,6 +383,10 @@ void AddObjectProfile(PolyObject *obj)
     }
     else if (obj->IsCodeObject())
         extraStoreCounts[EST_CODE] += length+1;
+    else if (obj->IsClosureObject())
+    {
+        ASSERT(0);
+    }
     else if (obj->IsByteObject())
     {
         // Try to separate strings from other byte data.  This is only

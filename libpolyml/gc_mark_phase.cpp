@@ -442,6 +442,8 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             length = 0; // Finished
         }
 
+        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
+
         // else it's a normal object,
 
         // If there are only two addresses in this cell that need to be

@@ -974,6 +974,7 @@ void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
     }
     else /* Ordinary objects, essentially tuples. */
     {
+        ASSERT(!p->IsClosureObject());
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i), baseAddr);
     }

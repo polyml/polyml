@@ -85,6 +85,7 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
             obj->GetConstSegmentForCode(length, baseAddr, length);
 
         } // else it's a normal object,
+        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
 
         PolyWord *endWord = baseAddr + length;
 
@@ -320,6 +321,7 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             length = 0; // Finished
         }
+        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
 
         // else it's a normal object,
 

@@ -706,6 +706,9 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWo
 
     try {
         PolyObject *pt = fnAddr.AsObjPtr();
+        // In 32-in-64 this may be a closure and the first word is the absolute address of the code.
+        if (pt->IsClosureObject())
+            pt = *(PolyObject**)pt;
         if (pt->IsCodeObject()) /* Should now be a code object. */
         {
             /* Compiled code.  This is the first constant in the constant area. */

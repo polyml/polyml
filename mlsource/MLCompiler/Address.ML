@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
  
-    Further development copyright David C.J. Matthews 2000-2016
+    Further development copyright David C.J. Matthews 2000-2017
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,6 @@ sig
     type short = Word.word
 
     val stringOfWord: machineWord -> string
-    val rtsFunctionName: int -> string
 
     val wordEq : machineWord * machineWord -> bool
 
@@ -54,6 +53,7 @@ sig
 
     val F_words        : Word8.word
     val F_bytes        : Word8.word
+    val F_closure      : Word8.word
     val F_code         : Word8.word
     val F_negative     : Word8.word
     val F_mutable      : Word8.word
@@ -65,6 +65,7 @@ sig
     val isWords : address -> bool
     val isBytes : address -> bool
     val isCode  : address -> bool
+    val isClosure: address -> bool
     val isMutable:address -> bool
 end
 
@@ -152,6 +153,7 @@ struct
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
     val F_code         : Word8.word = 0wx02 (* code object (mixed bytes and words) *)
+    val F_closure      : Word8.word = 0wx03 (* closure object.  This is only used in 32-in-64.  *)
     val F_noOverwrite  : Word8.word = 0wx08 (* don't overwrite when loading - mutables only. *)
     val F_negative     : Word8.word = 0wx10 (* sign bit for arbitrary precision ints (byte objects) *)
     val F_profile      : Word8.word = 0wx10 (* object has a profile pointer (word objects) *)
@@ -167,16 +169,10 @@ struct
         val isWords = isType F_words
         val isBytes = isType F_bytes
         val isCode  = isType F_code
+        val isClosure = isType F_closure
 
         (* The mutable flag may be used with any of the others. *)
         fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
-    end
-
-    local
-        val rtsNames = Vector.tabulate(256, fn n => " RTS" ^ Int.toString n)
-    in
-        val rtsNames = rtsNames
-        fun rtsFunctionName n = Vector.sub(rtsNames, n)
     end
 
     val functionName: machineWord -> string = RunCall.rtsCallFull1 "PolyGetFunctionName"
@@ -200,6 +196,10 @@ struct
         in
             "BYTE data" ^ String.toString(Byte.bytesToString data)
         end
+        
+        else if isClosure(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
+        then (* In 32-in-64 the first word of a closure is an absolute code address. *)
+            "FUN \"" ^ functionName w ^ "\"" (* Get the function name. *)
     
         else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
         then (* If it's the closure of a function try to print that. *)

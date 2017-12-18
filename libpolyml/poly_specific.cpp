@@ -204,6 +204,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 106: // Lock a mutable code segment and return the executable address.
             // Legacy - used by bootstrap code only
         {
+            ASSERT(0); // Should no longer be used
             PolyObject *codeObj = args->WordP();
             if (! codeObj->IsCodeObject() || ! codeObj->IsMutable())
                 raise_fail(taskData, "Not mutable code area");
@@ -219,6 +220,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 107: // Copy a byte segment into the code area and make it mutable code
               // Legacy - used by bootstrap code only
         {
+            ASSERT(0); // Should no longer be used
             if (! args->WordP()->IsByteObject())
                 raise_fail(taskData, "Not byte data area");
             while (true)
@@ -238,6 +240,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 108:
+        ASSERT(0); // Should no longer be used
         // Return the ABI.  For 64-bit we need to know if this is Windows.
         // Legacy - used by bootstrap code only
 #if (SIZEOF_VOIDP == 8)

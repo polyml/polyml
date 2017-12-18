@@ -329,9 +329,10 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
             ShowCode(p);
 
         return L; // Process addresses in it.
-     }
+    }
     else /* Word object */
     {
+        ASSERT(!OBJ_IS_CLOSURE_OBJECT(L));
         if (show_size)
             ShowWords(p);
         return L; // Process addresses in it.

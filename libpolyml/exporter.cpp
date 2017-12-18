@@ -299,6 +299,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         isByteObj = obj->IsByteObject();
     }
     else isCodeObj = obj->IsCodeObject();
+    ASSERT(!obj->IsClosureObject());
     // Allocate a new address for the object.
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
@@ -756,6 +757,7 @@ void Exporter::relocateObject(PolyObject *p)
     }
     else /* Ordinary objects, essentially tuples. */
     {
+        ASSERT(! p->IsClosureObject());
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
     }

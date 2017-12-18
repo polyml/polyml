@@ -513,6 +513,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                         }
                         if (obj->IsCodeObject())
                             space->headerMap.SetBit(ptr-space->bottom);
+                        ASSERT(!obj->IsClosureObject());
                         ptr += obj->Length() + 1;
                     }
                 }
