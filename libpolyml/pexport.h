@@ -58,7 +58,7 @@ private:
     virtual PolyWord createRelocation(PolyWord p, void *relocAddr) { return p; }
 
     std::vector<PolyObject *> pMap;
-    unsigned *indexOrder;
+    size_t *indexOrder;
 
 };
 

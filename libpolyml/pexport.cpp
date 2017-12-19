@@ -243,19 +243,19 @@ void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code
 
 void PExport::exportStore(void)
 {
-    unsigned i;
+    size_t i;
 
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
-    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries);
+    indexOrder = (size_t*)calloc(sizeof(size_t), memTableEntries);
     if (indexOrder == 0)
         throw MemoryException();
 
-    unsigned items = 0;
+    size_t items = 0;
     for (i = 0; i < memTableEntries; i++)
     {
-        unsigned j = items;
+        size_t j = items;
         while (j > 0 && memTable[i].mtAddr < memTable[indexOrder[j-1]].mtAddr)
         {
             indexOrder[j] = indexOrder[j-1];
@@ -269,7 +269,7 @@ void PExport::exportStore(void)
     // Process the area in order of ascending address.
     for (i = 0; i < items; i++)
     {
-        unsigned index = indexOrder[i];
+        size_t index = indexOrder[i];
         char *start = (char*)memTable[index].mtAddr;
         char *end = start + memTable[index].mtLength;
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
