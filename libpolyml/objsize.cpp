@@ -80,10 +80,15 @@ class ProcessVisitAddresses: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return ShowWord(*pt); }
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0;  }
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { return ShowObject(*pt);  }
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
-    POLYUNSIGNED ShowWord(PolyWord w);
+    POLYUNSIGNED ShowWord(PolyWord w) {
+        if (w.IsTagged() || w == PolyWord::FromUnsigned(0))
+            return 0;
+        else return ShowObject(w.AsObjPtr());
+    }
+    POLYUNSIGNED ShowObject(PolyObject *p);
     ProcessVisitAddresses(bool show);
     ~ProcessVisitAddresses();
 
@@ -232,15 +237,25 @@ void ProcessVisitAddresses::ShowWords(PolyObject *start)
     putc('\n', polyStdout);
     if (start->IsMutable()) fprintf(polyStdout, "MUTABLE ");
     
-    fprintf(polyStdout, "WORDS:%p:%" POLYUFMT "\n", start, length);
+    fprintf(polyStdout, "%s:%p:%" POLYUFMT "\n",
+        start->IsClosureObject() ? "CLOSURE" : "WORDS", start, length);
     
     POLYUNSIGNED i, n;
-    for (i = 0, n = 0; n < length; n++)
+    for (i = 0, n = 0; n < length; )
     {
         if (i != 0)
             putc('\t', polyStdout);
         
-        fprintf(polyStdout, "%8p ", start->Get(n).AsObjPtr());
+        if (start->IsClosureObject() && n == 0)
+        {
+            fprintf(polyStdout, "%8p ", *(PolyObject**)start);
+            n += sizeof(PolyObject*) / sizeof(PolyWord);
+        }
+        else
+        {
+            fprintf(polyStdout, "%8p ", start->Get(n).AsObjPtr());
+            n++;
+        }
         i++;
         if (i == 4)
         { 
@@ -265,36 +280,23 @@ PolyObject *ProcessVisitAddresses::ScanObjectAddress(PolyObject *base)
 
 // Handle the normal case.  Print the object at this word and
 // return true is it must be handled recursively.
-POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
+POLYUNSIGNED ProcessVisitAddresses::ShowObject(PolyObject *p)
 {
-    
-    if (IS_INT(w))
-        return 0; /* not a pointer */
-    
-    if (w == PolyWord::FromUnsigned(0))
-        return 0;
-    
-    VisitBitmap *bm    = FindBitmap(w);
+    VisitBitmap *bm    = FindBitmap(p);
     
     if (bm == 0)
     {
-        fprintf(polyStdout, "Bad address " ZERO_X "%p found\n", w.AsObjPtr());
+        fprintf(polyStdout, "Bad address " ZERO_X "%p found\n", p);
         return 0;
     }
-    
-    PolyObject *p;
 
-    ASSERT(w.IsDataPtr());
-    p = w.AsObjPtr();
-    
     /* Have we already visited this object? */
     if (bm->AlreadyVisited(p))
         return 0;
     
     bm->SetVisited(p);
     
-    POLYUNSIGNED L = p->LengthWord();
-    POLYUNSIGNED obj_length = OBJ_OBJECT_LENGTH(L);
+    POLYUNSIGNED obj_length = p->Length();
 
     // Increment the appropriate size profile count.
     if (p->IsMutable())
@@ -314,13 +316,13 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
     
     total_length += obj_length + 1; /* total space needed for object */
     
-    if (OBJ_IS_BYTE_OBJECT(L))
+    if (p->IsByteObject())
     {
         if (show_size)
             ShowBytes(p);
         return 0;
     }
-    else if (OBJ_IS_CODE_OBJECT(L))
+    else if (p->IsCodeObject())
     {
         PolyWord *cp;
         POLYUNSIGNED const_count;
@@ -329,14 +331,13 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
         if (show_size)
             ShowCode(p);
 
-        return L; // Process addresses in it.
+        return p->LengthWord(); // Process addresses in it.
     }
-    else /* Word object */
+    else // Word or closure object
     {
-        ASSERT(!OBJ_IS_CLOSURE_OBJECT(L));
         if (show_size)
             ShowWords(p);
-        return L; // Process addresses in it.
+        return p->LengthWord(); // Process addresses in it.
     }
 }
 

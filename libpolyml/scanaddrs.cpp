@@ -320,6 +320,7 @@ PolyObject *RecursiveScan::ScanObjectAddress(PolyObject *obj)
 // This is called via ScanAddressesInRegion to process the permanent mutables.  It is
 // also called from ScanObjectAddress to process root addresses.
 // It processes all the addresses reachable from the object.
+// This is almost the same as MTGCProcessMarkPointers::ScanAddressesInObject. 
 void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
 {
     if (OBJ_IS_BYTE_OBJECT(lengthWord))
@@ -335,13 +336,13 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
         // these will be side-effected by GetConstSegmentForCode.
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
 
-        if (OBJ_IS_CODE_OBJECT(lengthWord))
+        if (OBJ_IS_CODE_OBJECT(lengthWord) || OBJ_IS_CLOSURE_OBJECT(lengthWord))
         {
             // It's better to process the whole code object in one go.
+            // For the moment do that for closure objects as well.
             ScanAddress::ScanAddressesInObject(obj, lengthWord);
             length = 0; // Finished
         }
-        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
 
         // else it's a normal object,
 

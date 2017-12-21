@@ -381,10 +381,8 @@ class SaveFixupAddress: public ScanAddress
 {
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
-    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0; }
-    virtual PolyObject *ScanObjectAddress(PolyObject *base)
-        { return GetNewAddress(base).AsObjPtr(); }
-    PolyWord GetNewAddress(PolyWord old);
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { *pt = ScanObjectAddress(*pt); return 0; }
+    virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
 public:
     void ScanCodeSpace(CodeSpace *space);
@@ -393,21 +391,16 @@ public:
 
 POLYUNSIGNED SaveFixupAddress::ScanAddressAt(PolyWord *pt)
 {
-    *pt = GetNewAddress(*pt);
+    PolyWord val = *pt;
+    if (val.IsDataPtr() && val != PolyWord::FromUnsigned(0))
+        *pt = ScanObjectAddress(val.AsObjPtr());
     return 0;
 }
 
 // Returns the new address if the argument is the address of an object that
 // has moved, otherwise returns the original.
-PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
+PolyObject *SaveFixupAddress::ScanObjectAddress(PolyObject *obj)
 {
-    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
-        return old; //  Nothing to do.
-
-    ASSERT(old.IsDataPtr());
-
-    PolyObject *obj = old.AsObjPtr();
-    
     if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a moved object
     {
         PolyObject *newp = obj->GetForwardingPtr();
@@ -416,7 +409,7 @@ PolyWord SaveFixupAddress::GetNewAddress(PolyWord old)
     }
     
     ASSERT (obj->ContainsNormalLengthWord()); // object is not moved
-    return old;
+    return obj;
 }
 
 // Fix up addresses in the code area.  Unlike ScanAddressesInRegion this updates

@@ -407,6 +407,7 @@ void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength we
 // This is called via ScanAddressesInRegion to process the permanent mutables.  It is
 // also called from ScanObjectAddress to process root addresses.
 // It processes all the addresses reachable from the object.
+// This is almost the same as RecursiveScan::ScanAddressesInObject. 
 void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
 {
     if (OBJ_IS_BYTE_OBJECT(lengthWord))
