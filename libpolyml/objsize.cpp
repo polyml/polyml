@@ -80,6 +80,7 @@ class ProcessVisitAddresses: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return ShowWord(*pt); }
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0;  }
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
     POLYUNSIGNED ShowWord(PolyWord w);

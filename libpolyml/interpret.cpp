@@ -263,9 +263,10 @@ void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
     StackObject *stack = (StackObject *)space->stack();
     PolyObject *closure = DEREFWORDHANDLE(proc);
     uintptr_t stack_size = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
-    PolyWord firstClosure = closure->Get(0);
-    this->taskPc = firstClosure.AsCodePtr();
-//    this->taskSp = (PolyWord*)stack + stack_size-3; /* sp */
+    if (closure->IsClosureObject())
+        this->taskPc = *(POLYCODEPTR*)closure;
+    else this->taskPc = closure->Get(0).AsCodePtr();
+
     this->exception_arg = TAGGED(0); /* Used for exception argument. */
     this->taskSp = (stackItem*)stack + stack_size;
     this->raiseException = false;
@@ -495,13 +496,16 @@ int IntTaskData::SwitchToPoly()
 
         case INSTR_call_closure: /* Closure call. */
         {
-            PolyWord *t = (*sp).w().AsStackAddr(); /* Closure */
-            ASSERT(! ((*sp).w().AsObjPtr()->IsClosureObject()));
-            PolyWord u = *t;   /* Get code address. (1st word of closure) */
+            PolyObject *closure = (*sp).w().AsObjPtr();
+            POLYCODEPTR newPc;
+            if (closure->IsClosureObject())
+                newPc = *(POLYCODEPTR*)closure;
+            else
+                newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
             sp--;
             *sp = sp[1];      /* Move closure up. */
             sp[1].codeAddr = pc; /* Save return address. */
-            pc = u.AsCodePtr();    /* Get entry point. */
+            pc = newPc;    /* Get entry point. */
             this->taskPc = pc; // Update in case we're profiling
             break;
         }

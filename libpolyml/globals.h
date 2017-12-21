@@ -171,7 +171,7 @@ public:
 #ifdef POLYML32IN64
     PolyWord(POLYOBJPTR p) { contents.objectPtr = AddressToObjectPtr(p); }
     PolyWord *AsStackAddr(PolyWord *base = globalHeapBase) const { return base + contents.objectPtr; }
-    POLYOBJPTR AsObjPtr(void) const { return (POLYOBJPTR)AsStackAddr(); }
+    POLYOBJPTR AsObjPtr(PolyWord *base = globalHeapBase) const { return (POLYOBJPTR)AsStackAddr(base); }
 #else
     // An object pointer can become a word directly.
     PolyWord(POLYOBJPTR p) { contents.objectPtr = p; }

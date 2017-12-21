@@ -266,6 +266,7 @@ void GetSharing::Completed(PolyObject *obj)
     }
     else if (! OBJ_IS_CODE_OBJECT(L) && ! OBJ_IS_MUTABLE_OBJECT(L))
         excludedCount++; // Code and mutables can't be shared - see what could be
+    // TODO: We don't attempt to share closure cells in 32-in-64.
 }
 
 // Quicksort the list to detect cells with the same content.  These are made

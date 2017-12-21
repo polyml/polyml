@@ -58,6 +58,8 @@ class MTGCProcessUpdate: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    // Don't need to do anything for code.
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { return 0; }
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
@@ -108,11 +110,9 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
         return 0;
 
     // It looked like it would be possible to simplify this code and
-    // just call ContainsForwardingPtr on any address.
-    // Profiling shows that it's quite important to avoid calling
-    // ContainsForwardingPtr unnecessarily. I guess the reason is that
-    // it actually accesses the memory referenced by the address and it
-    // is unlikely to be in the cache.
+    // just call UpdateAddress on any address.  It seems to be
+    // better to avoid unnecessary writes so we only store into
+    // *pt if it has actually changed.
 
     PolyObject *obj = val.AsObjPtr();
     if (obj->ContainsForwardingPtr())

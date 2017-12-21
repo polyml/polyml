@@ -281,7 +281,6 @@ void PECOFFExport::exportStore(void)
             // We need that for relative jumps/calls in X86/64.
             if (length != 0 && obj->IsCodeObject())
                 machineDependent->ScanConstantsWithinCode(obj, this);
-            ASSERT(!obj->IsClosureObject());
             relocateObject(obj);
             p += length;
         }

@@ -381,6 +381,7 @@ class SaveFixupAddress: public ScanAddress
 {
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt) { ASSERT(0); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { return GetNewAddress(base).AsObjPtr(); }
     PolyWord GetNewAddress(PolyWord old);
@@ -861,6 +862,7 @@ public:
     void RelocateObject(PolyObject *p, PolyWord *baseAddr = 0);
 #endif
     void RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr);
+    PolyObject *RelocateAddress(PolyObject *obj);
     void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
 
     SavedStateSegmentDescr *descrs;
@@ -919,13 +921,15 @@ void LoadRelocate::AddTreeRange(SpaceBTree **tt, unsigned index, uintptr_t start
 void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
 {
     PolyWord val = *pt;
+    if (! val.IsTagged())
+        *pt = RelocateAddress(val.AsObjPtr(baseAddr));
+}
 
-    if (val.IsTagged()) return;
-
+PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
+{
     // Which segment is this address in?
     // N.B. As with SpaceForAddress we need to subtract 1 to point to the length word.
-    PolyWord *valAddr = val.AsStackAddr(baseAddr);
-    uintptr_t t = (uintptr_t)(valAddr - 1);
+    uintptr_t t = (uintptr_t)(obj - 1);
     SpaceBTree *tr = spaceTree;
 
     // Each level of the tree is either a leaf or a vector of trees.
@@ -938,12 +942,11 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
             unsigned i = tr->index;
             SavedStateSegmentDescr *descr = &descrs[i];
             PolyWord *newAddress = targetAddresses[descr->segmentIndex];
-            ASSERT((char*)valAddr > descr->originalAddress &&
-                (char*)valAddr <= (char*)descr->originalAddress + descr->segmentSize);
+            ASSERT((char*)obj > descr->originalAddress &&
+                (char*)obj <= (char*)descr->originalAddress + descr->segmentSize);
             ASSERT(newAddress != 0);
-            byte *setAddress = (byte*)newAddress + ((char*)valAddr - (char*)descr->originalAddress);
-            *pt = PolyWord::FromCodePtr(setAddress);
-            return;
+            byte *setAddress = (byte*)newAddress + ((char*)obj - (char*)descr->originalAddress);
+            return (PolyObject*)setAddress;
         }
         j -= 8;
         tr = ((SpaceBTreeTree*)tr)->tree[(t >> j) & 0xff];
@@ -951,6 +954,7 @@ void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
 
     // Error: Not found.
     errorMessage = "Unmatched address";
+    return obj;
 }
 
 // This is based on Exporter::relocateObject but does the reverse.
@@ -972,9 +976,16 @@ void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
         // N.B. This does not deal with constants within the code.  These have
         // to be handled by real relocation entries.
     }
+    else if (p->IsClosureObject())
+    {
+        // The first word is the address of the code.
+        POLYUNSIGNED length = p->Length();
+        *(PolyObject**)p = RelocateAddress(*(PolyObject**)p);
+        for (POLYUNSIGNED i = sizeof(PolyObject*)/sizeof(PolyWord); i < length; i++)
+            RelocateAddressAt(p->Offset(i), baseAddr);
+    }
     else /* Ordinary objects, essentially tuples. */
     {
-        ASSERT(!p->IsClosureObject());
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i), baseAddr);
     }

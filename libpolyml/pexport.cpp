@@ -214,15 +214,24 @@ void PExport::printObject(PolyObject *p)
         // Finally any constants in the code object.
         machineDependent->ScanConstantsWithinCode(p, this);
     }
-    else /* Ordinary objects, essentially tuples. */
+    else // Ordinary objects, essentially tuples, or closures.
     {
-        ASSERT(!p->IsClosureObject());
-        fprintf(exportFile, "O%" POLYUFMT "|", length);
-        for (i = 0; i < length; i++)
+        fprintf(exportFile, "%c%" POLYUFMT "|", p->IsClosureObject() ? 'L' : 'O', length);
+        if (p->IsClosureObject())
+        {
+            // The first word is always a code address.
+            printAddress(*(PolyObject**)p);
+            i = sizeof(PolyObject*)/sizeof(PolyWord);
+            if (i < length)
+                putc(',', exportFile);
+        }
+        else i = 0;
+        while (i < length)
         {
             printValue(p->Get(i));
             if (i < length-1)
                 putc(',', exportFile);
+            i++;
         }
     }
     fprintf(exportFile, "\n");
@@ -500,8 +509,6 @@ bool PImport::DoImport()
     ASSERT(gMem.eSpaces.size() == 0);
 
     ch = getc(f);
-    /* Skip the "Mapping" line. */
-    if (ch == 'M') { while (getc(f) != '\n') ; ch = getc(f); }
     ASSERT(ch == 'O'); /* Number of objects. */
     while (getc(f) != '\t') ;
     fscanf(f, "%" POLYUFMT, &nObjects);
@@ -545,7 +552,7 @@ bool PImport::DoImport()
             else if (ch == 'N') objBits |= F_NEGATIVE_BIT;
             if (ch == 'V') objBits |= F_NO_OVERWRITE;
             if (ch == 'W') objBits |= F_WEAK_BIT;
-        } while (ch == 'M' || ch == 'N' || ch == 'L' || ch == 'V' || ch == 'W');
+        } while (ch == 'M' || ch == 'N' || ch == 'V' || ch == 'W');
 
         /* Object type. */
         switch (ch)
@@ -581,6 +588,11 @@ bool PImport::DoImport()
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
 
+        case 'L': // Closure
+            objBits |= F_CLOSURE_OBJ;
+            fscanf(f, "%" POLYUFMT, &nWords);
+            break;
+
         default:
             fprintf(stderr, "Invalid object type\n");
             return false;
@@ -606,11 +618,6 @@ bool PImport::DoImport()
     fseek(f, 0, SEEK_SET);
     /* Skip the information at the start. */
     ch = getc(f);
-    if (ch == 'M')
-    {
-        while (getc(f) != '\n') ;
-        ch = getc(f);
-    }
     ASSERT(ch == 'O'); /* Number of objects. */
     while (getc(f) != '\n');
     ch = getc(f);
@@ -619,7 +626,6 @@ bool PImport::DoImport()
 
     while (1)
     {
-        POLYUNSIGNED  nWords, nBytes, i;
         if (feof(f))
             break;
         fscanf(f, "%" POLYUFMT, &objNo);
@@ -634,34 +640,55 @@ bool PImport::DoImport()
         do
         {
             ch = getc(f);
-        } while (ch == 'M' || ch == 'N' || ch == 'L' || ch == 'V' || ch == 'W');
+        } while (ch == 'M' || ch == 'N' || ch == 'V' || ch == 'W');
 
         /* Object type. */
         switch (ch)
         {
         case 'O': /* Simple object. */
+        case 'L': // Closure
+        {
+            POLYUNSIGNED nWords;
+            bool isClosure = ch == 'L';
             fscanf(f, "%" POLYUFMT, &nWords);
             ch = getc(f);
             ASSERT(ch == '|');
             ASSERT(nWords == p->Length());
 
-            for (i = 0; i < nWords; i++)
+            POLYUNSIGNED i = 0;
+            if (isClosure)
             {
-                if (! ReadValue(p, i))
+                int ch = getc(f);
+                // This should be an address
+                if (ch != '@') return false; 
+                POLYUNSIGNED obj;
+                fscanf(f, "%" POLYUFMT, &obj);
+                ASSERT(obj < nObjects);
+                *(PolyObject**)p = objMap[obj];
+                ch = getc(f);
+                i = sizeof(PolyObject*) / sizeof(PolyWord);
+            }
+
+            while (i < nWords)
+            {
+                if (!ReadValue(p, i))
                     return false;
                 ch = getc(f);
-                ASSERT((ch == ',' && i < nWords-1) ||
-                       (ch == '\n' && i == nWords-1));
+                ASSERT((ch == ',' && i < nWords - 1) ||
+                    (ch == '\n' && i == nWords - 1));
+                i++;
             }
 
             break;
+        }
 
         case 'B': /* Byte segment. */
             {
                 byte *u = (byte*)p;
+                POLYUNSIGNED nBytes;
                 fscanf(f, "%" POLYUFMT, &nBytes);
                 ch = getc(f); ASSERT(ch == '|');
-                for (i = 0; i < nBytes; i++)
+                for (POLYUNSIGNED i = 0; i < nBytes; i++)
                 {
                     int n;
                     fscanf(f, "%02x", &n);
@@ -682,10 +709,11 @@ bool PImport::DoImport()
             {
                 PolyStringObject * ps = (PolyStringObject *)p;
                 /* The length is the number of characters. */
+                POLYUNSIGNED nBytes;
                 fscanf(f, "%" POLYUFMT, &nBytes);
                 ch = getc(f); ASSERT(ch == '|');
                 ps->length = nBytes;
-                for (i = 0; i < nBytes; i++)
+                for (POLYUNSIGNED i = 0; i < nBytes; i++)
                 {
                     int n;
                     fscanf(f, "%02x", &n);
@@ -702,12 +730,13 @@ bool PImport::DoImport()
                 bool oldForm = ch == 'C';
                 byte *u = (byte*)p;
                 POLYUNSIGNED length = p->Length();
+                POLYUNSIGNED nWords, nBytes;
                 /* Read the number of bytes of code and the number of words
                    for constants. */
                 fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
                 /* Read the code. */
                 ch = getc(f); ASSERT(ch == '|');
-                for (i = 0; i < nBytes; i++)
+                for (POLYUNSIGNED i = 0; i < nBytes; i++)
                 {
                     int n;
                     fscanf(f, "%02x", &n);
@@ -727,7 +756,7 @@ bool PImport::DoImport()
                     ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
                 }
                 /* Read in the constants. */
-                for (i = 0; i < nWords; i++)
+                for (POLYUNSIGNED i = 0; i < nWords; i++)
                 {
                     if (! ReadValue(p, i+length-nWords-1))
                         return false;

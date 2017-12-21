@@ -62,6 +62,17 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
     return 0;
 }
 
+// As with ScanAddressAt except we know that the address we're pointing to is code.
+POLYUNSIGNED ScanAddress::ScanCodeAddressAt(PolyObject **pt)
+{
+    PolyObject *oldAddr = *pt;
+    ASSERT(oldAddr->IsCodeObject());
+    PolyObject *newAddr = ScanObjectAddress(*pt);
+    if (newAddr != oldAddr)
+        *pt = newAddr;
+    return 0;
+}
+
 // General purpose object processor,  Processes all the addresses in an object.
 // Handles the various kinds of object that may contain addresses.
 void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
@@ -84,8 +95,17 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
             // Skip to the constants and get ready to scan them.
             obj->GetConstSegmentForCode(length, baseAddr, length);
 
-        } // else it's a normal object,
-        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
+        }
+
+        else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
+        {
+            // The first word is a code pointer so we need to treat it specially.
+            POLYUNSIGNED lengthWord = ScanCodeAddressAt((PolyObject**)baseAddr); // N.B.  This could side-effect *baseAddr
+            if (lengthWord != 0)
+                ScanAddressesInObject(*(PolyObject**)baseAddr, lengthWord);
+            baseAddr += sizeof(PolyObject*) / sizeof(PolyWord);
+            length -= sizeof(PolyObject*) / sizeof(PolyWord);
+        }
 
         PolyWord *endWord = baseAddr + length;
 

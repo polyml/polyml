@@ -598,6 +598,7 @@ class ProcessFixupAddress: public ScanAddress
 {
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { return GetNewAddress(base).AsObjPtr(); }
     PolyWord GetNewAddress(PolyWord old);
@@ -606,6 +607,12 @@ protected:
 POLYUNSIGNED ProcessFixupAddress::ScanAddressAt(PolyWord *pt)
 {
     *pt = GetNewAddress(*pt);
+    return 0;
+}
+
+// Don't have to do anything for code since it isn't moved.
+POLYUNSIGNED ProcessFixupAddress::ScanCodeAddressAt(PolyObject **pt)
+{
     return 0;
 }
 
@@ -776,7 +783,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         return 1;
     }
 
-    ASSERT(OBJ_IS_WORD_OBJECT(L)); // That leaves immutable data objects.
+    ASSERT(OBJ_IS_WORD_OBJECT(L) || OBJ_IS_CLOSURE_OBJECT(L)); // That leaves immutable data objects.
     PushToStack(obj);
     obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
 
@@ -838,11 +845,6 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
                 obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
         }
 
-        else if (obj->IsClosureObject())
-        {
-            ASSERT(0);
-        }
-
         // Immutable local objects.  These can be shared.  We need to compute the
         // depth by computing the maximum of the depth of all the addresses in it.
         else if ((obj->LengthWord() & _OBJ_GC_MARK) && ! obj->IsMutable())
@@ -851,6 +853,13 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             POLYUNSIGNED length = obj->Length();
             PolyWord *pt = (PolyWord*)obj;
             unsigned osp = asp;
+
+            if (obj->IsClosureObject())
+            {
+                // The first word of a closure is a code pointer.  We don't share code.
+                pt += sizeof(PolyObject*) / sizeof(PolyWord);
+                length -= sizeof(PolyObject*) / sizeof(PolyWord);
+            }
 
             while (length != 0 && osp == asp)
             {

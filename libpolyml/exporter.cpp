@@ -232,9 +232,20 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     // Ignore integers.
     if (IS_INT(val) || val == PolyWord::FromUnsigned(0))
         return 0;
-    // Ignore pointers to the IO area.  They will be relocated
-    // when we write out the memory
-    MemSpace *space = gMem.SpaceForAddress(val.AsStackAddr()-1);
+
+    PolyObject *obj = val.AsObjPtr();
+    POLYUNSIGNED l = ScanAddress(&obj);
+    *pt = obj;
+    return l;
+}
+
+// This function is called for each address in an object
+// once it has been copied to its new location.  We copy first
+// then scan to update the addresses.
+POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
+{
+    PolyObject *obj = *pt;
+    MemSpace *space = gMem.SpaceForAddress(obj - 1);
     ASSERT(space != 0);
     // We may sometimes get addresses that have already been updated
     // to point to the new area.  e.g. (only?) in the case of constants
@@ -251,10 +262,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             return 0;
     }
 
-    ASSERT(OBJ_IS_DATAPTR(val));
-
     // Have we already scanned this?
-    PolyObject *obj = val.AsObjPtr();
     if (obj->ContainsForwardingPtr())
     {
         // Update the address to the new value.
@@ -268,9 +276,9 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         for (unsigned i = 0; i < tombs; i++)
         {
             GraveYard *g = &graveYard[i];
-            if (val.AsStackAddr() >= g->startAddr && val.AsStackAddr() < g->endAddr)
+            if ((PolyWord*)obj >= g->startAddr && (PolyWord*)obj < g->endAddr)
             {
-                PolyWord *tombAddr = g->graves + (val.AsStackAddr() - g->startAddr);
+                PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
                 PolyObject *tombObject = (PolyObject*)tombAddr;
                 if (tombObject->ContainsForwardingPtr())
                 {
@@ -284,7 +292,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 
     // No, we need to copy it.
     ASSERT(space->spaceType == ST_LOCAL || space->spaceType == ST_PERMANENT ||
-           space->spaceType == ST_CODE);
+        space->spaceType == ST_CODE);
     POLYUNSIGNED lengthWord = obj->LengthWord();
     POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord);
 
@@ -299,7 +307,6 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         isByteObj = obj->IsByteObject();
     }
     else isCodeObj = obj->IsCodeObject();
-    ASSERT(!obj->IsClosureObject());
     // Allocate a new address for the object.
     for (std::vector<PermanentMemSpace *>::iterator i = gMem.eSpaces.begin(); i < gMem.eSpaces.end(); i++)
     {
@@ -313,8 +320,8 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             size_t spaceLeft = space->top - space->topPointer;
             if (spaceLeft > words)
             {
-                newObj = (PolyObject*)(space->topPointer+1);
-                space->topPointer += words+1;
+                newObj = (PolyObject*)(space->topPointer + 1);
+                space->topPointer += words + 1;
 #ifdef POLYML32IN64
                 // Maintain the odd-word alignment of topPointer
                 if ((words & 1) == 0 && space->topPointer < space->top)
@@ -342,7 +349,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             else spaceWords = defaultImmSize;
         }
         if (spaceWords <= words)
-            spaceWords = words+1; // Make sure there's space for this object.
+            spaceWords = words + 1; // Make sure there's space for this object.
         PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite, isCodeObj);
         if (isByteObj) space->byteOnly = true;
         if (space == 0)
@@ -352,8 +359,8 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
             // Unable to allocate this.
             throw MemoryException();
         }
-        newObj = (PolyObject*)(space->topPointer+1);
-        space->topPointer += words+1;
+        newObj = (PolyObject*)(space->topPointer + 1);
+        space->topPointer += words + 1;
 #ifdef POLYML32IN64
         // Maintain the odd-word alignment of topPointer
         if ((words & 1) == 0 && space->topPointer < space->top)
@@ -367,7 +374,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 
     newObj->SetLengthWord(lengthWord); // copy length word
 
-    memcpy(newObj, obj, words*sizeof(PolyWord));
+    memcpy(newObj, obj, words * sizeof(PolyWord));
 
     if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
     {
@@ -376,9 +383,9 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         for (m = 0; m < tombs; m++)
         {
             GraveYard *g = &graveYard[m];
-            if (val.AsStackAddr() >= g->startAddr && val.AsStackAddr() < g->endAddr)
+            if ((PolyWord*)obj >= g->startAddr && (PolyWord*)obj < g->endAddr)
             {
-                PolyWord *tombAddr = g->graves + (val.AsStackAddr() - g->startAddr);
+                PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
                 PolyObject *tombObject = (PolyObject*)tombAddr;
                 tombObject->SetForwardingPtr(newObj);
                 break; // No need to look further
@@ -402,6 +409,10 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     return lengthWord;  // This new object needs to be scanned.
 }
 
+POLYUNSIGNED CopyScan::ScanCodeAddressAt(PolyObject **pt)
+{
+    return ScanAddress(pt);
+}
 
 PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
 {
@@ -755,9 +766,13 @@ void Exporter::relocateObject(PolyObject *p)
         for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
 
     }
+    else if (p->IsClosureObject())
+    {
+        ASSERT(POLYML32IN64);
+        // This should only be used in 32-in-64 where we don't use relocations.
+    }
     else /* Ordinary objects, essentially tuples. */
     {
-        ASSERT(! p->IsClosureObject());
         POLYUNSIGNED length = p->Length();
         for (POLYUNSIGNED i = 0; i < length; i++) relocateValue(p->Offset(i));
     }

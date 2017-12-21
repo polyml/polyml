@@ -1,7 +1,7 @@
 /*
     Title:  exporter.h - Export a function as an object or C file
 
-    Copyright (c) 2006, 2015-16 David C.J. Matthews
+    Copyright (c) 2006, 2015-17 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -100,6 +100,9 @@ public:
     ~CopyScan();
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
+    virtual POLYUNSIGNED ScanCodeAddressAt(PolyObject **pt);
+    POLYUNSIGNED ScanAddress(PolyObject **pt);
+
 public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 

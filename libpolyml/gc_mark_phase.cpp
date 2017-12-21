@@ -419,6 +419,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         // Get the length and base address.  N.B.  If this is a code segment
         // these will be side-effected by GetConstSegmentForCode.
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
+        PolyWord *baseAddr = (PolyWord*)obj;
 
         if (OBJ_IS_WEAKREF_OBJECT(lengthWord))
         {
@@ -442,9 +443,15 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             length = 0; // Finished
         }
 
-        ASSERT(!OBJ_IS_CLOSURE_OBJECT(lengthWord));
-
-        // else it's a normal object,
+        else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
+        {
+            // The first word is the absolute address of the code.
+            PolyObject *codeAddr = *(PolyObject**)obj;
+            ScanObjectAddress(codeAddr);
+            // The rest is a normal tuple.
+            length -= sizeof(PolyObject*) / sizeof(PolyWord);
+            baseAddr += sizeof(PolyObject*) / sizeof(PolyWord);
+        }
 
         // If there are only two addresses in this cell that need to be
         // followed we follow them immediately and treat this cell as done.
@@ -452,7 +459,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         // the stack, follow the first address and then rescan it.  That way
         // list cells are processed once only but we don't overflow the
         // stack by pushing all the addresses in a very large vector.
-        PolyWord *baseAddr = (PolyWord*)obj;
         PolyWord *endWord = baseAddr + length;
         PolyObject *firstWord = 0;
         PolyObject *secondWord = 0;
@@ -461,8 +467,8 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         if (obj == largeObjectCache[locPtr].base)
         {
             baseAddr = largeObjectCache[locPtr].current;
-            ASSERT(baseAddr > (PolyWord*)obj && baseAddr < ((PolyWord*)obj)+length);
-            if (locPtr == 0) locPtr = LARGECACHE_SIZE-1; else locPtr--;
+            ASSERT(baseAddr > (PolyWord*)obj && baseAddr < ((PolyWord*)obj) + length);
+            if (locPtr == 0) locPtr = LARGECACHE_SIZE - 1; else locPtr--;
         }
 
         while (baseAddr != endWord)
