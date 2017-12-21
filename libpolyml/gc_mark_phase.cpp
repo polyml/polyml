@@ -687,6 +687,13 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
 {
     while (pt < top)
     {
+#ifdef POLYML32IN64
+        if ((((uintptr_t)pt) & 4) == 0)
+        {
+            pt++;
+            continue;
+        }
+#endif
         PolyObject *obj = (PolyObject*)++pt;
         // If it has been copied by a minor collection skip it
         if (obj->ContainsForwardingPtr())

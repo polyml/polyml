@@ -170,6 +170,14 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
     PolyWord *pt = region;
     while (pt < end)
     {
+#ifdef POLYML32IN64
+        if ((((uintptr_t)pt) & 4) == 0)
+        {
+            // Skip any padding.  The length word should be on an odd-word boundary.
+            pt++;
+            continue;
+        }
+#endif
         pt++; // Skip length word.
         // pt actually points AT the object here.
         PolyObject *obj = (PolyObject*)pt;

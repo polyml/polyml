@@ -173,7 +173,7 @@ public:
 #ifdef POLYML32IN64
             if (words & 1)
             {
-                this->allocPointer[-1] = PolyWord::FromUnsigned(0);
+                this->allocPointer[-1] = PolyWord::FromUnsigned(0xcccccccc);
                 words++;
             }
 #endif

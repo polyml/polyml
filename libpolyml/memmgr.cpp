@@ -591,6 +591,15 @@ void MemMgr::FillUnusedSpace(PolyWord *base, uintptr_t words)
     PolyWord *pDummy = base+1;
     while (words > 0)
     {
+#ifdef POLYML32IN64
+        // Make sure that any dummy object we insert is properly aligned.
+        if (((uintptr_t)pDummy) & 4)
+        {
+            *pDummy++ = PolyWord::FromUnsigned(0);
+            words--;
+            continue;
+        }
+#endif
         POLYUNSIGNED oSize;
         // If the space is larger than the maximum object size
         // we will need several objects.
