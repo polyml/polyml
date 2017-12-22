@@ -175,7 +175,7 @@ public:
 #else
     // An object pointer can become a word directly.
     PolyWord(POLYOBJPTR p) { contents.objectPtr = p; }
-    POLYOBJPTR AsObjPtr(void) const { return contents.objectPtr; }
+    POLYOBJPTR AsObjPtr(PolyWord *base = 0) const { return contents.objectPtr; }
     PolyWord *AsStackAddr(PolyWord *base=0) const { return (PolyWord *)contents.objectPtr; }
 #endif
     POLYCODEPTR AsCodePtr(void) const { return (POLYCODEPTR)AsObjPtr(); }

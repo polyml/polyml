@@ -768,7 +768,9 @@ void Exporter::relocateObject(PolyObject *p)
     }
     else if (p->IsClosureObject())
     {
-        ASSERT(POLYML32IN64);
+#ifndef POLYML32IN64
+        ASSERT(0);
+#endif
         // This should only be used in 32-in-64 where we don't use relocations.
     }
     else /* Ordinary objects, essentially tuples. */

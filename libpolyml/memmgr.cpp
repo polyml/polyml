@@ -161,7 +161,7 @@ bool MemMgr::Initialise()
         return false;
     return true;
 #else
-    return osMemAlloc.Initialise();
+    return osHeapAlloc.Initialise() && osStackAlloc.Initialise();
 #endif
 }
 
