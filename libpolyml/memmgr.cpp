@@ -498,6 +498,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                             Log("MMGR: Unable to convert saved state space %p into code space\n", pSpace);
                         return false;
                     }
+                    // Enable write access.  Permanent spaces are read-only.
+                    osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                        PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into code space %p\n", pSpace, space);
                     // Set the bits in the header map.
@@ -534,6 +537,11 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                             Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
                         return false;
                     }
+                    // Enable write access.  Permanent spaces are read-only but we're going to
+                    // GC this space now it's local.
+                    osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                        PERMISSION_READ | PERMISSION_WRITE);
+
                     if (debugOptions & DEBUG_MEMMGR)
                         Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
                                 pSpace, pSpace->isMutable ? "im": "", space);
