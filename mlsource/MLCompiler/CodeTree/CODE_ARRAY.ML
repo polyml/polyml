@@ -6,8 +6,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation
-    version 2.1 of the License.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -19,27 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure CODE_ARRAY :>
-sig
-    type machineWord = Address.machineWord
-    and  address = Address.address
-    type byteVec and codeVec
-
-    val byteVecMake:            word -> byteVec
-    val byteVecSet:             byteVec * word * Word8.word -> unit
-    val byteVecToCodeVec:       byteVec -> codeVec
-    
-    val codeVecGet:             codeVec * word -> Word8.word
-    val codeVecSet:             codeVec * word * Word8.word -> unit
-    val codeVecAddr:            codeVec -> address
-    val codeVecPutWord:         codeVec * word * machineWord -> unit
-    
-    datatype constantType = ConstAbsolute | ConstX86Relative
-    
-    val codeVecPutConstant:     codeVec * word * machineWord * constantType -> unit
-    
-    val codeVecLockAndGetExecutable: codeVec -> address
-end = 
+structure CODE_ARRAY :> CODEARRAYSIG = 
 struct
     open Address
     open Misc
@@ -50,12 +29,24 @@ struct
 
     type byteVec = address
     and codeVec = address
+    and closureRef = address
 
     val objLength: address -> word = length
 
     val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
     val wordSize = Word.fromInt Address.wordSize
+
+    fun makeConstantClosure (): closureRef =
+    let
+        open Address
+    in
+        allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
+    end
     
+    fun codeAddressFromClosure closure = loadWord(closure, 0w0) (* Not valid in 32-in-64 *)
+    
+    fun closureAsAddress closure = toMachineWord closure
+
     fun byteVecMake size =
     let
         val vec : address = RunCall.allocateByteMemory(size, F_mutable_bytes)
@@ -71,9 +62,28 @@ struct
         vec
     end
 
-    (* These use specific C functions to do the work. *)
-    val byteVecToCodeVec = RunCall.rtsCallFull1 "PolyCopyByteVecToCode"
-    and codeVecLockAndGetExecutable = RunCall.rtsCallFull1 "PolyLockMutableCode"
+    (* codeVec is a way of referring to the code in a mutable form.
+       For the moment we use the code address itself but there's no reason
+       why we couldn't use the closure.  *)
+
+    local
+        val bvecToCvec = RunCall.rtsCallFull1 "PolyCopyByteVecToCode"
+    in
+        fun byteVecToCodeVec(bvec, closure) =
+        let
+            val cvec: codeVec = bvecToCvec bvec
+        in
+            assignWord(closure, 0w0, toMachineWord cvec);
+            lock closure;
+            cvec
+        end
+    end
+    
+    local
+        val cvecLock = RunCall.rtsCallFull1 "PolyLockMutableCode"
+    in
+        fun codeVecLock(cvec, _) = cvecLock cvec
+    end
 
     (* Return the address of the segment. Used when putting in "self" addresses. *)
     fun codeVecAddr vector = vector
@@ -131,6 +141,14 @@ struct
             then raise Subscript
             else setCodeConstantCall(addr, byteIndex, value, optValue)
         end
+    end
+
+    structure Sharing =
+    struct
+        type byteVec = byteVec
+        and  codeVec = codeVec
+        and  closureRef = closureRef
+        and  constantType = constantType
     end
 
 end;

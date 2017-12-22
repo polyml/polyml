@@ -143,7 +143,7 @@ struct
      
     type triple = {instr: x86ICode, current: intSet, active: intSet}
 
-    fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, hasFullClosure, debugSwitches, ...} =
+    fun codeICodeFunctionToX86{blocks, functionName, pregProps, argRegsUsed, hasFullClosure, debugSwitches, resultClosure, ...} =
     let
        (*val maxPRegs = Vector.length pregProps*)
         val icodeTabs = [8, 20, 60]
@@ -279,7 +279,8 @@ struct
                         (
                             if wantPrintCode then printRegisters allocatedRegs else ();
                             icodeToX86Code{blocks=identified, functionName=functionName, allocatedRegisters=allocatedRegs,
-                                       stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches}
+                                       stackRequired=maxStack, argRegsUsed=argRegsUsed, hasFullClosure=hasFullClosure, debugSwitches=debugSwitches,
+                                       resultClosure=resultClosure}
                         )
                |    AllocateFailure fails =>
                     let
@@ -301,5 +302,6 @@ struct
         and reg         = reg
         and basicBlock  = basicBlock
         and regProperty = regProperty
+        and closureRef  = closureRef
     end
 end;

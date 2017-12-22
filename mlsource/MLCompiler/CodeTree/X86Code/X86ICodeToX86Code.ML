@@ -24,14 +24,15 @@ functor X86ICodeToX86Code(
         type operation
         type code
         type operations = operation list
-        type address = Address.address
+        type closureRef
 
-        val generateCode: {code: code, ops: operations, labelCount: int} -> address
+        val generateCode: {code: code, ops: operations, labelCount: int, resultClosure: closureRef } -> unit
 
         structure Sharing:
         sig
             type operation = operation
             type code = code
+            type closureRef = closureRef
         end
     end
 
@@ -77,7 +78,8 @@ struct
         then [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
         else [edi, esi, edx, ecx, ebx, eax])
      
-    fun icodeToX86Code{blocks, functionName, stackRequired, argRegsUsed, hasFullClosure, debugSwitches, allocatedRegisters, ...} =
+    fun icodeToX86Code{blocks, functionName, stackRequired, argRegsUsed, hasFullClosure, debugSwitches,
+                       allocatedRegisters, resultClosure, ...} =
     let        
         fun argAsGenReg(RegisterArg(GenReg r)) = r
         |   argAsGenReg _ = raise InternalError "argAsGenReg"
@@ -1560,7 +1562,8 @@ struct
             val ops = genCode([0], ExitCode, preludeCode)
         end
     in
-        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops, labelCount= !outputLabelCount}
+        X86OPTIMISE.generateCode{code=newCode, ops=List.rev ops,
+                                 labelCount= !outputLabelCount, resultClosure=resultClosure}
     end
 
     val nGenRegs = List.length generalRegisters
@@ -1571,6 +1574,7 @@ struct
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and reg                 = reg
+        and closureRef          = closureRef
     end
 
 end;

@@ -18,13 +18,14 @@
 signature X86ICODEGENERATESIG =
 sig
     type intSet and extendedBasicBlock and regProperty and reg
-    type address = Address.address 
+    type closureRef
     
     val icodeToX86Code :
         {
             blocks: extendedBasicBlock vector, allocatedRegisters: reg vector, functionName: string,
-            stackRequired: int, argRegsUsed: reg list, hasFullClosure: bool, debugSwitches: Universal.universal list
-        } -> address
+            stackRequired: int, argRegsUsed: reg list, hasFullClosure: bool, debugSwitches: Universal.universal list,
+            resultClosure: closureRef
+        } -> unit
     
     val nGenRegs: int (* Number of general registers. *)
     
@@ -34,5 +35,6 @@ sig
         and extendedBasicBlock  = extendedBasicBlock
         and regProperty         = regProperty
         and reg                 = reg
+        and closureRef          = closureRef
     end
 end;

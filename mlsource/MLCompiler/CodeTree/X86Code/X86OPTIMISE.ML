@@ -22,22 +22,23 @@ sig
     type operation
     type code
     type operations = operation list
-    type address = Address.address
+    type closureRef
 
     (* Optimise and code-generate. *)
-    val generateCode: {code: code, ops: operations, labelCount: int} -> address
+    val generateCode: {code: code, ops: operations, labelCount: int, resultClosure: closureRef} -> unit
 
     structure Sharing:
     sig
         type operation = operation
         type code = code
+        type closureRef = closureRef
     end
 end =
 struct
     open X86CODE
     exception InternalError = Misc.InternalError
 
-    fun generateCode{code, ops, labelCount} =
+    fun generateCode{code, ops, labelCount, resultClosure} =
     let
         open RegSet
         (* Print the pre-optimised code if required. *)
@@ -261,12 +262,13 @@ struct
             else {ops=ops, labelCount=labelCount}
     in
         (* Pass on to the next stage. *)
-        X86CODE.generateCode{ops=finalOps, labelCount=finalLabelCount, code=code}
+        X86CODE.generateCode{ops=finalOps, labelCount=finalLabelCount, code=code, resultClosure=resultClosure}
     end
 
     structure Sharing =
     struct
         type operation = operation
         type code = code
+        type closureRef = closureRef
     end
 end;

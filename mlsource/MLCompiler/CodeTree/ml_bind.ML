@@ -29,6 +29,7 @@ local
             structure BASECODETREE  = BaseCodeTree
             structure BACKENDTREE = BackendIntermediateCode
             structure CODETREE_FUNCTIONS = CodetreeFunctions
+            structure CODE_ARRAY   = CODE_ARRAY
         )
 
      structure CodetreeLamdbaLift =
@@ -38,6 +39,7 @@ local
             and         BACKEND             = CodetreeBackend
             and         PRETTY              = Pretty
             and         DEBUG               = Debug
+            and         CODE_ARRAY          = CODE_ARRAY
         )
 
     structure CodetreeCodegenConstantFns =
@@ -47,6 +49,7 @@ local
             and         BACKEND             = CodetreeLamdbaLift
             and         PRETTY              = Pretty
             and         DEBUG               = Debug
+            and         CODE_ARRAY          = CODE_ARRAY
         )
 
     structure CodetreeRemoveRedundant =

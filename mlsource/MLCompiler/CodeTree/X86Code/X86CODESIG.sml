@@ -20,6 +20,7 @@ sig
     type machineWord = Address.machineWord
     type short = Address.short
     type address = Address.address
+    type closureRef
 
     type code
 
@@ -184,7 +185,7 @@ sig
     val codeCreate: string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     
     (* Code generate operations and construct the final code. *)
-    val generateCode: { ops: operations, code: code, labelCount: int } -> address
+    val generateCode: { ops: operations, code: code, labelCount: int, resultClosure: closureRef } -> unit
 
     val memRegLocalMPointer: int
     and memRegHandlerRegister: int
@@ -218,6 +219,7 @@ sig
         and  fpOps          = fpOps
         and  fpUnaryOps     = fpUnaryOps
         and  sse2Operations = sse2Operations
-        and opSize          = opSize
+        and  opSize         = opSize
+        and  closureRef     = closureRef
     end
 end;

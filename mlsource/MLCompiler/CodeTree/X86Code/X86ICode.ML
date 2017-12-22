@@ -767,6 +767,7 @@ struct
         and sse2Operations  = sse2Operations
         and ccRef           = ccRef
         and opSize          = opSize
+        and closureRef      = closureRef
     end
 end;
 

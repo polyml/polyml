@@ -106,6 +106,7 @@
 	<source name="mlsource\MLCompiler\CodeTree\ByteCode\INTGCODE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\ByteCode\ml_bind.interpreted.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML" />
+	<source name="mlsource\MLCompiler\CodeTree\CODEARRAYSIG.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CodegenTreeSig.sml" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE.ML" />
 	<source name="mlsource\MLCompiler\CodeTree\CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml" />

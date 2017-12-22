@@ -21,6 +21,8 @@ signature ICodeSig =
 sig
     type machineWord = Address.machineWord
     type address = Address.address
+    
+    type closureRef
 
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
@@ -359,5 +361,6 @@ sig
         and sse2Operations  = sse2Operations
         and ccRef           = ccRef
         and opSize          = opSize
+        and closureRef      = closureRef
    end
 end;

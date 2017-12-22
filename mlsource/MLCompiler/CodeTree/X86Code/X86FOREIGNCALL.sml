@@ -24,26 +24,30 @@ functor X86FOREIGNCALL(
         type operation
         type code
         type operations = operation list
-        type address = Address.address
+        type closureRef
 
         (* Optimise and code-generate. *)
-        val generateCode: {code: code, ops: operations, labelCount: int} -> address
+        val generateCode: {code: code, ops: operations, labelCount: int, resultClosure: closureRef} -> unit
 
         structure Sharing:
         sig
             type operation = operation
             type code = code
+            type closureRef = closureRef
         end
     end
 
     structure DEBUG: DEBUGSIG
+    
+    structure CODE_ARRAY: CODEARRAYSIG
 
-    sharing X86CODE.Sharing = X86OPTIMISE.Sharing
+    sharing X86CODE.Sharing = X86OPTIMISE.Sharing = CODE_ARRAY.Sharing
 ): FOREIGNCALLSIG
 =
 struct
     open X86CODE
     open Address
+    open CODE_ARRAY
     
     exception InternalError = Misc.InternalError
     
@@ -201,14 +205,10 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code}
-        (* Have to create a closure for this *)
-        open Address
-        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=1(*One label.*), ops=code, resultClosure=closure}
     in
-        assignWord(closure, 0w0, toMachineWord createdCode);
-        lock closure;
-        closure
+        closureAsAddress closure
     end
 
     (* This is a quicker version but can only be used if the RTS entry does
@@ -289,14 +289,10 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
-        (* Have to create a closure for this *)
-        open Address
-        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
     in
-        assignWord(closure, 0w0, toMachineWord createdCode);
-        lock closure;
-        closure
+        closureAsAddress closure
     end
     
     (* RTS call with one double-precision floating point argument and a floating point result.
@@ -388,14 +384,10 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
-        (* Have to create a closure for this *)
-        open Address
-        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
     in
-        assignWord(closure, 0w0, toMachineWord createdCode);
-        lock closure;
-        closure
+        closureAsAddress closure
     end
 
     (* RTS call with one general (i.e. ML word) argument and a floating point result.
@@ -478,14 +470,10 @@ struct
  
         val profileObject = createProfileObject functionName
         val newCode = codeCreate (functionName, profileObject, debugSwitches)
-        val createdCode = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code}
-        (* Have to create a closure for this *)
-        open Address
-        val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
+        val closure = makeConstantClosure()
+        val () = X86OPTIMISE.generateCode{code=newCode, labelCount=0, ops=code, resultClosure=closure}
     in
-        assignWord(closure, 0w0, toMachineWord createdCode);
-        lock closure;
-        closure
+        closureAsAddress closure
     end
 
 end;

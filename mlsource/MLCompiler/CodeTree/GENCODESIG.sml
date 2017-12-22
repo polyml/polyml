@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) 2016, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 signature GENCODESIG =
 sig
-    type backendIC and argumentType and machineWord and bicLoadForm
+    type backendIC and argumentType and machineWord and bicLoadForm and closureRef
     type bicLambdaForm =
     {
         body          : backendIC,
@@ -28,9 +28,15 @@ sig
         localCount    : int,
         heapClosure   : bool
     }
-    val gencodeLambda: bicLambdaForm * Universal.universal list * Address.address -> unit
+    val gencodeLambda: bicLambdaForm * Universal.universal list * closureRef -> unit
    
     structure Foreign: FOREIGNCALLSIG
 
-    structure Sharing: sig type backendIC = backendIC and argumentType = argumentType and bicLoadForm = bicLoadForm end
+    structure Sharing:
+    sig
+        type backendIC = backendIC
+        and argumentType = argumentType
+        and bicLoadForm = bicLoadForm
+        and closureRef = closureRef
+    end
 end;

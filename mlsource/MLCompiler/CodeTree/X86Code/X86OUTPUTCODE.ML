@@ -36,6 +36,7 @@
 functor X86OUTPUTCODE (
 structure DEBUG: DEBUGSIG
 structure PRETTY: PRETTYSIG (* for compilerOutTag *)
+structure CODE_ARRAY: CODEARRAYSIG
 
 ) : X86CODESIG =
 
@@ -3148,7 +3149,7 @@ struct
     fun generateCode
         {ops=operations,
          code=cvec as Code{procName, printAssemblyCode, printStream, profileObject, ...},
-         labelCount} : address =
+         labelCount, resultClosure} : unit =
     let
         val (expanded, newLabelCount) = expandComplexOperations (operations, labelCount)
 
@@ -3261,7 +3262,7 @@ struct
 
         (* We've put in all the byte data so it is safe to convert this to a mutable code
            cell that can contain addresses and will be scanned by the GC. *)
-        val codeSeg = byteVecToCodeVec byteVec
+        val codeSeg = byteVecToCodeVec(byteVec, resultClosure)
 
         (* Various RTS functions assume that the first constant is the function name.
            The profiler assumes that the third word is the address of the mutable that
@@ -3315,8 +3316,8 @@ struct
                 )
             else ()
         in
-            (* Finally lock the code and return the code address. *)
-            codeVecLockAndGetExecutable codeSeg 
+            (* Finally lock the code. *)
+            codeVecLock(codeSeg, resultClosure)
         end (* the result *)
     end (* generateCode *)
  
@@ -3338,7 +3339,8 @@ struct
         and  fpOps          = fpOps
         and  fpUnaryOps     = fpUnaryOps
         and  sse2Operations = sse2Operations
-        and opSize          = opSize
+        and  opSize         = opSize
+        and  closureRef     = closureRef
     end
 
 end (* struct *) (* CODECONS *);

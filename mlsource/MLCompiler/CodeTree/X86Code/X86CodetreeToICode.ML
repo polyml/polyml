@@ -21,13 +21,15 @@ functor X86CodetreeToICode(
     structure DEBUG: DEBUGSIG
     structure X86FOREIGN: FOREIGNCALLSIG
     structure ICODETRANSFORM: X86ICODETRANSFORMSIG
+    structure CODE_ARRAY: CODEARRAYSIG
 
-    sharing ICODE.Sharing = ICODETRANSFORM.Sharing
+    sharing ICODE.Sharing = ICODETRANSFORM.Sharing = CODE_ARRAY.Sharing
 ): GENCODESIG =
 struct
     open BACKENDTREE
     open Address
     open ICODE
+    open CODE_ARRAY
     
     exception InternalError = Misc.InternalError
 
@@ -86,7 +88,7 @@ struct
             LargeWord.toLargeInt(RunCall.unsafeCast addr)
         end
 
-    fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, closureOpt) =
+    fun codeFunctionToX86({body, localCount, name, argTypes, closure, ...}:bicLambdaForm, debugSwitches, resultClosure) =
     let
         (* Pseudo-registers are allocated sequentially and the properties added to the list. *)
         val pregCounter = ref 0
@@ -408,7 +410,9 @@ struct
                     
                         fun setClosure({lambda as {closure, ...}, ...}, dest, l) =
                         let
-                            val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                            val clResult = makeConstantClosure()
+                            val () = codeFunctionToX86(lambda, debugSwitches, clResult)
+                            val codeAddr = codeAddressFromClosure clResult
                             (* Basically the same as tuple except we load the address of
                                the closure we've made.  It's complicated because
                                StoreArgument to MemoryLocation assumes that the top of the stack is
@@ -425,7 +429,7 @@ struct
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
-                            val setFields = loadFields(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure, 0)
+                            val setFields = loadFields(BICConstnt(codeAddr, []) :: map BICExtract closure, 0)
                         in
                             l @ setFields @ [BlockSimple(LockMutable{addr=dest})]
                         end
@@ -516,7 +520,7 @@ struct
                    is empty. *)
                 moveIfNotAllowedRev(destination, tailCode,
                     case closure of
-                        [] => AddressConstant(toMachineWord(valOf closureOpt))
+                        [] => AddressConstant(closureAsAddress resultClosure)
                     |   _ => RegisterArgument closureRegAddr)
 
         |   codeToICodeRev(BICField{base, offset}, context, _, destination, tailCode) =
@@ -564,16 +568,11 @@ struct
                         BICConstnt(addr, _) =>
                         let
                             val addrAsAddr = toAddress addr
-                            (* If this is a closure we're still compiling or if it's an address
-                               of an io function (at the moment) we can't get the code address.
+                            (* If this is a closure we're still compiling we can't get the code address.
                                However if this is directly recursive we can use the recursive
                                convention. *)
-                            val isRecursive =
-                                case closureOpt of
-                                    SOME a => wordEq(toMachineWord a, addr)
-                                |   NONE => false
                         in
-                            if isRecursive
+                            if wordEq(closureAsAddress resultClosure, addr)
                             then (tailCode, [], Recursive)
                             else if flags addrAsAddr <> Address.F_words
                             then (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=MoveWord}) :: tailCode,
@@ -774,22 +773,22 @@ struct
         |   codeToICodeRev(BICLambda(lambda as { closure = [], ...}), _, _, destination, tailCode) =
             (* Empty closure - create a constant closure for any recursive calls. *)
             let
-                val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
-                val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
-                open Address
+                val closure = makeConstantClosure()
+                val () = codeFunctionToX86(lambda, debugSwitches, closure)
+                (* Return the closure itself as the value. *)
             in
-                assignWord(closure, 0w0, toMachineWord codeAddr);
-                lock closure;
-                moveIfNotAllowedRev(destination, tailCode, AddressConstant(toMachineWord closure))
+                moveIfNotAllowedRev(destination, tailCode, AddressConstant(closureAsAddress closure))
             end
 
         |   codeToICodeRev(BICLambda(lambda as { closure, ...}), context, isTail, destination, tailCode) =
             (* Non-empty closure.  Ignore stack closure option at the moment. *)
             let
-                val codeAddr = codeFunctionToX86(lambda, debugSwitches, NONE)
+                val closureRef = makeConstantClosure()
+                val () = codeFunctionToX86(lambda, debugSwitches, closureRef)
+                val codeAddr = codeAddressFromClosure closureRef
             in
                 (* Treat it as a tuple with the code as the first field. *)
-                codeToICodeRev(BICTuple(BICConstnt(toMachineWord codeAddr, []) :: map BICExtract closure), context, isTail, destination, tailCode)
+                codeToICodeRev(BICTuple(BICConstnt(codeAddr, []) :: map BICExtract closure), context, isTail, destination, tailCode)
             end
 
         |   codeToICodeRev(BICCond(test, thenPt, elsePt), context, isTail, NoResult, tailCode) =
@@ -3297,7 +3296,7 @@ struct
     in
         codeICodeFunctionToX86{blocks = resultVector, functionName = name, pregProps = pregProperties,
             argRegsUsed = argRegsUsed, hasFullClosure = not (null closure), currentStackArgs = currentStackArgs,
-            debugSwitches = debugSwitches}
+            debugSwitches = debugSwitches, resultClosure = resultClosure}
     end
 
     fun gencodeLambda(lambda, debugSwitches, closure) =
@@ -3306,11 +3305,8 @@ struct
         (*val debugSwitches =
             [tagInject Pretty.compilerOutputTag (Pretty.prettyPrint(print, 70)),
             tagInject assemblyCodeTag true] @ debugSwitches*)
-        val codeAddr = codeFunctionToX86(lambda, debugSwitches, SOME closure)
-        open Address
     in
-        assignWord(closure, 0w0, toMachineWord codeAddr);
-        lock closure
+        codeFunctionToX86(lambda, debugSwitches, closure)
     end
     
     structure Foreign = X86FOREIGN
@@ -3320,6 +3316,7 @@ struct
         type backendIC = backendIC
         and  bicLoadForm = bicLoadForm
         and argumentType = argumentType
+        and closureRef = closureRef
     end
     
 end;

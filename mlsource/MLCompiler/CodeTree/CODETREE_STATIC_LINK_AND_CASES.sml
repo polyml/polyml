@@ -852,6 +852,8 @@ struct
     in
         (insertedCode, argProperties)
     end (* staticLinkAndCases *)
+    
+    type closureRef = GCODE.closureRef
 
     fun codeGenerate(lambda: lambdaForm, debugSwitches, closure) =
     let
@@ -869,5 +871,9 @@ struct
     structure Foreign = GCODE.Foreign
     
     (* Sharing can be copied from CODETREE. *)
-    structure Sharing = BASECODETREE.Sharing
+    structure Sharing =
+    struct
+        open BASECODETREE.Sharing
+        type closureRef = closureRef
+    end
 end;

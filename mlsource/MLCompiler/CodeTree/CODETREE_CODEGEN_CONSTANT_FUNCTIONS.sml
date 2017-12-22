@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2017 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -27,12 +27,14 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     structure BACKEND: CodegenTreeSig
     structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
+    structure CODE_ARRAY: CODEARRAYSIG
 
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
     =   BACKEND.Sharing
     =   PRETTY.Sharing
+    =   CODE_ARRAY.Sharing
 ):
 sig
     type codetree
@@ -44,6 +46,7 @@ end =
 struct
     open BASECODETREE
     open CODETREE_FUNCTIONS
+    open CODE_ARRAY
     open Address
 
     exception InternalError = Misc.InternalError
@@ -65,11 +68,8 @@ struct
         val () =
             if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
             then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty(Lambda lambda)) else ()
-
-        val props = BACKEND.codeGenerate(lambda, debugSwitches, closure)
-        val () = Address.lock closure
     in
-        props
+        BACKEND.codeGenerate(lambda, debugSwitches, closure)
     end
 
     (* If we are code-generating a function immediately we make a one-word
@@ -77,12 +77,6 @@ struct
        After it is locked this becomes the closure of the function.  By creating
        it here we can turn recursive references into constant references before
        we actually compile the function. *)
-    fun makeConstantClosure () =
-    let
-        open Address
-    in
-        allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
-    end
 
     fun cgFuns ({ lookupAddr, ...}: cgContext) (Extract ext) =
         (

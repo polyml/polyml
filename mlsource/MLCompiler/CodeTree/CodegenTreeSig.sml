@@ -18,7 +18,7 @@
 
 signature CodegenTreeSig =
 sig
-    type codetree and inlineStatus and loadForm and argumentType and codeUse
+    type codetree and inlineStatus and loadForm and argumentType and codeUse and closureRef
     type lambdaForm =
     {
         body          : codetree,
@@ -31,7 +31,7 @@ sig
         recUse        : codeUse list
     }
     type machineWord = Address.machineWord
-    val codeGenerate: lambdaForm * Universal.universal list * Address.address -> Universal.universal list
+    val codeGenerate: lambdaForm * Universal.universal list * closureRef -> Universal.universal list
     structure Foreign: FOREIGNCALLSIG
     structure Sharing :
     sig
@@ -40,5 +40,6 @@ sig
         and loadForm = loadForm
         and argumentType = argumentType
         and codeUse = codeUse
+        and closureRef = closureRef
     end
 end;
