@@ -1055,7 +1055,7 @@ struct
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
                     Code{ printAssemblyCode, printStream,
-                           procName, constVec, stage1Code, ...}, maxStack) : address =
+                           procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
     let
         local
             val revCode = List.rev(!stage1Code)
@@ -1085,7 +1085,7 @@ struct
 
         (* Now we've filled in all the size info we need to convert the segment
            into a proper code segment before it's safe to put in any ML values. *)
-        val codeVec = byteVecToCodeVec byteVec
+        val codeVec = byteVecToCodeVec(byteVec, resultClosure)
 
         local
             val name     : string = procName
@@ -1122,7 +1122,7 @@ struct
         then (* print out the code *)
             (printCode (codeVec, procName, endIC, printStream); printStream"\n")
         else ();
-        codeVecLockAndGetExecutable codeVec
+        codeVecLock(codeVec, resultClosure)
     end (* copyCode *)
     
     fun addItemToList(item, Code{stage1Code, ...}) = stage1Code := item :: !stage1Code
@@ -1401,6 +1401,14 @@ struct
     val opcode_blockCompareByte = SimpleCode [opcode_blockCompareByte]
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
     val opcode_setClosure       = SimpleCode [opcode_setClosure]
+
+    structure Sharing =
+    struct
+        type code = code
+        type opcode = opcode
+        type labels = labels
+        type closureRef = closureRef
+    end
 
 end;
 

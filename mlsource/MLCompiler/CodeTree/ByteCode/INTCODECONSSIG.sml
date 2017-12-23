@@ -22,6 +22,7 @@ sig
     type code
     type opcode
     type labels
+    type closureRef
 
     val opcode_notBoolean: opcode
     val opcode_isTagged: opcode
@@ -172,7 +173,7 @@ sig
    val genTupleFromContainer : int * code -> unit
       
    (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code * int -> address
+   val copyCode : code * int * closureRef -> unit
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
@@ -185,4 +186,12 @@ sig
    val setLabel: labels * code -> unit
    
    val resetStack: int * bool * code -> unit (* Set a pending reset *)
+   
+    structure Sharing:
+    sig
+        type code = code
+        type opcode = opcode
+        type labels = labels
+        type closureRef = closureRef
+    end
 end ;

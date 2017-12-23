@@ -736,9 +736,14 @@ int IntTaskData::SwitchToPoly()
         case INSTR_setclosure:
         {
             PolyObject *srcPtr = (*sp++).w().AsObjPtr();
-            // Temporarily we may actually pass the code address here.
-            if (srcPtr->IsClosureObject())
-                srcPtr = *(PolyObject**)srcPtr;
+            // Temporarily we may actually pass the code address here or
+            // we may pass an old-format closure.
+            if (!srcPtr->IsCodeObject())
+            {
+                if (srcPtr->IsClosureObject())
+                    srcPtr = *(PolyObject**)srcPtr;
+                else srcPtr = srcPtr->Get(0).AsObjPtr();
+            }
             PolyObject **destPtr = (PolyObject **)(*sp).w().AsObjPtr();
             *destPtr = srcPtr;
             break;

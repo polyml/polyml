@@ -29,7 +29,7 @@ in
         INTGCODE (
             structure CODECONS     = CodeCons
             structure BACKENDTREE  = BackendIntermediateCode
-            structure MISC         = Misc
+            structure CODE_ARRAY   = CODE_ARRAY
         )
 end;
  

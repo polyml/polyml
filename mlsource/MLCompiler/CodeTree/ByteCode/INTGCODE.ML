@@ -31,8 +31,10 @@
    for that have been retained although they no longer actually generate code. *)
 functor INTGCODE (
     structure CODECONS : INTCODECONSSIG
-
     structure BACKENDTREE: BackendIntermediateCodeSig
+    structure CODE_ARRAY: CODEARRAYSIG
+    
+    sharing CODECONS.Sharing = BACKENDTREE.Sharing = CODE_ARRAY.Sharing
 
 ) : GENCODESIG =
 
@@ -42,6 +44,7 @@ struct
     open Address
     open BACKENDTREE
     open Misc
+    open CODE_ARRAY
 
     val word0 = toMachineWord 0;
   
@@ -69,7 +72,7 @@ struct
     val is32In64 = Address.length(toAddress(toMachineWord(0w0:LargeWord.word))) <> 0w1
 
     (* Code generate a function or global declaration *)
-    fun codegen (pt, cvec, recReference: machineWord option, numOfArgs, localCount, parameters) : address =
+    fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
     let
         datatype decEntry =
             StackAddr of int
@@ -120,11 +123,7 @@ struct
             )
 
         |   locaddr BICLoadRecursive =
-            (
-                case recReference of
-                    SOME codeAddr => ( pushConst (codeAddr, cvec); incsp () )
-                |   NONE => pushLocalStackValue ~1 (* The closure itself - first value on the stack. *)
-            )
+                pushLocalStackValue ~1 (* The closure itself - first value on the stack. *)
 
    (* generates code from the tree *)
    fun gencde (pt : backendIC, whereto : whereto, tailKind : tail, loopAddr) : unit =
@@ -873,16 +872,13 @@ struct
         let
             (* Create a one word item for the closure.  This is returned for recursive references
                and filled in with the address of the code when we've finished. *)
-            val closure = Address.allocWordData(0w1, Word8.orb (F_mutable, F_words), Address.toMachineWord 0w0)
+            val closure = makeConstantClosure()
             val newCode : code = codeCreate(name, parameters);
 
             (* Code-gen function. No non-local references. *)
-             val res : address =
-               codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters);
-            val () = Address.assignWord(closure, 0w0, Address.toMachineWord res)
-            val () = Address.lock closure
-
-            val () = pushConst(toMachineWord closure, cvec);
+             val () =
+               codegen (body, newCode, closure, List.length argTypes, localCount, parameters);
+            val () = pushConst(closureAsAddress closure, cvec);
             val () = incsp();
         in
             if mutualDecs then doNext () else ()
@@ -890,9 +886,10 @@ struct
 
     |   genProc ({ localCount, body, name, argTypes, closure, ...}, mutualDecs, doNext) =
         let (* Full closure required. *)
+            val resClosure = makeConstantClosure()
             val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
-            val res = codegen (body, newCode, NONE, List.length argTypes, localCount, parameters)
+            val () = codegen (body, newCode, resClosure, List.length argTypes, localCount, parameters)
             val numClosureItems = List.length closure
         in
             if mutualDecs orelse is32In64
@@ -906,8 +903,11 @@ struct
                 val () = genOpcode(opcode_allocWordMemory, cvec) (* Allocate the memory. *)
                 val () = incsp ()
            
-                (* Put code address into closure *)
-                val () = pushConst(toMachineWord res, cvec) 
+                (* Put code address into closure.  If this is 32in64 we need to pass
+                   the closure itself here otherwise we can extract the code. *)
+                val codeOrClosure =
+                    if is32In64 then closureAsAddress resClosure else codeAddressFromClosure resClosure
+                val () = pushConst(codeOrClosure, cvec) 
                 val () = genOpcode(opcode_setClosure, cvec)
            
                 val entryAddr : int = !realstackptr
@@ -942,7 +942,7 @@ struct
             else
             let
                 (* Put it on the stack. *)
-                val () = pushConst (toMachineWord res, cvec)
+                val () = pushConst (codeAddressFromClosure resClosure, cvec)
                 val () = incsp ()
                 val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
                 val () = genTuple (numClosureItems + 1, cvec)
@@ -1075,7 +1075,7 @@ struct
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        copyCode(cvec, !maxStack)
+        copyCode(cvec, !maxStack, resultClosure)
     end (* codegen *);
 
     fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
@@ -1083,22 +1083,18 @@ struct
         (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (name, parameters)
         (* This function must have no non-local references. *)
-        val codeAddr =
-            codegen (body, newCode, SOME(toMachineWord closure), List.length argTypes, localCount, parameters)
     in
-        assignWord(closure, 0w0, toMachineWord codeAddr);
-        lock closure
+        codegen (body, newCode, closure, List.length argTypes, localCount, parameters)
     end
 
     local
         val makeEntryPoint: string -> machineWord = RunCall.rtsCallFull1 "PolyCreateEntryPointObject"
 
-        fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): address =
+        fun rtsCall makeCall (entryName: string, numOfArgs, debugArgs: Universal.universal list): machineWord =
         let
             open Address
             val cvec = codeCreate (entryName, debugArgs)
-            val closure = allocWordData(0w1, Word8.orb (F_mutable, F_words), toMachineWord 0w0)
-
+            
             val entryPointAddr = makeEntryPoint entryName
 
             (* Each argument is at the same offset, essentially we're just shifting them *)
@@ -1109,12 +1105,11 @@ struct
             val () = pushConst(entryPointAddr, cvec)
             val () = makeCall(numOfArgs, cvec)
             val () = genReturn (numOfArgs, cvec)
+            val closure = makeConstantClosure()
         
-            val codeAddr = copyCode(cvec, numOfArgs+1)
+            val () = copyCode(cvec, numOfArgs+1, closure)
         in
-            assignWord(closure, 0w0, toMachineWord codeAddr);
-            lock closure;
-            closure
+            closureAsAddress closure
         end
     in
         structure Foreign = 
@@ -1130,5 +1125,10 @@ struct
         end
     end
 
+    structure Sharing =
+    struct
+        open BACKENDTREE.Sharing
+        type closureRef = closureRef
+    end
 end;
 
