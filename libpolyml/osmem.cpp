@@ -191,6 +191,7 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = getpagesize();
+    return true;
 }
 
 // Allocate space and return a pointer to it.  The size is the minimum
