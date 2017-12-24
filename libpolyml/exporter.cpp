@@ -458,6 +458,14 @@ static void FixForwarding(PolyWord *pt, size_t space)
     {
         pt++;
         PolyObject *obj = (PolyObject*)pt;
+#ifdef POLYML32IN64
+        if ((uintptr_t)obj & 4)
+        {
+            // Skip filler words needed to align to an even word
+            space--;
+            continue; // We've added 1 to pt so just loop.
+        }
+#endif
         size_t length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
         pt += length;
         ASSERT(space > length);
