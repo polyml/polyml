@@ -1909,6 +1909,12 @@ int IntTaskData::SwitchToPoly()
             break;
         }
 
+        case 0xff: // Enter interpreter.  A no-op when already in the interpreter
+        {
+            pc += 3;
+            break;
+        }
+
         default: Crash("Unknown instruction %x\n", pc[-1]);
 
         } /* switch */

@@ -1298,9 +1298,13 @@ struct
     end
     
     (* Unused - only used for bootstrapping. *)
-    fun genEnterIntCatch _ = ()
-    and genEnterIntProc _ = ()
-    and genEnterIntCall _ = ()
+    local
+        fun genEnterInt (code, b) = addItemToList(SimpleCode[0wxff, 0wx55, 0wx48, b], code)
+    in
+        fun genEnterIntCatch code = genEnterInt (code, 0wxff)
+        and genEnterIntProc(code, args) = genEnterInt (code, Word8.fromInt args+0wx80)
+        and genEnterIntCall(code, args) = genEnterInt (code, Word8.fromInt args)
+    end
     
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
     val opcode_isTagged         = SimpleCode [opcode_isTagged]
