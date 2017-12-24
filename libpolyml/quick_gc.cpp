@@ -474,7 +474,11 @@ void ThreadScanner::ScanOwnedAreas()
                     while (p < mid)
                     {
 #ifdef POLYML32IN64
-                        if ((((uintptr_t)p) & 4) == 0) p++; // Should be on an odd-word boundary
+                        if ((((uintptr_t)p) & 4) == 0)
+                        {
+                            p++; // Should be on an odd-word boundary
+                            continue;
+                        }
 #endif
                         PolyObject *o = (PolyObject*)(p+1);
                         ASSERT(o->ContainsNormalLengthWord());
@@ -493,7 +497,11 @@ void ThreadScanner::ScanOwnedAreas()
                 }
                 PolyObject *obj = (PolyObject*)(space->partialGCScan+1);
 #ifdef POLYML32IN64
-                if ((((uintptr_t)obj) & 4) != 0) space->partialGCScan + 2; // Should be on an even-word boundary
+                if ((((uintptr_t)obj) & 4) != 0)  // Should be on an even-word boundary
+                {
+                    space->partialGCScan++;
+                    continue;
+                }
 #endif
                 ASSERT(obj->ContainsNormalLengthWord());
                 POLYUNSIGNED length = obj->Length();
