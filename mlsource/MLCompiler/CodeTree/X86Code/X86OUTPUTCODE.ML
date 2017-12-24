@@ -45,7 +45,7 @@ struct
     open Address
     open Misc;
 
-    val isX64 = wordSize = 8 (* Generate X64 instructions if the word length is 8. *)
+    val isX64 = wordSize = 0w8 (* Generate X64 instructions if the word length is 8. *)
 
     infix 5 << <<+ <<- >> >>+ >>- ~>> ~>>+ ~>>- (* Shift operators *)
     infix 3 andb orb xorb andbL orbL xorbL andb8 orb8 xorb8
@@ -79,9 +79,9 @@ struct
 
     local
         val shift =
-            if wordSize = 4
+            if wordSize = 0w4
             then 0w2
-            else if wordSize = 8
+            else if wordSize = 0w8
             then 0w3
             else raise InternalError "Invalid word size for x86_32 or x86+64"
     in
@@ -121,16 +121,16 @@ struct
   (* EBP/RBP points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
     val memRegLocalMPointer       = 0 (* Not used in 64-bit *)
-    and memRegHandlerRegister     = wordSize
-    and memRegLocalMbottom        = 2 * wordSize
-    and memRegStackLimit          = 3 * wordSize
-    and memRegExceptionPacket     = 4 * wordSize
-    and memRegCStackPtr           = 6 * wordSize
-    and memRegThreadSelf          = 7 * wordSize
-    and memRegStackPtr            = 8 * wordSize
-    and memRegHeapOverflowCall    = 10 * wordSize
-    and memRegStackOverflowCall   = 11 * wordSize
-    and memRegStackOverflowCallEx = 12 * wordSize
+    and memRegHandlerRegister     = Word.toInt wordSize
+    and memRegLocalMbottom        = 2 * Word.toInt wordSize
+    and memRegStackLimit          = 3 * Word.toInt wordSize
+    and memRegExceptionPacket     = 4 * Word.toInt wordSize
+    and memRegCStackPtr           = 6 * Word.toInt wordSize
+    and memRegThreadSelf          = 7 * Word.toInt wordSize
+    and memRegStackPtr            = 8 * Word.toInt wordSize
+    and memRegHeapOverflowCall    = 10 * Word.toInt wordSize
+    and memRegStackOverflowCall   = 11 * Word.toInt wordSize
+    and memRegStackOverflowCallEx = 12 * Word.toInt wordSize
     
     (* This can probably be much smaller now. *)
     and memRegSize                = if isX64 then 144 else 56 (* Size of area on the stack. *)
@@ -198,7 +198,7 @@ struct
         else raise InternalError "int32Signed: invalid word"
     
     (* wordUnsigned is 8 bytes on 64-bits or 4-bytes on 32-bits. *)
-    fun wordUnsigned(ival: LargeWord.word) = largeWordToBytes(ival, wordSize)
+    fun wordUnsigned(ival: LargeWord.word) = largeWordToBytes(ival, Word.toInt wordSize)
 
     (* Registers. *)
     datatype genReg = GeneralReg of Word8.word * bool
@@ -1383,7 +1383,7 @@ struct
                     then opCodeBytes(MOVL_64_R rc, SOME {w=true, r=false, b=rx, x=false})
                     else opCodeBytes(MOVL_32_R rc, NONE)
                 val constnt =
-                    if wordSize = 8
+                    if wordSize = 0w8
                     then wordUnsigned(LargeWord.fromLargeInt(tag 0))
                     else int32Signed(tag 0)
             in
@@ -1610,7 +1610,7 @@ struct
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~wordSize
+                isX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
                 opAddressPlus2(if isX64 then MOVL_32_A64 else MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
@@ -1708,7 +1708,7 @@ struct
             then opCodeBytes(RET, NONE)
             else
             let
-                val offset = Word.fromInt(args * wordSize)
+                val offset = Word.fromInt args * wordSize
             in
                 opCodeBytes(RET_16, NONE) @ [wordToWord8 offset, wordToWord8(offset >> 0w8)]
             end
@@ -2189,7 +2189,7 @@ struct
             if isX64
             then (* Address constants go in the constant area. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
-            else (ic + Word.fromInt(Word8Vector.length bytes) - Word.fromInt wordSize, InlineAbsoluteAddress source) :: l
+            else (ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithToGenReg{ source=NonAddressConstArg source, ... }, bytes, ic, l) =
                 if is32bit source
@@ -2312,7 +2312,7 @@ struct
             let
                 val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
-                val bytes = (size + 1) * wordSize
+                val bytes = (size + 1) * Word.toInt wordSize
                 val startCode =
                     if isX64
                     then [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex}]
@@ -3166,8 +3166,8 @@ struct
 
         local
             (* Add one byte for the HLT and round up to a number of words. *)
-            val endOfCode = (codeSize+Word.fromInt wordSize) div Word.fromInt wordSize
-            val realSize = 0w8 div Word.fromInt wordSize
+            val endOfCode = (codeSize+wordSize) div wordSize
+            val realSize = 0w8 div wordSize
             fun addSizes((_, RealConstant _), n) = n+realSize
             |   addSizes((_, IntConstant _), n) = n+0w1
             |   addSizes(_, n) = n
@@ -3192,7 +3192,7 @@ struct
         end
     
         (* Align ic onto a fullword boundary. *)
-        val ()   = ic := ((!ic + Word.fromInt wordSize - 0w1) andb ~ (Word.fromInt wordSize))
+        val ()   = ic := ((!ic + wordSize - 0w1) andb ~wordSize)
         
         (* Copy the non-address constants.  These are only used in 64-bit mode and are
            either real constants or integers that are too large to fit in a 32-bit
@@ -3208,7 +3208,7 @@ struct
                     (* For the moment this should always be a real number contained in
                        a byte segment.  If this changes in the future we may need to
                        align this back onto a 4/8-byte boundary. *)
-                    val cLength = length cAsAddr * Word.fromInt wordSize
+                    val cLength = length cAsAddr * wordSize
                     val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
                                 raise InternalError "putNonAddrConst: Not a real number"
                     fun doCopy n =
@@ -3223,7 +3223,7 @@ struct
                 let
                     val addrOfConst = ! ic
                     fun setMem(m, n) = 
-                    if n = Word.fromInt wordSize then ()
+                    if n = wordSize then ()
                     else 
                     (
                         genBytes(Word8Vector.fromList[Word8.fromLargeInt(m mod 0x100)]);
@@ -3256,7 +3256,7 @@ struct
                     setBytes(ival div 256, offset+0w1, count-1)
                 )
         in
-            val () = setBytes(LargeInt.fromInt(3 + constsInConstArea), addr, wordSize)
+            val () = setBytes(LargeInt.fromInt(3 + constsInConstArea), addr, Word.toInt wordSize)
         end;
 
         (* We've put in all the byte data so it is safe to convert this to a mutable code
@@ -3297,7 +3297,7 @@ struct
                         codeVecPutWord (codeSeg, constAddr, m);
                         (* Put in the 32-bit offset - always unsigned since the destination
                            is after the reference. *)
-                        setBytes(constAddr * Word.fromInt wordSize - addrs - 0w4, addrs, 0w4);
+                        setBytes(constAddr * wordSize - addrs - 0w4, addrs, 0w4);
                         constAddr+0w1
                     )
 

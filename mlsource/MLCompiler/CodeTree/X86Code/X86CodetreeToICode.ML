@@ -205,7 +205,7 @@ struct
 
         (* Generally we have an offset in words and no index register. *)
         fun wordOffsetAddress(offset, baseReg: preg): argument =
-            MemoryLocation{offset=offset*wordSize, base=baseReg, index=NoMemIndex, cache=NONE}
+            MemoryLocation{offset=offset*Word.toInt wordSize, base=baseReg, index=NoMemIndex, cache=NONE}
    
         (* The large-word operations all work on the value within the box pointed at
            by the register.  We generate all large-word operations using this even
@@ -398,7 +398,7 @@ struct
                                 else
                                     (clear (n+1) @
                                         [BlockSimple(
-                                            StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*wordSize, index=NoMemIndex,
+                                            StoreArgument{source=IntegerConstant(tag 0), base=dest, offset=n*Word.toInt wordSize, index=NoMemIndex,
                                                           kind=MoveWord, isMutable=false})])
                         in
                             c @ clear 0 @ [BlockSimple InitialisationComplete]
@@ -421,7 +421,7 @@ struct
                                     val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
                                     val restAndAlloc = loadFields(rest, n+1)
                                     val storeValue =
-                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*wordSize, index=NoMemIndex, kind=MoveWord, isMutable=false })]
+                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*Word.toInt wordSize, index=NoMemIndex, kind=MoveWord, isMutable=false })]
                                 in
                                     code @ restAndAlloc @ storeValue
                                 end
@@ -1104,7 +1104,7 @@ struct
                         val (code1, source1, _) = codeToICodeRev(f, context, false, Allowed allowDefer, tlCode)
                         val restAndAlloc = loadFields(rest, n+1, code1)
                         val (code2, source, _)  = moveIfNotAllowedRev(Allowed allowInMemMove, restAndAlloc, source1)
-                        val storeValue = BlockSimple(StoreArgument{ source=source, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
+                        val storeValue = BlockSimple(StoreArgument{ source=source, offset=n*Word.toInt wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
                     in
                         storeValue :: code2
                     end
@@ -1124,7 +1124,7 @@ struct
             let
                 local
                     fun createStore containerReg (source, destWord) =
-                        StoreArgument{source=source, offset=destWord*wordSize, base=containerReg, index=NoMemIndex, kind=MoveWord, isMutable=false}
+                        StoreArgument{source=source, offset=destWord*Word.toInt wordSize, base=containerReg, index=NoMemIndex, kind=MoveWord, isMutable=false}
                 in
                     val (codeContainer, storeInstr) =
                         case container of
@@ -2030,7 +2030,7 @@ struct
                 val flagByte = Word8.fromLargeWord(Word.toLargeWord(toShort flagValue))
                 val memAddr = newPReg() and valueReg = newPReg()
                 fun initialise n =
-                    BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
+                    BlockSimple(StoreArgument{ source=RegisterArgument valueReg, offset=n*Word.toInt wordSize, base=memAddr, index=NoMemIndex, kind=MoveWord, isMutable=false})
                 val code =
                     codeToICodeTarget(initial, context, false, valueReg) @
                     [BlockSimple(AllocateMemoryOperation{size=vecLength, flags=flagByte, dest=memAddr, saveRegs=[]})] @
@@ -2370,13 +2370,13 @@ struct
                 val isWordMove =
                     case (isByteMove, length) of
                         (true, BICConstnt(l, _)) =>
-                        if not (isShort l) orelse (toShort l <> 0w4 andalso toShort l <> Word.fromInt wordSize)
+                        if not (isShort l) orelse (toShort l <> 0w4 andalso toShort l <> wordSize)
                         then NONE
                         else
                         let
                             val leng = toShort l
                             val moveKind =
-                                if toShort l = Word.fromInt wordSize
+                                if toShort l = wordSize
                                 then MoveWord
                                 else Move32Bit
                             val isLeftAligned =
