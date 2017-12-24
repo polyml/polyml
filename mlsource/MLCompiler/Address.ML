@@ -49,7 +49,7 @@ sig
     val length: address -> short
     val flags:  address -> Word8.word
 
-    val wordSize: int
+    val wordSize: word and nativeWordSize: word
 
     val F_words        : Word8.word
     val F_bytes        : Word8.word
@@ -120,11 +120,8 @@ struct
     
     It's safe to use assignWord with a byte-object or loadByte
     with a word-object but it may not do what you expect.
-    
-      One difference is that loadWord / assignWord leave the tag bits
-      unchanged but loadByte / assignByte strip and replace them.
-    
-      Another difference is that the offset for the
+     
+      Note that the offset for the
       "Word" functions is in words, whereas the offset for the
       "Byte" functions is in bytes.
   *)
@@ -134,9 +131,14 @@ struct
     and assignByte: address * Word.word * Word8.word -> unit = RunCall.storeByte
     and assignWord: address * Word.word * machineWord -> unit = RunCall.storeWord
     and lock:       address -> unit = RunCall.clearMutableBit
-    and wordSize:   int = Word.toInt RunCall.bytesPerWord
+    (* wordSize is the number of bytes in a Poly word. *)
+    and wordSize:   word = RunCall.bytesPerWord
     and length:     address -> Word.word = RunCall.memoryCellLength
     and flags:      address -> Word8.word  = Word8.fromLargeWord o Word.toLargeWord o RunCall.memoryCellFlags
+    
+    (* The native word size is the number of bytes in an address.  This is the same as
+       wordSize except in 32-in-64. *)
+    val nativeWordSize = length(toAddress(toMachineWord(0w0:LargeWord.word))) * wordSize
 
     local
         val callGetAllocationSize = RunCall.rtsCallFast0 "PolyGetMaxAllocationSize"
@@ -191,7 +193,7 @@ struct
         else if isBytes v
         then
         let
-            val length = Int.min(Word.toInt(length v) * wordSize, 16)
+            val length = Int.min(Word.toInt(length v * wordSize), 16)
             val data = Word8Vector.tabulate(length, fn n => loadByte(v, Word.fromInt n))
         in
             "BYTE data" ^ String.toString(Byte.bytesToString data)

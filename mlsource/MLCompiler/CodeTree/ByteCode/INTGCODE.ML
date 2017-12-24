@@ -69,7 +69,7 @@ struct
     |   NotEnd
     
     (* For the moment this the easiest way to tell. *)
-    val is32In64 = Address.length(toAddress(toMachineWord(0w0:LargeWord.word))) <> 0w1
+    val is32In64 = Address.nativeWordSize <> Address.wordSize
 
     (* Code generate a function or global declaration *)
     fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
@@ -606,8 +606,8 @@ struct
                    The offset is a byte count so has to be divided by the word size but
                    it should always be an exact multiple. *)
                 gencde (base, ToStack, NotEnd, loopAddr);
-                offset mod (Word.fromInt wordSize) = 0w0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
-                genIndirect (Word.toInt(offset div Word.fromInt wordSize), cvec)
+                offset mod wordSize = 0w0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
+                genIndirect (Word.toInt(offset div wordSize), cvec)
             )
 
         |   BICLoadOperation { kind=LoadStoreMLWord _, address={base, index=SOME indexVal, offset}} =>

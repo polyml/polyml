@@ -67,7 +67,7 @@ struct
         val profileObject = RunCall.allocateByteMemory(0w1, Word.fromLargeWord(Word8.toLargeWord(Word8.orb(F_mutable, F_bytes))))
         fun clear 0w0 = ()
         |   clear i = (assignByte(profileObject, i-0w1, 0w0); clear (i-0w1))
-        val () = clear(Word.fromInt wordSize)
+        val () = clear wordSize
     in
         toMachineWord profileObject
     end
@@ -326,7 +326,7 @@ struct
                 end
 
         (* Constants for a box for a float *)
-        val fpBoxSize = 8 div wordSize
+        val fpBoxSize = 8 div Word.toInt wordSize
         val fpBoxLengthWord32 = IntInf.orb(IntInf.fromInt fpBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
 
         val code =
@@ -363,7 +363,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~wordSize, base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -371,7 +371,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~wordSize, base=eax, index=NoIndex}},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
@@ -420,7 +420,7 @@ struct
                 end
 
         (* Constants for a box for a float *)
-        val fpBoxSize = 8 div wordSize
+        val fpBoxSize = 8 div Word.toInt wordSize
         val fpBoxLengthWord32 = IntInf.orb(IntInf.fromInt fpBoxSize, IntInf.<<(Word8.toLargeInt F_bytes, 0w24))
 
         val code =
@@ -449,7 +449,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~wordSize, base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -457,7 +457,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~wordSize, base=eax, index=NoIndex}},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
