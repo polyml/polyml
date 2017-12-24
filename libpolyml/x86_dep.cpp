@@ -297,10 +297,6 @@ extern "C" {
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 };
 
-extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord c, PolyWord flags);
-}
-
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
@@ -408,30 +404,6 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
                 *regAddr = PolyWord::FromStackAddr(addr.AsStackAddr() + offset);
         }
     }
-}
-
-// Set code constant.  This can be a fast call.  The only reason it is in the RTS is
-// to ensure that there is no possibility of a GC while the individual bytes are being
-// copied.
-// At the moment this assumes we're dealing with a 32-bit constant on a 32-bit machine
-// and a 64-bit constant on a 64-bit machine.
-
-POLYUNSIGNED PolySetCodeConstant(byte *pointer, PolyWord offset, PolyWord cWord, PolyWord flags)
-{
-    POLYUNSIGNED c = cWord.AsUnsigned();
-    // pointer is the start of the code segment.
-    // c will usually be an address.
-    // offset is a byte offset
-    pointer += offset.UnTaggedUnsigned();
-    if (flags == TAGGED(1))
-        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
-    // Store the value into the code.  It can be on an arbitrary alignment.
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
-    {
-        pointer[i] = (byte)(c & 255); 
-        c >>= 8;
-    }
-    return TAGGED(0).AsUnsigned();
 }
 
 Handle X86TaskData::EnterPolyCode()
@@ -1284,10 +1256,3 @@ void X86TaskData::AtomicReset(Handle mutexp)
 static X86Dependent x86Dependent;
 
 MachineDependent *machineDependent = &x86Dependent;
-
-struct _entrypts machineSpecificEPT[] =
-{
-    { "PolySetCodeConstant",              (polyRTSFunction)&PolySetCodeConstant},
-
-    { NULL, NULL} // End of list.
-};

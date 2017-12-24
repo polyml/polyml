@@ -64,7 +64,6 @@
 #include "poly_specific.h"
 #include "objsize.h"
 #include "network.h"
-#include "machine_dep.h"
 #include "exporter.h"
 
 extern struct _entrypts rtsCallEPT[];
@@ -88,7 +87,6 @@ static entrypts entryPointTable[] =
     polySpecificEPT,
     objSizeEPT,
     networkingEPT,
-    machineSpecificEPT,
     exporterEPT,
     NULL
 };

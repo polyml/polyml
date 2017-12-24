@@ -99,10 +99,14 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
         {
-            // The first word is a code pointer so we need to treat it specially.
-            POLYUNSIGNED lengthWord = ScanCodeAddressAt((PolyObject**)baseAddr); // N.B.  This could side-effect *baseAddr
-            if (lengthWord != 0)
-                ScanAddressesInObject(*(PolyObject**)baseAddr, lengthWord);
+            // The first word is a code pointer so we need to treat it specially
+            // but it is possible it hasn't yet been set.
+            if ((*(uintptr_t*)baseAddr & 1) == 0)
+            {
+                POLYUNSIGNED lengthWord = ScanCodeAddressAt((PolyObject**)baseAddr); // N.B.  This could side-effect *baseAddr
+                if (lengthWord != 0)
+                    ScanAddressesInObject(*(PolyObject**)baseAddr, lengthWord);
+            }
             baseAddr += sizeof(PolyObject*) / sizeof(PolyWord);
             length -= sizeof(PolyObject*) / sizeof(PolyWord);
         }

@@ -34,13 +34,14 @@ struct
     val objLength: address -> word = length
 
     val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
-    val wordSize = Word.fromInt Address.wordSize
 
     fun makeConstantClosure (): closureRef =
     let
         open Address
     in
-        allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w1)
+        if nativeWordSize <> wordSize
+        then (* 32-in-64 *) allocWordData(nativeWordSize div wordSize, Word8.orb(F_mutable, F_closure), toMachineWord 0w0)
+        else allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w0)
     end
     
     fun codeAddressFromClosure closure = loadWord(closure, 0w0) (* Not valid in 32-in-64 *)
@@ -63,42 +64,27 @@ struct
     end
 
     (* codeVec is a way of referring to the code in a mutable form.
-       For the moment we use the code address itself but there's no reason
-       why we couldn't use the closure.  *)
+       We now use the closure itself.  *)
 
     local
-        val bvecToCvec = RunCall.rtsCallFull1 "PolyCopyByteVecToCode"
+        val byteVecToClosure = RunCall.rtsCallFull2 "PolyCopyByteVecToClosure"
     in
         fun byteVecToCodeVec(bvec, closure) =
-        let
-            val cvec: codeVec = bvecToCvec bvec
-        in
-            assignWord(closure, 0w0, toMachineWord cvec);
-            lock closure;
-            cvec
-        end
+        (
+            byteVecToClosure (bvec, closure);
+            closure
+        )
     end
     
     local
-        val cvecLock = RunCall.rtsCallFull1 "PolyLockMutableCode"
+        val cvecLock = RunCall.rtsCallFull1 "PolyLockMutableClosure"
     in
-        fun codeVecLock(cvec, _) = cvecLock cvec
+        fun codeVecLock(_, closure) = cvecLock closure
     end
 
     (* Return the address of the segment. Used when putting in "self" addresses. *)
     fun codeVecAddr vector = vector
-  
-    (* Returns a value from the vector.  Used when printing code. *)
-    fun codeVecGet (addr, byteIndex : word) : Word8.word =
-    let
-        val lengthWords = objLength addr
-        val lengthBytes = wordSize * lengthWords
-    in
-        if byteIndex < lengthBytes
-        then loadByte (addr, byteIndex)
-        else raise Subscript
-    end
-
+ 
     (* Set a byte. Used when setting the byte data. *)
     fun byteVecSet (addr, byteIndex, value: Word8.word) =
     let
@@ -109,20 +95,9 @@ struct
         else raise Subscript
     end
 
-    (* Set a byte.  Used when fixing up code references. *)
-    val codeVecSet = byteVecSet
+    val codeVecGet = RunCall.rtsCallFast2 "PolyGetCodeByte"
+    and codeVecSet = RunCall.rtsCallFast3 "PolySetCodeByte"
 
-    (* Puts in a word at a given word offset.  This can only be used when the
-       word is on a word boundary. *)
-    fun codeVecPutWord (addr, wordIndex, value:machineWord) : unit =
-    let
-        val lengthWords = objLength addr
-    in
-        if lengthWords <= wordIndex
-        then raise Subscript
-        else assignWord (addr, wordIndex, value)
-    end
-    
     datatype constantType = ConstAbsolute | ConstX86Relative
 
     local
@@ -132,15 +107,14 @@ struct
            not on a word boundary or if it needs special treatment. *)
         fun codeVecPutConstant (addr, byteIndex, value:machineWord, option: constantType) =
         let
-            val lengthWords = objLength addr
-            val lengthBytes = wordSize * lengthWords
             val optValue =
                 case option of ConstAbsolute => 0w0 | ConstX86Relative => 0w1
         in
-            if lengthBytes <= byteIndex
-            then raise Subscript
-            else setCodeConstantCall(addr, byteIndex, value, optValue)
+            setCodeConstantCall(addr, byteIndex, value, optValue)
         end
+        
+        fun codeVecPutWord(addr, wordIndex, value) =
+            codeVecPutConstant(addr, wordIndex * wordSize, value, ConstAbsolute)
     end
 
     structure Sharing =

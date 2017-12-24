@@ -446,9 +446,11 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CLOSURE_OBJECT(lengthWord))
         {
-            // The first word is the absolute address of the code.
+            // The first word is the absolute address of the code ...
             PolyObject *codeAddr = *(PolyObject**)obj;
-            ScanObjectAddress(codeAddr);
+            // except that it is possible we haven't yet set it.
+            if (((uintptr_t)codeAddr & 1) == 0)
+                ScanObjectAddress(codeAddr);
             // The rest is a normal tuple.
             length -= sizeof(PolyObject*) / sizeof(PolyWord);
             baseAddr += sizeof(PolyObject*) / sizeof(PolyWord);
