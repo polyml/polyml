@@ -1051,21 +1051,26 @@ struct
     in
         putBytes(value, addrs, seg, 0w0)
     end
+    
+    (* Only used for bootstrapping. *)
+    fun genEnterInt b = SimpleCode[0wxff, 0wx55, 0wx48, b]
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
                     Code{ printAssemblyCode, printStream,
-                           procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
+                           procName, constVec, stage1Code, ...}, maxStack, numberOfArguments, resultClosure) =
     let
         local
             val revCode = List.rev(!stage1Code)
+            (* If we need enter-int code it must go first. *)
+            val enterInt = genEnterInt(Word8.fromInt numberOfArguments + 0wx80)
             (* Add a stack check. *)
             val stackCheck =
                 if maxStack < 256
                 then SimpleCode[opcode_stackSize8, Word8.fromInt maxStack]
                 else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)]
         in
-            val codeList = stackCheck :: revCode
+            val codeList = enterInt :: stackCheck :: revCode
         end
         val (byteVec, endIC) = genCode(codeList, cvec)
   
@@ -1297,15 +1302,9 @@ struct
         end
     end
     
-    (* Unused - only used for bootstrapping. *)
-    local
-        fun genEnterInt (code, b) = addItemToList(SimpleCode[0wxff, 0wx55, 0wx48, b], code)
-    in
-        fun genEnterIntCatch code = genEnterInt (code, 0wxff)
-        and genEnterIntProc(code, args) = genEnterInt (code, Word8.fromInt args+0wx80)
-        and genEnterIntCall(code, args) = genEnterInt (code, Word8.fromInt args)
-    end
-    
+    fun genEnterIntCatch code = addItemToList(genEnterInt 0wxff, code)
+    and genEnterIntCall(code, args) = addItemToList(genEnterInt (Word8.fromInt args), code)
+
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
     val opcode_isTagged         = SimpleCode [opcode_isTagged]
     and opcode_cellLength       = SimpleCode [opcode_cellLength]

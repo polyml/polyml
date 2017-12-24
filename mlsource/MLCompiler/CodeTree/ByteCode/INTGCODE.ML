@@ -1058,13 +1058,6 @@ struct
         realstackptr := !realstackptr - argsToPass (* Args popped by caller. *)
     end
 
-     
-    (* Closure functions must start with ``enterIntProc''. This is actually a
-       break-point instruction in the machine-code instruction set to make sure
-       that the code is interpreted. It is a no-op if we are already
-       interpreting. *)
-    val () = genEnterIntProc (cvec, numOfArgs); (* SPF 23/6/95 *)
-
    (* Generate the function. *)
    (* Assume we always want a result. There is otherwise a problem if the
       called routine returns a result of type void (i.e. no result) but the
@@ -1075,7 +1068,7 @@ struct
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        copyCode(cvec, !maxStack, resultClosure)
+        copyCode(cvec, !maxStack, numOfArgs, resultClosure)
     end (* codegen *);
 
     fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
@@ -1107,7 +1100,7 @@ struct
             val () = genReturn (numOfArgs, cvec)
             val closure = makeConstantClosure()
         
-            val () = copyCode(cvec, numOfArgs+1, closure)
+            val () = copyCode(cvec, numOfArgs+1, numOfArgs, closure)
         in
             closureAsAddress closure
         end

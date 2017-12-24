@@ -160,7 +160,6 @@ sig
       reason. *)
       
    val genEnterIntCatch : code -> unit
-   val genEnterIntProc  : code * int -> unit
    val genEnterIntCall  : code * int -> unit
       
    (* pushConst - Generates code to push a constant. *)
@@ -173,7 +172,7 @@ sig
    val genTupleFromContainer : int * code -> unit
       
    (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code * int * closureRef -> unit
+   val copyCode : code * int * int * closureRef -> unit
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)
