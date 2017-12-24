@@ -450,7 +450,6 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyLockMutableClosure(PolyObject * threadId, Po
 // possibility of a GC while the code is an inconsistent state.
 POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWord, PolyWord flags)
 {
-    POLYUNSIGNED c = cWord.AsUnsigned();
     byte *pointer;
     // Previously we passed the code address in here and we need to
     // retain that for legacy code.  This is now the closure.
@@ -461,13 +460,29 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
     // c will usually be an address.
     // offset is a byte offset
     pointer += offset.UnTaggedUnsigned();
-    if (flags == TAGGED(1))
-        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
-                                                         // Store the value into the code.  It can be on an arbitrary alignment.
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
+    switch (UNTAGGED(flags))
     {
-        pointer[i] = (byte)(c & 255);
-        c >>= 8;
+        case 0: // Absolute constant - size PolyWord
+        {
+            POLYUNSIGNED c = cWord.AsUnsigned();
+            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            {
+                pointer[i] = (byte)(c & 255);
+                c >>= 8;
+            }
+            break;
+        }
+        case 1: // Relative constant - X86 - size 4 bytes
+        {
+            // The offset is relative to the END of the constant.
+            size_t c = cWord.AsCodePtr() - pointer - 4;
+            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            {
+                pointer[i] = (byte)(c & 255);
+                c >>= 8;
+            }
+            break;
+        }
     }
     return TAGGED(0).AsUnsigned();
 }
