@@ -497,14 +497,17 @@ int IntTaskData::SwitchToPoly()
         {
             PolyObject *closure = (*sp).w().AsObjPtr();
             POLYCODEPTR newPc;
+            ASSERT(closure->IsClosureObject());
             if (closure->IsClosureObject())
                 newPc = *(POLYCODEPTR*)closure;
             else
                 newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
             sp--;
             *sp = sp[1];      /* Move closure up. */
+            ASSERT(*pc == 0xff); // There's an enter-int after the call
             sp[1].codeAddr = pc; /* Save return address. */
             pc = newPc;    /* Get entry point. */
+            ASSERT(*pc == 0xff); // There's an enter-int at the start of the code.
             this->taskPc = pc; // Update in case we're profiling
             break;
         }
@@ -571,6 +574,7 @@ int IntTaskData::SwitchToPoly()
                 pc = (*sp++).codeAddr;
                 if (pc == SPECIAL_PC_END_THREAD)
                     exitThread(this);  // Default handler for thread.
+                ASSERT(*pc == 0xff); // There's an enter-int at the start of the handler
                 this->hr = (*sp++).stackAddr;
                 break;
             }
