@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-16
+    Further work copyright David C. J. Matthews 2011-17
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -134,43 +134,66 @@ struct fpSaveArea {
 #define OVERFLOW_STACK_SIZE 50
 #endif
 
+union stackItem
+{
+#ifndef POLYML32IN64
+    stackItem(PolyWord v) { words[0] = v; };
+    PolyWord words[1];
+    bool IsPotentialPtr() const { return true; }
+#else
+    // In 32-in-64 we need to clear the second PolyWord.  This assumes little-endian.
+    stackItem(PolyWord v) { words[0] = v; words[1] = PolyWord::FromUnsigned(0); };
+    PolyWord words[2];
+    // If the top word is anything other than zero we definitely don't have an address.
+    bool IsPotentialPtr() const { return words[1] == PolyWord::FromUnsigned(0); }
+#endif
+    stackItem(): stackItem(TAGGED(0)) {} // Default constructor
+
+    PolyWord w()const { return words[0]; }
+    operator PolyWord () { return words[0]; }
+    POLYCODEPTR codeAddr; // Return addresses
+    stackItem *stackAddr; // Stack addresses
+    intptr_t argValue; // Treat an address as an int
+};
+
 class X86TaskData;
 
 // This is passed as the argument vector to X86AsmSwitchToPoly.
 // The offsets are built into the assembly code and the code-generator.
 // localMpointer and stackPtr are updated before control returns to C.
 typedef struct _AssemblyArgs {
+public:
     PolyWord        *localMpointer;     // Allocation ptr + 1 word
-    PolyWord        *handlerRegister;   // Current exception handler
+    stackItem       *handlerRegister;   // Current exception handler
     PolyWord        *localMbottom;      // Base of memory + 1 word
-    PolyWord        *stackLimit;        // Lower limit of stack
-    PolyWord        exceptionPacket;    // Set if there is an exception
+    stackItem       *stackLimit;        // Lower limit of stack
+    stackItem       exceptionPacket;    // Set if there is an exception
     byte            unusedRequestCode;  // No longer used.
     byte            unusedFlag;         // No longer used
     byte            returnReason;       // Reason for returning from ML.
     byte            unusedRestore;      // No longer used.
-    POLYUNSIGNED    saveCStack;         // Saved C stack frame.
+    uintptr_t       saveCStack;         // Saved C stack frame.
     PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
-    PolyWord        *stackPtr;          // Current stack pointer
-    POLYCODEPTR     unusedProgramCtr;
+    stackItem       *stackPtr;          // Current stack pointer
+    byte            *enterInterpreter;  // Temporary
     byte            *heapOverFlowCall;  // These are filled in with the functions.
     byte            *stackOverFlowCall;
     byte            *stackOverFlowCallEx;
     // Saved registers, where applicable.
-    PolyWord        p_rax;
-    PolyWord        p_rbx;
-    PolyWord        p_rcx;
-    PolyWord        p_rdx;
-    PolyWord        p_rsi;
-    PolyWord        p_rdi;
+    stackItem       p_rax;
+    stackItem       p_rbx;
+    stackItem       p_rcx;
+    stackItem       p_rdx;
+    stackItem       p_rsi;
+    stackItem       p_rdi;
 #ifdef HOSTARCHITECTURE_X86_64
-    PolyWord        p_r8;
-    PolyWord        p_r9;
-    PolyWord        p_r10;
-    PolyWord        p_r11;
-    PolyWord        p_r12;
-    PolyWord        p_r13;
-    PolyWord        p_r14;
+    stackItem       p_r8;
+    stackItem       p_r9;
+    stackItem       p_r10;
+    stackItem       p_r11;
+    stackItem       p_r12;
+    stackItem       p_r13;
+    stackItem       p_r14;
 #endif
     struct fpSaveArea p_fp;
 } AssemblyArgs;
@@ -185,7 +208,7 @@ public:
     int saveRegisterMask; // Registers that need to be updated by a GC.
 
     virtual void GarbageCollect(ScanAddress *process);
-    void ScanStackAddress(ScanAddress *process, PolyWord *pt, StackSpace *stack);
+    void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool AddTimeProfileCount(SIGNALCONTEXT *context);
@@ -197,11 +220,12 @@ public:
     virtual void AtomicReset(Handle mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
-    virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE; }
+    virtual uintptr_t currentStackSpace(void) const
+        { return ((stackItem*)this->stack->top - assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE; }
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
-    { add_count(this, assemblyInterface.stackPtr[0].AsCodePtr(), words); }
+    { add_count(this, assemblyInterface.stackPtr[0].w().AsCodePtr(), words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { SaveMemRegisters(); }
@@ -209,7 +233,7 @@ public:
     // If there has been a GC in the RTS call we need to create a new heap area.
     virtual void PostRTSCall(void) { SetMemRegisters(); }
 
-    virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
+    virtual void CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length);
 
     virtual Handle EnterCallbackFunction(Handle func, Handle args);
 
@@ -223,24 +247,24 @@ public:
 
     PLock interruptLock;
 
-    PolyWord *get_reg(int n);
+    stackItem *get_reg(int n);
 
-    PolyWord *&regSP() { return assemblyInterface.stackPtr; }
+    stackItem *&regSP() { return assemblyInterface.stackPtr; }
 
-    PolyWord &regAX() { return assemblyInterface.p_rax; }
-    PolyWord &regBX() { return assemblyInterface.p_rbx; }
-    PolyWord &regCX() { return assemblyInterface.p_rcx; }
-    PolyWord &regDX() { return assemblyInterface.p_rdx; }
-    PolyWord &regSI() { return assemblyInterface.p_rsi; }
-    PolyWord &regDI() { return assemblyInterface.p_rdi; }
+    stackItem &regAX() { return assemblyInterface.p_rax; }
+    stackItem &regBX() { return assemblyInterface.p_rbx; }
+    stackItem &regCX() { return assemblyInterface.p_rcx; }
+    stackItem &regDX() { return assemblyInterface.p_rdx; }
+    stackItem &regSI() { return assemblyInterface.p_rsi; }
+    stackItem &regDI() { return assemblyInterface.p_rdi; }
 #ifdef HOSTARCHITECTURE_X86_64
-    PolyWord &reg8() { return assemblyInterface.p_r8; }
-    PolyWord &reg9() { return assemblyInterface.p_r9; }
-    PolyWord &reg10() { return assemblyInterface.p_r10; }
-    PolyWord &reg11() { return assemblyInterface.p_r11; }
-    PolyWord &reg12() { return assemblyInterface.p_r12; }
-    PolyWord &reg13() { return assemblyInterface.p_r13; }
-    PolyWord &reg14() { return assemblyInterface.p_r14; }
+    stackItem &reg8() { return assemblyInterface.p_r8; }
+    stackItem &reg9() { return assemblyInterface.p_r9; }
+    stackItem &reg10() { return assemblyInterface.p_r10; }
+    stackItem &reg11() { return assemblyInterface.p_r11; }
+    stackItem &reg12() { return assemblyInterface.p_r12; }
+    stackItem &reg13() { return assemblyInterface.p_r13; }
+    stackItem &reg14() { return assemblyInterface.p_r14; }
 #endif
 
 #if (defined(_WIN32) && !defined(__CYGWIN__))
@@ -274,6 +298,7 @@ enum RETURN_REASON {
     RETURN_HEAP_OVERFLOW = 1,
     RETURN_STACK_OVERFLOW = 2,
     RETURN_STACK_OVERFLOWEX = 3,
+    RETURN_ENTER_INTERPRETER = 4,
     RETURN_CALLBACK_RETURN = 6,
     RETURN_CALLBACK_EXCEPTION = 7,
     RETURN_KILL_SELF = 9
@@ -292,6 +317,7 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
     extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
+    extern int X86AsmCallExtraRETURN_ENTER_INTERPRETER(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
@@ -299,6 +325,7 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
+    assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
@@ -313,59 +340,85 @@ void X86TaskData::GarbageCollect(ScanAddress *process)
     if (stack != 0)
     {
         // Now the values on the stack.
-        for (PolyWord *q = assemblyInterface.stackPtr; q < stack->top; q++)
-            ScanStackAddress(process, q, stack);
+        for (stackItem *q = assemblyInterface.stackPtr; q < (stackItem*)stack->top; q++)
+        {
+            if (q->IsPotentialPtr())
+            {
+                PolyWord w = q->w();
+                if (w.IsDataPtr())
+                {
+                    ScanStackAddress(process, w, stack);
+                    *q = w;
+                }
+            }
+        }
     }
     // Register mask
     for (int i = 0; i < 16; i++)
     {
         if (saveRegisterMask & (1 << i))
-            ScanStackAddress(process, get_reg(i), stack);
+        {
+            stackItem *regAddr = get_reg(i);
+            if (regAddr->IsPotentialPtr())
+            {
+                PolyWord w = regAddr->w();
+                if (w.IsDataPtr())
+                {
+                    ScanStackAddress(process, w, stack);
+                    *regAddr = w;
+                }
+            }
+        }
     }
 }
 
 // Process a value within the stack.
-void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord *pt, StackSpace *stack)
+void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack)
 {
     // We may have return addresses on the stack which could look like
     // tagged values.  Check whether the value is in the code area before
     // checking whether it is untagged.
     // The -1 here is because we may have a zero-sized cell in the last
     // word of a space.
-    MemSpace *space = gMem.SpaceForAddress(pt->AsCodePtr()-1);
+    MemSpace *space = gMem.SpaceForAddress(val.AsCodePtr()-1);
     if (space == 0) return;
     if (space->spaceType == ST_CODE)
     {
-        PolyObject *obj = gMem.FindCodeObject(pt->AsCodePtr());
+        PolyObject *obj = gMem.FindCodeObject(val.AsCodePtr());
         // If it is actually an integer it might be outside a valid code object.
         if (obj == 0)
         {
-            ASSERT(pt->IsTagged()); // It must be an integer
+            ASSERT(val.IsTagged()); // It must be an integer
         }
         else // Process the address of the start.  Don't update anything.
             process->ScanObjectAddress(obj);
     }
-    else if (space->spaceType == ST_LOCAL && pt->IsDataPtr())
+    else if (space->spaceType == ST_LOCAL && val.IsDataPtr())
         // Local values must be word addresses.
-        *pt = process->ScanObjectAddress(pt->AsObjPtr());
+        val = process->ScanObjectAddress(val.AsObjPtr());
 }
 
 
 // Copy a stack
-void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
+void X86TaskData::CopyStackFrame(StackObject *old_stack, uintptr_t old_length, StackObject *new_stack, uintptr_t new_length)
 {
     /* Moves a stack, updating all references within the stack */
-    PolyWord *old_base  = (PolyWord *)old_stack;
-    PolyWord *new_base  = (PolyWord*)new_stack;
-    PolyWord *old_top   = old_base + old_length;
+#ifdef POLYML32IN64
+    old_length = old_length / 2;
+    new_length = new_length / 2;
+#endif
+
+    stackItem *old_base  = (stackItem *)old_stack;
+    stackItem *new_base  = (stackItem*)new_stack;
+    stackItem *old_top   = old_base + old_length;
 
     /* Calculate the offset of the new stack from the old. If the frame is
        being extended objects in the new frame will be further up the stack
        than in the old one. */
 
-    POLYSIGNED offset = new_base - old_base + new_length - old_length;
+    uintptr_t offset = new_base - old_base + new_length - old_length;
 
-    PolyWord *oldStackPtr = assemblyInterface.stackPtr;
+    stackItem *oldStackPtr = assemblyInterface.stackPtr;
 
     // Adjust the stack pointer and handler pointer since these point into the stack.
     assemblyInterface.stackPtr = assemblyInterface.stackPtr + offset;
@@ -374,35 +427,53 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     // We need to adjust any values on the stack that are pointers within the stack.
     // Skip the unused part of the stack.
 
-    POLYUNSIGNED i = oldStackPtr - old_base;
+    size_t i = oldStackPtr - old_base;
 
     ASSERT (i <= old_length);
 
     i = old_length - i;
 
-    PolyWord *old = oldStackPtr;
-    PolyWord *newp= assemblyInterface.stackPtr;
+    stackItem *old = oldStackPtr;
+    stackItem *newp = assemblyInterface.stackPtr;
 
     while (i--)
     {
-        PolyWord old_word = *old++;
-        if (old_word.IsTagged() || old_word.AsStackAddr() < old_base || old_word.AsStackAddr() >= old_top)
-            *newp++ = old_word;
-        else
-            *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
+        stackItem old_word = *old++;
+        if (old_word.w().IsDataPtr() && old_word.stackAddr >= old_base && old_word.stackAddr <= old_top)
+            old_word.stackAddr = old_word.stackAddr + offset;
+        else if (old_word.w().IsDataPtr() && IsHeapAddress(old_word.stackAddr))
+        {
+            stackItem *addr = (stackItem*)old_word.w().AsStackAddr();
+            if (addr >= old_base && addr <= old_top)
+            {
+                addr += offset;
+                old_word = PolyWord::FromStackAddr((PolyWord*)addr);
+            }
+        }
+        *newp++ = old_word;
     }
-    ASSERT(old == ((PolyWord*)old_stack)+old_length);
-    ASSERT(newp == ((PolyWord*)new_stack)+new_length);
+    ASSERT(old == ((stackItem*)old_stack)+old_length);
+    ASSERT(newp == ((stackItem*)new_stack)+new_length);
     // And change any registers that pointed into the old stack
     for (int j = 0; j < 16; j++)
     {
         if (saveRegisterMask & (1 << j))
         {
-            PolyWord *regAddr = get_reg(j);
-            PolyWord addr = *regAddr;
-            if (! addr.IsTagged() && addr.AsStackAddr() >= old_base && addr.AsStackAddr() < old_top)
-                *regAddr = PolyWord::FromStackAddr(addr.AsStackAddr() + offset);
-        }
+            stackItem *regAddr = get_reg(j);
+            stackItem old_word = *regAddr;
+            if (old_word.w().IsDataPtr() && old_word.stackAddr >= old_base && old_word.stackAddr <= old_top)
+                old_word.stackAddr = old_word.stackAddr + offset;
+            else if (old_word.w().IsDataPtr() && IsHeapAddress(old_word.stackAddr))
+            {
+                stackItem *addr = (stackItem*)old_word.w().AsStackAddr();
+                if (addr >= old_base && addr <= old_top)
+                {
+                    addr += offset;
+                    old_word = PolyWord::FromStackAddr((PolyWord*)addr);
+                }
+            }
+            *regAddr = old_word;
+       }
     }
 }
 
@@ -494,24 +565,24 @@ int X86TaskData::SwitchToPoly()
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.
             SetRegisterMask();
-            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].AsCodePtr()); // Computes a value for allocWords only
+            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].w().AsCodePtr()); // Computes a value for allocWords only
             break;
 
         case RETURN_STACK_OVERFLOW:
         case RETURN_STACK_OVERFLOWEX:
         {
             SetRegisterMask();
-            POLYUNSIGNED min_size;
+            uintptr_t min_size;
             if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
             {
-                min_size = this->stack->top - assemblyInterface.stackPtr + OVERFLOW_STACK_SIZE;
+                min_size = this->stack->top - (PolyWord*)assemblyInterface.stackPtr + OVERFLOW_STACK_SIZE;
             }
             else
             {
                 // Stack limit overflow.  If the required stack space is larger than
                 // the fixed overflow size the code will calculate the limit in %EDI.
-                PolyWord *stackP = regDI().AsStackAddr();
-                min_size = this->stack->top - stackP + OVERFLOW_STACK_SIZE;
+                stackItem *stackP = regDI().stackAddr;
+                min_size = this->stack->top - (PolyWord*)stackP + OVERFLOW_STACK_SIZE;
             }
             try {
                 // The stack check has failed.  This may either be because we really have
@@ -526,7 +597,7 @@ int X86TaskData::SwitchToPoly()
                 PLocker l(&interruptLock);
                 // Set the stack limit.  This clears any interrupt and also sets the
                 // correct value if we've grown the stack.
-                this->assemblyInterface.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
+                this->assemblyInterface.stackLimit = (stackItem*)this->stack->bottom + OVERFLOW_STACK_SIZE;
             }
             return -1; // We're in a safe state to handle any interrupts.
         }
@@ -535,7 +606,7 @@ int X86TaskData::SwitchToPoly()
             // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(assemblyInterface.handlerRegister == regSP());
             regSP() += 1;
-            assemblyInterface.handlerRegister = (*(regSP()++)).AsStackAddr(); // Restore the previous handler.
+            assemblyInterface.handlerRegister = (*(regSP()++)).stackAddr; // Restore the previous handler.
             this->callBackResult = this->saveVec.push(regAX()); // Argument to return is in RAX.
             return -2;
 
@@ -546,6 +617,9 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_KILL_SELF:
             exitThread(this);
+
+        case RETURN_ENTER_INTERPRETER:
+            ASSERT(0);
 
         default:
             Crash("Unknown return reason code %u", this->assemblyInterface.returnReason);
@@ -559,11 +633,12 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 {
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
-    POLYUNSIGNED stack_size     = space->spaceSize();
-    POLYUNSIGNED topStack = stack_size-6;
-    assemblyInterface.stackPtr = (PolyWord*)newStack+topStack; 
-    assemblyInterface.stackLimit = space->bottom + OVERFLOW_STACK_SIZE;
-    assemblyInterface.handlerRegister    = (PolyWord*)newStack+topStack+4;
+    uintptr_t stack_size     = space->spaceSize() * sizeof(PolyWord) / sizeof(stackItem);
+    uintptr_t topStack = stack_size-6;
+    stackItem *stackTop = (stackItem*)newStack + topStack;
+    assemblyInterface.stackPtr = stackTop;
+    assemblyInterface.stackLimit = (stackItem*)((PolyWord*)space->bottom + OVERFLOW_STACK_SIZE);
+    assemblyInterface.handlerRegister = (stackItem*)newStack+topStack+4;
 
     // Floating point save area.
     memset(&assemblyInterface.p_fp, 0, sizeof(struct fpSaveArea));
@@ -573,26 +648,31 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     assemblyInterface.p_fp.tw = 0xffff; // Tag registers - all unused
 #endif
     // Initial entry point - on the stack.
-    ((PolyWord*)newStack)[topStack] = PolyWord::FromCodePtr((byte*)&X86AsmPopArgAndClosure);
+    stackTop[0].codeAddr = (byte*)&X86AsmPopArgAndClosure;
 
     // Push the argument and the closure on the stack.  We can't put them into the registers
     // yet because we might get a GC before we actually start the code.
-    ((PolyWord*)newStack)[topStack+1] = proc->Word(); // Closure
-    ((PolyWord*)newStack)[topStack+2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
+    stackTop[1] = proc->Word(); // Closure
+    stackTop[2] = (arg == 0) ? TAGGED(0) : DEREFWORD(arg); // Argument
     /* We initialise the end of the stack with a sequence that will jump to
        kill_self whether the process ends with a normal return or by raising an
        exception.  A bit of this was added to fix a bug when stacks were objects
        on the heap and could be scanned by the GC. */
-    ((PolyWord*)newStack)[topStack+5] = TAGGED(0); // Probably no longer needed
+    stackTop[5] = TAGGED(0); // Probably no longer needed
     // Set the default handler and return address to point to this code.
-    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
+//    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
     // Exception handler.
-    ((PolyWord*)newStack)[topStack+4] = killJump;
+    stackTop[4].codeAddr = (byte*)&X86AsmKillSelf;
     // Normal return address.  We need a separate entry on the stack from
     // the exception handler because it is possible that the code we are entering
     // may replace this entry with an argument.  The code-generator optimises tail-recursive
     // calls to functions with more args than the called function.
-    ((PolyWord*)newStack)[topStack+3] = killJump;
+    stackTop[3].codeAddr = (byte*)&X86AsmKillSelf;
+
+#ifdef POLYML32IN64
+    // In 32-in-64 RBX always contains the heap base address.
+    assemblyInterface.p_rbx.stackAddr = (stackItem*)globalHeapBase;
+#endif
 }
 
 // In Solaris-x86 the registers are named EIP and ESP.
@@ -608,7 +688,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
 // This version gets the actual sp and pc if we are in ML.
 bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
 {
-    PolyWord * sp = 0;
+    stackItem * sp = 0;
     POLYCODEPTR pc = 0;
     if (context != 0)
     {
@@ -616,11 +696,11 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         // to follow the tests in processes.h.
 #if defined(HAVE_WINDOWS_H)
 #ifdef _WIN64
-        sp = (PolyWord *)context->Rsp;
+        sp = (stackItem *)context->Rsp;
         pc = (POLYCODEPTR)context->Rip;
 #else
         // Windows 32 including cygwin.
-        sp = (PolyWord *)context->Esp;
+        sp = (stackItem *)context->Esp;
         pc = (POLYCODEPTR)context->Eip;
 #endif
 #elif defined(HAVE_UCONTEXT_T)
@@ -684,10 +764,10 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         }
     }
     // See if the sp value is in the current stack.
-    if (sp >= this->stack->bottom && sp < this->stack->top)
+    if (sp >= (stackItem*)this->stack->bottom && sp < (stackItem*)this->stack->top)
     {
         // We may be in the assembly code.  The top of the stack will be a return address.
-        pc = sp[0].AsCodePtr();
+        pc = sp[0].w().AsCodePtr();
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
@@ -699,10 +779,10 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
     // This works if we happen to be in an RTS call using a "Full" call.
     // It doesn't work if we've used a "Fast" call because that doesn't save the SP.
     sp = assemblyInterface.stackPtr;
-    if (sp >= this->stack->bottom && sp < this->stack->top)
+    if (sp >= (stackItem*)this->stack->bottom && sp < (stackItem*)this->stack->top)
     {
         // We may be in the run-time system.
-        pc = sp[0].AsCodePtr();
+        pc = sp[0].w().AsCodePtr();
         MemSpace *space = gMem.SpaceForAddress(pc);
         if (space != 0 && (space->spaceType == ST_CODE || space->spaceType == ST_PERMANENT))
         {
@@ -723,7 +803,7 @@ void X86TaskData::InterruptCode()
     // We use a lock here to ensure that we always use the current value of the
     // stack.  The thread we're interrupting could be growing the stack at this point.
     if (this->stack != 0) 
-        this->assemblyInterface.stackLimit = this->stack->top-1;
+        this->assemblyInterface.stackLimit = (stackItem*)(this->stack->top-1);
 }
 
 // This is called from SwitchToPoly before we enter the ML code.
@@ -800,7 +880,7 @@ void X86TaskData::SaveMemRegisters()
 // is in the bytes after the trap call.
 void X86TaskData::SetRegisterMask()
 {
-    byte *pc = assemblyInterface.stackPtr[0].AsCodePtr();
+    byte *pc = assemblyInterface.stackPtr[0].w().AsCodePtr();
     if (*pc == 0xcd) // CD - INT n is used for a single byte
     {
         pc++;
@@ -815,7 +895,7 @@ void X86TaskData::SetRegisterMask()
     assemblyInterface.stackPtr[0] = PolyWord::FromCodePtr(pc);
 }
 
-PolyWord *X86TaskData::get_reg(int n)
+stackItem *X86TaskData::get_reg(int n)
 /* Returns a pointer to the register given by n. */
 {
     switch (n) 
@@ -898,9 +978,9 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
         mdTask->allocReg = pcPtr[2] & 7; // Remember this until we allocate the memory
         if (pcPtr[0] & 0x1) mdTask->allocReg += 8;
     }
-    PolyWord *reg = get_reg(this->allocReg);
-    PolyWord reg_val = *reg;
-    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+    stackItem *reg = get_reg(this->allocReg);
+    stackItem reg_val = *reg;
+    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1;
     *reg = TAGGED(0); // Clear this - it's not a valid address.
  #endif /* HOSTARCHITECTURE_X86_64 */
     if (profileMode == kProfileStoreAllocation)
@@ -915,8 +995,8 @@ void X86TaskData::SetException(poly_exn *exc)
     // Do we need to set the PC value any longer?  It may be necessary if
     // we have taken a trap because another thread has sent a broadcast interrupt.
     *(--assemblyInterface.stackPtr) = PolyWord::FromCodePtr((byte*)X86AsmRaiseException);
-    regAX() = exc; /* put exception data into eax */
-    assemblyInterface.exceptionPacket = exc; // Set for direct calls.
+    regAX() = (PolyWord)exc; /* put exception data into eax */
+    assemblyInterface.exceptionPacket = (PolyWord)exc; // Set for direct calls.
 }
 
 // Sets up a callback function on the current stack.  The present state is that
@@ -933,14 +1013,14 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
     // originating call.
 
     // Set up an exception handler so we will enter callBackException if there is an exception.
-    *(--regSP()) = PolyWord::FromStackAddr(assemblyInterface.handlerRegister); // Create a special handler entry
+    (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
     *(--regSP()) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackException);
     assemblyInterface.handlerRegister = regSP();
     // Push the call to callBackReturn onto the stack as the return address.
     *(--regSP()) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackReturn);
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
-    regDX() = functToCall; // Closure address
+    regDX() = (PolyWord)functToCall; // Closure address
     regAX() = args->Word();
     // Push entry point address
     *(--regSP()) = functToCall->Get(0); // First word of closure is entry pt.

@@ -87,6 +87,7 @@ ArgVector ENDS
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
+RETURN_ENTER_INTERPRETER    EQU 4
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_KILL_SELF            EQU 9
@@ -210,7 +211,11 @@ PUBLIC X86AsmPopArgAndClosure
 X86AsmPopArgAndClosure:
     pop     rdx
     pop     rax
+#ifdef  POLYML32IN64
+    jmp     qword ptr [rbx+rdx*4]
+#else
     jmp     qword ptr [rdx]
+#endif
 
 ; This is used if the RTS sets up an exception.  It's probably no longer relevant.
 PUBLIC  X86AsmRaiseException
@@ -252,5 +257,6 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CREATE_EXTRA_CALL RETURN_ENTER_INTERPRETER
 
 END
