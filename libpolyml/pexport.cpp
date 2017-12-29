@@ -60,12 +60,10 @@ in a new session.
 
 PExport::PExport()
 {
-    indexOrder = 0;
 }
 
 PExport::~PExport()
 {
-    free(indexOrder);
 }
 
 
@@ -254,33 +252,26 @@ void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code
 
 void PExport::exportStore(void)
 {
-    unsigned i;
-
     // We want the entries in pMap to be in ascending
     // order of address to make searching easy so we need to process the areas
     // in order of increasing address, which may not be the order in memTable.
-    indexOrder = (unsigned*)calloc(sizeof(unsigned), memTableEntries);
-    if (indexOrder == 0)
-        throw MemoryException();
+    std::vector<size_t> indexOrder;
+    indexOrder.reserve(memTableEntries);
 
-    unsigned items = 0;
-    for (i = 0; i < memTableEntries; i++)
+    for (size_t i = 0; i < memTableEntries; i++)
     {
-        unsigned j = items;
-        while (j > 0 && memTable[i].mtOriginalAddr < memTable[indexOrder[j-1]].mtOriginalAddr)
-        {
-            indexOrder[j] = indexOrder[j-1];
-            j--;
+        std::vector<size_t>::iterator it;
+        for (it = indexOrder.begin(); it != indexOrder.end(); it++) {
+            if (memTable[*it].mtOriginalAddr >= memTable[i].mtOriginalAddr)
+                break;
         }
-        indexOrder[j] = i;
-        items++;
+        indexOrder.insert(it, i);
     }
-    ASSERT(items == memTableEntries);
 
     // Process the area in order of ascending address.
-    for (i = 0; i < items; i++)
+    for (std::vector<size_t>::iterator i = indexOrder.begin(); i != indexOrder.end(); i++)
     {
-        unsigned index = indexOrder[i];
+        size_t index = indexOrder[*i];
         char *start = (char*)memTable[index].mtOriginalAddr;
         char *end = start + memTable[index].mtLength;
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
@@ -298,7 +289,7 @@ void PExport::exportStore(void)
     fprintf(exportFile, "Root\t%zu\n", getIndex(rootFunction));
 
     // Generate each of the areas.
-    for (i = 0; i < memTableEntries; i++)
+    for (size_t i = 0; i < memTableEntries; i++)
     {
         char *start = (char*)memTable[i].mtOriginalAddr;
         char *end = start + memTable[i].mtLength;

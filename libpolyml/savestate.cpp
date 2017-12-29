@@ -1400,6 +1400,8 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
     if ((FILE*)loadFile == NULL)
     {
         AutoFree<char*> buff((char *)malloc(23 + _tcslen(fileNameBuff) * sizeof(TCHAR) + 1));
+        if (buff == NULL)
+            raise_syscall(taskData, "Insufficient memory", NOMEMORY);
 #if (defined(_WIN32) && defined(UNICODE))
         sprintf(buff, "Cannot open load file: %S", (TCHAR *)fileNameBuff);
 #else
