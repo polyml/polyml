@@ -36,7 +36,7 @@ else
 POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
 endif
 else
-if ARCHINTERPRET32IN64
+if ARCHX8632IN64
 POLYIMPORT = $(srcdir)/imports/polymlint32in64.txt
 else
 endif

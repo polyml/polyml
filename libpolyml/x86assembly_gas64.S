@@ -110,6 +110,7 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_ENTER_INTERPRETER    4
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
@@ -230,22 +231,16 @@ SaveFullState:
     popq    %rbp
     ret
 
-callExHeap:
-    CALL_EXTRA(RETURN_HEAP_OVERFLOW)
-callExStack:
-    CALL_EXTRA(RETURN_STACK_OVERFLOW)
-callExStackEx:
-    CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
-callExRaiseOverflow:
-    CALL_EXTRA(RETURN_RAISE_OVERFLOW)
-
-
 /* Used when entering new code.  The argument and closure are on the stack
    in case there is a GC before we enter the code. */
 INLINE_ROUTINE(X86AsmPopArgAndClosure)
     popq    %rdx
     popq    %rax
+#ifdef POLYML32IN64
+    jmp     *(%rbx,%rdx,4)
+#else
     jmp     *(%rdx)
+#endif
 
 # This is used if the RTS sets up an exception.  It's probably no longer relevant.
 INLINE_ROUTINE(X86AsmRaiseException)
@@ -272,6 +267,8 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
 
+INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
+    CALL_EXTRA(RETURN_ENTER_INTERPRETER)
 
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)

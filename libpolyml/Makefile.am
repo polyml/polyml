@@ -35,8 +35,8 @@ else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
-if ARCHINTERPRET32IN64
-ARCHSOURCE = interpret.cpp
+if ARCHX8632IN64
+ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 else
 endif
 endif

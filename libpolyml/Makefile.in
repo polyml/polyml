@@ -150,11 +150,12 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	reals.cpp rts_module.cpp rtsentry.cpp run_time.cpp \
 	save_vec.cpp savestate.cpp scanaddrs.cpp sharedata.cpp \
 	sighandler.cpp statistics.cpp timing.cpp xwindows.cpp \
-	interpret.cpp x86_dep.cpp x86assembly_gas64.S \
+	x86_dep.cpp x86assembly_gas64.S interpret.cpp \
 	x86assembly_gas32.S machoexport.cpp elfexport.cpp \
 	pecoffexport.cpp unix_specific.cpp Console.cpp \
 	windows_specific.cpp
-@ARCHI386_FALSE@@ARCHINTERPRET32IN64_TRUE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_FALSE@am__objects_1 = interpret.lo
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@am__objects_1 = x86_dep.lo \
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86assembly_gas64.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
@@ -472,7 +473,7 @@ libpolyml_la_LDFLAGS = -version-info 9:0:0 $(am__append_1)
 DIST_SUBDIRS = libffi
 @INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_LIBADD = libffi/libffi_convenience.la
-@ARCHI386_FALSE@@ARCHINTERPRET32IN64_TRUE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_FALSE@ARCHSOURCE = interpret.cpp
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86assembly_gas64.S
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@ARCHSOURCE = interpret.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET_TRUE@ARCHSOURCE = interpret.cpp

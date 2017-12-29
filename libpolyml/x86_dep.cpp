@@ -845,19 +845,19 @@ bool X86TaskData::AddTimeProfileCount(SIGNALCONTEXT *context)
         // Linux
 #ifndef HOSTARCHITECTURE_X86_64
         pc = (byte*)context->uc_mcontext.gregs[REG_EIP];
-        sp = (PolyWord*)context->uc_mcontext.gregs[REG_ESP];
+        sp = (stackItem*)context->uc_mcontext.gregs[REG_ESP];
 #else /* HOSTARCHITECTURE_X86_64 */
         pc = (byte*)context->uc_mcontext.gregs[REG_RIP];
-        sp = (PolyWord*)context->uc_mcontext.gregs[REG_RSP];
+        sp = (stackItem*)context->uc_mcontext.gregs[REG_RSP];
 #endif /* HOSTARCHITECTURE_X86_64 */
 #elif defined(HAVE_MCONTEXT_T_MC_ESP)
        // FreeBSD
 #ifndef HOSTARCHITECTURE_X86_64
         pc = (byte*)context->uc_mcontext.mc_eip;
-        sp = (PolyWord*)context->uc_mcontext.mc_esp;
+        sp = (stackItem*)context->uc_mcontext.mc_esp;
 #else /* HOSTARCHITECTURE_X86_64 */
         pc = (byte*)context->uc_mcontext.mc_rip;
-        sp = (PolyWord*)context->uc_mcontext.mc_rsp;
+        sp = (stackItem*)context->uc_mcontext.mc_rsp;
 #endif /* HOSTARCHITECTURE_X86_64 */
 #else
        // Mac OS X
@@ -1484,6 +1484,10 @@ static X86Dependent x86Dependent;
 MachineDependent *machineDependent = &x86Dependent;
 
 // Temporarily add the interpreter
+
+#ifdef HAVE_MATH_H
+#include <math.h>
+#endif
 
 #include "int_opcodes.h"
 #include "polystring.h"

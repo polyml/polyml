@@ -439,7 +439,7 @@ case "${host_cpu}" in
                 AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64-bit)])
                 if test "x$enable_compact32bit" = "xyes"; then
                     AC_DEFINE([POLYML32IN64], [1], [Define if this should use 32-bit values in 64-bit architectures])
-                    polyarch=interpret32in64
+                    polyarch=x86_32in64
                 else
                     polyarch=x86_64
                 fi
@@ -556,7 +556,7 @@ AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
 AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
-AM_CONDITIONAL([ARCHINTERPRET32IN64], [test "$polyarch" = interpret32in64])
+AM_CONDITIONAL([ARCHX8632IN64], [test "$polyarch" = x86_32in64])
 AM_CONDITIONAL([WINDOWS64CALLS], [test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64])
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])

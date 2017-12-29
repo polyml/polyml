@@ -651,8 +651,8 @@ NATIVE_WINDOWS_FALSE
 NATIVE_WINDOWS_TRUE
 WINDOWS64CALLS_FALSE
 WINDOWS64CALLS_TRUE
-ARCHINTERPRET32IN64_FALSE
-ARCHINTERPRET32IN64_TRUE
+ARCHX8632IN64_FALSE
+ARCHX8632IN64_TRUE
 ARCHINTERPRET64_FALSE
 ARCHINTERPRET64_TRUE
 ARCHINTERPRET_FALSE
@@ -22184,7 +22184,7 @@ $as_echo "#define HOSTARCHITECTURE_X86_64 1" >>confdefs.h
 
 $as_echo "#define POLYML32IN64 1" >>confdefs.h
 
-                    polyarch=interpret32in64
+                    polyarch=x86_32in64
                 else
                     polyarch=x86_64
                 fi
@@ -22360,12 +22360,12 @@ else
   ARCHINTERPRET64_FALSE=
 fi
 
- if test "$polyarch" = interpret32in64; then
-  ARCHINTERPRET32IN64_TRUE=
-  ARCHINTERPRET32IN64_FALSE='#'
+ if test "$polyarch" = x86_32in64; then
+  ARCHX8632IN64_TRUE=
+  ARCHX8632IN64_FALSE='#'
 else
-  ARCHINTERPRET32IN64_TRUE='#'
-  ARCHINTERPRET32IN64_FALSE=
+  ARCHX8632IN64_TRUE='#'
+  ARCHX8632IN64_FALSE=
 fi
 
  if test "$poly_use_windowscc" = yes -a "$polyarch" = x86_64; then
@@ -22705,8 +22705,8 @@ if test -z "${ARCHINTERPRET64_TRUE}" && test -z "${ARCHINTERPRET64_FALSE}"; then
   as_fn_error $? "conditional \"ARCHINTERPRET64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${ARCHINTERPRET32IN64_TRUE}" && test -z "${ARCHINTERPRET32IN64_FALSE}"; then
-  as_fn_error $? "conditional \"ARCHINTERPRET32IN64\" was never defined.
+if test -z "${ARCHX8632IN64_TRUE}" && test -z "${ARCHX8632IN64_FALSE}"; then
+  as_fn_error $? "conditional \"ARCHX8632IN64\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WINDOWS64CALLS_TRUE}" && test -z "${WINDOWS64CALLS_FALSE}"; then
