@@ -142,8 +142,8 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadIsActive(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadInterruptThread(PolyWord targetThread);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt();
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyWord threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject *threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadNumPhysicalProcessors();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyThreadMaxStackSize(PolyObject *threadId, PolyWord newSize);
@@ -692,15 +692,15 @@ POLYUNSIGNED PolyThreadKillThread(PolyWord targetThread)
     else return TAGGED(1).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadBroadcastInterrupt(void)
+POLYUNSIGNED PolyThreadBroadcastInterrupt(PolyObject * /*threadId*/)
 {
     processesModule.BroadcastInterrupt();
     return TAGGED(0).AsUnsigned();
 }
 
-POLYUNSIGNED PolyThreadTestInterrupt(PolyWord threadId)
+POLYUNSIGNED PolyThreadTestInterrupt(PolyObject *threadId)
 {
-    TaskData *taskData = TaskData::FindTaskForId(threadId.AsObjPtr());
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
@@ -1069,8 +1069,6 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     // Actually allocate the object
                     taskData->allocPointer -= words;
 #ifdef POLYML32IN64
-                    // Zero the last word.  If we've rounded up an odd number the caller won't set it.
-                    taskData->allocPointer[words - 1] = PolyWord::FromUnsigned(0xcccccccc);
                     ASSERT((uintptr_t)taskData->allocPointer & 4); // Must be odd-word aligned
 #endif
                     return taskData->allocPointer;

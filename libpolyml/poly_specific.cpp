@@ -119,6 +119,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case MA_Interpreted:    arch = "Interpreted"; break;
             case MA_I386:           arch = "I386"; break;
             case MA_X86_64:         arch = "X86_64"; break;
+            case MA_X86_64_32:      arch = "X86_64_32"; break;
             default:                arch = "Unknown"; break;
             }
             return SAVE(C_string_to_Poly(taskData, arch));

@@ -33,7 +33,8 @@ class StackSpace;
 typedef enum {
     MA_Interpreted = 0,
     MA_I386,
-    MA_X86_64
+    MA_X86_64,
+    MA_X86_64_32
 } Architectures;
 
 // Machine-dependent module.
