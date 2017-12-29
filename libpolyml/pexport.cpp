@@ -260,7 +260,7 @@ void PExport::exportStore(void)
     // Process the area in order of ascending address.
     for (std::vector<size_t>::iterator i = indexOrder.begin(); i != indexOrder.end(); i++)
     {
-        size_t index = indexOrder[*i];
+        size_t index = *i;
         char *start = (char*)memTable[index].mtAddr;
         char *end = start + memTable[index].mtLength;
         for (PolyWord *p = (PolyWord*)start; p < (PolyWord*)end; )
