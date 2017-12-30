@@ -649,7 +649,7 @@ struct
 
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
-                wordSize = 8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
+                wordSize = 0w8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
                 genNonByteAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()

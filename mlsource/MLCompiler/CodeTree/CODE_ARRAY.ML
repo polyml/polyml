@@ -54,7 +54,6 @@ struct
     val objLength: address -> word = length
 
     val F_mutable_bytes =  Word.fromLargeWord(Word8.toLargeWord(Word8.orb (F_mutable, F_bytes)))
-    val wordSize = Word.fromInt Address.wordSize
     
     fun byteVecMake size =
     let
