@@ -68,7 +68,6 @@
 #include "reals.h"
 #include "objsize.h"
 #include "xwindows.h"
-#include "foreign.h"
 #include "process_env.h"
 #include "network.h"
 #include "basicio.h"
