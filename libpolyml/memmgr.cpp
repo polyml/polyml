@@ -1047,7 +1047,7 @@ void MemMgr::ReportHeapSizes(const char *phase)
     Log(" (%1.0f%%). Total space ", (float)inAlloc / (float)alloc * 100.0F);
     LogSize(spaceForHeap);
     Log(" %1.0f%% full.\n", (float)(inAlloc + inNonAlloc) / (float)spaceForHeap * 100.0F);
-    Log("Heap: Local spaces %u, permanent spaces %u, code spaces %u, stack spaces %u\n",
+    Log("Heap: Local spaces %zu, permanent spaces %zu, code spaces %zu, stack spaces %zu\n",
         lSpaces.size(), pSpaces.size(), cSpaces.size(), sSpaces.size());
     POLYUNSIGNED cTotal = 0, cOccupied = 0;
     for (std::vector<CodeSpace*>::iterator c = cSpaces.begin(); c != cSpaces.end(); c++)
