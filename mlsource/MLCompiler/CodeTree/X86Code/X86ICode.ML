@@ -29,7 +29,14 @@ struct
     datatype fpMode = FPModeSSE2 | FPModeX87
 
     (* For the moment use SSE2 only on X86/64. Not all 32-bit processors support SSE2. *)
-    val fpMode: fpMode = if isX64 then FPModeSSE2 else FPModeX87
+    val fpMode: fpMode =
+        case targetArch of Native32Bit => FPModeX87 | _ => FPModeSSE2
+    
+    val (polyWordOpSize, nativeWordOpSize) =
+        case targetArch of
+            Native32Bit     => (OpSize32, OpSize32)
+        |   Native64Bit     => (OpSize64, OpSize64)
+        |   ObjectId32Bit   => (OpSize32, OpSize64)
 
     datatype preg = PReg of int (* A pseudo-register - an abstract register. *)
 

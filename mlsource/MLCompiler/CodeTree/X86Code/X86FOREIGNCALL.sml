@@ -48,17 +48,25 @@ struct
     open X86CODE
     open Address
     open CODE_ARRAY
+   
+    val (polyWordOpSize, nativeWordOpSize) =
+        case targetArch of
+            Native32Bit     => (OpSize32, OpSize32)
+        |   Native64Bit     => (OpSize64, OpSize64)
+        |   ObjectId32Bit   => (OpSize32, OpSize64)
+    
+    val defOpSize = polyWordOpSize
     
     exception InternalError = Misc.InternalError
     
     val pushR = PushToStack o RegisterArg
 
-    fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output}
+    fun moveRR{source, output} = MoveToRegister{source=RegisterArg source, output=output, opSize=defOpSize}
 
     fun loadMemory(reg, base, offset) =
-        MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg}
+        MoveToRegister{source=MemoryArg{base=base, offset=offset, index=NoIndex}, output=reg, opSize=defOpSize}
     and storeMemory(reg, base, offset) =
-        StoreRegToMemory{toStore=reg, address={base=base, offset=offset, index=NoIndex}}
+        StoreRegToMemory{toStore=reg, address={base=base, offset=offset, index=NoIndex}, opSize=defOpSize}
 
     fun createProfileObject _ (*functionName*) =
     let
@@ -124,7 +132,7 @@ struct
         (* We have to save the stack pointer to the argument structure but
            we still need a register if we have args on the stack. *)
         val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -144,12 +152,12 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=nativeWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0)(* Load its value. *)
             ] @
             (
                 (* Save heap ptr.  This is in r15 in X86/64 *)
-                if isX64 then [storeMemory(r15, ebp, memRegLocalMPointer)] (* Save heap ptr *)
+                if targetArch <> Native32Bit then [storeMemory(r15, ebp, memRegLocalMPointer)] (* Save heap ptr *)
                 else []
             ) @
             [
@@ -190,7 +198,7 @@ struct
                 moveRR{source=saveMLStackPtrReg, output=esp} (* Restore the ML stack pointer *)
             ] @
             (
-            if isX64 then [loadMemory(r15, ebp, memRegLocalMPointer) ] (* Copy back the heap ptr *)
+            if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer) ] (* Copy back the heap ptr *)
             else []
             ) @
             [
@@ -221,7 +229,7 @@ struct
         val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -241,7 +249,7 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=nativeWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
@@ -307,7 +315,7 @@ struct
         val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -331,7 +339,7 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=nativeWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
@@ -363,7 +371,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -371,7 +379,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
@@ -401,7 +409,7 @@ struct
         val abi = getABI()
 
         val (entryPtrReg, saveMLStackPtrReg) =
-            if isX64 then (r11, r13) else (ecx, edi)
+            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
         
         val stackSpace =
             case abi of
@@ -425,7 +433,7 @@ struct
 
         val code =
             [
-                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg}, (* Load the entry point ref. *)
+                MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=nativeWordOpSize}, (* Load the entry point ref. *)
                 loadMemory(entryPtrReg, entryPtrReg, 0),(* Load its value. *)
                 moveRR{source=esp, output=saveMLStackPtrReg}, (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr),
@@ -449,7 +457,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
@@ -457,7 +465,7 @@ struct
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised

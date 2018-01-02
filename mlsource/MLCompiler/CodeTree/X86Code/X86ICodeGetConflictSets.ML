@@ -156,7 +156,7 @@ struct
                        to store.  To get round this we reserve ecx as a possible register as with shifts.
                        We don't actually need to use this but it is available if necessary. *)
                     StoreArgument { source=RegisterArgument sReg, kind=MoveByte, ...} =>
-                    if isX64 then ()
+                    if targetArch <> Native32Bit then ()
                     else reserveRegister([regNo sReg], GenReg ecx)
 
                 |   InitialiseMem{size, addr, init} =>

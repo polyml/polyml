@@ -43,7 +43,7 @@ struct
         then (* 32-in-64 *) allocWordData(nativeWordSize div wordSize, Word8.orb(F_mutable, F_closure), toMachineWord 0w0)
         else allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w0)
     end
-    
+
     fun codeAddressFromClosure closure = loadWord(closure, 0w0) (* Not valid in 32-in-64 *)
     
     fun closureAsAddress closure = toMachineWord closure

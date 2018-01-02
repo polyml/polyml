@@ -37,7 +37,10 @@ sig
     val regRepr: reg -> string
     val nReg:   reg -> int
 
-    val isX64: bool and is32bit: LargeInt.int -> bool
+    val is32bit: LargeInt.int -> bool
+    
+    datatype targetArch = Native32Bit | Native64Bit | ObjectId32Bit
+    val targetArch: targetArch
 
     (* Should we use SSE2 or X87 floating point? *)
     datatype fpMode = FPModeSSE2 | FPModeX87

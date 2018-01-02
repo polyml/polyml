@@ -33,8 +33,18 @@ struct
     
     exception InternalError = Misc.InternalError
 
-    val argRegs = List.map GenReg (if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx])
-    val numArgRegs = List.length argRegs
+    local
+        val regs =
+            case targetArch of
+                Native32Bit => [eax, ebx]
+            |   Native64Bit => [eax, ebx, r8, r9, r10]
+            |   ObjectId32Bit => [eax, edi, r8, r9, r10]
+    in
+        val argRegs = List.map GenReg regs
+        val numArgRegs = List.length argRegs
+    end
+    
+    val isX64 = targetArch <> Native32Bit
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1

@@ -71,6 +71,9 @@ struct
     (* For the moment this the easiest way to tell. *)
     val is32In64 = Address.nativeWordSize <> Address.wordSize
 
+    (* For the moment this the easiest way to tell. *)
+    val is32In64 = Address.nativeWordSize <> Address.wordSize
+
     (* Code generate a function or global declaration *)
     fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
     let
