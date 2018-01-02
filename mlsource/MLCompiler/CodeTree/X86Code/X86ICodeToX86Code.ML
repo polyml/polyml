@@ -1240,8 +1240,8 @@ struct
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
                         BoxLargeWord => (getAllocatedReg sReg, 1, MoveWord)
-                    |   BoxX87 => (getAllocatedReg sReg, Word.toInt(wordSize div 0w8), MoveDouble)
-                    |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(wordSize div 0w8), MoveDouble)
+                    |   BoxX87 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                    |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
             in
                 StoreInitialised ::
