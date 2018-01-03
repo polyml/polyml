@@ -158,18 +158,14 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
 
     movq    Arg_LocalMpointer(%rbp),%r15
     movq    Arg_StackPtr(%rbp),%rsp               # Set the new stack ptr
-    movq    Arg_ExceptionPacket(%rbp),%rax
-    cmpq    $1,%rax                             # Did we raise an exception?
-    jnz     raisexLocal
 
-    movsd   Arg_SaveXMM0(%rbp),%xmm0
+    movsd   Arg_SaveXMM0(%rbp),%xmm0              # Load the registers
     movsd   Arg_SaveXMM1(%rbp),%xmm1
     movsd   Arg_SaveXMM2(%rbp),%xmm2
     movsd   Arg_SaveXMM3(%rbp),%xmm3
     movsd   Arg_SaveXMM4(%rbp),%xmm4
     movsd   Arg_SaveXMM5(%rbp),%xmm5
     movsd   Arg_SaveXMM6(%rbp),%xmm6
-    movq    Arg_SaveRAX(%rbp),%rax              # Load the registers
     movq    Arg_SaveRBX(%rbp),%rbx
     movq    Arg_SaveRCX(%rbp),%rcx
     movq    Arg_SaveRDX(%rbp),%rdx
@@ -182,6 +178,10 @@ INLINE_ROUTINE(X86AsmSwitchToPoly)
     movq    Arg_SaveR12(%rbp),%r12
     movq    Arg_SaveR13(%rbp),%r13
     movq    Arg_SaveR14(%rbp),%r14
+    movq    Arg_ExceptionPacket(%rbp),%rax
+    cmpq    $1,%rax                             # Did we raise an exception?
+    jnz     raisexLocal
+    movq    Arg_SaveRAX(%rbp),%rax
     cld                                     # Clear this just in case
     ret
 

@@ -629,7 +629,7 @@ int X86TaskData::SwitchToPoly()
         // We need to save the C stack entry across this call in case
         // we're making a callback and the previous C stack entry is
         // for the original call.
-        POLYUNSIGNED savedCStack = this->assemblyInterface.saveCStack;
+        uintptr_t savedCStack = this->assemblyInterface.saveCStack;
         // Restore the saved error state.
 #if (defined(_WIN32) && !defined(__CYGWIN__))
         SetLastError(savedErrno);
@@ -743,8 +743,8 @@ int X86TaskData::SwitchToPoly()
             }
             else
             {
-                // Return from call.
-                ASSERT(0);
+                // Return from call. Push RAX
+                *(--assemblyInterface.stackPtr) = assemblyInterface.p_rax;
             }
             Interpret();
             break;
@@ -1365,7 +1365,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                         absAddr = absAddr - (byte*)addr + (byte*)old;
                         // We have to correct the displacement for the new location and store
                         // that away before we call ScanConstant.
-                        POLYSIGNED newDisp = absAddr - pt - 4;
+                        size_t newDisp = absAddr - pt - 4;
                         for (unsigned i = 0; i < 4; i++)
                         {
                             pt[i] = (byte)(newDisp & 0xff);
@@ -1685,25 +1685,77 @@ int X86TaskData::Interpret()
             tailPtr = sp + tailCount;
             sp = tailPtr + arg2;
         TAIL_CALL: /* For general case. */
-            if (tailCount < 2) Crash("Invalid argument\n");
-            for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
-            pc = (*sp++).codeAddr; /* Pop the original return address. */
-                                   /* And drop through. */
+            {
+                if (tailCount < 2) Crash("Invalid argument\n");
+                unsigned numArgs = tailCount - 2;
+                for (; tailCount > 0; tailCount--) *(--sp) = *(--tailPtr);
+                byte *originalReturn = (*sp++).codeAddr; /* Pop the original return address. */
+                PolyWord closureWord = (*sp).w();
+                PolyObject *closure = closureWord.AsObjPtr();
+                POLYCODEPTR newPc;
+                ASSERT(closure->IsClosureObject());
+                if (closure->IsClosureObject())
+                    newPc = *(POLYCODEPTR*)closure;
+                else
+                    newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
+                if (*newPc != 0xff)
+                {
+                    // The function is machine code.
+                    ASSERT(numArgs <= 5); // Assume they will all fit in registers.
+                    sp++; // Pop the closure
+                    assemblyInterface.p_rdx = closureWord;
+                    if (numArgs >= 1) assemblyInterface.p_rax = sp[numArgs - 1];
+                    if (numArgs >= 2) assemblyInterface.p_rdi = sp[numArgs - 2];
+                    if (numArgs >= 3) assemblyInterface.p_r8 = sp[numArgs - 3];
+                    if (numArgs >= 4) assemblyInterface.p_r9 = sp[numArgs - 4];
+                    if (numArgs >= 5) assemblyInterface.p_r10 = sp[numArgs - 5];
+                    if (numArgs > 5) sp += 5; else sp += numArgs;
+                    (*(--sp)).codeAddr = originalReturn; // Return address to caller
+                    (*(--sp)).codeAddr = newPc; // Entry point to callee
+                    SaveInterpreterState(originalReturn, sp);
+                    return 0;
+                }
+                sp--;
+                *sp = sp[1];      /* Move closure up. */
+                sp[1].codeAddr = originalReturn; /* Save return address. */
+                pc = newPc;    /* Get entry point. */
+                this->taskPc = originalReturn; // Update in case we're profiling
+                break;
+            }
 
         case INSTR_call_closure: /* Closure call. */
         {
-            PolyObject *closure = (*sp).w().AsObjPtr();
+            PolyWord closureWord = (*sp).w();
+            PolyObject *closure = closureWord.AsObjPtr();
             POLYCODEPTR newPc;
             ASSERT(closure->IsClosureObject());
             if (closure->IsClosureObject())
                 newPc = *(POLYCODEPTR*)closure;
             else
                 newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
+            if (*newPc != 0xff)
+            {
+                // The function is machine code.
+                ASSERT(*pc == 0xff); // But the call must be followed by enter-int.
+                byte numArgs = pc[3];
+                ASSERT(numArgs <= 5); // Assume they will all fit in registers.
+                sp++; // Pop the closure
+                assemblyInterface.p_rdx = closureWord;
+                if (numArgs >= 1) assemblyInterface.p_rax = sp[numArgs - 1];
+                if (numArgs >= 2) assemblyInterface.p_rdi = sp[numArgs - 2];
+                if (numArgs >= 3) assemblyInterface.p_r8  = sp[numArgs - 3];
+                if (numArgs >= 4) assemblyInterface.p_r9  = sp[numArgs - 4];
+                if (numArgs >= 5) assemblyInterface.p_r10 = sp[numArgs - 5];
+                if (numArgs > 5) sp += 5; else sp += numArgs;
+                (*(--sp)).codeAddr = pc; // Return address to caller
+                (*(--sp)).codeAddr = newPc; // Entry point to callee
+                SaveInterpreterState(pc, sp);
+                return 0;
+            }
             sp--;
             *sp = sp[1];      /* Move closure up. */
             sp[1].codeAddr = pc; /* Save return address. */
             pc = newPc;    /* Get entry point. */
-            ASSERT(*pc == 0xff); // There's an enter-int at the start of the code.
             this->taskPc = pc; // Update in case we're profiling
             break;
         }

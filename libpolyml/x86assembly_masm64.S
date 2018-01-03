@@ -137,11 +137,8 @@ X86AsmSwitchToPoly  PROC FRAME
     .endprolog
     mov     rbp,rcx                         ; Move argument into rbp - this is definitely non-standard
     sub     rsp,(Fr_size-56)
-    mov     r15,[ArgVector.LocalMpointer+rcx]
-    mov     rsp,[ArgVector.StackPtr+rcx]
-    mov     rax,[ArgVector.ExceptionPacket+rcx]
-    cmp     rax,1                                           ; Did we raise an exception?
-    jnz     raisex
+    mov     r15,[ArgVector.LocalMpointer+rbp]
+    mov     rsp,[ArgVector.StackPtr+rbp]
     movsd   xmm0,[ArgVector.SaveXMM0+rbp]
     movsd   xmm1,[ArgVector.SaveXMM1+rbp]
     movsd   xmm2,[ArgVector.SaveXMM2+rbp]
@@ -149,7 +146,6 @@ X86AsmSwitchToPoly  PROC FRAME
     movsd   xmm4,[ArgVector.SaveXMM4+rbp]
     movsd   xmm5,[ArgVector.SaveXMM5+rbp]
     movsd   xmm6,[ArgVector.SaveXMM6+rbp]
-    mov     rax,[ArgVector.SaveRAX+rbp]
     mov     rbx,[ArgVector.SaveRBX+rbp]
     mov     rcx,[ArgVector.SaveRCX+rbp]
     mov     rdx,[ArgVector.SaveRDX+rbp]
@@ -162,6 +158,10 @@ X86AsmSwitchToPoly  PROC FRAME
     mov     r12,[ArgVector.SaveR12+rbp]
     mov     r13,[ArgVector.SaveR13+rbp]
     mov     r14,[ArgVector.SaveR14+rbp]
+    mov     rax,[ArgVector.ExceptionPacket+rbp]
+    cmp     rax,1                                           ; Did we raise an exception?
+    jnz     raisex
+    mov     rax,[ArgVector.SaveRAX+rbp]
     cld                                     ; Clear this just in case
     ret
 

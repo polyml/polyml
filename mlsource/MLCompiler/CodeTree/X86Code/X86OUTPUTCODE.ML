@@ -139,18 +139,18 @@ struct
     fun lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
 
   (* EBP/RBP points to a structure that interfaces to the RTS.  These are
-     offsets into that structure.  *)
+     offsets into that structure. *)
     val memRegLocalMPointer       = 0 (* Not used in 64-bit *)
-    and memRegHandlerRegister     = Word.toInt wordSize
-    and memRegLocalMbottom        = 2 * Word.toInt wordSize
-    and memRegStackLimit          = 3 * Word.toInt wordSize
-    and memRegExceptionPacket     = 4 * Word.toInt wordSize
-    and memRegCStackPtr           = 6 * Word.toInt wordSize
-    and memRegThreadSelf          = 7 * Word.toInt wordSize
-    and memRegStackPtr            = 8 * Word.toInt wordSize
-    and memRegHeapOverflowCall    = 10 * Word.toInt wordSize
-    and memRegStackOverflowCall   = 11 * Word.toInt wordSize
-    and memRegStackOverflowCallEx = 12 * Word.toInt wordSize
+    and memRegHandlerRegister     = Word.toInt nativeWordSize
+    and memRegLocalMbottom        = 2 * Word.toInt nativeWordSize
+    and memRegStackLimit          = 3 * Word.toInt nativeWordSize
+    and memRegExceptionPacket     = 4 * Word.toInt nativeWordSize
+    and memRegCStackPtr           = 6 * Word.toInt nativeWordSize
+    and memRegThreadSelf          = 7 * Word.toInt nativeWordSize
+    and memRegStackPtr            = 8 * Word.toInt nativeWordSize
+    and memRegHeapOverflowCall    = 10 * Word.toInt nativeWordSize
+    and memRegStackOverflowCall   = 11 * Word.toInt nativeWordSize
+    and memRegStackOverflowCallEx = 12 * Word.toInt nativeWordSize
     
     (* This can probably be much smaller now. *)
     and memRegSize                = if hostIsX64 then 144 else 56 (* Size of area on the stack. *)
@@ -1391,19 +1391,24 @@ struct
                 end
             )
 
-        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize= OpSize64 }) =
+        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize }) =
+            if hostIsX64
+            then
             let
                 (* Put address constants in the constant area.  This makes the code a bit
                    larger but should avoid the need for the GC to scan for addresses in
                    the code. *)
                 val (rc, rx) = getReg output
-                val opb = opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
+                val opb =
+                    if opSize = OpSize64
+                    then opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
+                    else opCodeBytes(MOVL_A_R32, if rx then SOME{w=false, r=rx, b=false, x = false} else NONE)
+                        
                 val mdrm = modrm (Based0, rc, 0w5 (* PC-relative *))
             in
                 opb @ [mdrm] @ int32Signed(tag 0)
             end
-
-        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize=OpSize32 }) =
+            else
             let
                 val (rc, _) = getReg output
                 val constnt =
@@ -1452,18 +1457,21 @@ struct
                 immediateOperand(opc, output, source, opSize=OpSize64)
             end
 
-        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize=OpSize64 }) =
+        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
+            if hostIsX64
+            then
             let
                 val (rc, rx) = getReg output
-                val opb = opCodeBytes(Arith64 (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
+                val opb =
+                    if opSize = OpSize64
+                    then opCodeBytes(Arith64 (opc, 0w3), SOME {w=true, r=rx, b=false, x=false})
+                    else opCodeBytes(Arith32 (opc, 0w3), if rx then SOME {w=false, r=rx, b=false, x=false} else NONE)
 		        val mdrm = modrm(Based0, rc, 0w5 (* Immediate address. *))
             in
                 opb @ [mdrm] @ int32Signed(tag 0) (* This is the address of the constant. *)
             end
-
-        |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize=OpSize32 }) =
-            (* This is only used for opc=CMP to compare addresses for equality. *)
+            else
             let
                 val (rc, _) = getReg output
                 val opb = opCodeBytes(Group1_32_A32 (* group1, 32 bit immediate *), NONE)
@@ -2209,8 +2217,8 @@ struct
             )
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
-        |   getConstant(MoveToRegister{ source=AddressConstArg source, opSize, ... }, bytes, ic, l) =
-            if opSize = OpSize64
+        |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
+            if hostIsX64
             then (* Address constants go in the constant area. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
             else (ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: l
@@ -2220,9 +2228,9 @@ struct
                 then l
                 else (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, IntConstant source) :: l
 
-        |   getConstant(ArithToGenReg{ source=AddressConstArg source, opSize, ... }, bytes, ic, l) =
+        |   getConstant(ArithToGenReg{ source=AddressConstArg source, ... }, bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                    if opSize=OpSize64 then ConstantArea source else InlineAbsoluteAddress source) :: l
+                    if hostIsX64 then ConstantArea source else InlineAbsoluteAddress source) :: l
 
         |   getConstant(ArithMemLongConst{ source, ... }, bytes, ic, l) = (* 32-bit only. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress source) :: l
