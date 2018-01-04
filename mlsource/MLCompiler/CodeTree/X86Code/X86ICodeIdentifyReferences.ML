@@ -66,6 +66,8 @@ struct
     fun argRegs(RegisterArgument rarg) = [rarg]
     |   argRegs(MemoryLocation { base, index, cache=SOME cr, ...}) = cr  :: base :: argIndex index
     |   argRegs(MemoryLocation { base, index, cache=NONE, ...}) = base :: argIndex index
+    |   argRegs(ObjectLocation { base, cache=SOME cr, ...}) = [cr, base]
+    |   argRegs(ObjectLocation { base, cache=NONE, ...}) = [base]
     |   argRegs(StackLocation { cache=SOME rarg, ...}) = [rarg]
     |   argRegs _ = []
     
@@ -212,7 +214,7 @@ struct
     |   getInstructionState(LoadEffectiveAddress{base, index, dest, ...}) =
         let
             val bRegs =
-                case base of NONE => [] | SOME bReg => [bReg]
+                case base of LEABReg bReg => [bReg] | _ => []
             val iRegs = argIndex index
         in
             { sources=bRegs @ iRegs, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }

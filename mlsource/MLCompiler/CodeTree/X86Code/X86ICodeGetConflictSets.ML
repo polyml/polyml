@@ -107,8 +107,12 @@ struct
                            there before the instruction.  That means that we must not have the
                            destination register as either a base or index register.  *)
                             destRegNos @ map regNo (argRegs operand2)
+                    |   ArithmeticFunction{operand2 as ObjectLocation _, ...} =>
+                            destRegNos @ map regNo (argRegs operand2)
                     |   Multiplication{operand2 as MemoryLocation _, ...} =>
                         (* Likewise for multiplication.  *)
+                            destRegNos @ map regNo (argRegs operand2)
+                    |   Multiplication{operand2 as ObjectLocation _, ...} =>
                             destRegNos @ map regNo (argRegs operand2)
                         (* TailRecursiveCall and JumpLoop may require a work register.
                            This is the only destination but if present it must be distinct

@@ -99,6 +99,9 @@ sig
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
         (* Address of a container. *)
     |   ContainerAddr of { container: stackLocn, stackOffset: int }
+        (* A memory location where the base address is an object ID rather than a real address.
+           Used in 32-in-64 only. *)
+    |   ObjectLocation of { base: preg, offset: int, cache: preg option } 
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -119,6 +122,9 @@ sig
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = OpSize32 | OpSize64
     val polyWordOpSize: opSize and nativeWordOpSize: opSize
+    
+    (* The LoadEffectiveAddress may take any of these as its base register. *)
+    datatype leaBase = LEABNone | LEABGlobal | LEABReg of preg
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -246,7 +252,7 @@ sig
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
+    |   LoadEffectiveAddress of { base: leaBase, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
     |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }

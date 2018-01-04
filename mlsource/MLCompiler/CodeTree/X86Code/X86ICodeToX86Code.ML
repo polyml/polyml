@@ -222,6 +222,9 @@ struct
                     MemoryArg{base=esp, offset=wordOffset*Word.toInt wordSize, index=NoIndex}
             |   codeExtArgument getReg (StackLocation{cache=SOME(PReg r), ...}) = RegisterArg(getReg r)
             |   codeExtArgument _ (ContainerAddr _) = raise InternalError "codeExtArgument - ContainerAddr"
+            |   codeExtArgument _ (ObjectLocation{base=PReg bReg, offset, cache=NONE}) =
+                    MemoryArg{base=ebx, index=Index4(getAllocatedGenReg bReg), offset=offset}
+            |   codeExtArgument getReg (ObjectLocation{cache=SOME(PReg r), ...}) = RegisterArg(getReg r)
         in
             val codeExtArgument = codeExtArgument getAllocatedReg
             and codeExtArgumentAsGenReg = codeExtArgument getAllocatedGenReg
@@ -522,6 +525,8 @@ struct
             fun argUses(RegisterArgument rarg) = used rarg
             |   argUses(MemoryLocation { cache=SOME cr, ...}) = used cr
             |   argUses(MemoryLocation { base, index, cache=NONE, ...}) = (used base; indexUses index)
+            |   argUses(ObjectLocation { cache=SOME cr, ...}) = used cr
+            |   argUses(ObjectLocation { base, cache=NONE, ...}) = used base
             |   argUses(StackLocation { cache=SOME rarg, ...}) = used rarg
             |   argUses _ = ()
     
@@ -564,7 +569,7 @@ struct
             |   instructionUses(TagValue{source, dest, ...}) = if isUsed dest then used source else ()
             |   instructionUses(UntagValue{dest, cache=SOME cacheR, ...}) = if isUsed dest then used cacheR else ()
             |   instructionUses(UntagValue{source, dest, cache=NONE, ...}) = if isUsed dest then used source else ()
-            |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (case base of SOME bReg => used bReg | NONE => (); indexUses index)
+            |   instructionUses(LoadEffectiveAddress{base, index, ...}) = (case base of LEABReg bReg => used bReg | _ => (); indexUses index)
             |   instructionUses(ShiftOperation{operand, shiftAmount, ...}) = (used operand; argUses shiftAmount)
             |   instructionUses(Multiplication{operand1, operand2, ...}) = (used operand1; argUses operand2)
             |   instructionUses(Division{dividend, divisor, ...}) = (used dividend; argUses divisor)
@@ -617,6 +622,7 @@ struct
         (* Return the register part of a cached item. *)
         fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
+        |   decache(ObjectLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache arg = arg
         
         (* Only get the registers that are actually used. *)
@@ -637,6 +643,22 @@ struct
                         moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=kind}, code)
 
                 |   MemoryLocation{cache=SOME(PReg sreg), ...} =>
+                    (* This is also a register to register move but because the original load is from
+                       memory it could be a byte or short precision value. *)
+                    let
+                        val moveKind =
+                            case kind of
+                                MoveWord => MoveWord
+                            |   MoveByte => MoveWord
+                            |   Move16Bit => MoveWord
+                            |   Move32Bit => MoveWord
+                            |   MoveFloat => MoveDouble
+                            |   MoveDouble => MoveDouble
+                    in
+                        moveIfNecessary({src=getAllocatedReg sreg, dst=realDestReg, kind=moveKind}, code)
+                    end
+
+                |   ObjectLocation{cache=SOME(PReg sreg), ...} =>
                     (* This is also a register to register move but because the original load is from
                        memory it could be a byte or short precision value. *)
                     let
@@ -798,6 +820,7 @@ struct
                 |   getRegArgs(StackLocation {cache=SOME(PReg pr), ...}, reg) =
                         SOME{dst=reg, src=getAllocatedReg pr}
                 |   getRegArgs(MemoryLocation _, _) = raise InternalError "FunctionCall - MemoryLocation"
+                |   getRegArgs(ObjectLocation _, _) = raise InternalError "FunctionCall - ObjectLocation"
                 |   getRegArgs _ = NONE
                 
                 val loadRegArgs =
@@ -819,6 +842,7 @@ struct
                         else LoadAddress{ output=asGenReg reg, offset=(stackOffset+numStackArgs)*Word.toInt wordSize, base=SOME esp, index=NoIndex, opSize=defOpSize } :: code
                 |   getConstArgs((RegisterArgument _, _), code) = code
                 |   getConstArgs((MemoryLocation _, _), code) = code
+                |   getConstArgs((ObjectLocation _, _), code) = code
                 val loadConstArgs = List.foldl getConstArgs loadRegArgs regArgs
                 
                 (* Push the registers before the call and pop them afterwards. *)
@@ -953,6 +977,9 @@ struct
                 |   MemoryLocation{base=PReg br, index, offset, ...} =>
                         ArithMemConst{ opc=CMP,
                             address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2, opSize=opSize } :: code
+                |   ObjectLocation{base=PReg br, offset, ...} =>
+                        ArithMemConst{ opc=CMP,
+                            address={offset=offset, base=ebx, index=Index4(asGenReg(getAllocatedReg br))}, source=arg2, opSize=opSize } :: code
                 |   StackLocation{wordOffset, ...} =>
                         ArithMemConst{ opc=CMP, address={offset=wordOffset*Word.toInt wordSize, base=esp, index=NoIndex}, source=arg2, opSize=opSize } :: code
                 |   _ => raise InternalError "CompareLiteral"
@@ -1142,7 +1169,11 @@ struct
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
             let
                 val destReg = asGenReg(getAllocatedReg dReg)
-                val bReg = case base of SOME(PReg br) => SOME(asGenReg(getAllocatedReg br)) | NONE => NONE
+                val bReg =
+                    case base of
+                        LEABReg(PReg br) => SOME(asGenReg(getAllocatedReg br))
+                    |   LEABNone => NONE
+                    |   LEABGlobal => SOME ebx
                 val indexR = codeExtIndex index
             in
                 LoadAddress{ output=destReg, offset=offset, base=bReg, index=indexR, opSize=defOpSize } :: code

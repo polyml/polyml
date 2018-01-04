@@ -82,6 +82,7 @@ struct
             (* Turn cached locations into register arguments. *)
             fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
             |   decache(MemoryLocation{cache=SOME r, ...}) = RegisterArgument r
+            |   decache(ObjectLocation{cache=SOME r, ...}) = RegisterArgument r
             |   decache arg = arg
 
             fun addRealHint(r, reg) =
@@ -339,6 +340,9 @@ struct
                for the save set. *)
         |   allocateArgument(MemoryLocation{cache=SOME(PReg r), base=PReg bReg, index, ...}, regSet) =
                 (allocateGeneralReg bReg; allocateArgIndex index; allocateRegister(r, NONE, regSet))
+        |   allocateArgument(ObjectLocation{base=PReg bReg, cache=NONE, ...}, _) = allocateGeneralReg bReg
+        |   allocateArgument(ObjectLocation{cache=SOME(PReg r), base=PReg bReg, ...}, regSet) =
+                (allocateGeneralReg bReg; allocateRegister(r, NONE, regSet))
         |   allocateArgument(StackLocation{cache=SOME(PReg r), ...}, regSet) = allocateRegister(r, NONE, regSet)
         |   allocateArgument _ = ()
     
@@ -356,6 +360,8 @@ struct
            occurrence and this might be it. *)
         fun decache(StackLocation{cache=SOME r, ...}) = RegisterArgument r
         |   decache(MemoryLocation{cache=SOME r, base=PReg bReg, ...}) =
+                (allocateGeneralReg bReg; RegisterArgument r)
+        |   decache(ObjectLocation{cache=SOME r, base=PReg bReg, ...}) =
                 (allocateGeneralReg bReg; RegisterArgument r)
         |   decache arg = arg
 
@@ -586,7 +592,7 @@ struct
         |   registerAllocate({instr=LoadEffectiveAddress{base, index, dest=PReg dReg, ...}, ...}) =
             (
                 allocateGeneralReg dReg;
-                case base of SOME(PReg br) => allocateGeneralReg br | NONE => ();
+                case base of LEABReg(PReg br) => allocateGeneralReg br | _ => ();
                 allocateArgIndex index
             )
 

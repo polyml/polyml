@@ -61,6 +61,9 @@ struct
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
         (* Address of a container. *)
     |   ContainerAddr of { container: stackLocn, stackOffset: int }
+        (* A memory location where the base address is an object ID rather than a real address.
+           Used in 32-in-64 only. *)
+    |   ObjectLocation of { base: preg, offset: int, cache: preg option } 
 
     and memoryIndex =
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
@@ -82,7 +85,10 @@ struct
     
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = datatype opSize
- 
+    
+    (* The LoadEffectiveAddress may take any of these as its base register. *)
+    datatype leaBase = LEABNone | LEABGlobal | LEABReg of preg
+
     datatype x86ICode =
         (* Move a value into a register. *)
         LoadArgument of { source: argument, dest: preg, kind: moveKind }
@@ -209,7 +215,7 @@ struct
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
+    |   LoadEffectiveAddress of { base: leaBase, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
     |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
@@ -343,6 +349,13 @@ struct
             (
                 stream "@"; printStackLoc(container, stream);
                 stream " (";  stream(Int.toString stackOffset); stream ")"
+            )
+        |   printArg(ObjectLocation{base, offset, cache, ...}, stream, printReg) =
+            (
+                stream(Int.toString offset ^ "(");
+                printReg(base, stream);
+                stream "*4)+base";
+                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
             
         fun printSaves([], _, _) = ()
@@ -573,7 +586,7 @@ struct
             (
                 stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
-                case base of NONE => stream "_" | SOME b => printReg(b, stream);
+                case base of LEABNone => stream "_" | LEABReg b => printReg(b, stream) | LEABGlobal => stream "global";
                 stream ")";
                 printIndex(index, stream, printReg);
                 stream " => ";

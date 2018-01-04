@@ -483,6 +483,14 @@ struct
                                 baseCodePost @ indexCodePost)
                         end
 
+                    |   mapSourceEx(ObjectLocation{base, offset, ...}) =
+                        (* No caching for the moment. *)
+                        let
+                            val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
+                        in
+                            (ObjectLocation{base=baseReg, offset=offset, cache=NONE}, baseCodePre, baseCodePost)
+                        end
+
                     |   mapSourceEx(StackLocation{container as StackLoc{rno, ...}, field, cache, ...}) =
                         let
                             val (newOffset, newContainer) = mapContainerAndStack(container, field)
@@ -548,6 +556,7 @@ struct
 
                     |   mapAndLoad(StackLocation _) = raise InternalError "mapAndLoad - already a stack loc"
                     |   mapAndLoad(MemoryLocation _) = raise InternalError "mapAndLoad - already a mem loc"
+                    |   mapAndLoad(ObjectLocation _) = raise InternalError "mapAndLoad - already a mem loc"
                     |   mapAndLoad source = mapSource source
         
                     (* Rewrite the code, replacing any registers that need to be pushed with references to
@@ -1000,9 +1009,10 @@ struct
                         let
                             val (baseVal, baseCode) =
                                 case base of
-                                    NONE => (NONE, [])
-                                |   SOME bReg =>
-                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (SOME newBReg, regCode) end
+                                    LEABReg bReg =>
+                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (LEABReg newBReg, regCode) end
+                                |   LEABNone => (LEABNone, [])
+                                |   LEABGlobal => (LEABGlobal, [])
                             val (indexVal, indexCode) = mapIndex index
                             val (destVal, destCode) = mapDestReg dest
                         in
