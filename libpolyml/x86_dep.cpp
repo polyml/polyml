@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-17
+    Further work copyright David C. J. Matthews 2011-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -416,7 +416,9 @@ extern "C" {
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0), saveRegisterMask(0)
 {
+#ifdef POLYML32IN64
     assemblyInterface.enterInterpreter = (byte*)X86AsmCallExtraRETURN_ENTER_INTERPRETER;
+#endif
     assemblyInterface.heapOverFlowCall = (byte*)X86AsmCallExtraRETURN_HEAP_OVERFLOW;
     assemblyInterface.stackOverFlowCall = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOW;
     assemblyInterface.stackOverFlowCallEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
@@ -1091,14 +1093,14 @@ void X86TaskData::HeapOverflowTrap(byte *pcPtr)
     // This should be movl REG,0[%ebp].
     ASSERT(pcPtr[0] == 0x89);
     mdTask->allocReg = (pcPtr[1] >> 3) & 7; // Remember this until we allocate the memory
-    PolyWord *reg = get_reg(mdTask->allocReg);
-    PolyWord reg_val = *reg;
+    stackItem *reg = get_reg(mdTask->allocReg);
+    stackItem reg_val = *reg;
     // The space we need is the difference between this register
     // and the current value of newptr.
     // The +1 here is because assemblyInterface.localMpointer is A.M.pointer +1.  The reason
     // is that after the allocation we have the register pointing at the address we will
     // actually use.
-    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.stackAddr) + 1;
     *reg = TAGGED(0); // Clear this - it's not a valid address.
     /* length in words, including length word */
 
@@ -1520,6 +1522,7 @@ static PLock mutexLock;
 int X86TaskData::Interpret()
 /* (Re)-enter the Poly code from C. */
 {
+#ifdef POLYML32IN64
     // These are temporary values used where one instruction jumps to
     // common code.
     POLYUNSIGNED    tailCount;
@@ -3185,5 +3188,6 @@ int X86TaskData::Interpret()
 
         } /* switch */
     } /* for */
+#endif
     return 0;
 } /* MD_switch_to_poly */
