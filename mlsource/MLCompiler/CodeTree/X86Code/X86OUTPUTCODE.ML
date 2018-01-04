@@ -2367,7 +2367,7 @@ struct
                         end
                     |   ObjectId32Bit =>
                         let
-                            (* We  must allocate an even number of words. *)
+                            (* We must allocate an even number of words. *)
                             val heapWords = if Int.rem(size, 2) = 1 then size+1 else size+2
                             val bytes = heapWords * Word.toInt wordSize
                         in
@@ -2391,7 +2391,7 @@ struct
                 (* If this is 32-in-64 we need to round down to the next 8-byte boundary. *)
                 val roundCode =
                     if targetArch = ObjectId32Bit
-                    then [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg 0xfffffff8, opSize=OpSize64 }]
+                    then [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg ~8, opSize=OpSize64 }]
                     else []
                 val resultCode = startCode @ roundCode @ allocStoreCommonCode(output, true, saveRegs)
             in
