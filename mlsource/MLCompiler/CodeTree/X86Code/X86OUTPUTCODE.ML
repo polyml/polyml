@@ -2347,15 +2347,33 @@ struct
             let
                 val _ = inAllocation andalso raise InternalError "doExpansion: Allocation started but not complete"
                 val () = if List.exists (fn r => r = output) saveRegs then raise InternalError "AllocStore: in set" else ()
-                val bytes = (size + 1) * Word.toInt wordSize
+
                 val startCode =
-                    if hostIsX64
-                    then [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex, opSize=OpSize64}]
+                    case targetArch of
+                        Native64Bit =>
+                        let
+                            val bytes = (size + 1) * Word.toInt wordSize
+                        in
+                            [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex, opSize=OpSize64}]
                              (* TODO: What if it's too big to fit? *)
-                    else
-                        [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex},
-                            output=output, opSize=OpSize32},
-                         LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex, opSize=OpSize32}]
+                        end
+                    |   Native32Bit =>
+                        let
+                            val bytes = (size + 1) * Word.toInt wordSize
+                        in
+                            [MoveToRegister{source=MemoryArg{base=ebp, offset=memRegLocalMPointer, index=NoIndex},
+                                output=output, opSize=OpSize32},
+                             LoadAddress{output=output, offset = ~ bytes, base=SOME output, index=NoIndex, opSize=OpSize32}]
+                        end
+                    |   ObjectId32Bit =>
+                        let
+                            (* We  must allocate an even number of words. *)
+                            val heapWords = if Int.rem(size, 2) = 1 then size+1 else size+2
+                            val bytes = heapWords * Word.toInt wordSize
+                        in
+                            [LoadAddress{output=output, offset = ~ bytes, base=SOME r15, index=NoIndex, opSize=OpSize64}]
+                        end
+                            
                 val resultCode = startCode @ allocStoreCommonCode(output, false, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)
@@ -2370,7 +2388,12 @@ struct
                 val startCode =
                     [Negative{output=output, opSize=if hostIsX64 then OpSize64 else OpSize32},
                      ArithToGenReg{opc=ADD, output=output, source=localPointer, opSize=polyWordOpSize}]
-                val resultCode = startCode @ allocStoreCommonCode(output, true, saveRegs)
+                (* If this is 32-in-64 we need to round down to the next 8-byte boundary. *)
+                val roundCode =
+                    if targetArch = ObjectId32Bit
+                    then [ArithToGenReg{opc=AND, output=output, source=NonAddressConstArg 0xfffffff8, opSize=OpSize64 }]
+                    else []
+                val resultCode = startCode @ roundCode @ allocStoreCommonCode(output, true, saveRegs)
             in
                 doExpansion(instrs, (List.rev resultCode) @ code, true)
             end

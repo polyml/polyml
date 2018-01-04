@@ -20,12 +20,5 @@ struct
     structure xCode = X86Code and bCode = ByteCode
     open ByteCode
 
-    structure Foreign =
-    struct
-        val rtsCallFull = xCode.Foreign.rtsCallFull
-        and rtsCallFast = xCode.Foreign.rtsCallFast
-        
-        val rtsCallFastFloattoFloat = bCode.Foreign.rtsCallFastFloattoFloat
-        and rtsCallFastGeneraltoFloat = bCode.Foreign.rtsCallFastGeneraltoFloat
-    end
+    structure Foreign = xCode.Foreign
 end;

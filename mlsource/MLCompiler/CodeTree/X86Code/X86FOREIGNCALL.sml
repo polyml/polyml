@@ -366,12 +366,12 @@ struct
                 ArithToGenReg{opc=SUB, output=esp, source=NonAddressConstArg(LargeInt.fromInt stackSpace), opSize=nativeWordOpSize}
             ] @
             (
-                case abi of
+                case targetArch of
                     (* X64 on both Windows and Unix take the first arg in xmm0.  We need to
                        unbox the value pointed at by rax. *)
-                    X64Unix => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
-                |   X64Win => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
-                |   X86_32 =>
+                    Native64Bit => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=eax, offset=0, index=NoIndex}, output=xmm0 } ]
+                |   ObjectId32Bit => [ XMMArith { opc= SSE2Move, source=MemoryArg{base=ebx, offset=0, index=Index4 eax}, output=xmm0 } ]
+                |   Native32Bit =>
                      (* eax contains the address of the value.  This must be unboxed onto the stack. *)
                     [
                         FPLoadFromMemory{address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision},
@@ -385,23 +385,33 @@ struct
             ] @
             (
                 (* Put the floating point result into a box. *)
-                case abi of
-                   X86_32 =>
+                case targetArch of
+                   Native32Bit =>
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize32},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
-                |   _ => (* X64 The result is in xmm0 *)
+                |   Native64Bit => (* X64 The result is in xmm0 *)
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize64},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
+                    ]                    
+                |   ObjectId32Bit => (* X64 with 32-bit object Ids The result is in xmm0 *)
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=fpBoxLengthWord32,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize32},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
+                        StoreInitialised,
+                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
+                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
                     ]                    
             ) @
             [
@@ -471,23 +481,33 @@ struct
             ] @
             (
                 (* Put the floating point result into a box. *)
-                case abi of
-                   X86_32 =>
+                case targetArch of
+                   Native32Bit =>
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=fpBoxLengthWord32,
-                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                                address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize32},
                         FPStoreToMemory{ address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, andPop=true },
                         StoreInitialised
                     ]
-                |   _ => (* X64 The result is in xmm0 *)
+                |   Native64Bit => (* X64 The result is in xmm0 *)
                     [
                         AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
                         StoreConstToMemory{toStore=LargeInt.fromInt fpBoxSize,
-                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=polyWordOpSize},
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize64},
                         StoreNonWordConst{size=Size8Bit, toStore=Word8.toLargeInt F_bytes, address={offset= ~1, base=eax, index=NoIndex}},
                         XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
                         StoreInitialised
+                    ]                    
+                |   ObjectId32Bit => (* X64 with 32-bit object Ids The result is in xmm0 *)
+                    [
+                        AllocStore{size=fpBoxSize, output=eax, saveRegs=[]},
+                        StoreConstToMemory{toStore=fpBoxLengthWord32,
+                            address={offset= ~ (Word.toInt wordSize), base=eax, index=NoIndex}, opSize=OpSize32},
+                        XMMStoreToMemory { address={base=eax, offset=0, index=NoIndex}, precision=DoublePrecision, toStore=xmm0 },
+                        StoreInitialised,
+                        ArithToGenReg{ opc=SUB, output=eax, source=RegisterArg ebx, opSize=OpSize64 },
+                        ShiftConstant{ shiftType=SHR, output=eax, shift=0w2, opSize=OpSize64 }
                     ]                    
             ) @
             [
