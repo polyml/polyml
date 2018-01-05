@@ -44,7 +44,10 @@ struct
         else allocWordData(0w1, Word8.orb(F_mutable, F_words), toMachineWord 0w0)
     end
 
-    fun codeAddressFromClosure closure = loadWord(closure, 0w0) (* Not valid in 32-in-64 *)
+    fun codeAddressFromClosure closure =
+        if nativeWordSize <> wordSize
+        then raise InternalError "codeAddressFromClosure" (* Not valid in 32-in-64 *)
+        else loadWord(closure, 0w0)
     
     fun closureAsAddress closure = toMachineWord closure
 
@@ -82,8 +85,9 @@ struct
         fun codeVecLock(_, closure) = cvecLock closure
     end
 
-    (* Return the address of the segment. Used when putting in "self" addresses. *)
-    fun codeVecAddr vector = vector
+    (* Return the address of the segment. Used when putting in "self" addresses.
+       Only used in native 32-bit where we don't have relative addresses. *)
+    val codeVecAddr = toAddress o codeAddressFromClosure
  
     (* Set a byte. Used when setting the byte data. *)
     fun byteVecSet (addr, byteIndex, value: Word8.word) =
