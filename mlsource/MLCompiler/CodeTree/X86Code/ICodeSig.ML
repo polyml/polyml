@@ -107,14 +107,16 @@ sig
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
 
     (* Kinds of moves.
-       MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
+       Move32Bit - 32-bit loads and stores
+       Move64Bit - 64-bit loads and stores
        MoveByte - When loading, load a byte and zero extend.
        Move16Bit - Used for C-memory loads and stores.  Zero extends on load.
-       Move32Bit - Used for C-memory loads and stores in 64-bit mode.
        MoveFloat - Load and store a single-precision value
        MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
-        MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
+        MoveByte | Move16Bit | Move32Bit | Move64Bit | MoveFloat | MoveDouble
+
+    val movePolyWord: moveKind and moveNativeWord: moveKind
     
     (* The reference to a condition code. *)
     datatype ccRef = CcRef of int

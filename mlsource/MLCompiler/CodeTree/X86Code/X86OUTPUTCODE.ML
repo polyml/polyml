@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-17
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13, 2015-18
     
     Based on original code:    
     Copyright (c) 2000
@@ -1022,7 +1022,7 @@ struct
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit | Size32Bit
+    datatype nonWordSize = Size8Bit | Size16Bit
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
@@ -1116,7 +1116,6 @@ struct
         
         fun printSize Size8Bit = "Byte"
         |   printSize Size16Bit = "16Bit"
-        |   printSize Size32Bit = "32Bit"
         
         fun printOpSize OpSize32 = "32"
         |   printOpSize OpSize64 = "64"
@@ -1431,9 +1430,6 @@ struct
                 (* Likewise *)
                 opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
 
-        |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
-                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
-
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
@@ -1665,9 +1661,6 @@ struct
 
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
                 opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
-            
-        |   cgOp(StoreNonWord{ size = Size32Bit, toStore, address={offset, base, index}}) =
-                opAddress(MOVL_R_A32, LargeInt.fromInt offset, base, index, toStore)
 
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
                 opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
@@ -1675,9 +1668,6 @@ struct
 
         |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
                 raise InternalError "StoreNonWordConst: 16Bit"
-
-        |   cgOp(StoreNonWordConst{ size=Size32Bit, ... }) =
-                raise InternalError "StoreNonWordConst: 32Bit"
 
             (* Allocation is dealt with by expanding the code. *)
         |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"

@@ -69,17 +69,23 @@ struct
         NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
 
     (* Kinds of moves.
-       MoveWord - Move a whole word - 64-bits in 64-bit mode, 32-bits in 32-bit mode.
+       Move32Bit - 32-bit loads and stores
+       Move64Bit - 64-bit loads and stores
        MoveByte - When loading, load a byte and zero extend.
        Move16Bit - Used for C-memory loads and stores.  Zero extends on load.
-       Move32Bit - Used for C-memory loads and stores in 64-bit mode.
        MoveFloat - Load and store a single-precision value
        MoveDouble - Load and store a double-precision value. *)
     datatype moveKind =
-        MoveWord | MoveByte | Move16Bit | Move32Bit | MoveFloat | MoveDouble
+        MoveByte | Move16Bit | Move32Bit | Move64Bit | MoveFloat | MoveDouble
 
     (* The reference to a condition code. *)
     and ccRef = CcRef of int
+    
+    val (movePolyWord, moveNativeWord) =
+        case targetArch of
+            Native32Bit     => (Move32Bit, Move32Bit)
+        |   Native64Bit     => (Move64Bit, Move64Bit)
+        |   ObjectId32Bit   => (Move32Bit, Move64Bit)
 
     datatype boxKind = BoxLargeWord | BoxSSE2 | BoxX87
     
@@ -363,7 +369,7 @@ struct
         |   printSaves(areg::more, printReg, stream) =
                 (printReg(areg, stream); stream ","; printSaves(more, printReg, stream))
         
-        fun printKind(MoveWord, stream) = stream "Word"
+        fun printKind(Move64Bit, stream) = stream "64Bit"
         |   printKind(MoveByte, stream) = stream "Byte"
         |   printKind(Move16Bit, stream) = stream "16Bit"
         |   printKind(Move32Bit, stream) = stream "32Bit"
@@ -381,7 +387,7 @@ struct
         |   printICode(StoreArgument{source, base, offset, index, kind, ...}, stream, printReg) =
             (
                 case kind of
-                    MoveWord => stream "\tStoreWord\t"
+                    Move64Bit => stream "\tStore64Bit\t"
                 |   MoveByte => stream "\tStoreByte\t"
                 |   Move16Bit => stream "\tStore16Bit\t"
                 |   Move32Bit => stream "\tStore32Bit\t"

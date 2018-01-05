@@ -53,6 +53,8 @@ functor X86ICodeToX86Code(
 struct
     open IDENTIFY
     open ICODE
+    
+    val moveWord = moveNativeWord (* Temporary for backwards compatibility. *)
 
     open X86CODE
 
@@ -105,7 +107,7 @@ struct
         |   sourceAsXMMRegOrMem _ = raise InternalError "sourceAsGenRegOrMem"
         
         (* Moves and loads. *)
-        fun llLoadArgument({ source, dest=GenReg destReg, kind=MoveWord}, code) =
+        fun llLoadArgument({ source, dest=GenReg destReg, kind=Move64Bit}, code) =
                 MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg, opSize=defOpSize } :: code
 
         |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=MoveByte}, code) = (* Load from memory. *)
@@ -114,8 +116,8 @@ struct
         |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move16Bit}, code) = (* Load from memory. *)
                 LoadNonWord{size=Size16Bit, source=mLoc, output=destReg} :: code
                 
-        |   llLoadArgument({ source=MemoryArg mLoc, dest=GenReg destReg, kind=Move32Bit}, code) = (* Load from memory. *)
-                LoadNonWord{size=Size32Bit, source=mLoc, output=destReg} :: code
+        |   llLoadArgument({ source, dest=GenReg destReg, kind=Move32Bit}, code) = (* Load from memory. *)
+                MoveToRegister { source=sourceAsGenRegOrMem source, output=destReg, opSize=OpSize32 } :: code
 
                 (* Load a floating point value. *)
         |   llLoadArgument({source=MemoryArg{offset, base=baseReg, index}, dest=FPReg fpReg, kind=MoveDouble}, code) =
@@ -150,8 +152,8 @@ struct
             else FPStoreToFPReg{output=fpDest, andPop=true} :: code
 
                 (* Store to memory *)
-        fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveWord} =
-                StoreRegToMemory{toStore=sourceReg, address={base=base, offset=offset, index=index}, opSize=defOpSize}
+        fun llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move64Bit} =
+                StoreRegToMemory{toStore=sourceReg, address={base=base, offset=offset, index=index}, opSize=OpSize64}
 
         |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=MoveByte} =
                 StoreNonWord{size=Size8Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}} 
@@ -160,17 +162,23 @@ struct
                 StoreNonWord{size=Size16Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}}
 
         |   llStoreArgument{ source=RegisterArg(GenReg sourceReg), base, offset, index, kind=Move32Bit} =
-                StoreNonWord{size=Size32Bit, toStore=sourceReg, address={base=base, offset=offset, index=index}}
+                StoreRegToMemory{toStore=sourceReg, address={base=base, offset=offset, index=index}, opSize=OpSize32}
 
                 (* Store a short constant to memory *)
-        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveWord} =
-                StoreConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}, opSize=defOpSize}
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=Move64Bit} =
+                StoreConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}, opSize=OpSize64}
+                
+        |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=Move32Bit} =
+                StoreConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}, opSize=OpSize32}
 
         |   llStoreArgument{ source=NonAddressConstArg srcValue, base, offset, index, kind=MoveByte} =
                 StoreNonWordConst{size=Size8Bit, toStore=srcValue, address={base=base, offset=offset, index=index}}
 
                 (* Store a long constant to memory *)
-        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=MoveWord} =
+        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=Move64Bit} =
+                StoreLongConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}}
+
+        |   llStoreArgument{ source=AddressConstArg srcValue, base, offset, index, kind=Move32Bit} =
                 StoreLongConstToMemory{toStore=srcValue, address={base=base, offset=offset, index=index}}
 
                 (* Store a floating point value. *)
@@ -293,11 +301,11 @@ struct
                             (* Source and dest are both regs - only move if they're different. *)
                             if r = reg
                             then moveEachValue(rest, code)
-                            else moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=MoveWord}, code))
+                            else moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=moveWord}, code))
 
                     |   moveEachValue ([{dst=RegDest reg, src}] :: rest, code) =
                             (* Load from store or a constant. *)
-                            moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=MoveWord}, code))
+                            moveEachValue(rest, llLoadArgument({source=sourceToX86Code src, dest=reg, kind=moveWord}, code))
 
                     |   moveEachValue ([{dst=StackDest _, src=OtherSource(MemoryArg _ )}] :: _, _) =
                             raise InternalError "moveEachValue - MemoryArgument"
@@ -312,15 +320,15 @@ struct
                             in
                                 moveEachValue(rest,
                                     llStoreArgument{source=RegisterArg(workReg), base=esp, index=NoIndex,
-                                                offset = addr*Word.toInt wordSize, kind=MoveWord} ::
-                                       llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=MoveWord}, code))
+                                                offset = addr*Word.toInt wordSize, kind=moveWord} ::
+                                       llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=moveWord}, code))
                             end
 
                     |   moveEachValue ([{dst=StackDest addr, src}] :: rest, code) =
                             (* Store from a register or a constant. *)
                             moveEachValue(rest,
                                 llStoreArgument{
-                                    source=sourceToX86Code src, base=esp, index=NoIndex, offset = addr*Word.toInt wordSize, kind=MoveWord} :: code)
+                                    source=sourceToX86Code src, base=esp, index=NoIndex, offset = addr*Word.toInt wordSize, kind=moveWord} :: code)
 
                     |   moveEachValue((cycle as first :: _ :: _) :: rest, code) =
                         (* We have a cycle. *)
@@ -377,9 +385,9 @@ struct
                                         val workReg = valOf workReg
                                     in
                                         llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
-                                                offset = addr*Word.toInt wordSize, kind=MoveWord} ::
+                                                offset = addr*Word.toInt wordSize, kind=moveWord} ::
                                             llExchange{reg=regA, arg=RegisterArg workReg} ::
-                                                llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=MoveWord}, code)
+                                                llLoadArgument({source=sourceToX86Code src, dest=workReg, kind=moveWord}, code)
                                     end
 
                                 |   (StackDest addr, OtherSource(RegisterArg regA)) =>
@@ -388,10 +396,10 @@ struct
                                         val workReg = valOf workReg
                                     in
                                         llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
-                                                offset = addr*Word.toInt wordSize, kind=MoveWord} ::
+                                                offset = addr*Word.toInt wordSize, kind=moveWord} ::
                                             llExchange{reg=regA, arg=RegisterArg workReg} ::
                                                 llLoadArgument({
-                                                    source=MemoryArg{base=esp, offset=addr*Word.toInt wordSize, index=NoIndex}, dest=workReg, kind=MoveWord}, code)
+                                                    source=MemoryArg{base=esp, offset=addr*Word.toInt wordSize, index=NoIndex}, dest=workReg, kind=moveWord}, code)
                                     end
 
                                 |   (StackDest addr1, StackSource addr2) =>
@@ -407,10 +415,10 @@ struct
                                            area to be overwritten. *)
                                     in
                                         llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
-                                                offset = addr1*Word.toInt wordSize, kind=MoveWord} ::
+                                                offset = addr1*Word.toInt wordSize, kind=moveWord} ::
                                             llExchange{reg=workReg, arg=MemoryArg{base=esp, offset=addr2*Word.toInt wordSize, index=NoIndex}} ::
                                                 llLoadArgument({
-                                                    source=MemoryArg{base=esp, offset=addr1*Word.toInt wordSize, index=NoIndex}, dest=workReg, kind=MoveWord}, code)
+                                                    source=MemoryArg{base=esp, offset=addr1*Word.toInt wordSize, index=NoIndex}, dest=workReg, kind=moveWord}, code)
                                     end
                                 
                                 |   _ => raise InternalError "moveEachValue: cycle"
@@ -648,10 +656,10 @@ struct
                     let
                         val moveKind =
                             case kind of
-                                MoveWord => MoveWord
-                            |   MoveByte => MoveWord
-                            |   Move16Bit => MoveWord
-                            |   Move32Bit => MoveWord
+                                Move64Bit => Move64Bit
+                            |   MoveByte => moveWord
+                            |   Move16Bit => moveWord
+                            |   Move32Bit => moveWord
                             |   MoveFloat => MoveDouble
                             |   MoveDouble => MoveDouble
                     in
@@ -664,10 +672,10 @@ struct
                     let
                         val moveKind =
                             case kind of
-                                MoveWord => MoveWord
-                            |   MoveByte => MoveWord
-                            |   Move16Bit => MoveWord
-                            |   Move32Bit => MoveWord
+                                Move64Bit => Move64Bit
+                            |   MoveByte => moveWord
+                            |   Move16Bit => moveWord
+                            |   Move32Bit => moveWord
                             |   MoveFloat => MoveDouble
                             |   MoveDouble => MoveDouble
                     in
@@ -693,7 +701,7 @@ struct
                         val realStoreReg = getAllocatedReg sReg
                         val (moveCode, storeReg) =
                             if realStoreReg = GenReg edi orelse realStoreReg = GenReg esi
-                            then (moveIfNecessary({src=realStoreReg, dst=GenReg ecx, kind=MoveWord}, code), GenReg ecx)
+                            then (moveIfNecessary({src=realStoreReg, dst=GenReg ecx, kind=moveWord}, code), GenReg ecx)
                             else (code, realStoreReg)
                     in
                         llStoreArgument{
@@ -708,7 +716,7 @@ struct
 
         |   codeExtended _ ({instr=LoadMemReg { offset, dest=PReg pr}, ...}, code) =
             (* Load from the "memory registers" pointed at by ebp. *)
-                llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=MoveWord}, code)
+                llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=moveWord}, code)
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
@@ -829,16 +837,16 @@ struct
                 (* These are all items we can load without requiring a source register.
                    That includes loading from the stack. *)
                 fun getConstArgs((AddressConstant m, reg), code) =
-                        llLoadArgument({source=AddressConstArg m, dest=reg, kind=MoveWord}, code)
+                        llLoadArgument({source=AddressConstArg m, dest=reg, kind=moveWord}, code)
                 |   getConstArgs((IntegerConstant i, reg), code) =
-                        llLoadArgument({source=NonAddressConstArg i, dest=reg, kind=MoveWord}, code)
+                        llLoadArgument({source=NonAddressConstArg i, dest=reg, kind=moveWord}, code)
                 |   getConstArgs((StackLocation { cache=SOME _, ...}, _), code) = code
                 |   getConstArgs((StackLocation { wordOffset, ...}, reg), code) =
                         llLoadArgument({source=MemoryArg{offset=(wordOffset+numStackArgs)*Word.toInt wordSize, base=esp, index=NoIndex},
-                                          dest=reg, kind=MoveWord}, code)
+                                          dest=reg, kind=moveWord}, code)
                 |   getConstArgs((ContainerAddr {stackOffset, ...}, reg), code) =
                         if stackOffset+numStackArgs = 0
-                        then llLoadArgument({source=RegisterArg(GenReg esp), dest=reg, kind=MoveWord}, code)
+                        then llLoadArgument({source=RegisterArg(GenReg esp), dest=reg, kind=moveWord}, code)
                         else LoadAddress{ output=asGenReg reg, offset=(stackOffset+numStackArgs)*Word.toInt wordSize, base=SOME esp, index=NoIndex, opSize=defOpSize } :: code
                 |   getConstArgs((RegisterArgument _, _), code) = code
                 |   getConstArgs((MemoryLocation _, _), code) = code
@@ -857,7 +865,7 @@ struct
                     end
 
             in
-                moveIfNecessary({dst=destReg, src=GenReg eax, kind=MoveWord}, makeSaves(saveRegs, loadConstArgs)) 
+                moveIfNecessary({dst=destReg, src=GenReg eax, kind=moveWord}, makeSaves(saveRegs, loadConstArgs)) 
             end
 
         |   codeExtended _ ({instr=AllocateMemoryOperation{ size, flags, dest=PReg dReg, saveRegs}, ...}, code) =
@@ -900,9 +908,9 @@ struct
                    That requires the length to be in ecx, the initialiser to be in eax and
                    the destination to be edi. *)
                 RepeatOperation (if polyWordOpSize = OpSize64 then STOS64 else STOS32)::
-                    moveIfNecessary({src=getAllocatedReg iReg, dst=GenReg eax, kind=MoveWord},
-                        moveIfNecessary({src=getAllocatedReg aReg, dst=GenReg edi, kind=MoveWord},
-                            moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg ecx, kind=MoveWord}, code)))
+                    moveIfNecessary({src=getAllocatedReg iReg, dst=GenReg eax, kind=moveWord},
+                        moveIfNecessary({src=getAllocatedReg aReg, dst=GenReg edi, kind=moveWord},
+                            moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg ecx, kind=moveWord}, code)))
 
         |   codeExtended _ ({instr=InitialisationComplete, ...}, code) = StoreInitialised :: code
 
@@ -1046,7 +1054,7 @@ struct
                     PopR realWorkreg :: ResetStack{numWords=1, preserveCC=false} ::
                     MoveToRegister{ source=MemoryArg{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=esp, opSize=defOpSize } :: code
             in
-                moveIfNecessary({src=GenReg eax, dst=realPktReg, kind=MoveWord }, beginHandleCode)
+                moveIfNecessary({src=GenReg eax, dst=realPktReg, kind=moveWord }, beginHandleCode)
             end
 
         |   codeExtended _ ({instr=ReturnResultFromFunction { resultReg=PReg resReg, numStackArgs }, ...}, code) =
@@ -1054,7 +1062,7 @@ struct
                 val resultReg = getAllocatedReg resReg
                 (* If for some reason it's not in the right register we have to move it there. *)
             in
-                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=GenReg eax, kind=MoveWord}, code)
+                ReturnFromFunction numStackArgs :: moveIfNecessary({src=resultReg, dst=GenReg eax, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1066,7 +1074,7 @@ struct
                 val realOp1Reg = getAllocatedReg op1Reg
             in
                 ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=polyWordOpSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
@@ -1100,7 +1108,7 @@ struct
                    location with the result reg as a base or index? *)
             in
                 ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=polyWordOpSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=TestTagBit{arg, ...}, ...}, code) =
@@ -1136,7 +1144,7 @@ struct
 
         |   codeExtended _ ({instr=StoreToStack{ source, stackOffset, ... }, ...}, code) =
                 llStoreArgument{
-                    source=codeExtArgument source, base=esp, offset=stackOffset*Word.toInt wordSize, index=NoIndex, kind=MoveWord} :: code
+                    source=codeExtArgument source, base=esp, offset=stackOffset*Word.toInt wordSize, index=NoIndex, kind=moveWord} :: code
 
         |   codeExtended _ ({instr=TagValue{source=PReg srcReg, dest as PReg dReg, ...}, ...}, code) =
             if not (isUsed dest)
@@ -1152,7 +1160,7 @@ struct
         |   codeExtended _ ({instr=UntagValue{dest as PReg dReg, cache=SOME(PReg cacheReg), ...}, ...}, code) =
             if not (isUsed dest)
             then code
-            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=MoveWord}, code)
+            else moveIfNecessary({src=getAllocatedReg cacheReg, dst=getAllocatedReg dReg, kind=moveWord}, code)
 
         |   codeExtended _ ({instr=UntagValue{source=PReg sReg, dest as PReg dReg, isSigned, ...}, ...}, code) =
             if not (isUsed dest)
@@ -1163,7 +1171,7 @@ struct
                 val realSReg = getAllocatedReg sReg
             in
                 ShiftConstant{ shiftType=if isSigned then SAR else SHR, output=asGenReg regResult, shift=0w1, opSize=defOpSize } ::
-                    moveIfNecessary({src=realSReg, dst=regResult, kind=MoveWord}, code)
+                    moveIfNecessary({src=realSReg, dst=regResult, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=LoadEffectiveAddress{base, offset, index, dest=PReg dReg}, ...}, code) =
@@ -1185,7 +1193,7 @@ struct
                 val realOpReg = getAllocatedReg operReg
             in
                 ShiftConstant{ shiftType=shift, output=asGenReg realDestReg, shift=Word8.fromLargeInt i, opSize=defOpSize } ::
-                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=MoveWord}, code)
+                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=ShiftOperation{shift, resultReg=PReg resReg, operand=PReg operReg,
@@ -1199,8 +1207,8 @@ struct
                    check for larger shift values at a higher level.*)
             in
                 ShiftVariable{ shiftType=shift, output=asGenReg realDestReg, opSize=defOpSize } ::
-                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=MoveWord},
-                        moveIfNecessary({src=realShiftReg, dst=GenReg ecx, kind=MoveWord}, code))
+                    moveIfNecessary({src=realOpReg, dst=realDestReg, kind=moveWord},
+                        moveIfNecessary({src=realShiftReg, dst=GenReg ecx, kind=moveWord}, code))
             end
 
         |   codeExtended _ ({instr=ShiftOperation _, ...}, _) = raise InternalError "codeExtended - ShiftOperation"
@@ -1232,7 +1240,7 @@ struct
                 val op2Arg = codeExtArgumentAsGenReg operand2
             in
                 MultiplyR { output=asGenReg realDestReg, source=op2Arg, opSize=defOpSize } ::
-                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=MoveWord}, code)
+                    moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveWord}, code)
             end
 
         |   codeExtended _ ({instr=Division{isSigned, dividend=PReg regDivid, divisor, quotient=PReg regQuot,
@@ -1260,7 +1268,7 @@ struct
                    quotient will actually be used. *)
                 moveMultipleRegisters([{src=GenReg eax, dst=realQuotReg}, {src=GenReg edx, dst=realRemReg}],
                     DivideAccR {arg=divisorReg, isSigned=isSigned, opSize=defOpSize} :: setRDX ::
-                        moveIfNecessary({src=realDiviReg, dst=GenReg eax, kind=MoveWord}, code))
+                        moveIfNecessary({src=realDiviReg, dst=GenReg eax, kind=moveWord}, code))
             end
 
         |   codeExtended _ ({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}, code) =
@@ -1278,7 +1286,7 @@ struct
                 val preserve = getSaveRegs saveRegs
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
-                        BoxLargeWord => (getAllocatedReg sReg, 1, MoveWord)
+                        BoxLargeWord => (getAllocatedReg sReg, 1, moveWord)
                     |   BoxX87 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                     |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
@@ -1299,17 +1307,17 @@ struct
                    is two bytes in 32-bit.
                    If we knew the length was non-zero (e.g. a constant) we could avoid this. *)
                 RepeatOperation CMPS8 :: ArithToGenReg {opc=CMP, output=ecx, source=RegisterArg ecx, opSize=OpSize32} ::
-                    moveIfNecessary({src=getAllocatedReg v1Reg, dst=GenReg esi, kind=MoveWord},
-                        moveIfNecessary({src=getAllocatedReg v2Reg, dst=GenReg edi, kind=MoveWord},
-                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))
+                    moveIfNecessary({src=getAllocatedReg v1Reg, dst=GenReg esi, kind=moveWord},
+                        moveIfNecessary({src=getAllocatedReg v2Reg, dst=GenReg edi, kind=moveWord},
+                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=moveWord}, code)))
 
         |   codeExtended _ ({instr=BlockMove{srcAddr=PReg sReg, destAddr=PReg dReg, length=PReg lReg, isByteMove}, ...}, code) =
                 (* We may need to move these into the appropriate registers.  They have been reserved but it's
                    still possible the values could be in something else. *)
                 RepeatOperation(if isByteMove then MOVS8 else if polyWordOpSize = OpSize64 then MOVS64 else MOVS32) ::
-                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg esi, kind=MoveWord},
-                        moveIfNecessary({src=getAllocatedReg dReg, dst=GenReg edi, kind=MoveWord},
-                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=MoveWord}, code)))
+                    moveIfNecessary({src=getAllocatedReg sReg, dst=GenReg esi, kind=moveWord},
+                        moveIfNecessary({src=getAllocatedReg dReg, dst=GenReg edi, kind=moveWord},
+                            moveIfNecessary({src=getAllocatedReg lReg, dst=GenReg ecx, kind=moveWord}, code)))
 
         |   codeExtended _ ({instr=X87Compare{arg1=PReg argReg, arg2, ...}, ...}, code) =
             let
@@ -1332,7 +1340,7 @@ struct
             end
 
         |   codeExtended _ ({instr=X87FPGetCondition{dest=PReg dReg, ...}, ...}, code) =
-                moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=MoveWord},
+                moveIfNecessary({src=GenReg eax, dst=getAllocatedReg dReg, kind=moveWord},
                     FPStatusToEAX :: code)
 
         |   codeExtended _ ({instr=X87FPArith{opc, resultReg=PReg resReg, arg1=PReg op1Reg, arg2}, ...}, code) =
