@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-17 David C.J. Matthews
+    Copyright (c) 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -66,8 +66,6 @@ struct
     fun argRegs(RegisterArgument rarg) = [rarg]
     |   argRegs(MemoryLocation { base, index, cache=SOME cr, ...}) = cr  :: base :: argIndex index
     |   argRegs(MemoryLocation { base, index, cache=NONE, ...}) = base :: argIndex index
-    |   argRegs(ObjectLocation { base, cache=SOME cr, ...}) = [cr, base]
-    |   argRegs(ObjectLocation { base, cache=NONE, ...}) = [base]
     |   argRegs(StackLocation { cache=SOME rarg, ...}) = [rarg]
     |   argRegs _ = []
     
@@ -76,6 +74,7 @@ struct
     |   argIndex(MemIndex2 arg) = [arg]
     |   argIndex(MemIndex4 arg) = [arg]
     |   argIndex(MemIndex8 arg) = [arg]
+    |   argIndex ObjectIndex = []
 
     fun argStacks(StackLocation { container, ...}) = [container]
     |   argStacks(ContainerAddr { container, ...}) = [container]
@@ -214,7 +213,7 @@ struct
     |   getInstructionState(LoadEffectiveAddress{base, index, dest, ...}) =
         let
             val bRegs =
-                case base of LEABReg bReg => [bReg] | _ => []
+                case base of SOME bReg => [bReg] | _ => []
             val iRegs = argIndex index
         in
             { sources=bRegs @ iRegs, dests=[dest], sStacks=[], dStacks=[], ccIn=CCUnused, ccOut=CCUnchanged }

@@ -380,6 +380,7 @@ struct
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex4 sreg, c1, c2) end
                     |   mapIndexEx(MemIndex8 r) =
                             let val (sreg, c1, c2) = mapSrcRegEx r in (MemIndex8 sreg, c1, c2) end
+                    |   mapIndexEx(ObjectIndex) = (ObjectIndex, [], [])
 
                     fun mapIndex index =
                     let
@@ -485,14 +486,6 @@ struct
                                 baseCodePost @ indexCodePost)
                         end
 
-                    |   mapSourceEx(ObjectLocation{base, offset, ...}) =
-                        (* No caching for the moment. *)
-                        let
-                            val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
-                        in
-                            (ObjectLocation{base=baseReg, offset=offset, cache=NONE}, baseCodePre, baseCodePost)
-                        end
-
                     |   mapSourceEx(StackLocation{container as StackLoc{rno, ...}, field, cache, ...}) =
                         let
                             val (newOffset, newContainer) = mapContainerAndStack(container, field)
@@ -558,7 +551,6 @@ struct
 
                     |   mapAndLoad(StackLocation _) = raise InternalError "mapAndLoad - already a stack loc"
                     |   mapAndLoad(MemoryLocation _) = raise InternalError "mapAndLoad - already a mem loc"
-                    |   mapAndLoad(ObjectLocation _) = raise InternalError "mapAndLoad - already a mem loc"
                     |   mapAndLoad source = mapSource source
         
                     (* Rewrite the code, replacing any registers that need to be pushed with references to
@@ -574,7 +566,16 @@ struct
                             val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                             val () = pushItemToStack(NewEntry{pregNo=dReg})
                         in
-                            PushValue{arg=sourceVal, container=container} :: sourceCode @ code
+                            case (sourceVal, targetArch) of
+                                (MemoryLocation _, ObjectId32Bit) =>
+                                let
+                                    (* Push will always push a 64-bit value.  We have to put it in a register first. *)
+                                    val newReg = newPReg RegPropUntagged
+                                in
+                                    PushValue{arg=RegisterArgument newReg, container=container} ::
+                                        LoadArgument{source=sourceVal, dest=newReg, kind=moveWord} :: sourceCode @ code
+                                end
+                           |    _ => PushValue{arg=sourceVal, container=container} :: sourceCode @ code
                         end
                         else (* We're not going to push this. *)
                         let
@@ -936,13 +937,13 @@ struct
                             ReturnResultFromFunction{resultReg=resultValue, numStackArgs=numStackArgs} :: resetCode @ loadResult @ code
                         end
 
-                    |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=ArithmeticFunction{oper, resultReg, operand1, operand2, ccRef, opSize}, ...}, code) =
                         let
                             val (loadedOp1, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSource operand2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef} ::
+                            destCode @ ArithmeticFunction{oper=oper, resultReg=destVal, operand1=loadedOp1, operand2=op2Val, ccRef=ccRef, opSize=opSize} ::
                                     op2Code @ op1Code @ code
                         end
 
@@ -1011,36 +1012,35 @@ struct
                         let
                             val (baseVal, baseCode) =
                                 case base of
-                                    LEABReg bReg =>
-                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (LEABReg newBReg, regCode) end
-                                |   LEABNone => (LEABNone, [])
-                                |   LEABGlobal => (LEABGlobal, [])
+                                    SOME bReg =>
+                                        let val (newBReg, regCode) = mapSrcReg(bReg) in (SOME newBReg, regCode) end
+                                |   NONE => (NONE, [])
                             val (indexVal, indexCode) = mapIndex index
                             val (destVal, destCode) = mapDestReg dest
                         in
                             destCode @ LoadEffectiveAddress{base=baseVal, offset=offset, index=indexVal, dest=destVal} :: indexCode @ baseCode @ code
                         end
 
-                    |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=ShiftOperation{shift, resultReg, operand, shiftAmount, ccRef, opSize}, ...}, code) =
                         let
                             val (opVal, opCode) = mapSrcReg operand
                             val (shiftVal, shiftCode) = mapSource shiftAmount
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef} ::
+                            destCode @ ShiftOperation{shift=shift, resultReg=destVal, operand=opVal, shiftAmount=shiftVal, ccRef=ccRef, opSize=opSize} ::
                                     shiftCode @ opCode @ code
                         end
 
-                    |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=Multiplication{resultReg, operand1, operand2, ccRef, opSize}, ...}, code) =
                         let
                             val (op1Val, op1Code) = mapSrcReg operand1
                             val (op2Val, op2Code) = mapSource operand2
                             val (destVal, destCode) = mapDestReg resultReg
                         in
-                            destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
+                            destCode @ Multiplication{resultReg=destVal, operand1=op1Val, operand2=op2Val, ccRef=ccRef, opSize=opSize} :: op2Code @ op1Code @ code
                         end
 
-                    |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder}, ...}, code) =
+                    |   pushRegisters({instr=Division{isSigned, dividend, divisor, quotient, remainder, opSize}, ...}, code) =
                         let
                             val (dividendVal, dividendCode) = mapSrcReg dividend
                             val (divisorVal, divisorCode) = mapSource divisor
@@ -1048,7 +1048,7 @@ struct
                             val (remVal, remCode) = mapDestReg remainder
                         in
                             remCode @ quotCode @
-                                    Division{isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, quotient=quotVal, remainder=remVal} ::
+                                    Division{isSigned=isSigned, dividend=dividendVal, divisor=divisorVal, quotient=quotVal, remainder=remVal, opSize=opSize} ::
                                         divisorCode @ dividendCode @ code
                         end
 

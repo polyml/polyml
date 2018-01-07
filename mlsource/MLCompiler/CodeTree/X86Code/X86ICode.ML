@@ -61,12 +61,13 @@ struct
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
         (* Address of a container. *)
     |   ContainerAddr of { container: stackLocn, stackOffset: int }
-        (* A memory location where the base address is an object ID rather than a real address.
-           Used in 32-in-64 only. *)
-    |   ObjectLocation of { base: preg, offset: int, cache: preg option } 
 
+    (* Generally this indicates the index register if present.  For 32-in-64
+       the "index" may be ObjectIndex in which case the base is actually an
+       object index. *)
     and memoryIndex =
-        NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
+        NoMemIndex | MemIndex1 of preg | MemIndex2 of preg |
+        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex
 
     (* Kinds of moves.
        Move32Bit - 32-bit loads and stores
@@ -91,9 +92,6 @@ struct
     
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = datatype opSize
-    
-    (* The LoadEffectiveAddress may take any of these as its base register. *)
-    datatype leaBase = LEABNone | LEABGlobal | LEABReg of preg
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -178,7 +176,7 @@ struct
            specifically deals with single bytes.  Other cases will use word
            operations. *)
     |   CompareByteMem of { arg1: { base: preg, offset: int, index: memoryIndex }, arg2: Word8.word, ccRef: ccRef }
-    
+
         (* Exception handling.  - Set up an exception handler. *)
     |   PushExceptionHandler of { workReg: preg }
 
@@ -194,14 +192,14 @@ struct
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
-            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef, opSize: opSize }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
     |   TestTagBit of { arg: argument, ccRef: ccRef }
 
         (* Push a value to the stack.  Added during translation phase. *)
     |   PushValue of { arg: argument, container: stackLocn }
-
+    
         (* Copy a value to a cache register.  LoadArgument could be used for this
            but it may be better to keep it separate. *)
     |   CopyToCache of { source: preg, dest: preg, kind: moveKind }
@@ -221,20 +219,20 @@ struct
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: leaBase, offset: int, index: memoryIndex, dest: preg }
+    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
-    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
+    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef, opSize: opSize }
 
         (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
            multiplication.  There are various forms of the instruction including a three-operand
            version. *)
-    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
+    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef, opSize: opSize }
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
-           puts the quotient in RAX and remainder in RDX.  At the abstract level we represent all of
+           puts the quotient in RAX and remainder in RDX.  At the preg level we represent all of
            these by pRegs.  The divisor can be either a register or a memory location. *)
-    |   Division of { isSigned: bool, dividend: preg, divisor: argument, quotient: preg, remainder: preg }
+    |   Division of { isSigned: bool, dividend: preg, divisor: argument, quotient: preg, remainder: preg, opSize: opSize }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
@@ -326,6 +324,7 @@ struct
         |   printIndex(MemIndex2 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*2]")
         |   printIndex(MemIndex4 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*4]")
         |   printIndex(MemIndex8 i, stream, printReg) = (stream "["; printReg(i, stream); stream "*8]")
+        |   printIndex(ObjectIndex, stream, _) = stream "[objectindex]"
         
         fun printStackLoc(StackLoc{size, rno}, stream) =
             (stream "S"; stream(Int.toString rno); stream "("; stream(Int.toString size); stream ")")
@@ -355,13 +354,6 @@ struct
             (
                 stream "@"; printStackLoc(container, stream);
                 stream " (";  stream(Int.toString stackOffset); stream ")"
-            )
-        |   printArg(ObjectLocation{base, offset, cache, ...}, stream, printReg) =
-            (
-                stream(Int.toString offset ^ "(");
-                printReg(base, stream);
-                stream "*4)+base";
-                case cache of NONE => () | SOME r => (stream " cache "; printReg(r, stream))
             )
             
         fun printSaves([], _, _) = ()
@@ -539,15 +531,17 @@ struct
         |   printICode(ReturnResultFromFunction{resultReg, numStackArgs}, stream, printReg) =
                 (stream "\tReturnFromFunction\t"; printReg(resultReg, stream); stream("," ^ Int.toString numStackArgs))
 
-        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, ...}, stream, printReg) =
+        |   printICode(ArithmeticFunction{oper, resultReg, operand1, operand2, opSize, ...}, stream, printReg) =
             (
                 case oper of
-                    ADD => stream "\tAdd\t"
-                |   OR => stream "\tOrBits\t"
-                |   AND => stream "\tAndBits\t"
-                |   SUB => stream "\tSubtract\t"
-                |   XOR => stream "\tExclusiveOrBits\t"
-                |   CMP => stream "\tCompare\t";
+                    ADD => stream "\tAdd"
+                |   OR => stream "\tOrBits"
+                |   AND => stream "\tAndBits"
+                |   SUB => stream "\tSubtract"
+                |   XOR => stream "\tExclusiveOrBits"
+                |   CMP => stream "\tCompare";
+                printOpsize(opSize, stream);
+                stream "\t";
                 printReg(operand1, stream);
                 stream ",";
                 printArg(operand2, stream, printReg);
@@ -592,27 +586,31 @@ struct
             (
                 stream "\tLoadEffectiveAddr\t"; 
                 stream(Int.toString offset ^ "(");
-                case base of LEABNone => stream "_" | LEABReg b => printReg(b, stream) | LEABGlobal => stream "global";
+                case base of NONE => stream "_" | SOME b => printReg(b, stream);
                 stream ")";
                 printIndex(index, stream, printReg);
                 stream " => ";
                 printReg(dest, stream)
             )
 
-        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, ...}, stream, printReg) =
+        |   printICode(ShiftOperation{shift, resultReg, operand, shiftAmount, opSize, ...}, stream, printReg) =
             (
                 case shift of
-                    SHL => stream "\tShiftLeft\t"
-                |   SHR => stream "\tShiftRLogical\t"
-                |   SAR => stream "\tShiftRArith\t";
+                    SHL => stream "\tShiftLeft"
+                |   SHR => stream "\tShiftRLogical"
+                |   SAR => stream "\tShiftRArith";
+                printOpsize(opSize, stream);
+                stream "\t";
                 printReg(operand, stream); stream ",";
                 printArg(shiftAmount, stream, printReg); stream " => ";
                 printReg(resultReg, stream)
             )
 
-        |   printICode(Multiplication{resultReg, operand1, operand2, ...}, stream, printReg) =
+        |   printICode(Multiplication{resultReg, operand1, operand2, opSize, ...}, stream, printReg) =
             (
-                stream "\tMultiplication\t";
+                stream "\tMultiplication";
+                printOpsize(opSize, stream);
+                stream "\t";
                 printReg(operand1, stream);
                 stream ",";
                 printArg(operand2, stream, printReg);
@@ -620,9 +618,11 @@ struct
                 printReg(resultReg, stream)
             )
 
-        |   printICode(Division{isSigned, dividend, divisor, quotient, remainder}, stream, printReg) =
+        |   printICode(Division{isSigned, dividend, divisor, quotient, remainder, opSize}, stream, printReg) =
             (
                 stream "\tDivision"; stream(if isSigned then "Signed\t" else "Unsigned\t");
+                printOpsize(opSize, stream);
+                stream "\t";
                 printReg(dividend, stream); stream " by ";
                 printArg(divisor, stream, printReg); stream " => ";
                 printReg(quotient, stream); stream " rem ";
@@ -769,6 +769,7 @@ struct
     |   indexRegister (MemIndex2 r) = SOME r
     |   indexRegister (MemIndex4 r) = SOME r
     |   indexRegister (MemIndex8 r) = SOME r
+    |   indexRegister ObjectIndex = NONE
 
     structure Sharing =
     struct

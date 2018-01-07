@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2017 David C. J. Matthews
+    Copyright (c) 2017-18 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,10 +15,4 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure GCode =
-struct
-    structure xCode = X86Code and bCode = ByteCode
-    open ByteCode
-
-    structure Foreign = xCode.Foreign
-end;
+structure GCode = X86Code;

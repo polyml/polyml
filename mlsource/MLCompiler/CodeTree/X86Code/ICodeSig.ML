@@ -99,12 +99,13 @@ sig
     |   StackLocation of { wordOffset: int, container: stackLocn, field: int, cache: preg option }
         (* Address of a container. *)
     |   ContainerAddr of { container: stackLocn, stackOffset: int }
-        (* A memory location where the base address is an object ID rather than a real address.
-           Used in 32-in-64 only. *)
-    |   ObjectLocation of { base: preg, offset: int, cache: preg option } 
 
+    (* Generally this indicates the index register if present.  For 32-in-64
+       the "index" may be ObjectIndex in which case the base is actually an
+       object index. *)
     and memoryIndex =
-        NoMemIndex | MemIndex1 of preg | MemIndex2 of preg | MemIndex4 of preg | MemIndex8 of preg
+        NoMemIndex | MemIndex1 of preg | MemIndex2 of preg |
+        MemIndex4 of preg | MemIndex8 of preg | ObjectIndex
 
     (* Kinds of moves.
        Move32Bit - 32-bit loads and stores
@@ -124,9 +125,6 @@ sig
     (* Size of operand.  OpSize64 is only valid in 64-bit mode. *)
     datatype opSize = OpSize32 | OpSize64
     val polyWordOpSize: opSize and nativeWordOpSize: opSize
-    
-    (* The LoadEffectiveAddress may take any of these as its base register. *)
-    datatype leaBase = LEABNone | LEABGlobal | LEABReg of preg
 
     datatype x86ICode =
         (* Move a value into a register. *)
@@ -227,7 +225,7 @@ sig
     
         (* Arithmetic or logical operation.  These can set the condition codes. *)
     |   ArithmeticFunction of
-            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
+            { oper: arithOp, resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef, opSize: opSize }
 
         (* Test the tag bit of a word.  Sets the Zero bit if the value is an address i.e. untagged. *)
     |   TestTagBit of { arg: argument, ccRef: ccRef }
@@ -254,20 +252,20 @@ sig
 
         (* This provides the LEA instruction which can be used for various sorts of arithmetic.
            The base register is optional in this case. *)
-    |   LoadEffectiveAddress of { base: leaBase, offset: int, index: memoryIndex, dest: preg }
+    |   LoadEffectiveAddress of { base: preg option, offset: int, index: memoryIndex, dest: preg }
 
         (* Shift a word by an amount that can either be a constant or a register. *)
-    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef }
+    |   ShiftOperation of { shift: shiftType, resultReg: preg, operand: preg, shiftAmount: argument, ccRef: ccRef, opSize: opSize }
 
         (* Multiplication.  We can use signed multiplication for both fixed precision and word (unsigned)
            multiplication.  There are various forms of the instruction including a three-operand
            version. *)
-    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef }
+    |   Multiplication of { resultReg: preg, operand1: preg, operand2: argument, ccRef: ccRef, opSize: opSize }
 
         (* Division.  This takes a register pair, always RDX:RAX, divides it by the operand register and
            puts the quotient in RAX and remainder in RDX.  At the preg level we represent all of
            these by pRegs.  The divisor can be either a register or a memory location. *)
-    |   Division of { isSigned: bool, dividend: preg, divisor: argument, quotient: preg, remainder: preg }
+    |   Division of { isSigned: bool, dividend: preg, divisor: argument, quotient: preg, remainder: preg, opSize: opSize }
 
         (* Atomic exchange and addition.   This is executed with a lock prefix and is used
            for atomic increment and decrement for mutexes.
