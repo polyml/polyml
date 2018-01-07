@@ -158,12 +158,12 @@ struct
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
-        val printStream = PRETTY.getSimplePrinter(parameters, [])
+        val printStream = PRETTY.getSimplePrinter(parameters @ [Universal.tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70))], [])
     in
         Code
         { 
             procName       = name,
-            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printAssemblyCode = true orelse DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
             profileObject  = profObj
@@ -661,6 +661,7 @@ struct
     |   IMUL_C8_64
     |   IMUL_C32_32
     |   IMUL_C32_64
+    |   MOVSXD
 
     fun opToInt Group1_8_A32    =  0wx83
     |   opToInt Group1_8_A64    =  0wx83
@@ -738,6 +739,7 @@ struct
     |   opToInt IMUL_C8_64      = 0wx6b
     |   opToInt IMUL_C32_32     = 0wx69
     |   opToInt IMUL_C32_64     = 0wx69
+    |   opToInt MOVSXD          = 0wx63
 
     datatype mode =
         Based0   (* mod = 0 *)
@@ -840,6 +842,7 @@ struct
             |   CVTSI2SD64 => true (* This affects the size of the integer source. *)
             |   IMUL_C8_64 => true
             |   IMUL_C32_64 => true
+            |   MOVSXD      => true
             (* Group5 - We only use 2/4/6 and they don't need prefix *)
             |   _ => false
         (* If we are using MOVB_R_A with SIL or DIL we need to force a REX prefix.
@@ -1022,7 +1025,7 @@ struct
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype operation =
@@ -1116,6 +1119,7 @@ struct
         
         fun printSize Size8Bit = "Byte"
         |   printSize Size16Bit = "16Bit"
+        |   printSize Size32BitSigned = "32BitSigned"
         
         fun printOpSize OpSize32 = "32"
         |   printOpSize OpSize64 = "64"
@@ -1430,6 +1434,10 @@ struct
                 (* Likewise *)
                 opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
 
+        |   cgOp(LoadNonWord{size=Size32BitSigned, source={base, offset, index}, output }) =
+                (* We should have a REX.W bit here. *)
+                opAddress(MOVSXD, LargeInt.fromInt offset, base, index, output)
+
         |   cgOp(LoadAddress{ offset, base, index, output, opSize }) =
                 (* This provides a mixture of addition and multiplication in a single
                    instruction. *)
@@ -1662,12 +1670,14 @@ struct
         |   cgOp(StoreNonWord{ size = Size16Bit, toStore, address={offset, base, index}}) =
                 opAddress(MOVL_R_A16, LargeInt.fromInt offset, base, index, toStore)
 
+        |   cgOp(StoreNonWord{ size = Size32BitSigned, ...}) =
+                raise InternalError "cgOp: StoreNonWord-Size32BitSigned"
+
         |   cgOp(StoreNonWordConst{ size=Size8Bit, toStore=toStore, address={offset, base, index}}) =
                 opAddressPlus2(MOVB_8_A, LargeInt.fromInt offset, base, index, 0w0) @
                     [Word8.fromLargeInt toStore]
 
-        |   cgOp(StoreNonWordConst{ size=Size16Bit, ... }) =
-                raise InternalError "StoreNonWordConst: 16Bit"
+        |   cgOp(StoreNonWordConst _) = raise InternalError "StoreNonWordConst: Not Size8Bit"
 
             (* Allocation is dealt with by expanding the code. *)
         |   cgOp(AllocStore _) = raise InternalError "cgOp: AllocStore"
@@ -2883,6 +2893,18 @@ struct
             |   0wx5d => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), defaultRegSize))
             |   0wx5e => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), defaultRegSize))
             |   0wx5f => print ("pop \t" ^ genRegRepr (mkReg (opByte mod 0w8, rexB), defaultRegSize))
+            
+            |   0wx63 => (* MOVSXD. This is ARPL in 32-bit mode but that's never used here. *)
+                let
+                    val nb = codeVecGet (seg, !ptr)
+                    val reg = (nb >>- 0w3) andb8 0w7
+                in
+                    print "movsxd\t";
+                    print (genRegRepr (mkReg(reg, rexR), sizeFromRexW));
+                    print ",";
+                    printEA(rex, sizeFromRexW)
+                end
+
 
             |   0wx68 => (print "push\t"; print32 ())
             |   0wx69 =>

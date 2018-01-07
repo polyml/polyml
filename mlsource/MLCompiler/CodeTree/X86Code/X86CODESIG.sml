@@ -115,7 +115,7 @@ sig
     |   NonAddressConstArg of LargeInt.int
     |   AddressConstArg of machineWord
     
-    datatype nonWordSize = Size8Bit | Size16Bit
+    datatype nonWordSize = Size8Bit | Size16Bit | Size32BitSigned
     and fpSize = SinglePrecision | DoublePrecision
 
     datatype trapEntries =
