@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -165,7 +165,7 @@ struct
     |   LockMutable of { addr: preg }
 
         (* Compare two word values.  The first argument must be a register. *)
-    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef, opSize: opSize }
     
         (* Compare with a literal.  This is generally used to compare a memory
            or stack location with a literal and overlaps to some extent
@@ -488,8 +488,8 @@ struct
 
         |   printICode(LockMutable{addr}, stream, printReg) = (stream "\tLockMutable\t"; printReg(addr, stream))
 
-        |   printICode(WordComparison{arg1, arg2, ...}, stream, printReg) =
-                (stream "\tWordComparison\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
+        |   printICode(WordComparison{arg1, arg2, opSize, ...}, stream, printReg) =
+                (stream "\tWordComparison"; printOpsize(opSize, stream); stream "\t"; printReg(arg1, stream); stream ","; printArg(arg2, stream, printReg))
 
         |   printICode(CompareLiteral{arg1, arg2, opSize, ...}, stream, printReg) =
             (

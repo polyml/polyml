@@ -1331,14 +1331,14 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 pt ++;
 #ifndef HOSTARCHITECTURE_X86_64
                 unsigned opCode = *pt;
-#endif /* HOSTARCHITECTURE_X86_64 */
+#endif
                 skipea(addr, &pt, process, false);
                 // Only check the 32 bit constant if this is a comparison.
                 // For other operations this may be untagged and shouldn't be an address.
 #ifndef HOSTARCHITECTURE_X86_64
                 if ((opCode & 0x38) == 0x38)
                     process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif /* HOSTARCHITECTURE_X86_64 */
+#endif
                 pt += 4;
                 break;
             }
@@ -1393,7 +1393,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 else
                 {
                     skipea(addr, &pt, process, false);
-#ifndef HOSTARCHITECTURE_X86_64
+#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
                     process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                     pt += 4;
@@ -1406,7 +1406,12 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             pt ++;
 #ifdef HOSTARCHITECTURE_X86_64
             if ((lastRex & 8) == 0)
-                pt += 4; // 32-bit mode on 64-bits.  Can this occur?
+            { // 32-bit mode on 64-bits
+#ifdef POLYML32IN64
+                process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
+#endif
+                pt += 4;
+            }
             else
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
@@ -1418,9 +1423,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
         case 0x68: /* PUSH_32 */
             pt ++;
-#ifndef HOSTARCHITECTURE_X86_64
+#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
             process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif /* HOSTARCHITECTURE_X86_64 */
+#endif
             pt += 4;
             break;
 

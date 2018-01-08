@@ -855,12 +855,12 @@ struct
                             LockMutable{addr=addrVal} :: addrCode @ code
                         end
  
-                    |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef}, ...}, code) =
+                    |   pushRegisters({instr=WordComparison{arg1, arg2, ccRef, opSize}, ...}, code) =
                         let
                             val (loadedOp1, op1Code) = mapSrcReg arg1
                             val (op2Val, op2Code) = mapSource arg2
                         in
-                            WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef} :: op2Code @ op1Code @ code
+                            WordComparison{arg1=loadedOp1, arg2=op2Val, ccRef=ccRef, opSize=opSize} :: op2Code @ op1Code @ code
                         end
  
                     |   pushRegisters({instr=CompareLiteral{arg1, arg2, opSize, ccRef}, ...}, code) =

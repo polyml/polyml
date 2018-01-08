@@ -158,12 +158,12 @@ struct
     (* create and initialise a code segment *)
     fun codeCreate (name : string, profObj, parameters) : code =
     let
-        val printStream = PRETTY.getSimplePrinter(parameters @ [Universal.tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70))], [])
+        val printStream = PRETTY.getSimplePrinter(parameters, [])
     in
         Code
         { 
             procName       = name,
-            printAssemblyCode = true orelse DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
+            printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
             profileObject  = profObj
@@ -1387,15 +1387,15 @@ struct
                          else immediateOperand(ADD, output, source, false))
                 else
                 let
-                    val (rc, _) = getReg output
-                    val opb = opCodeBytes(MOVL_32_R rc, NONE)
+                    val (rc, rx) = getReg output
+                    val opb = opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x=false} else NONE)
                 in
                     opb @ int32Signed source
                 end
             )
 
         |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize }) =
-            if hostIsX64
+            if targetArch = Native64Bit
             then
             let
                 (* Put address constants in the constant area.  This makes the code a bit
@@ -1413,13 +1413,13 @@ struct
             end
             else
             let
-                val (rc, _) = getReg output
+                val (rc, rx) = getReg output
                 val constnt =
                     if wordSize = 0w8
                     then wordUnsigned(LargeWord.fromLargeInt(tag 0))
                     else int32Signed(tag 0)
             in
-                opCodeBytes(MOVL_32_R rc, NONE) @ constnt
+                opCodeBytes(MOVL_32_R rc, if rx then SOME{w=false, r=false, b=rx, x = false} else NONE) @ constnt
             end
 
         |   cgOp(MoveToRegister{source=MemoryArg{base, offset, index}, output, opSize }) =
@@ -1464,7 +1464,7 @@ struct
         |   cgOp(ArithToGenReg{ opc, output, source=AddressConstArg _, opSize }) =
             (* This is only used for opc=CMP to compare addresses for equality. *)
             if hostIsX64
-            then
+            then (* We use this in 32-in-64 as well as native 64-bit. *)
             let
                 val (rc, rx) = getReg output
                 val opb =
@@ -1615,15 +1615,17 @@ struct
                 end
 
         |   cgOp(PushToStack(AddressConstArg _)) = 
-                if hostIsX64
+                if targetArch = Native64Bit
                 then (* Put it in the constant area. *)
 		        let
+                    (* N.B.  We can't currently use this in 32-in-64 because it will always
+                       push an 8-byte quantity and the constants are currently 32-bits. *)
                     val opb = opCodeBytes(Group5, NONE)
                     val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
                 in
                     opb @ [mdrm] @ int32Signed(tag 0)
                 end
-                else (* 32-bit *) opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
+                else (* 32-bit. *) opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
 
         |   cgOp(PopR reg ) =
                 let
@@ -1642,7 +1644,7 @@ struct
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                hostIsX64 orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
+                targetArch = Native64Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
                 opAddressPlus2(case opSize of OpSize64 => MOVL_32_A64 | OpSize32 => MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
@@ -1650,7 +1652,7 @@ struct
 
         |   cgOp(StoreLongConstToMemory{ address={offset, base, index}, ... }) =
                 (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
-                if hostIsX64
+                if targetArch = Native64Bit
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
                 else opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
@@ -1691,7 +1693,11 @@ struct
      
         |   cgOp(CallFunction FullCall) =
                 (* Indirect call to the address held in the first word of the closure. *)
-                opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w2 (* call *))
+            (
+                case targetArch of
+                    ObjectId32Bit => opAddressPlus2(Group5, 0, ebx, Index4 regClosure, 0w2 (* call *))
+                |   _ => opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w2 (* call *))
+            )
 
         |   cgOp(CallFunction(ConstantCode _)) =
             if hostIsX64
@@ -1714,7 +1720,12 @@ struct
                 (* Jump to the start of the current function.  Offset is patched in later. *)
                 opCodeBytes (JMP_32, NONE) @ int32Signed 0
            
-        |   cgOp(JumpToFunction FullCall) = opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w4 (* jmp *))
+        |   cgOp(JumpToFunction FullCall) =
+            (
+                case targetArch of
+                    ObjectId32Bit => opAddressPlus2(Group5, 0, ebx, Index4 regClosure, 0w4 (* jmp *))
+                |   _ => opAddressPlus2(Group5, 0, regClosure, NoIndex, 0w4 (* jmp *))
+            )
 
         |   cgOp(JumpToFunction (ConstantCode _)) =
             if hostIsX64
@@ -1749,7 +1760,7 @@ struct
 
         |   cgOp(ResetStack{numWords, preserveCC}) =
             let
-                val bytes = Word.toLargeInt(wordsToBytes(Word.fromInt numWords))
+                val bytes = Word.toLargeInt(Word.fromInt numWords * nativeWordSize)
             in
                 (* If we don't need to preserve the CC across the reset we use ADD since
                    it's shorter. *)
@@ -2218,7 +2229,7 @@ struct
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
-            if hostIsX64
+            if targetArch = Native64Bit
             then (* Address constants go in the constant area. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
             else (ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: l
@@ -2241,7 +2252,7 @@ struct
 
         |   getConstant(PushToStack(AddressConstArg constnt), bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                    if hostIsX64 then ConstantArea constnt else InlineAbsoluteAddress constnt) :: l
+                    if targetArch = Native64Bit then ConstantArea constnt else InlineAbsoluteAddress constnt) :: l
 
         |   getConstant(StoreLongConstToMemory{ toStore, ... }, bytes, ic, l) = (* 32-bit only. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, InlineAbsoluteAddress toStore) :: l

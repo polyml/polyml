@@ -1,7 +1,7 @@
 (*
     Signature for the high-level X86 code
 
-    Copyright David C. J. Matthews 2016-17
+    Copyright David C. J. Matthews 2016-18
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -198,7 +198,7 @@ sig
     |   LockMutable of { addr: preg }
 
         (* Compare two word values.  The first argument must be a register. *)
-    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef }
+    |   WordComparison of { arg1: preg, arg2: argument, ccRef: ccRef, opSize: opSize }
     
         (* Compare with a literal.  This is generally used to compare a memory
            or stack location with a literal and overlaps to some extent

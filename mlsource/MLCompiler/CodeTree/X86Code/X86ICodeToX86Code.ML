@@ -899,8 +899,14 @@ struct
                     then LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-2, index=Index2 sReg, opSize=polyWordOpSize }
                     else LoadAddress{output=dReg, base=NONE, offset=Word.toInt wordSize-4, index=Index4 sReg, opSize=polyWordOpSize }
                 ]
+                (* Convert to an object index if necessary. *)
+                val convertToObjId =
+                    if targetArch = ObjectId32Bit
+                    then [ ShiftConstant{ shiftType=SHR, output=dReg, shift=0w2, opSize=OpSize64 },
+                           ArithToGenReg{ opc=SUB, output=dReg, source=RegisterArg ebx, opSize=nativeWordOpSize } ]
+                    else []
             in
-                allocCode @ code
+                convertToObjId @ allocCode @ code
             end
 
         |   codeExtended _ ({instr=InitialiseMem{size=PReg sReg, addr=PReg aReg, init=PReg iReg}, ...}, code) =
@@ -970,12 +976,18 @@ struct
             end
 
         |   codeExtended _ ({instr=LockMutable{addr=PReg pr}, ...}, code) =
+            let
+                val (bReg, index) =
+                    if targetArch = ObjectId32Bit
+                    then (ebx, Index4(asGenReg(getAllocatedReg pr)))
+                    else (asGenReg(getAllocatedReg pr), NoIndex)
+            in
                 (* Mask off the mutable bit. *)
-                ArithByteMemConst{opc=AND,
-                    address={base=asGenReg(getAllocatedReg pr), offset= ~1, index=NoIndex}, source=0wxff - F_mutable} :: code
+                ArithByteMemConst{opc=AND, address={base=bReg, offset= ~1, index=index}, source=0wxff - F_mutable} :: code
+            end
 
-        |   codeExtended _ ({instr=WordComparison{ arg1=PReg pr, arg2, ... }, ...}, code) =
-                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2, opSize=polyWordOpSize} :: code
+        |   codeExtended _ ({instr=WordComparison{ arg1=PReg pr, arg2, opSize, ... }, ...}, code) =
+                ArithToGenReg {opc=CMP, output=asGenReg(getAllocatedReg pr), source=codeExtArgumentAsGenReg arg2, opSize=opSize} :: code
 
         |   codeExtended _ ({instr=CompareLiteral{ arg1, arg2, opSize, ... }, ...}, code) =
             (
@@ -994,8 +1006,14 @@ struct
             )
 
         |   codeExtended _ ({instr=CompareByteMem{ arg1={base=PReg br, offset, index}, arg2, ... }, ...}, code) =
-                ArithByteMemConst{ opc=CMP,
-                    address={offset=offset, base=asGenReg(getAllocatedReg br), index=codeExtIndex index}, source=arg2 } :: code
+            let
+                val (bReg, index) =
+                    case index of
+                        ObjectIndex => (ebx, Index4(asGenReg(getAllocatedReg br)))
+                    |   _ => (asGenReg(getAllocatedReg br), codeExtIndex index)
+            in
+                ArithByteMemConst{ opc=CMP, address={offset=offset, base=bReg, index=index}, source=arg2 } :: code
+            end
 
             (* Set up an exception handler. *)
         |   codeExtended {flow} ({instr=PushExceptionHandler{workReg=PReg hReg}, ...}, code) =
@@ -1302,9 +1320,13 @@ struct
                     |   BoxX87 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                     |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
                 val dstReg = getAllocatedReg dReg
+                val (bReg, index) =
+                    if targetArch = ObjectId32Bit
+                    then (ebx, Index4(asGenReg dstReg))
+                    else (asGenReg dstReg, NoIndex)
             in
                 StoreInitialised ::
-                    llStoreArgument{ source=RegisterArg srcReg, offset=0, base=asGenReg dstReg, index=NoIndex, kind=moveKind} ::
+                    llStoreArgument{ source=RegisterArg srcReg, offset=0, base=bReg, index=index, kind=moveKind} ::
                         llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
             end
 
