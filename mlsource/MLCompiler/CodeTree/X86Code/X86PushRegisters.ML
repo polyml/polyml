@@ -26,8 +26,6 @@ struct
     open ICODE
     open INTSET
     open IDENTIFY
-   
-    val moveWord = moveNativeWord (* Temporary for backwards compatibility. *)
     
     (* Curried subscript functions *)
     fun asub a i = Array.sub(a, i)
@@ -102,7 +100,7 @@ struct
             fun setStackCache(n, new) =
                 (
                     removeStackCache n;
-                    cache := {cacheFor=CacheStack{rno=n}, cacheReg=new, isTagged=true, kind=moveWord} :: ! cache
+                    cache := {cacheFor=CacheStack{rno=n}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
                 )
             
             and setMemoryCache(r, off, new, isTagged, kind) =
@@ -114,7 +112,7 @@ struct
             and setTagCache(r, s, new) =
                 (
                     removeTagCache (r, s);
-                    cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveWord} :: ! cache
+                    cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
                 )
 
             fun getCache () = ! cache
@@ -302,8 +300,8 @@ struct
                                 val () = setStackCache(n, newCacheReg)
                             in
                                 (newReg,
-                                    [LoadArgument{source=stackSource, dest=newReg, kind=moveWord}],
-                                    [CopyToCache{source=newReg, dest=newCacheReg, kind=moveWord}])
+                                    [LoadArgument{source=stackSource, dest=newReg, kind=moveNativeWord}],
+                                    [CopyToCache{source=newReg, dest=newCacheReg, kind=moveNativeWord}])
                             end
 
                     fun mapSrcReg srcReg =
@@ -436,7 +434,7 @@ struct
                                                 val newCacheReg = newPReg RegPropCacheTagged
                                                 val () = setStackCache(r, newCacheReg)
                                             in
-                                                [CopyToCache{source=cacheR, dest=newCacheReg, kind=moveWord}]
+                                                [CopyToCache{source=cacheR, dest=newCacheReg, kind=moveNativeWord}]
                                             end
                                 in
                                     (stackLoc, [], cacheCode)
@@ -508,7 +506,7 @@ struct
                                         val newCacheReg = newPReg RegPropCacheTagged
                                         val () = setStackCache(rno, newCacheReg)
                                     in
-                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=moveWord}]
+                                        [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=moveNativeWord}]
                                     end
                         in
                             (stackLoc, [], cacheCode)
@@ -543,8 +541,8 @@ struct
                                     val _ = setStackCache(r, newCacheReg)
                                 in
                                     (RegisterArgument newReg,
-                                        CopyToCache{source=newReg, dest=newCacheReg, kind=moveWord} :: sourceCodePost @
-                                            LoadArgument{source=stack, dest=newReg, kind=moveWord} :: sourceCodePre)
+                                        CopyToCache{source=newReg, dest=newCacheReg, kind=moveNativeWord} :: sourceCodePost @
+                                            LoadArgument{source=stack, dest=newReg, kind=moveNativeWord} :: sourceCodePre)
                                 end
                             |   _ => (sourceVal, sourceCodePost @ sourceCodePre)
                         end
@@ -573,7 +571,7 @@ struct
                                     val newReg = newPReg RegPropUntagged
                                 in
                                     PushValue{arg=RegisterArgument newReg, container=container} ::
-                                        LoadArgument{source=sourceVal, dest=newReg, kind=moveWord} :: sourceCode @ code
+                                        LoadArgument{source=sourceVal, dest=newReg, kind=movePolyWord} :: sourceCode @ code
                                 end
                            |    _ => PushValue{arg=sourceVal, container=container} :: sourceCode @ code
                         end
@@ -605,9 +603,9 @@ struct
                                         val moveKind =
                                             case kind of
                                                 Move64Bit => Move64Bit
-                                            |   MoveByte => moveWord
-                                            |   Move16Bit => moveWord
-                                            |   Move32Bit => moveWord
+                                            |   MoveByte => moveNativeWord
+                                            |   Move16Bit => moveNativeWord
+                                            |   Move32Bit => moveNativeWord
                                             |   MoveFloat => MoveDouble
                                             |   MoveDouble => MoveDouble
                                         val (cacheType, isTagged) =
@@ -726,7 +724,7 @@ struct
                                                 val preg = newPReg RegPropGeneral
                                             in
                                                 (RegisterArgument preg,
-                                                    LoadArgument{source=source, dest=preg, kind=moveWord} :: loadCode)
+                                                    LoadArgument{source=source, dest=preg, kind=moveNativeWord} :: loadCode)
                                             end
                                     |   argCode => argCode
                             in
@@ -1075,7 +1073,7 @@ struct
                                 else
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
-                                    val moveKind = case boxKind of BoxLargeWord => moveWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
+                                    val moveKind = case boxKind of BoxLargeWord => moveNativeWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
                                     (* The value we're putting in the cache is untagged. *)
                                     val _ = setMemoryCache(dReg, 0, newCacheReg, false, moveKind)
                                 in

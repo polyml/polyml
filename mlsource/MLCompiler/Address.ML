@@ -199,11 +199,14 @@ struct
             "BYTE data" ^ String.toString(Byte.bytesToString data)
         end
         
-        else if isClosure(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
+        else if not(isMutable v) andalso isClosure v andalso Word.toInt(length v) >= 1
         then (* In 32-in-64 the first word of a closure is an absolute code address. *)
+        (
             "FUN \"" ^ functionName w ^ "\"" (* Get the function name. *)
+                handle Fail _ => "LIT <long word data>" (* May fail if it hasn't been set. *)
+        )
     
-        else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
+        else if isWords v andalso Word.toInt(length(toAddress w)) >= 1
         then (* If it's the closure of a function try to print that. *)
             let
                 val firstWord = loadWord(toAddress w, 0w0)

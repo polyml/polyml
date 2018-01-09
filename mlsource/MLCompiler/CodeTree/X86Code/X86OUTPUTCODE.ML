@@ -1747,7 +1747,7 @@ struct
             then opCodeBytes(RET, NONE)
             else
             let
-                val offset = Word.fromInt args * wordSize
+                val offset = Word.fromInt args * nativeWordSize
             in
                 opCodeBytes(RET_16, NONE) @ [wordToWord8 offset, wordToWord8(offset >> 0w8)]
             end

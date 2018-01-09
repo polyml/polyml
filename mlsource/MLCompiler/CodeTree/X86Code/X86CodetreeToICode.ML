@@ -43,8 +43,6 @@ struct
         val argRegs = List.map GenReg regs
         val numArgRegs = List.length argRegs
     end
-    
-    val isX64 = targetArch <> Native32Bit
 
     (* tag a short constant *)
     fun tag c = 2 * c + 1
@@ -271,8 +269,8 @@ struct
                 else moveToTarget(dest, code, arg)
 
         |   moveIfNotAllowed(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if not isX64
-                then (code, arg, false)
+                if targetArch <> Native64Bit
+                then (code, arg, false) (* We can store the address directly *)
                 else moveToTarget(dest, code, arg)
 
         |   moveIfNotAllowed(Allowed{existingPreg=true, ...}, code, arg as RegisterArgument(PReg _)) = (code, arg, false)
@@ -284,8 +282,13 @@ struct
         and moveToTarget(dest, code, arg) =
             let
                 val target = asTarget dest
+                val moveSize =
+                    case arg of
+                        AddressConstant _ => movePolyWord
+                    |   MemoryLocation _ => movePolyWord
+                    |   _ => moveNativeWord
             in
-                (code @ [BlockSimple(LoadArgument{source=arg, dest=target, kind=movePolyWord})], RegisterArgument target, false)
+                (code @ [BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize})], RegisterArgument target, false)
             end
 
         fun moveIfNotAllowedRev(NoResult, code, arg) = (code, arg, false)
@@ -301,7 +304,7 @@ struct
                 else moveToTargetRev(dest, code, arg)
 
         |   moveIfNotAllowedRev(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if not isX64
+                if targetArch <> Native64Bit
                 then (code, arg, false)
                 else moveToTargetRev(dest, code, arg)
 
@@ -314,8 +317,13 @@ struct
         and moveToTargetRev(dest, code, arg) =
             let
                 val target = asTarget dest
+                val moveSize =
+                    case arg of
+                        AddressConstant _ => movePolyWord
+                    |   MemoryLocation _ => movePolyWord
+                    |   _ => moveNativeWord
             in
-                (BlockSimple(LoadArgument{source=arg, dest=target, kind=movePolyWord}) :: code, RegisterArgument target, false)
+                (BlockSimple(LoadArgument{source=arg, dest=target, kind=moveSize}) :: code, RegisterArgument target, false)
             end
 
         (* Use a move if there's no offset or index.  We could use an add if there's no index. *)
@@ -407,9 +415,11 @@ struct
                         let
                             val () = Array.update(locToPregArray, addr, PregLocation dest)
                             val sizeClosure = List.length closure + (if targetArch = ObjectId32Bit then 2 else 1)
+                            open Address
                             fun clear n =
                                 if n = sizeClosure
-                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure, flags=Address.F_mutable, dest=dest, saveRegs=[]})]
+                                then [BlockSimple(AllocateMemoryOperation{size=sizeClosure,
+                                        flags=if targetArch = ObjectId32Bit then Word8.orb(F_mutable, F_closure) else F_mutable, dest=dest, saveRegs=[]})]
                                 else
                                     (clear (n+1) @
                                         [BlockSimple(
@@ -425,20 +435,44 @@ struct
                         let
                             val clResult = makeConstantClosure()
                             val () = codeFunctionToX86(lambda, debugSwitches, clResult)
-                            val codeAddr = codeAddressFromClosure clResult
                             (* Basically the same as tuple except we load the address of the closure we've made. *)
-                            val dstCopy = newPReg()
-                            fun loadFields([], _) = [BlockSimple(LoadArgument{source=RegisterArgument dest, dest=dstCopy, kind=movePolyWord})]
+                            fun loadFields([], _) = []
                             |   loadFields(f :: rest, n) =
                                 let
-                                    val (code, source, _) = codeToICode(f, context, false, Allowed allowInMemMove)
-                                    val restAndAlloc = loadFields(rest, n+1)
+                                    val (code, source, _) = codeToICode(BICExtract f, context, false, Allowed allowInMemMove)
                                     val storeValue =
-                                        [BlockSimple(StoreArgument{ source=source, base=dstCopy, offset=n*Word.toInt wordSize, index=memIndexOrObject, kind=movePolyWord, isMutable=false })]
+                                        [BlockSimple(StoreArgument{ source=source, base=dest, offset=n*Word.toInt wordSize, index=memIndexOrObject, kind=movePolyWord, isMutable=false })]
                                 in
-                                    code @ restAndAlloc @ storeValue
+                                    code @ storeValue @ loadFields(rest, n+1)
                                 end
-                            val setFields = loadFields(BICConstnt(codeAddr, []) :: map BICExtract closure, 0)
+                            val setCodeAddress =
+                                if targetArch = ObjectId32Bit
+                                then
+                                let (* We can't get the code address until run time. *)
+                                    val codeReg = newUReg()
+                                    val closureReg = newPReg()
+                                in
+                                    map BlockSimple
+                                    [
+                                        LoadArgument{ source=AddressConstant(toMachineWord clResult), dest=closureReg, kind=movePolyWord},
+                                        LoadArgument{ source=MemoryLocation{offset=0, base=closureReg, index=ObjectIndex, cache=NONE},
+                                            dest=codeReg, kind=Move64Bit},
+                                        StoreArgument{ source=RegisterArgument codeReg, offset=0, base=dest, index=ObjectIndex,
+                                            kind=moveNativeWord, isMutable=false}
+                                    ]
+                                end
+                                else
+                                let
+                                    val codeAddr = codeAddressFromClosure clResult
+                                    val (code, source, _) =
+                                        moveIfNotAllowed(Allowed allowInMemMove, [], AddressConstant codeAddr)
+                                in
+                                    code @
+                                        [BlockSimple(
+                                            StoreArgument{ source=source, base=dest, offset=0, index=NoMemIndex, kind=movePolyWord, isMutable=false })]
+                                end
+                            val setFields =
+                                setCodeAddress @ loadFields(closure, if targetArch = ObjectId32Bit then 2 else 1)
                         in
                             l @ setFields @ [BlockSimple(LockMutable{addr=dest})]
                         end
@@ -512,7 +546,7 @@ struct
             in
                 (BlockSimple(LoadArgument{
                     source=StackLocation{wordOffset=stackOffset+stackPtr, container=stackReg, field=0, cache=NONE},
-                    dest=target, kind=movePolyWord}) :: tailCode,
+                    dest=target, kind=moveNativeWord}) :: tailCode,
                  RegisterArgument target, false)
             end
         
@@ -696,7 +730,7 @@ struct
                                             let
                                                 val preg = newPReg()
                                             in
-                                                (BlockSimple(LoadArgument{source=src, dest=preg, kind=movePolyWord}) :: loadCode,
+                                                (BlockSimple(LoadArgument{source=src, dest=preg, kind=moveNativeWord}) :: loadCode,
                                                     {src=RegisterArgument preg, stack=stack} :: loadedArgs)
                                             end
                                     |   _ => (loadCode, arg :: loadedArgs)
@@ -1748,10 +1782,13 @@ struct
                         RegisterArgument target, false)
             end
 
+        (************* Seems to be broken in the interpreter *************************)
+(*
         |   codeToICodeBinary({oper=BuiltIns.WordShift BuiltIns.ShiftLeft, arg1, arg2=BICConstnt(value, _)}, context, _, destination) =
                 (* Use the general case multiplication code.  This will use a shift except for small values.
                    It does detect special cases such as multiplication by 4 and 8 which can be implemented with LEA. *)
                 codeMultiplyConstantWord(arg1, context, destination, if isShort value then Word.<<(0w1, toShort value) else 0w1)
+*)
 
         |   codeToICodeBinary({oper=BuiltIns.WordShift shift, arg1, arg2}, context, _, destination) =
                 (* N.B.  X86 shifts of greater than the word length mask the higher bits.  That isn't what ML wants
@@ -2377,7 +2414,7 @@ struct
                             let
                                 val ival = Word.toLargeIntX(toShort value)
                             in
-                                if isX64
+                                if targetArch = Native64Bit
                                 then if is32bit ival then SOME ival else NONE
                                 else if ival = 0 orelse ival mod 2 = 1 then SOME ival else NONE
                             end
@@ -2683,8 +2720,8 @@ struct
                    and might look like an address.  The RTS scans for comparisons with
                    inline constant addresses. *)
                 val (arg2Code, arg2Operand) =
-                    if isX64
-                    then
+                    if targetArch <> Native32Bit
+                    then (* Native 64-bit or 32-in-64. *)
                     (
                         case arg2 of
                             BICConstnt(value, _) => (arg1Code, IntegerConstant(largeWordConstant value))

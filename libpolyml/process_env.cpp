@@ -705,10 +705,15 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWo
     Handle result = 0;
 
     try {
+        if (fnAddr.IsTagged()) raise_fail(taskData, "Not a code pointer");
         PolyObject *pt = fnAddr.AsObjPtr();
         // In 32-in-64 this may be a closure and the first word is the absolute address of the code.
         if (pt->IsClosureObject())
+        {
+            // It may not be set yet.
             pt = *(PolyObject**)pt;
+            if (((uintptr_t)pt & 1) == 1) raise_fail(taskData, "Not a code pointer");
+        }
         if (pt->IsCodeObject()) /* Should now be a code object. */
         {
             /* Compiled code.  This is the first constant in the constant area. */
@@ -719,7 +724,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetFunctionName(PolyObject *threadId, PolyWo
                 result = taskData->saveVec.push(C_string_to_Poly(taskData, ""));
             else result = taskData->saveVec.push(name);
         }
-        else raise_syscall(taskData, "Not a code pointer", 0);
+        else raise_fail(taskData, "Not a code pointer");
     }
     catch (...) {} // If an ML exception is raised
 

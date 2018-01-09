@@ -235,7 +235,7 @@ public:
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
-    { add_count(this, assemblyInterface.stackPtr[0].w().AsCodePtr(), words); }
+    { add_count(this, assemblyInterface.stackPtr[0].codeAddr, words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
     virtual void PreRTSCall(void) { SaveMemRegisters(); }
@@ -659,7 +659,7 @@ int X86TaskData::SwitchToPoly()
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.
             SetRegisterMask();
-            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].w().AsCodePtr()); // Computes a value for allocWords only
+            this->HeapOverflowTrap(assemblyInterface.stackPtr[0].codeAddr); // Computes a value for allocWords only
             break;
 
         case RETURN_STACK_OVERFLOW:
@@ -980,10 +980,9 @@ void X86TaskData::SetMemRegisters()
         // We will have already garbage collected and recovered sufficient space.
         // This also happens if we have just trapped because of store profiling.
         this->allocPointer -= this->allocWords; // Now allocate
-        // Set the allocation register to this area.
+        // Set the allocation register to this area. N.B.  This is an absolute address.
         if (this->allocReg < 15)
-            *(get_reg(this->allocReg)) =
-                PolyWord::FromStackAddr(this->allocPointer + 1); /* remember: it's off-by-one */
+            get_reg(this->allocReg)[0].codeAddr = (POLYCODEPTR)(this->allocPointer + 1); /* remember: it's off-by-one */
         this->allocWords = 0;
     }
 
@@ -1023,7 +1022,7 @@ void X86TaskData::SaveMemRegisters()
 // is in the bytes after the trap call.
 void X86TaskData::SetRegisterMask()
 {
-    byte *pc = assemblyInterface.stackPtr[0].w().AsCodePtr();
+    byte *pc = assemblyInterface.stackPtr[0].codeAddr;
     if (*pc == 0xcd) // CD - INT n is used for a single byte
     {
         pc++;
@@ -1035,7 +1034,7 @@ void X86TaskData::SetRegisterMask()
         saveRegisterMask = pc[0] | (pc[1] << 8);
         pc += 2;
     }
-    assemblyInterface.stackPtr[0] = PolyWord::FromCodePtr(pc);
+    assemblyInterface.stackPtr[0].codeAddr = pc;
 }
 
 stackItem *X86TaskData::get_reg(int n)

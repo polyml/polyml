@@ -1316,9 +1316,9 @@ struct
                 val preserve = getSaveRegs saveRegs
                 val (srcReg, boxSize, moveKind) =
                     case boxKind of
-                        BoxLargeWord => (getAllocatedReg sReg, 1, moveWord)
-                    |   BoxX87 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
-                    |   BoxSSE2 => (getAllocatedReg sReg, Word.toInt(0w8 div wordSize), MoveDouble)
+                        BoxLargeWord => (getAllocatedReg sReg, nativeWordSize div wordSize, moveNativeWord)
+                    |   BoxX87 => (getAllocatedReg sReg, 0w8 div wordSize, MoveDouble)
+                    |   BoxSSE2 => (getAllocatedReg sReg, 0w8 div wordSize, MoveDouble)
                 val dstReg = getAllocatedReg dReg
                 val (bReg, index) =
                     if targetArch = ObjectId32Bit
@@ -1327,7 +1327,7 @@ struct
             in
                 StoreInitialised ::
                     llStoreArgument{ source=RegisterArg srcReg, offset=0, base=bReg, index=index, kind=moveKind} ::
-                        llAllocateMemoryOperation({ size=boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
+                        llAllocateMemoryOperation({ size=Word.toInt boxSize, flags=0wx1, dest=dstReg, saveRegs=preserve}, code)
             end
 
         |   codeExtended _ ({instr=CompareByteVectors{vec1Addr=PReg v1Reg, vec2Addr=PReg v2Reg, length=PReg lReg, ...}, ...}, code) =
