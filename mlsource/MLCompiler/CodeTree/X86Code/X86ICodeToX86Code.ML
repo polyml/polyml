@@ -717,7 +717,8 @@ struct
 
         |   codeExtended _ ({instr=LoadMemReg { offset, dest=PReg pr}, ...}, code) =
             (* Load from the "memory registers" pointed at by ebp. *)
-                llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=moveWord}, code)
+            (* Currently only used to load the thread Id which is a Poly word. *)
+                llLoadArgument({source=MemoryArg{base=ebp, offset=offset, index=NoIndex}, dest=getAllocatedReg pr, kind=movePolyWord}, code)
 
         |   codeExtended _ ({instr=BeginFunction{regArgs, ...}, ...}, code) =
             let
