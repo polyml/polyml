@@ -38,7 +38,7 @@ struct
             case targetArch of
                 Native32Bit => [eax, ebx]
             |   Native64Bit => [eax, ebx, r8, r9, r10]
-            |   ObjectId32Bit => [eax, edi, r8, r9, r10]
+            |   ObjectId32Bit => [eax, esi, r8, r9, r10]
     in
         val argRegs = List.map GenReg regs
         val numArgRegs = List.length argRegs

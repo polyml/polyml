@@ -723,6 +723,7 @@ int X86TaskData::SwitchToPoly()
             assemblyInterface.stackPtr++; // Pop return address.
             byte reasonCode = *taskPc++;
             // Sort out arguments.
+            this->raiseException = false;
             if (reasonCode == 0xff)
             {
                 // Exception handler.
@@ -732,7 +733,6 @@ int X86TaskData::SwitchToPoly()
                 assemblyInterface.stackPtr = assemblyInterface.handlerRegister;
                 assemblyInterface.stackPtr++;
                 assemblyInterface.handlerRegister = (assemblyInterface.stackPtr++)[0].stackAddr;
-                this->raiseException = false;
             }
             else if (reasonCode >= 128)
             {
@@ -1710,14 +1710,14 @@ int X86TaskData::Interpret()
                     newPc = *(POLYCODEPTR*)closure;
                 else
                     newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
-                if (*newPc != 0xff)
+                if (!(newPc[0] == 0xff && newPc[1] == 0x55 && newPc[2] == 0x48))
                 {
                     // The function is machine code.
                     ASSERT(numArgs <= 5); // Assume they will all fit in registers.
                     sp++; // Pop the closure
                     assemblyInterface.p_rdx = closureWord;
                     if (numArgs >= 1) assemblyInterface.p_rax = sp[numArgs - 1];
-                    if (numArgs >= 2) assemblyInterface.p_rdi = sp[numArgs - 2];
+                    if (numArgs >= 2) assemblyInterface.p_rsi = sp[numArgs - 2];
                     if (numArgs >= 3) assemblyInterface.p_r8 = sp[numArgs - 3];
                     if (numArgs >= 4) assemblyInterface.p_r9 = sp[numArgs - 4];
                     if (numArgs >= 5) assemblyInterface.p_r10 = sp[numArgs - 5];
@@ -1745,7 +1745,7 @@ int X86TaskData::Interpret()
                 newPc = *(POLYCODEPTR*)closure;
             else
                 newPc = (*sp).w().AsObjPtr()->Get(0).AsCodePtr();
-            if (*newPc != 0xff)
+            if (!(newPc[0] == 0xff && newPc[1] == 0x55 && newPc[2] == 0x48))
             {
                 // The function is machine code.
                 ASSERT(*pc == 0xff); // But the call must be followed by enter-int.
@@ -1754,7 +1754,7 @@ int X86TaskData::Interpret()
                 sp++; // Pop the closure
                 assemblyInterface.p_rdx = closureWord;
                 if (numArgs >= 1) assemblyInterface.p_rax = sp[numArgs - 1];
-                if (numArgs >= 2) assemblyInterface.p_rdi = sp[numArgs - 2];
+                if (numArgs >= 2) assemblyInterface.p_rsi = sp[numArgs - 2];
                 if (numArgs >= 3) assemblyInterface.p_r8  = sp[numArgs - 3];
                 if (numArgs >= 4) assemblyInterface.p_r9  = sp[numArgs - 4];
                 if (numArgs >= 5) assemblyInterface.p_r10 = sp[numArgs - 5];
@@ -1781,7 +1781,7 @@ int X86TaskData::Interpret()
                 sp++; /* Remove the link/closure */
                 pc = (*sp++).codeAddr; /* Return address */
                 sp += returnCount; /* Add on number of args. */
-                if (*pc != 0xff)
+                if (!(pc[0] == 0xff && pc[1] == 0x55 && pc[2] == 0x48))
                 {
                     // We're returning to native code.
                     SaveInterpreterState(pc, sp);
@@ -1832,7 +1832,7 @@ int X86TaskData::Interpret()
             sp = this->assemblyInterface.handlerRegister;
             pc = (*sp++).codeAddr;
             this->assemblyInterface.handlerRegister = (*sp++).stackAddr;
-            if (*pc != 0xff)
+            if (!(pc[0] == 0xff && pc[1] == 0x55 && pc[2] == 0x48))
             {
                 SaveInterpreterState(pc, sp);
                 // Handler is native code.

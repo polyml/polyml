@@ -56,9 +56,9 @@ struct
         |   ObjectId32Bit   => (OpSize32, OpSize64)
     
     (* Ebx/Rbx is used for the second argument on the native architectures but
-       is replaced by edi on the object ID arch because ebx is used as the
+       is replaced by esi on the object ID arch because ebx is used as the
        global base register. *)
-    val mlArg2Reg = case targetArch of ObjectId32Bit => edi | _ => ebx
+    val mlArg2Reg = case targetArch of ObjectId32Bit => esi | _ => ebx
     
     exception InternalError = Misc.InternalError
     
@@ -135,7 +135,7 @@ struct
                    We use esi to hold the argument data pointer and edi to save the ML stack pointer
            Our ML conventions use eax, ebx for the first two arguments in X86/32,
                    rax, ebx, r8, r9, r10 for the first five arguments in X86/64 and
-                   rax, rdi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
+                   rax, rsi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
         *)
         
          (* The ML stack pointer needs to be
@@ -285,12 +285,13 @@ struct
                     (_, 0) => []
                 |   (X64Unix, 1) => [ moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
                 |   (X64Unix, 2) =>
+                        (* Since mlArgs2Reg is esi on 32-in-64 this is redundant. *)
                         [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize} ]
                 |   (X64Unix, 3) => 
                         [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
                           moveRR{source=r8, output=edx, opSize=polyWordOpSize} ]
                 |   (X64Unix, 4) => 
-                        [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize},moveRR{source=eax, output=edi, opSize=polyWordOpSize},
+                        [ moveRR{source=mlArg2Reg, output=esi, opSize=polyWordOpSize}, moveRR{source=eax, output=edi, opSize=polyWordOpSize},
                           moveRR{source=r8, output=edx, opSize=polyWordOpSize}, moveRR{source=r9, output=ecx, opSize=polyWordOpSize} ]
                 |   (X64Win, 1) => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize} ]
                 |   (X64Win, 2) => [ moveRR{source=eax, output=ecx, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} ]
