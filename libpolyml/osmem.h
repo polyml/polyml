@@ -77,6 +77,7 @@ protected:
 
     Bitmap pageMap;
     uintptr_t lastAllocated;
+    char *memBase;
 
 #endif
 };

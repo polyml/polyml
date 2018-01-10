@@ -44,7 +44,6 @@
 
 #include "osmem.h"
 #include "bitmap.h"
-#include "globals.h"
 
 // Linux prefers MAP_ANONYMOUS to MAP_ANON 
 #ifndef MAP_ANON
@@ -59,7 +58,7 @@
 bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 {
     pageSize = PageSize();
-    void *memBase = ReserveHeap(space);
+    memBase = (char*)ReserveHeap(space);
     if (memBase == 0)
         return 0;
 
@@ -85,14 +84,14 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
         return 0; // Can't find the space.
     pageMap.SetBits(free, pages);
     // TODO: Do we need to zero this?  It may have previously been set.
-    char *baseAddr = (char*)globalHeapBase + free * pageSize;
+    char *baseAddr = memBase + free * pageSize;
     return CommitPages(baseAddr, space, permissions);
 }
 
 bool OSMem::Free(void *p, size_t space)
 {
     char *addr = (char*)p;
-    uintptr_t offset = (addr - (char*)globalHeapBase) / pageSize;
+    uintptr_t offset = (addr - memBase) / pageSize;
     if (!UncommitPages(p, space))
         return false;
     uintptr_t pages = space / pageSize;
