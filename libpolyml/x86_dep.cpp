@@ -230,8 +230,10 @@ public:
     virtual void AtomicReset(Handle mutexp);
 
     // Return the minimum space occupied by the stack.  Used when setting a limit.
+    // N.B. This is PolyWords not native words.
     virtual uintptr_t currentStackSpace(void) const
-        { return ((stackItem*)this->stack->top - assemblyInterface.stackPtr) + OVERFLOW_STACK_SIZE; }
+        { return (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
+            OVERFLOW_STACK_SIZE*sizeof(uintptr_t)/sizeof(PolyWord); }
 
     // Increment the profile count for an allocation.  Also now used for mutex contention.
     virtual void addProfileCount(POLYUNSIGNED words)
@@ -370,7 +372,8 @@ public:
     // Create a task data object.
     virtual TaskData *CreateTaskData(void) { return new X86TaskData(); }
 
-    virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
+    // Initial size of stack in PolyWords
+    virtual unsigned InitialStackSize(void) { return (128+OVERFLOW_STACK_SIZE) * sizeof(uintptr_t) / sizeof(PolyWord); }
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
 
     virtual Architectures MachineArchitecture(void)
@@ -666,17 +669,19 @@ int X86TaskData::SwitchToPoly()
         case RETURN_STACK_OVERFLOWEX:
         {
             SetRegisterMask();
-            uintptr_t min_size;
+            uintptr_t min_size; // Size in PolyWords
             if (assemblyInterface.returnReason == RETURN_STACK_OVERFLOW)
             {
-                min_size = this->stack->top - (PolyWord*)assemblyInterface.stackPtr + OVERFLOW_STACK_SIZE;
+                min_size = (this->stack->top - (PolyWord*)assemblyInterface.stackPtr) +
+                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
             }
             else
             {
                 // Stack limit overflow.  If the required stack space is larger than
                 // the fixed overflow size the code will calculate the limit in %EDI.
                 stackItem *stackP = regDI().stackAddr;
-                min_size = this->stack->top - (PolyWord*)stackP + OVERFLOW_STACK_SIZE;
+                min_size = (this->stack->top - (PolyWord*)stackP) +
+                    OVERFLOW_STACK_SIZE * sizeof(uintptr_t) / sizeof(PolyWord);
             }
             try {
                 // The stack check has failed.  This may either be because we really have
@@ -768,7 +773,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     uintptr_t topStack = stack_size-6;
     stackItem *stackTop = (stackItem*)newStack + topStack;
     assemblyInterface.stackPtr = stackTop;
-    assemblyInterface.stackLimit = (stackItem*)((PolyWord*)space->bottom + OVERFLOW_STACK_SIZE);
+    assemblyInterface.stackLimit = (stackItem*)space->bottom + OVERFLOW_STACK_SIZE;
     assemblyInterface.handlerRegister = (stackItem*)newStack+topStack+4;
 
     // Floating point save area.
