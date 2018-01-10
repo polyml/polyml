@@ -841,7 +841,13 @@ PolyObject* MemMgr::AllocCodeSpace(POLYUNSIGNED requiredSize)
         else
         {
             // Allocate a new area and add it at the end of the table.
-            CodeSpace *allocSpace = NewCodeSpace(requiredSize + 1);
+            uintptr_t spaceSize = requiredSize + 1;
+#ifdef POLYML32IN64
+            // We need to allow for the extra alignment word otherwise we
+            // may allocate less than we need.
+            spaceSize += 1;
+#endif
+            CodeSpace *allocSpace = NewCodeSpace(spaceSize);
             if (allocSpace == 0)
                 return 0; // Try a GC.
         }
