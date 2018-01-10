@@ -175,7 +175,7 @@ public:
     byte            returnReason;       // Reason for returning from ML.
     byte            unusedRestore;      // No longer used.
     uintptr_t       saveCStack;         // Saved C stack frame.
-    PolyObject      *threadId;          // My thread id.  Saves having to call into RTS for it.
+    PolyWord        threadId;          // My thread id.  Saves having to call into RTS for it.
     stackItem       *stackPtr;          // Current stack pointer
     byte            *enterInterpreter;  // Temporary
     byte            *heapOverFlowCall;  // These are filled in with the functions.

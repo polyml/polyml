@@ -1304,8 +1304,12 @@ struct
         |   codeExtended _ ({instr=AtomicExchangeAndAdd{base=PReg bReg, source=PReg sReg}, ...}, code) =
             let
                 val baseReg = asGenReg (getAllocatedReg bReg) and outReg = asGenReg (getAllocatedReg sReg)
+                val address =
+                    if targetArch = ObjectId32Bit
+                    then {base=ebx, index=Index4 baseReg, offset=0}
+                    else {base=baseReg, index=NoIndex, offset=0}
             in
-                AtomicXAdd{base=baseReg, output=outReg, opSize=polyWordOpSize} :: code
+                AtomicXAdd{address=address, output=outReg, opSize=polyWordOpSize} :: code
             end
 
         |   codeExtended _ ({instr=BoxValue{boxKind, source=PReg sReg, dest as PReg dReg, saveRegs}, ...}, code) =

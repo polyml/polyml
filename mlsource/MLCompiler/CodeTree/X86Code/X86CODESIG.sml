@@ -158,7 +158,7 @@ sig
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool, opSize: opSize }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool, opSize: opSize }
-    |   AtomicXAdd of {base: genReg, output: genReg, opSize: opSize }
+    |   AtomicXAdd of {address: memoryAddress, output: genReg, opSize: opSize }
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real

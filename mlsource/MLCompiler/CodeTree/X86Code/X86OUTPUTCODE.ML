@@ -1063,7 +1063,7 @@ struct
     |   RepeatOperation of repOps
     |   DivideAccR of {arg: genReg, isSigned: bool, opSize: opSize }
     |   DivideAccM of {base: genReg, offset: int, isSigned: bool, opSize: opSize }
-    |   AtomicXAdd of {base: genReg, output: genReg, opSize: opSize }
+    |   AtomicXAdd of {address: memoryAddress, output: genReg, opSize: opSize }
     |   FPLoadFromMemory of { address: memoryAddress, precision: fpSize }
     |   FPLoadFromFPReg of { source: fpReg, lastRef: bool }
     |   FPLoadFromConst of real
@@ -1258,8 +1258,8 @@ struct
                 ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream(printOpSize opSize); stream " "; printGReg arg)
         |   DivideAccM{base, offset, isSigned, opSize} =>
                 ( stream(if isSigned then "DivideSigned" else "DivideUnsigned"); stream(printOpSize opSize); stream " "; printBaseOffset(base, NoIndex, offset))
-        |   AtomicXAdd{base, output, opSize} =>
-                (stream "LockedXAdd"; stream(printOpSize opSize); stream " ("; printGReg base; stream ") <=> "; printGReg output)
+        |   AtomicXAdd{address, output, opSize} =>
+                (stream "LockedXAdd"; stream(printOpSize opSize); printMemAddress address; stream " <=> "; printGReg output)
         |   FPLoadFromMemory{address, precision=DoublePrecision} => (stream "FPLoadDouble "; printMemAddress address)
         |   FPLoadFromMemory{address, precision=SinglePrecision} => (stream "FPLoadSingle "; printMemAddress address)
         |   FPLoadFromFPReg {source, lastRef} =>
@@ -1586,9 +1586,9 @@ struct
         |   cgOp(DivideAccM{base, offset, isSigned, opSize}) =
                 opPlus2(case opSize of OpSize64 => Group3_A64 | OpSize32 => Group3_A32, LargeInt.fromInt offset, base, if isSigned then 0w7 else 0w6)
 
-        |   cgOp(AtomicXAdd{base, output, opSize}) =
+        |   cgOp(AtomicXAdd{address={offset, base, index}, output, opSize}) =
                 (* Locked exchange-and-add.  We need the lock prefix before the REX prefix. *)
-                opEA(case opSize of OpSize64 => LOCK_XADD64 | OpSize32 => LOCK_XADD32, 0, base, output)
+                opAddress(case opSize of OpSize64 => LOCK_XADD64 | OpSize32 => LOCK_XADD32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(PushToStack(RegisterArg reg)) =
             let

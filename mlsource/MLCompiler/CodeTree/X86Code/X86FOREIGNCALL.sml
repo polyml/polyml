@@ -163,6 +163,13 @@ struct
                     else memRegSize + 16 - align
                 end
 
+        (* The RTS functions expect the real address of the thread Id. *)
+        fun loadThreadId toReg =
+            if targetArch <> ObjectId32Bit
+            then [loadMemory(toReg, ebp, memRegThreadSelf, nativeWordOpSize)]
+            else [loadMemory(toReg, ebp, memRegThreadSelf, polyWordOpSize),
+                  LoadAddress{output=toReg, offset=0, base=SOME ebx, index=Index4 toReg, opSize=nativeWordOpSize}]
+
         val code =
             [
                 MoveToRegister{source=AddressConstArg entryPointAddr, output=entryPtrReg, opSize=polyWordOpSize}, (* Load the entry point ref. *)
@@ -183,22 +190,22 @@ struct
             ] @
             (
                 case (abi, nArgs) of  (* Set the argument registers. *)
-                    (X64Unix, 0) => [ loadMemory(edi, ebp, memRegThreadSelf, nativeWordOpSize) ]
-                |   (X64Unix, 1) => [ loadMemory(edi, ebp, memRegThreadSelf, nativeWordOpSize), moveRR{source=eax, output=esi, opSize=polyWordOpSize} ]
+                    (X64Unix, 0) => loadThreadId edi
+                |   (X64Unix, 1) => moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: loadThreadId edi
                 |   (X64Unix, 2) =>
-                        [ moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}, loadMemory(edi, ebp, memRegThreadSelf, nativeWordOpSize),
-                          moveRR{source=eax, output=esi, opSize=polyWordOpSize} ]
+                        moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} ::
+                        moveRR{source=eax, output=esi, opSize=polyWordOpSize} :: loadThreadId edi
                 |   (X64Unix, 3) => 
-                        [ moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize}, loadMemory(edi, ebp, memRegThreadSelf, nativeWordOpSize),
-                          moveRR{source=eax, output=esi, opSize=polyWordOpSize}, moveRR{source=r8, output=ecx, opSize=polyWordOpSize} ]
-                |   (X64Win, 0) => [ loadMemory(ecx, ebp, memRegThreadSelf, nativeWordOpSize) ]
-                |   (X64Win, 1) => [ loadMemory(ecx, ebp, memRegThreadSelf, nativeWordOpSize), moveRR{source=eax, output=edx, opSize=polyWordOpSize} ]
+                        moveRR{source=mlArg2Reg, output=edx, opSize=polyWordOpSize} :: moveRR{source=eax, output=esi, opSize=polyWordOpSize} ::
+                        moveRR{source=r8, output=ecx, opSize=polyWordOpSize} :: loadThreadId edi
+                |   (X64Win, 0) => loadThreadId ecx
+                |   (X64Win, 1) => moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: loadThreadId ecx
                 |   (X64Win, 2) =>
-                        [ loadMemory(ecx, ebp, memRegThreadSelf, nativeWordOpSize), moveRR{source=eax, output=edx, opSize=polyWordOpSize},
-                          moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} ]
+                        moveRR{source=eax, output=edx, opSize=polyWordOpSize} ::
+                        moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: loadThreadId ecx
                 |   (X64Win, 3) =>
-                        [ loadMemory(ecx, ebp, memRegThreadSelf, nativeWordOpSize), moveRR{source=eax, output=edx, opSize=polyWordOpSize},
-                          moveRR{source=r8, output=r9, opSize=polyWordOpSize}, moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} ]
+                        moveRR{source=eax, output=edx, opSize=polyWordOpSize} :: moveRR{source=r8, output=r9, opSize=polyWordOpSize} ::
+                        moveRR{source=mlArg2Reg, output=r8, opSize=polyWordOpSize} :: loadThreadId ecx
                 |   (X86_32, 0) => [ PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
                 |   (X86_32, 1) => [ pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
                 |   (X86_32, 2) => [ pushR mlArg2Reg, pushR eax, PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex}) ]
