@@ -1342,7 +1342,7 @@ struct
                 (* Move from one general register to another. *)
                 opReg(case opSize of OpSize64 => MOVL_R_A64 | OpSize32 => MOVL_R_A32, source, output)
 
-        |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output, opSize}) =
+        |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output, opSize=_}) =
             if targetArch <> Native32Bit
             then
             (
@@ -1394,7 +1394,7 @@ struct
                 end
             )
 
-        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize }) =
+        |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize=_ }) =
             if targetArch <> Native32Bit
             then
             let
@@ -2219,7 +2219,7 @@ struct
     |   IntConstant of LargeInt.int             (* A PC-relative address to the non-address area - 64-bit only.*)
 
     local       
-        fun getConstant(MoveToRegister{ source=NonAddressConstArg source, opSize, ...}, bytes, ic, l) =
+        fun getConstant(MoveToRegister{ source=NonAddressConstArg source, opSize=_, ...}, bytes, ic, l) =
             if targetArch <> Native32Bit
             then
             (
