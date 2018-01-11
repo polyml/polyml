@@ -269,7 +269,7 @@ struct
                 else moveToTarget(dest, code, arg)
 
         |   moveIfNotAllowed(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if targetArch <> Native64Bit
+                if targetArch = Native32Bit
                 then (code, arg, false) (* We can store the address directly *)
                 else moveToTarget(dest, code, arg)
 
@@ -304,7 +304,7 @@ struct
                 else moveToTargetRev(dest, code, arg)
 
         |   moveIfNotAllowedRev(dest as Allowed{const32s=true, ...}, code, arg as AddressConstant _) =
-                if targetArch <> Native64Bit
+                if targetArch = Native32Bit
                 then (code, arg, false)
                 else moveToTargetRev(dest, code, arg)
 

@@ -1343,7 +1343,7 @@ struct
                 opReg(case opSize of OpSize64 => MOVL_R_A64 | OpSize32 => MOVL_R_A32, source, output)
 
         |   cgOp(MoveToRegister{ source=NonAddressConstArg source, output, opSize}) =
-            if opSize = OpSize64
+            if targetArch <> Native32Bit
             then
             (
                 (* N.B. There is related code in getConstant that deals with PC-relative values and
@@ -1395,7 +1395,7 @@ struct
             )
 
         |   cgOp(MoveToRegister{ source=AddressConstArg _, output, opSize }) =
-            if targetArch = Native64Bit
+            if targetArch <> Native32Bit
             then
             let
                 (* Put address constants in the constant area.  This makes the code a bit
@@ -1403,7 +1403,9 @@ struct
                    the code. *)
                 val (rc, rx) = getReg output
                 val opb =
-                    if opSize = OpSize64
+                    (* The constant area is currently PolyWords.  That means we MUST use
+                       a 32-bit load in 32-in-64. *)
+                    if targetArch = Native64Bit
                     then opCodeBytes(MOVL_A_R64, SOME{w=true, r=rx, b=false, x = false})
                     else opCodeBytes(MOVL_A_R32, if rx then SOME{w=false, r=rx, b=false, x = false} else NONE)
                         
@@ -1644,15 +1646,15 @@ struct
                    we can't have an untagged constant in it.  That's not a problem in 64-bit mode.
                    There's a special check for using this to set the length word on newly allocated
                    memory. *)
-                targetArch = Native64Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
+                targetArch <> Native32Bit orelse toStore = 0 orelse toStore mod 2 = 1 orelse offset = ~ (Word.toInt wordSize)
                     orelse raise InternalError "cgOp: StoreConstToMemory not tagged";
                 opAddressPlus2(case opSize of OpSize64 => MOVL_32_A64 | OpSize32 => MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @
                             int32Signed toStore
             )
 
         |   cgOp(StoreLongConstToMemory{ address={offset, base, index}, ... }) =
-                (* We can only store a 32-bit constant so we can't use this for 64-bit addresses. *)
-                if targetArch = Native64Bit
+                (* This is not used for addresses even in 32-in-64.  We don't scan for addresses after MOVL_32_A. *)
+                if targetArch <> Native32Bit
                 then raise InternalError "StoreLongConstToMemory in 64-bit mode"
                 else opAddressPlus2(MOVL_32_A32, LargeInt.fromInt offset, base, index, 0w0) @ int32Signed (tag 0)
 
@@ -2218,7 +2220,7 @@ struct
 
     local       
         fun getConstant(MoveToRegister{ source=NonAddressConstArg source, opSize, ...}, bytes, ic, l) =
-            if opSize = OpSize64
+            if targetArch <> Native32Bit
             then
             (
                 if source >= ~0x80000000 andalso source < 0x100000000
@@ -2229,7 +2231,7 @@ struct
             else l (* 32-bit mode.  The constant will always be inline even if we've had to use XOR r,r; ADD r,c *)
 
         |   getConstant(MoveToRegister{ source=AddressConstArg source, ... }, bytes, ic, l) =
-            if targetArch = Native64Bit
+            if targetArch <> Native32Bit
             then (* Address constants go in the constant area. *)
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4, ConstantArea source) :: l
             else (ic + Word.fromInt(Word8Vector.length bytes) - wordSize, InlineAbsoluteAddress source) :: l

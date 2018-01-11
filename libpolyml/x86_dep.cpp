@@ -1397,7 +1397,8 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 else
                 {
                     skipea(addr, &pt, process, false);
-#if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
+#ifndef HOSTARCHITECTURE_X86_64
+                    // This isn't used for addresses even in 32-in-64
                     process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif /* HOSTARCHITECTURE_X86_64 */
                     pt += 4;
@@ -1410,17 +1411,16 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             pt ++;
 #ifdef HOSTARCHITECTURE_X86_64
             if ((lastRex & 8) == 0)
-            { // 32-bit mode on 64-bits
-#ifdef POLYML32IN64
-                process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
-#endif
-                pt += 4;
-            }
+                pt += 4; // 32-bit mode on 64-bits
             else
 #endif /* HOSTARCHITECTURE_X86_64 */
             {
+                // This is no longer generated in 64-bit mode but needs to
+                // be retained in native 64-bit for backwards compatibility.
+#ifndef POLYML32IN64
                 // 32 bits in 32-bit mode, 64-bits in 64-bit mode.
                 process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
+#endif
                 pt += sizeof(PolyWord);
             }
             break;
@@ -1428,6 +1428,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x68: /* PUSH_32 */
             pt ++;
 #if (!defined(HOSTARCHITECTURE_X86_64) || defined(POLYML32IN64))
+            // Currently the only inline constant in 32-in-64.
             process->ScanConstant(addr, pt, PROCESS_RELOC_DIRECT);
 #endif
             pt += 4;
