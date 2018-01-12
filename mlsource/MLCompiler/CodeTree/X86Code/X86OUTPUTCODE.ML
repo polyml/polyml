@@ -3251,10 +3251,11 @@ struct
 
         local
             (* Add one byte for the HLT and round up to a number of words. *)
-            val endOfCode = (codeSize+wordSize) div wordSize
+            val endOfCode = (codeSize+nativeWordSize) div nativeWordSize * (nativeWordSize div wordSize)
             val realSize = 0w8 div wordSize
+            val intSize = nativeWordSize div wordSize
             fun addSizes((_, RealConstant _), n) = n+realSize
-            |   addSizes((_, IntConstant _), n) = n+0w1
+            |   addSizes((_, IntConstant _), n) = n+intSize
             |   addSizes(_, n) = n
             val numOfNonAddrWords = List.foldl addSizes 0w0 constantList
         in
@@ -3277,7 +3278,7 @@ struct
         end
     
         (* Align ic onto a fullword boundary. *)
-        val ()   = ic := ((!ic + wordSize - 0w1) andb ~wordSize)
+        val ()   = ic := ((!ic + nativeWordSize - 0w1) andb ~nativeWordSize)
         
         (* Copy the non-address constants.  These are only used in 64-bit mode and are
            either real constants or integers that are too large to fit in a 32-bit
@@ -3308,7 +3309,7 @@ struct
                 let
                     val addrOfConst = ! ic
                     fun setMem(m, n) = 
-                    if n = wordSize then ()
+                    if n = nativeWordSize then ()
                     else 
                     (
                         genBytes(Word8Vector.fromList[Word8.fromLargeInt(m mod 0x100)]);
