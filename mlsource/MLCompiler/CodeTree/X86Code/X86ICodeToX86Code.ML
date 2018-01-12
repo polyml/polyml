@@ -81,9 +81,7 @@ struct
     in
         val generalRegisters = List.map GenReg regs
     end
-    
-    val defOpSize = case targetArch of Native64Bit => OpSize64 | _ => OpSize32
-     
+      
     fun icodeToX86Code{blocks, functionName, stackRequired, argRegsUsed, hasFullClosure, debugSwitches,
                        allocatedRegisters, resultClosure, ...} =
     let        
@@ -1083,19 +1081,19 @@ struct
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper=SUB, resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2, ...}, ...}, code) =
+                                            operand2, opSize, ...}, ...}, code) =
             (* Subtraction - this is special because it can only be done one way round.  The first argument must
                be in a register. *)
             let
                 val realDestReg = getAllocatedReg resReg
                 val realOp1Reg = getAllocatedReg op1Reg
             in
-                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=defOpSize } ::
+                ArithToGenReg { opc=SUB, output=asGenReg realDestReg, source=codeExtArgumentAsGenReg operand2, opSize=opSize } ::
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveNativeWord}, code)
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2=RegisterArgument(PReg op2Reg), ...}, ...}, code) =
+                                            operand2=RegisterArgument(PReg op2Reg), opSize, ...}, ...}, code) =
             (* Arithmetic operation with both arguments as registers.  These operations are all symmetric so
                we can try to put either argument into the result reg and then do the operation on the other arg. *)
             let
@@ -1107,13 +1105,13 @@ struct
                     then (realOp2Reg, code)
                     else if realOp2Reg = realDestReg
                     then (realOp1Reg, code)
-                    else (realOp2Reg, MoveToRegister{source=RegisterArg realOp1Reg, output=realDestReg, opSize=defOpSize} :: code)
+                    else (realOp2Reg, MoveToRegister{source=RegisterArg realOp1Reg, output=realDestReg, opSize=opSize} :: code)
             in
-                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=defOpSize } :: moveInstr
+                ArithToGenReg { opc=oper, output=realDestReg, source=RegisterArg operandReg, opSize=opSize } :: moveInstr
             end
 
         |   codeExtended _ ({instr=ArithmeticFunction{oper, resultReg=PReg resReg, operand1=PReg op1Reg,
-                                            operand2, ...}, ...}, code) =
+                                            operand2, opSize, ...}, ...}, code) =
             (* Arithmetic operation with the first argument in a register and the second a constant or memory location. *)
             let
                 val realDestReg = getAllocatedReg resReg
@@ -1124,7 +1122,7 @@ struct
                    between the result register and the arguments.  What if the second argument is a memory
                    location with the result reg as a base or index? *)
             in
-                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=defOpSize } ::
+                ArithToGenReg { opc=oper, output=asGenReg realDestReg, source=op2Arg, opSize=opSize } ::
                     moveIfNecessary({src=realOp1Reg, dst=realDestReg, kind=moveNativeWord}, code)
             end
 
@@ -1289,7 +1287,7 @@ struct
                 (* rdx needs to be set to the high order part of the dividend.  For signed
                    division that means sign-extending rdx, for unsigned division we clear it. *)
                 val setRDX =
-                    if isSigned then SignExtendForDivide defOpSize
+                    if isSigned then SignExtendForDivide opSize
                     else ArithToGenReg{ opc=XOR, output=edx, source=RegisterArg edx, opSize=polyWordOpSize }
             in
                 (* We may need to move one or more of the registers although normally that
