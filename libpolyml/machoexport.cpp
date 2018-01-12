@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011-2, 2016 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2, 2016-18 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -144,6 +144,7 @@ PolyWord MachoExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsi
    that the offset is saved in original word. */
 void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
+#ifndef POLYML32IN64
     PolyWord p = GetConstantValue(addr, code);
 
     if (IS_INT(p) || p == PolyWord::FromUnsigned(0))
@@ -220,6 +221,7 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
         default:
             ASSERT(0); // Wrong type of relocation for this architecture.
     }
+#endif
 }
 
 // Set the file alignment.

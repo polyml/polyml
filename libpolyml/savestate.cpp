@@ -843,21 +843,22 @@ SpaceBTreeTree::~SpaceBTreeTree()
 
 
 // This class is used to relocate addresses in areas that have been loaded.
-class LoadRelocate
+class LoadRelocate: public ScanAddress
 {
 public:
-    LoadRelocate(): descrs(0), targetAddresses(0), nDescrs(0), errorMessage(0), spaceTree(0) {}
+    LoadRelocate(bool pcc = false): processCodeConstants(pcc), originalBaseAddr(0), descrs(0),
+        targetAddresses(0), nDescrs(0), errorMessage(0), spaceTree(0) {}
     ~LoadRelocate();
 
-#ifdef POLYML32IN64
-    void RelocateObject(PolyObject *p, PolyWord *baseAddr = globalHeapBase);
-#else
-    void RelocateObject(PolyObject *p, PolyWord *baseAddr = 0);
-#endif
-    void RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr);
+    void RelocateObject(PolyObject *p);
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(0); return base; } // Not used
+    virtual void ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code);
+    void RelocateAddressAt(PolyWord *pt);
     PolyObject *RelocateAddress(PolyObject *obj);
     void AddTreeRange(SpaceBTree **t, unsigned index, uintptr_t startS, uintptr_t endS);
 
+    bool processCodeConstants;
+    PolyWord *originalBaseAddr;
     SavedStateSegmentDescr *descrs;
     PolyWord **targetAddresses;
     unsigned nDescrs;
@@ -911,11 +912,11 @@ void LoadRelocate::AddTreeRange(SpaceBTree **tt, unsigned index, uintptr_t start
 
 
 // Update the addresses in a group of words.
-void LoadRelocate::RelocateAddressAt(PolyWord *pt, PolyWord *baseAddr)
+void LoadRelocate::RelocateAddressAt(PolyWord *pt)
 {
     PolyWord val = *pt;
     if (! val.IsTagged())
-        *pt = RelocateAddress(val.AsObjPtr(baseAddr));
+        *pt = RelocateAddress(val.AsObjPtr(originalBaseAddr));
 }
 
 PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
@@ -953,7 +954,7 @@ PolyObject *LoadRelocate::RelocateAddress(PolyObject *obj)
 // This is based on Exporter::relocateObject but does the reverse.
 // It attempts to adjust all the addresses in the object when it has
 // been read in.
-void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
+void LoadRelocate::RelocateObject(PolyObject *p)
 {
     if (p->IsByteObject())
     {
@@ -965,9 +966,15 @@ void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
         ASSERT(! p->IsMutable() );
         p->GetConstSegmentForCode(cp, constCount);
         /* Now the constant area. */
-        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]), baseAddr);
-        // N.B. This does not deal with constants within the code.  These have
-        // to be handled by real relocation entries.
+        for (POLYUNSIGNED i = 0; i < constCount; i++) RelocateAddressAt(&(cp[i]));
+        // Saved states and modules have relocation entries for constants in the code.
+        // We can't use them when loading object files in 32-in-64 so have to process the
+        // constants here.
+        if (processCodeConstants)
+        {
+            POLYUNSIGNED length = p->Length();
+            machineDependent->ScanConstantsWithinCode(p, p, length, this);
+        }
     }
     else if (p->IsClosureObject())
     {
@@ -975,12 +982,24 @@ void LoadRelocate::RelocateObject(PolyObject *p, PolyWord *baseAddr)
         POLYUNSIGNED length = p->Length();
         *(PolyObject**)p = RelocateAddress(*(PolyObject**)p);
         for (POLYUNSIGNED i = sizeof(PolyObject*)/sizeof(PolyWord); i < length; i++)
-            RelocateAddressAt(p->Offset(i), baseAddr);
+            RelocateAddressAt(p->Offset(i));
     }
     else /* Ordinary objects, essentially tuples. */
     {
         POLYUNSIGNED length = p->Length();
-        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i), baseAddr);
+        for (POLYUNSIGNED i = 0; i < length; i++) RelocateAddressAt(p->Offset(i));
+    }
+}
+
+// Update addresses as constants within the code.
+void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
+{
+    PolyWord p = GetConstantValue(addressOfConstant, code);
+
+    if (p.IsDataPtr())
+    {
+        PolyWord newValue = RelocateAddress(p.AsObjPtr(originalBaseAddr));
+        SetConstantValue(addressOfConstant, newValue, code);
     }
 }
 
@@ -1114,6 +1133,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
     // Load the segment descriptors.
     relocate.nDescrs = header.segmentDescrCount;
     relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
+    relocate.originalBaseAddr = (PolyWord*)header.originalBaseAddr;
 
     if (fseek(loadFile, header.segmentDescr, SEEK_SET) != 0 ||
         fread(relocate.descrs, sizeof(SavedStateSegmentDescr), relocate.nDescrs, loadFile) != relocate.nDescrs)
@@ -1219,7 +1239,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                relocate.RelocateObject(obj, (PolyWord*)header.originalBaseAddr);
+                relocate.RelocateObject(obj);
                 p += length;
             }
         }
@@ -1857,10 +1877,11 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     // We need to copy this into the heap before beginning execution.
     // This is very like loading a saved state and the code should probably
     // be merged.
-    LoadRelocate relocate;
+    LoadRelocate relocate(true);
     relocate.nDescrs = exports->memTableEntries;
     relocate.descrs = new SavedStateSegmentDescr[relocate.nDescrs];
     relocate.targetAddresses = new PolyWord*[exports->memTableEntries];
+    relocate.originalBaseAddr = (PolyWord*)exports->originalBaseAddr;
 
     PolyObject *root = 0;
 
@@ -1900,10 +1921,18 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
         MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
         for (PolyWord *p = space->bottom; p < space->top; )
         {
+#ifdef POLYML32IN64
+            if ((((uintptr_t)p) & 4) == 0)
+            {
+                // Skip any padding.  The length word should be on an odd-word boundary.
+                p++;
+                continue;
+            }
+#endif
             p++;
             PolyObject *obj = (PolyObject*)p;
             POLYUNSIGNED length = obj->Length();
-            relocate.RelocateObject(obj, (PolyWord*)exports->originalBaseAddr);
+            relocate.RelocateObject(obj);
             p += length;
         }
     }

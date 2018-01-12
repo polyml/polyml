@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011, 2016-17 David C. J. Matthews
+    Copyright (c) 2006-7, 2011, 2016-18 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -316,6 +316,7 @@ PolyWord ELFExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsign
    that the offset is saved in original word. */
 void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
+#ifndef POLYML32IN64
     PolyWord p = GetConstantValue(addr, code);
 
     if (IS_INT(p) || p == PolyWord::FromUnsigned(0))
@@ -383,6 +384,7 @@ void ELFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind co
         default:
             ASSERT(0); // Wrong type of relocation for this architecture.
     }
+#endif
 }
 
 unsigned long ELFExport::makeStringTableEntry(const char *str, ExportStringTable *stab)

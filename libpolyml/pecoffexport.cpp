@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006, 2011, 2016 David C. J. Matthews
+    Copyright (c) 2006, 2011, 2016-18 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -147,6 +147,7 @@ void PECOFFExport::writeSymbol(const char *symbolName, __int32 value, int sectio
    that the offset is saved in original word. */
 void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
+#ifndef POLYML32IN64
     IMAGE_RELOCATION reloc;
     PolyWord p = GetConstantValue(addr, code);
 
@@ -182,6 +183,7 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
 
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
+#endif
 }
 
 // Set the file alignment.
