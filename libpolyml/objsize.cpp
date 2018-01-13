@@ -253,7 +253,10 @@ void ProcessVisitAddresses::ShowWords(PolyObject *start)
         }
         else
         {
-            fprintf(polyStdout, "%8p ", start->Get(n).AsObjPtr());
+            PolyWord p = start->Get(n);
+            if (p.IsTagged())
+                fprintf(polyStdout, "%08" POLYUFMT " ", p.AsUnsigned());
+            else fprintf(polyStdout, "%8p ", p.AsObjPtr());
             n++;
         }
         i++;
