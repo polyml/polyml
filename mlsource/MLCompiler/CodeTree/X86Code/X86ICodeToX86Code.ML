@@ -413,7 +413,7 @@ struct
                                            area to be overwritten. *)
                                     in
                                         llStoreArgument{source=RegisterArg workReg, base=esp, index=NoIndex,
-                                                offset = addr1*Word.toInt wordSize, kind=moveNativeWord} ::
+                                                offset = addr1*Word.toInt nativeWordSize, kind=moveNativeWord} ::
                                             XChng { reg=asGenReg workReg,
                                                 arg=MemoryArg{base=esp, offset=addr2*Word.toInt nativeWordSize, index=NoIndex},
                                                 opSize=nativeWordOpSize } ::
