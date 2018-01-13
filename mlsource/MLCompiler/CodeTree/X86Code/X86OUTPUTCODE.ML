@@ -2533,7 +2533,7 @@ struct
                     then
                     (
                         print (genRegRepr (mkReg (base, rexB), defaultRegSize));
-                        if index = 0w4 then () else print ","
+                        if index = 0w4 andalso not rexX then () else print ","
                     )
                     else ();
         
