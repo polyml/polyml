@@ -150,7 +150,6 @@ bool MemMgr::Initialise()
     // Allocate a single 8G area but with no access.
     // This currently only allocates 8G because we need two bits in the header
     // for the sharing scans.
-    size_t space = (size_t)8 * 1024 * 1024 * 1024;
     void *heapBase;
     if (!osHeapAlloc.Initialise((size_t)8 * 1024 * 1024 * 1024, &heapBase))
         return false;
@@ -368,7 +367,7 @@ void MemMgr::DeleteLocalSpace(std::vector<LocalMemSpace*>::iterator &iter)
 {
     LocalMemSpace *sp = *iter;
     if (debugOptions & DEBUG_MEMMGR)
-        Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
+        Log("MMGR: Deleted local %s space %p at %p size %u\n", sp->spaceTypeString(), sp, sp->bottom, sp->spaceSize());
     currentHeapSize -= sp->spaceSize();
     globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
     if (sp->allocationSpace) currentAllocSpace -= sp->spaceSize();
@@ -866,7 +865,7 @@ void MemMgr::RemoveEmptyCodeAreas()
         if (start->IsByteObject() && start->Length() == space->spaceSize()-1)
         {
             if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: Deleted code space %p\n", space);
+                Log("MMGR: Deleted code space %p at %p size %u\n", space, space->bottom, space->spaceSize());
             // We have an empty cell that fills the whole space.
             RemoveTree(space);
             delete(space);
@@ -1049,7 +1048,7 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
             delete space;
             sSpaces.erase(i);
             if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: Deleted stack space %p\n", space);
+                Log("MMGR: Deleted stack space %p at %p size %u\n", space, space->bottom, space->spaceSize());
             return true;
         }
     }
