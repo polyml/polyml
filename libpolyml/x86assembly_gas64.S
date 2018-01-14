@@ -276,7 +276,7 @@ INLINE_ROUTINE(X86AsmAtomicIncrement)
 # Use %rcx and %rax because they are volatile (unlike %rbx on X86/64/Unix)
     movq    $2,%rcx
 #ifdef POLYML32IN64
-    lock xaddq %ecx,(%rax)      # Rax is an absolute address but this is only a word
+    lock xaddl %ecx,(%rax)      # Rax is an absolute address but this is only a word
 #else
     lock xaddq %rcx,(%rax)
 #endif
