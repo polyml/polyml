@@ -156,7 +156,7 @@ size_t OSMem::PageSize()
 
 void *OSMem::ReserveHeap(size_t space)
 {
-    return mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return mmap(0, space, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
 }
 
 bool OSMem::UnreserveHeap(void *p, size_t space)
@@ -166,16 +166,19 @@ bool OSMem::UnreserveHeap(void *p, size_t space)
 
 void *OSMem::CommitPages(void *baseAddr, size_t space, unsigned permissions)
 {
-    int res = mprotect(baseAddr, space, ConvertPermissions(permissions));
-    if (res != 0)
+    if (mmap(baseAddr, space, ConvertPermissions(permissions), MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
         return 0;
+    msync(baseAddr, space, MS_SYNC|MS_INVALIDATE);
+
     return baseAddr;
 }
 
 bool OSMem::UncommitPages(void *p, size_t space)
 {
-    if (!mprotect(FIXTYPE p, space, PROT_NONE))
+    // Remap the pages as new entries.  This should remove the old versions.
+    if (mmap(p, space, PROT_NONE, MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0) == MAP_FAILED)
         return false;
+    msync(p, space, MS_SYNC|MS_INVALIDATE);
     return true;
 }
 
