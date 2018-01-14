@@ -37,7 +37,11 @@ POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
 endif
 else
 if ARCHX8632IN64
-POLYIMPORT = $(srcdir)/imports/polymlint32in64.txt
+if WINDOWS64CALLS
+POLYIMPORT = $(srcdir)/imports/polymlx64_32win.txt
+else
+POLYIMPORT = $(srcdir)/imports/polymlx64_32sysv.txt
+endif
 else
 endif
 endif
@@ -95,7 +99,10 @@ EXTRA_DIST = \
 	imports/polymli386.txt \
 	imports/polymlint64.txt \
 	imports/polymlint.txt \
-	imports/polymlx86_64.txt \
+	imports/polymlx86_64sysv.txt \
+	imports/polymlx86_64win.txt \
+	imports/polymlx64_32sysv.txt \
+	imports/polymlx64_32win.txt \
 	libpolyml/x86asm.asm \
 	exportPoly.sml \
 	poly.1 \

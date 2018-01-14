@@ -446,7 +446,8 @@ DIST_SUBDIRS = libpolyml libpolymain modules
 SUBDIRS = libpolyml libpolymain . modules
 dist_bin_SCRIPTS = polyc
 man_MANS = poly.1 polyimport.1 polyc.1
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint32in64.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@@WINDOWS64CALLS_FALSE@POLYIMPORT = $(srcdir)/imports/polymlx64_32sysv.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX8632IN64_TRUE@@ARCHX86_64_FALSE@@WINDOWS64CALLS_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx64_32win.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS64CALLS_FALSE@POLYIMPORT = $(srcdir)/imports/polymlx86_64sysv.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@@WINDOWS64CALLS_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64win.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
@@ -472,7 +473,10 @@ EXTRA_DIST = \
 	imports/polymli386.txt \
 	imports/polymlint64.txt \
 	imports/polymlint.txt \
-	imports/polymlx86_64.txt \
+	imports/polymlx86_64sysv.txt \
+	imports/polymlx86_64win.txt \
+	imports/polymlx64_32sysv.txt \
+	imports/polymlx64_32win.txt \
 	libpolyml/x86asm.asm \
 	exportPoly.sml \
 	poly.1 \
