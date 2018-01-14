@@ -1,7 +1,7 @@
 /*
    Title:  Assembly code routines for the poly system.
    Author:    David Matthews
-   Copyright (c) David C. J. Matthews 2000-2016
+   Copyright (c) David C. J. Matthews 2000-2018
  
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -110,7 +110,6 @@ EXTNAME(id):
 #define RETURN_HEAP_OVERFLOW        1
 #define RETURN_STACK_OVERFLOW       2
 #define RETURN_STACK_OVERFLOWEX     3
-#define RETURN_ENTER_INTERPRETER    4
 #define RETURN_CALLBACK_RETURN      6
 #define RETURN_CALLBACK_EXCEPTION   7
 #define RETURN_RAISE_OVERFLOW       8
@@ -267,9 +266,6 @@ INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOW)
 INLINE_ROUTINE(X86AsmCallExtraRETURN_STACK_OVERFLOWEX)
     CALL_EXTRA(RETURN_STACK_OVERFLOWEX)
 
-INLINE_ROUTINE(X86AsmCallExtraRETURN_ENTER_INTERPRETER)
-    CALL_EXTRA(RETURN_ENTER_INTERPRETER)
-
 # This implements atomic addition in the same way as atomic_increment
 INLINE_ROUTINE(X86AsmAtomicIncrement)
 #ifdef _WIN32
@@ -279,7 +275,11 @@ INLINE_ROUTINE(X86AsmAtomicIncrement)
 #endif
 # Use %rcx and %rax because they are volatile (unlike %rbx on X86/64/Unix)
     movq    $2,%rcx
+#ifdef POLYML32IN64
+    lock xaddq %ecx,(%rax)      # Rax is an absolute address but this is only a word
+#else
     lock xaddq %rcx,(%rax)
+#endif
     addq    $2,%rcx
     movq    %rcx,%rax
     ret

@@ -1,7 +1,7 @@
 ;
 ;  Title:  Assembly code routines for the poly system.
 ;  Author:    David Matthews
-;  Copyright (c) David C. J. Matthews 2000-2016
+;  Copyright (c) David C. J. Matthews 2000-2018
 ;
 ;  This library is free software; you can redistribute it and/or
 ;  modify it under the terms of the GNU Lesser General Public
@@ -87,7 +87,6 @@ ArgVector ENDS
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
-RETURN_ENTER_INTERPRETER    EQU 4
 RETURN_CALLBACK_RETURN      EQU 6
 RETURN_CALLBACK_EXCEPTION   EQU 7
 RETURN_KILL_SELF            EQU 9
@@ -205,8 +204,8 @@ SaveFullState:
     pop     rbp
     ret
 
-; Used when entering new code.  The argument and closure are on the stack
-; in case there is a GC before we enter the code.
+;# Used when entering new code.  The argument and closure are on the stack
+;# in case there is a GC before we enter the code.
 PUBLIC X86AsmPopArgAndClosure
 X86AsmPopArgAndClosure:
     pop     rdx
@@ -217,7 +216,7 @@ X86AsmPopArgAndClosure:
     jmp     qword ptr [rdx]
 #endif
 
-; This is used if the RTS sets up an exception.  It's probably no longer relevant.
+;# This is used if the RTS sets up an exception.  It's probably no longer relevant.
 PUBLIC  X86AsmRaiseException
 X86AsmRaiseException:
 raisex:
@@ -243,7 +242,11 @@ X86AsmAtomicIncrement:
     mov     rax,rcx
 ; Use rcx and rax because they are volatile (unlike rbx on X86/64/Unix)
     mov     rcx,2
+#ifdef  POLYML32IN64
+    lock xadd [rax],ecx     ;# Rax is an absolute address but this is only a word
+#else
     lock xadd [rax],rcx
+#endif
     add     rcx,2
     mov     rax,rcx
     ret
@@ -257,6 +260,5 @@ X86AsmCallExtra&index&:
 CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
-CREATE_EXTRA_CALL RETURN_ENTER_INTERPRETER
 
 END
