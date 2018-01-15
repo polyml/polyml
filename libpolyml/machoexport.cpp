@@ -81,7 +81,7 @@
 
 // Mach-O seems to require each section to have a discrete virtual address range
 // so we have to adjust various offsets to fit.
-void MachoExport::adjustOffset(unsigned area, POLYUNSIGNED &offset)
+void MachoExport::adjustOffset(unsigned area, size_t &offset)
 {
     // Add in the offset.  If sect is memTableEntries it's actually the
     // descriptors so doesn't have any additional offset.
@@ -103,7 +103,7 @@ void MachoExport::addExternalReference(void *relocAddr, const char *name)
 void MachoExport::setRelocationAddress(void *p, int32_t *reloc)
 {
     unsigned area = findArea(p);
-    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
+    size_t offset = (char*)p - (char*)memTable[area].mtOriginalAddr;
     *reloc = offset;
 }
 
@@ -112,7 +112,7 @@ PolyWord MachoExport::createRelocation(PolyWord p, void *relocAddr)
 {
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
-    POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+    size_t offset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
     adjustOffset(addrArea, offset);
     return writeRelocation(offset, relocAddr, addrArea+1 /* Sections count from 1 */, false);
 }
@@ -154,7 +154,7 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
     unsigned aArea = findArea(a);
 
     // Set the value at the address to the offset relative to the symbol.
-    POLYUNSIGNED offset = (char*)a - (char*)memTable[aArea].mtAddr;
+    size_t offset = (char*)a - (char*)memTable[aArea].mtOriginalAddr;
     adjustOffset(aArea, offset);
 
     switch (code)
@@ -205,7 +205,7 @@ void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind 
                 fwrite(&reloc, sizeof(reloc), 1, exportFile);
                 relocationCount++;
 
-                POLYUNSIGNED addrOffset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+                size_t addrOffset = (char*)addr - (char*)memTable[addrArea].mtOriginalAddr;
                 adjustOffset(addrArea, addrOffset);
                 offset -= addrOffset + 4;
 
@@ -233,7 +233,7 @@ void MachoExport::alignFile(int align)
     fwrite(&pad, align - (offset % align), 1, exportFile);
 }
 
-void MachoExport::createStructsRelocation(unsigned sect, POLYUNSIGNED offset)
+void MachoExport::createStructsRelocation(unsigned sect, size_t offset)
 {
     struct relocation_info reloc;
     reloc.r_address = offset;
@@ -388,7 +388,7 @@ void MachoExport::exportStore(void)
         sections[i].reloff = ftell(exportFile);
         relocationCount = 0;
         // Create the relocation table and turn all addresses into offsets.
-        char *start = (char*)memTable[i].mtAddr;
+        char *start = (char*)memTable[i].mtOriginalAddr;
         char *end = start + memTable[i].mtLength;
         for (p = (PolyWord*)start; p < (PolyWord*)end; )
         {
@@ -413,7 +413,7 @@ void MachoExport::exportStore(void)
 
     // Address of "rootFunction" within "exports"
     unsigned rootAddrArea = findArea(rootFunction);
-    POLYUNSIGNED rootOffset = (char*)rootFunction - (char*)memTable[rootAddrArea].mtAddr;
+    size_t rootOffset = (char*)rootFunction - (char*)memTable[rootAddrArea].mtOriginalAddr;
     adjustOffset(rootAddrArea, rootOffset);
     createStructsRelocation(rootAddrArea, offsetof(exportDescription, rootFunction));
 
@@ -421,7 +421,7 @@ void MachoExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
     {
         createStructsRelocation(i,
-            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr));
+            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtCurrentAddr));
     }
     sections[memTableEntries].nreloc = relocationCount;
 
@@ -493,14 +493,14 @@ void MachoExport::exportStore(void)
 
     sections[memTableEntries].offset = ftell(exportFile);
     fwrite(&exports, sizeof(exports), 1, exportFile);
-    POLYUNSIGNED addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
+    size_t addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
     for (i = 0; i < memTableEntries; i++)
     {
-        void *save = memTable[i].mtAddr;
-        memTable[i].mtAddr = (void*)addrOffset; // Set this to the relative address.
+        void *save = memTable[i].mtCurrentAddr;
+        memTable[i].mtCurrentAddr = (void*)addrOffset; // Set this to the relative address.
         addrOffset += memTable[i].mtLength;
         fwrite(&memTable[i], sizeof(memoryTableEntry), 1, exportFile);
-        memTable[i].mtAddr = save;
+        memTable[i].mtCurrentAddr = save;
     }
 
     // Now the binary data.
@@ -508,7 +508,7 @@ void MachoExport::exportStore(void)
     {
         alignFile(4);
         sections[i].offset = ftell(exportFile);
-        fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
+        fwrite(memTable[i].mtOriginalAddr, 1, memTable[i].mtLength, exportFile);
     }
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);

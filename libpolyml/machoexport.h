@@ -2,7 +2,7 @@
     Title:     Export memory as a Mach object file
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006,2016 David C. J. Matthews
+    Copyright (c) 2006,2016-18 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -48,8 +48,8 @@ private:
     PolyWord createRelocation(PolyWord p, void *relocAddr);
     PolyWord writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsigned symbolNumber, bool isExtern);
     void alignFile(int align);
-    void createStructsRelocation(unsigned area, POLYUNSIGNED offset);
-    void adjustOffset(unsigned area, POLYUNSIGNED &offset);
+    void createStructsRelocation(unsigned area, size_t offset);
+    void adjustOffset(unsigned area, size_t &offset);
 
     unsigned relocationCount;
     ExportStringTable stringTable;
