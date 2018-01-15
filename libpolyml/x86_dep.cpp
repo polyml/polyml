@@ -138,21 +138,26 @@ struct fpSaveArea {
 
 union stackItem
 {
+/*
 #ifndef POLYML32IN64
-    stackItem(PolyWord v) { words[0] = v; };
-    PolyWord words[1];
+    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); };
+    stackItem() { words[0] = TAGGED(0).AsUnsigned(); }
+    POLYUNSIGNED words[1];
 #else
     // In 32-in-64 we need to clear the second PolyWord.  This assumes little-endian.
-    stackItem(PolyWord v) { words[0] = v; words[1] = PolyWord::FromUnsigned(0); };
-    PolyWord words[2];
+    stackItem(PolyWord v) { words[0] = v.AsUnsigned(); words[1] = 0; };
+    stackItem() { words[0]  = TAGGED(0).AsUnsigned(); words[1] = 0; }
+    POLYUNSIGNED words[2];
 #endif
-    stackItem(): stackItem(TAGGED(0)) {} // Default constructor
+   */
+    stackItem(PolyWord v) { argValue = v.AsUnsigned(); }
+    stackItem() { argValue = TAGGED(0).AsUnsigned(); }
 
-    PolyWord w()const { return words[0]; }
-    operator PolyWord () { return words[0]; }
+    PolyWord w()const { return PolyWord::FromUnsigned(argValue); }
+    operator PolyWord () { return PolyWord::FromUnsigned(argValue); }
     POLYCODEPTR codeAddr; // Return addresses
     stackItem *stackAddr; // Stack addresses
-    intptr_t argValue; // Treat an address as an int
+    uintptr_t argValue; // Treat an address as an int
 };
 
 class X86TaskData;
@@ -368,7 +373,7 @@ void X86TaskData::ScanStackAddress(ScanAddress *process, stackItem &stackItem, S
     // checking whether it is untagged.
 #ifdef POLYML32IN64
     // In 32-in-64 return addresses always have the top 32 bits non-zero. 
-    if (stackItem.words[1] == PolyWord::FromUnsigned(0))
+    if (stackItem.argValue < ((uintptr_t)1 << 32))
     {
         // It's either a tagged integer or an object pointer.
         if (stackItem.w().IsDataPtr())
