@@ -56,10 +56,10 @@ struct
         (* Cache registers. *)
         datatype cacheType =
             CacheStack of { rno: int }(* Original preg or stack loc. *)
-        |   CacheMemory of { rno: int, offset: int } (* Base offset *)
+        |   CacheMemory of { base: preg, offset: int, index: memoryIndex } (* Base offset *)
             (* CacheTagged is used if we tag a value to see if we can use the
                original untagged value somewhere. *)
-        |   CacheTagged of { rno: int, isSigned: bool }
+        |   CacheTagged of { reg: preg, isSigned: bool }
 
         local
             (* The number of active cache entries is likely to be small and is
@@ -70,14 +70,9 @@ struct
                Stack entries always will be tagged and MoveWord. *)
             val cache: {cacheFor: cacheType, cacheReg: preg, isTagged: bool, kind: moveKind } list ref = ref []
            
-            fun isStack n {cacheFor=CacheStack{rno}, ...} = rno = n
-            |   isStack _ _ = false
-            
-            fun isMemory (r, off) {cacheFor=CacheMemory{rno, offset}, ...} = rno = r andalso offset=off
-            |   isMemory _ _ = false
-            
-            fun isTagCache(r, s) {cacheFor=CacheTagged{rno, isSigned}, ...} = rno = r andalso s = isSigned
-            |   isTagCache _ _ = false
+            fun isStack n {cacheFor, ...} = cacheFor = CacheStack{rno = n}
+            and isMemory (r, off, index) {cacheFor, ...} = cacheFor = CacheMemory {base = r, offset = off, index=index}
+            and isTagCache(r, s) {cacheFor, ...} = cacheFor = CacheTagged{reg = r, isSigned = s}
             
             fun findCache f = List.find f (! cache)
             
@@ -86,12 +81,12 @@ struct
             fun clearCache() = cache := []
              
             fun findCachedStack n = Option.map (#cacheReg) (findCache (isStack n))
-            and findCachedMemory (r, off) =
-                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off)))
+            and findCachedMemory (r, off, index) =
+                Option.map (fn {cacheReg, isTagged, kind, ...} => (cacheReg, isTagged, kind)) (findCache(isMemory (r, off, index)))
             and findCachedTagged (r, s) = Option.map #cacheReg (findCache(isTagCache (r, s)))
             
             fun removeStackCache n = removeCache (isStack n)
-            and removeMemoryCache (r, off) = removeCache (isMemory (r, off))
+            and removeMemoryCache (r, off, index) = removeCache (isMemory (r, off, index))
             and removeTagCache (r, s) = removeCache (isTagCache (r, s))
             
             fun clearMemoryCache() =
@@ -103,16 +98,16 @@ struct
                     cache := {cacheFor=CacheStack{rno=n}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
                 )
             
-            and setMemoryCache(r, off, new, isTagged, kind) =
+            and setMemoryCache(r, off, index, new, isTagged, kind) =
                 (
-                    removeMemoryCache (r, off);
-                    cache := {cacheFor=CacheMemory{rno=r, offset=off}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
+                    removeMemoryCache (r, off, index);
+                    cache := {cacheFor=CacheMemory{base=r, offset=off, index=index}, cacheReg=new, isTagged=isTagged, kind=kind} :: ! cache
                 )
             
             and setTagCache(r, s, new) =
                 (
                     removeTagCache (r, s);
-                    cache := {cacheFor=CacheTagged{rno=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
+                    cache := {cacheFor=CacheTagged{reg=r, isSigned=s}, cacheReg=new, isTagged=true, kind=moveNativeWord} :: ! cache
                 )
 
             fun getCache () = ! cache
@@ -444,38 +439,39 @@ struct
                     |   mapSourceEx(a as AddressConstant _) = (a, [], [])
                     |   mapSourceEx(i as IntegerConstant _) = (i, [], [])
 
-                    |   mapSourceEx(MemoryLocation{base as PReg breg, offset, index=NoMemIndex, cache, ...}) =
+                    |   mapSourceEx(MemoryLocation{base, offset, index, cache, ...}) =
+                        if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                        then
                         let
                             val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
                             (* We can cache this if it is the first pass or if we have previously
                                cached it and we haven't marked it as pushed. *)
                             val newCache =
                                 case cache of
-                                    NONE => if firstPass then findCachedMemory(breg, offset) else NONE
+                                    NONE => if firstPass then findCachedMemory(base, offset, index) else NONE
                                 |   SOME (PReg c) =>
                                     if Vector.sub(pushVec, c)
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
-                                    else findCachedMemory(breg, offset)
+                                    else findCachedMemory(base, offset, index)
                             val memLoc =
-                                MemoryLocation{base=baseReg, offset=offset, index=NoMemIndex, cache=Option.map #1 newCache}
+                                MemoryLocation{base=baseReg, offset=offset, index=index, cache=Option.map #1 newCache}
                             val cacheCode =
                                 case newCache of
-                                    NONE => (removeMemoryCache(breg, offset); [])
+                                    NONE => (removeMemoryCache(base, offset, index); [])
                                 |   SOME (oldCacheReg, isTagged, kind) =>
                                     let
                                         (* Set the cache kind.  If this is the first pass we will have a
                                            general or untagged register. *)
                                         val cacheKind = if isTagged then RegPropCacheTagged else RegPropCacheUntagged
                                         val newCacheReg = newPReg cacheKind
-                                        val () = setMemoryCache(breg, offset, newCacheReg, isTagged, kind)
+                                        val () = setMemoryCache(base, offset, index, newCacheReg, isTagged, kind)
                                     in
                                         [CopyToCache{source=oldCacheReg, dest=newCacheReg, kind=kind}]
                                     end
                         in
                             (memLoc, baseCodePre, baseCodePost @ cacheCode)
                         end
-
-                    |   mapSourceEx(MemoryLocation{base, offset, index, ...}) =
+                        else
                         let
                             val (baseReg, baseCodePre, baseCodePost) = mapSrcRegEx base
                             val (indexValue, indexCodePre, indexCodePost) = mapIndexEx index
@@ -594,7 +590,9 @@ struct
                             (* Can we cache this? . *)
                             val cacheCode =
                                 case source of
-                                    MemoryLocation{base=PReg breg, offset, index=NoMemIndex, ...} =>
+                                    MemoryLocation{base, offset, index, ...} =>
+                                    if (case index of NoMemIndex => true | ObjectIndex => true | _ => false)
+                                    then
                                     let
                                         (* The cache kind must match the kind of register we're loading.
                                            If the value is untagged it must not be marked to be examined
@@ -614,10 +612,12 @@ struct
                                             |   RegPropUntagged => (RegPropCacheUntagged, false)
                                             |   _ => raise InternalError "cacheKind"
                                         val newCacheReg = newPReg cacheType
-                                        val _ = setMemoryCache(breg, offset, newCacheReg, isTagged, moveKind)
+                                        val _ = setMemoryCache(base, offset, index, newCacheReg, isTagged, moveKind)
                                     in 
                                         [CopyToCache{source=destReg, dest=newCacheReg, kind=moveKind}]
                                     end
+                                    else []
+
                                 |   _ => []
 
                             val destCode = LoadArgument{source=sourceVal, dest=destReg, kind=kind}
@@ -979,16 +979,16 @@ struct
                                     sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=TagValue{source, dest as PReg dReg, isSigned}, ...}, code) =
+                    |   pushRegisters({instr=TagValue{source, dest, isSigned}, ...}, code) =
                         let
                             val (sourceVal, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
-                            val _ = setTagCache(dReg, isSigned, sourceVal)
+                            val _ = setTagCache(dest, isSigned, sourceVal)
                         in
                             destCode @ TagValue{source=sourceVal, dest=destVal, isSigned=isSigned} :: sourceCode @ code
                         end
 
-                    |   pushRegisters({instr=UntagValue{source as PReg srcReg, dest, isSigned, cache, ...}, ...}, code) =
+                    |   pushRegisters({instr=UntagValue{source, dest, isSigned, cache, ...}, ...}, code) =
                         let
                             val (loadedSource, sourceCode) = mapSrcReg source
                             val (destVal, destCode) = mapDestReg dest
@@ -997,11 +997,11 @@ struct
                                marked it to be pushed. *)
                             val newCache =
                                 case cache of
-                                    NONE => if firstPass then findCachedTagged(srcReg, isSigned) else NONE
+                                    NONE => if firstPass then findCachedTagged(source, isSigned) else NONE
                                 |   SOME (PReg c) =>
                                     if Vector.sub(pushVec, c)
                                     then NONE (* We had marked this as to be pushed - we can't use a cache here. *)
-                                    else findCachedTagged(srcReg, isSigned)
+                                    else findCachedTagged(source, isSigned)
                         in
                             destCode @ UntagValue{source=loadedSource, dest=destVal, isSigned=isSigned, cache=newCache} :: sourceCode @ code
                         end
@@ -1074,8 +1074,9 @@ struct
                                 let
                                     val newCacheReg = newPReg RegPropCacheUntagged
                                     val moveKind = case boxKind of BoxLargeWord => moveNativeWord | BoxX87 => MoveDouble | BoxSSE2 => MoveDouble
+                                    val indexKind = case targetArch of ObjectId32Bit => ObjectIndex | _ => NoMemIndex
                                     (* The value we're putting in the cache is untagged. *)
-                                    val _ = setMemoryCache(dReg, 0, newCacheReg, false, moveKind)
+                                    val _ = setMemoryCache(dest, 0, indexKind, newCacheReg, false, moveKind)
                                 in
                                     [CopyToCache{source=sourceVal, dest=newCacheReg, kind=moveKind}]
                                 end
