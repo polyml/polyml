@@ -38,7 +38,7 @@ struct
             case targetArch of
                 Native32Bit     => [edi, esi, edx, ecx, ebx, eax]
             |   Native64Bit     => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, ebx, eax]
-            |   ObjectId32Bit   => [r14, r13, r12, r11, r10, r9, r8, edi, esi, edx, ecx, eax]
+            |   ObjectId32Bit   => [edi, esi, edx, ecx, eax, r14, r13, r12, r11, r10, r9, r8]
     in
         val generalRegisters = List.map GenReg regs
     end
