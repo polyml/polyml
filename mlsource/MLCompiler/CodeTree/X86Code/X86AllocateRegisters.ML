@@ -371,11 +371,23 @@ struct
                     |   _ => generalRegisters
                 val realDestReg = findRegister(dreg, NONE, regSet)
             in
-                case decache source of
-                    RegisterArgument(PReg sreg) =>
-                    (* Register to register move.  Try to use the same register for the source as the destination
-                       to eliminate the instruction. *)
+                (* We previously used decache here but that has the disadvantage that it
+                   may allocate the destination register as the base register resulting in
+                   it not being available as the cache register. *)
+                case source of
+                    RegisterArgument(PReg sreg) => allocateRegister(sreg, SOME realDestReg, regSet)
+                
+                |   StackLocation{cache=SOME(PReg sreg), ...} =>
                         allocateRegister(sreg, SOME realDestReg, regSet)
+
+                |   MemoryLocation{cache=SOME(PReg sreg), base=PReg bReg, ...} =>
+                    (
+                        (* Cached source.  Allocate this first. *)
+                        allocateRegister(sreg, SOME realDestReg, regSet);
+                        (* We need to allocate a register but do it afterwards. *)
+                        allocateGeneralReg bReg
+                    )
+                
                 |   source => allocateArgument(source, regSet)
             end
 

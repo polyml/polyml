@@ -56,7 +56,9 @@ struct
         (* Cache registers. *)
         datatype cacheType =
             CacheStack of { rno: int }(* Original preg or stack loc. *)
-        |   CacheMemory of { base: preg, offset: int, index: memoryIndex } (* Base offset *)
+            (* Cache memory location.  This allows for general base/index/offset addressing
+               but currently we only cache either NoMemIndex or ObjectIndex. *)
+        |   CacheMemory of { base: preg, offset: int, index: memoryIndex }
             (* CacheTagged is used if we tag a value to see if we can use the
                original untagged value somewhere. *)
         |   CacheTagged of { reg: preg, isSigned: bool }
