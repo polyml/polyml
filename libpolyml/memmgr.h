@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-12, 2016 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12, 2016-18 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -396,7 +396,7 @@ private:
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 
-    OSMem osHeapAlloc, osStackAlloc;
+    OSMem osHeapAlloc, osStackAlloc, osCodeAlloc;
 };
 
 extern MemMgr gMem;

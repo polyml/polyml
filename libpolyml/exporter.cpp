@@ -266,7 +266,14 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     if (obj->ContainsForwardingPtr())
     {
         // Update the address to the new value.
+#ifdef POLYML32IN64
+        PolyObject *newAddr;
+        if (space->isCode)
+            newAddr = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+        else newAddr = obj->GetForwardingPtr();
+#else
         PolyObject *newAddr = obj->GetForwardingPtr();
+#endif
         *pt = newAddr;
         return 0; // No need to scan it again.
     }
@@ -282,7 +289,15 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
                 PolyObject *tombObject = (PolyObject*)tombAddr;
                 if (tombObject->ContainsForwardingPtr())
                 {
-                    *pt = tombObject->GetForwardingPtr();;
+#ifdef POLYML32IN64
+                    PolyObject *newAddr;
+                    if (space->isCode)
+                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                    else newAddr = tombObject->GetForwardingPtr();
+#else
+                    PolyObject *newAddr = tombObject->GetForwardingPtr();
+#endif
+                    *pt = newAddr;
                     return 0;
                 }
                 break; // No need to look further
@@ -387,12 +402,30 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
             {
                 PolyWord *tombAddr = g->graves + ((PolyWord*)obj - g->startAddr);
                 PolyObject *tombObject = (PolyObject*)tombAddr;
+#ifdef POLYML32IN64
+                if (isCodeObj)
+                {
+                    POLYUNSIGNED ll = ((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_PRIVATE_GC_BIT;
+                    tombObject->SetLengthWord(ll);
+                }
+                else tombObject->SetForwardingPtr(newObj);
+#else
                 tombObject->SetForwardingPtr(newObj);
+#endif
                 break; // No need to look further
             }
         }
         ASSERT(m < tombs); // Should be there.
     }
+#ifdef POLYML32IN64
+    // If this is a code address we can't use the usual forwarding pointer format.
+    // Instead we have to compute the offset relative to the base of the code.
+    else if (isCodeObj)
+    {
+        POLYUNSIGNED ll = ((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_PRIVATE_GC_BIT;
+        obj->SetLengthWord(ll);
+    }
+#endif
     else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
     if (OBJ_IS_CODE_OBJECT(lengthWord))
@@ -439,7 +472,17 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
 {
     if (obj->ContainsForwardingPtr())
     {
-        PolyObject *forwardedTo = obj->GetForwardingPtr();
+        PolyObject *forwardedTo;
+#ifdef POLYML32IN64
+        {
+            MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
+            if (space->isCode)
+                forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+            else forwardedTo = obj->GetForwardingPtr();
+        }
+#else
+        forwardedTo = obj->GetForwardingPtr();
+#endif
         POLYUNSIGNED length = GetObjLength(forwardedTo);
         MemSpace *space = gMem.SpaceForAddress(forwardedTo-1);
         if (space->spaceType == ST_EXPORT)

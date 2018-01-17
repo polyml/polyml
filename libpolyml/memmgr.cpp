@@ -49,7 +49,7 @@
 
 #ifdef POLYML32IN64
 // This contains the address of the base of the heap.
-PolyWord *globalHeapBase;
+PolyWord *globalHeapBase, *globalCodeBase;
 #endif
 
 // heap resizing policy option requested on command line
@@ -127,9 +127,6 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc"), codeBitmapLock("Code bitmap")
 
 MemMgr::~MemMgr()
 {
-    // Don't try to clean up here.  This is done in the final close-down and
-    // OSMem may already have been finalised.
-#if (0)
     delete(spaceTree); // Have to do this before we delete the spaces.
     for (std::vector<PermanentMemSpace *>::iterator i = pSpaces.begin(); i < pSpaces.end(); i++)
         delete(*i);
@@ -141,7 +138,6 @@ MemMgr::~MemMgr()
         delete(*i);
     for (std::vector<CodeSpace *>::iterator i = cSpaces.begin(); i < cSpaces.end(); i++)
         delete(*i);
-#endif
 }
 
 bool MemMgr::Initialise()
@@ -158,9 +154,15 @@ bool MemMgr::Initialise()
     // Allocate a 1 gbyte area for the stacks
     if (!osStackAlloc.Initialise((size_t)1 * 1024 * 1024 * 1024))
         return false;
+
+    // Allocate a 2G area for the code.
+    void *codeBase;
+    if (!osCodeAlloc.Initialise((size_t)2 * 1024 * 1024 * 1024, &codeBase))
+        return false;
+    globalCodeBase = (PolyWord*)codeBase;
     return true;
 #else
-    return osHeapAlloc.Initialise() && osStackAlloc.Initialise();
+    return osHeapAlloc.Initialise() && osStackAlloc.Initialise() && osCodeAlloc.Initialise();
 #endif
 }
 
@@ -315,11 +317,12 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, uintptr_t words,
 PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigned flags, unsigned index, unsigned hierarchy)
 {
     try {
-        PermanentMemSpace *space = new PermanentMemSpace(&osHeapAlloc);
+        OSMem *alloc = flags & MTF_EXECUTABLE ? &osCodeAlloc : &osHeapAlloc;
+        PermanentMemSpace *space = new PermanentMemSpace(alloc);
         unsigned int perms = PERMISSION_READ | PERMISSION_WRITE;
         if (flags & MTF_EXECUTABLE) perms |= PERMISSION_EXEC;
         size_t actualSize = byteSize;
-        PolyWord *base = (PolyWord*)osHeapAlloc.Allocate(actualSize, perms);
+        PolyWord *base = (PolyWord*)alloc->Allocate(actualSize, perms);
         if (base == 0)
         {
             delete(space);
@@ -357,8 +360,12 @@ bool MemMgr::CompletePermanentSpaceAllocation(PermanentMemSpace *space)
 {
     // Remove write access unless it is mutable.
     if (!space->isMutable)
-        osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
-            space->isCode ? PERMISSION_READ | PERMISSION_EXEC : PERMISSION_READ);
+    {
+        if (space->isCode)
+            osCodeAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                PERMISSION_READ | PERMISSION_EXEC);
+        else osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom, PERMISSION_READ);
+    }
     return true;
 }
 
@@ -393,7 +400,8 @@ void MemMgr::RemoveEmptyLocals()
 PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, bool code)
 {
     try {
-        PermanentMemSpace *space = new PermanentMemSpace(&osHeapAlloc);
+        OSMem *alloc = code ? &osCodeAlloc : &osHeapAlloc;
+        PermanentMemSpace *space = new PermanentMemSpace(alloc);
         space->spaceType = ST_EXPORT;
         space->isMutable = mut;
         space->noOverwrite = noOv;
@@ -402,7 +410,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
         // Allocate the memory itself.
         size_t iSpace = size*sizeof(PolyWord);
         space->bottom  =
-            (PolyWord*)osHeapAlloc.Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+            (PolyWord*)alloc->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
 
         if (space->bottom == 0)
         {
@@ -482,13 +490,12 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 // Remove this from the tree - AddLocalSpace will make an entry for the local version.
                 RemoveTree(pSpace);
 
-                // Enable write access.  Permanent spaces are read-only.
-                osHeapAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
-                    PERMISSION_READ | PERMISSION_WRITE | (pSpace->isCode ?  PERMISSION_EXEC : 0));
-
                 if (pSpace->isCode)
                 {
-                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize(), &osHeapAlloc);
+                    // Enable write access.  Permanent spaces are read-only.
+                    osCodeAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
+                        PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
+                    CodeSpace *space = new CodeSpace(pSpace->bottom, pSpace->spaceSize(), &osCodeAlloc);
                     if (! space->headerMap.Create(space->spaceSize()))
                     {
                         if (debugOptions & DEBUG_MEMMGR)
@@ -522,6 +529,9 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 }
                 else
                 {
+                    // Enable write access.  Permanent spaces are read-only.
+                    osHeapAlloc.SetPermissions(pSpace->bottom, (char*)pSpace->top - (char*)pSpace->bottom,
+                        PERMISSION_READ | PERMISSION_WRITE);
                     LocalMemSpace *space = new LocalMemSpace(&osHeapAlloc);
                     space->top = pSpace->top;
                     // Space is allocated in local areas from the top down.  This area is full and
@@ -736,12 +746,12 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
     // Allocate a new mutable, code space. N.B.  This may round up "actualSize".
     size_t actualSize = size * sizeof(PolyWord);
     PolyWord *mem =
-        (PolyWord*)osHeapAlloc.Allocate(actualSize,
+        (PolyWord*)osCodeAlloc.Allocate(actualSize,
             PERMISSION_READ | PERMISSION_WRITE | PERMISSION_EXEC);
     if (mem != 0)
     {
         try {
-            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord), &osHeapAlloc);
+            allocSpace = new CodeSpace(mem, actualSize / sizeof(PolyWord), &osCodeAlloc);
             if (!allocSpace->headerMap.Create(allocSpace->spaceSize()))
             {
                 delete allocSpace;
@@ -762,7 +772,7 @@ CodeSpace *MemMgr::NewCodeSpace(uintptr_t size)
         }
         if (allocSpace == 0)
         {
-            osHeapAlloc.Free(mem, actualSize);
+            osCodeAlloc.Free(mem, actualSize);
             mem = 0;
         }
     }
@@ -989,9 +999,14 @@ void MemMgr::ProtectImmutable(bool on)
         for (std::vector<LocalMemSpace*>::iterator i = lSpaces.begin(); i < lSpaces.end(); i++)
         {
             LocalMemSpace *space = *i;
-            if (! space->isMutable)
-                osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
-                    on ? PERMISSION_READ|PERMISSION_EXEC : PERMISSION_READ|PERMISSION_EXEC|PERMISSION_WRITE);
+            if (!space->isMutable)
+            {
+                if (space->isCode)
+                    osCodeAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                        on ? PERMISSION_READ | PERMISSION_EXEC : PERMISSION_READ | PERMISSION_EXEC | PERMISSION_WRITE);
+                else osHeapAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                    on ? PERMISSION_READ : PERMISSION_READ | PERMISSION_WRITE);
+            }
         }
     }
 }
@@ -1320,9 +1335,16 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
 {
     ASSERT(address >= globalHeapBase);
     uintptr_t offset = (PolyWord*)address - globalHeapBase;
-    ASSERT(offset <= 0xffffffff);
+    ASSERT(offset <= 0x7fffffff); // Currently limited to 8Gbytes
     ASSERT((offset & 1) == 0);
     return (POLYOBJECTPTR)offset;
+}
+
+PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L)
+{
+    PolyObject *obj = (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+    ASSERT(!obj->IsCodeObject());
+    return obj;
 }
 #endif
 

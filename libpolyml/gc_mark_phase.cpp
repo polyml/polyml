@@ -346,18 +346,15 @@ void MTGCProcessMarkPointers::MarkAndTestForScan(PolyWord *pt)
 // updated address of an object.
 PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 {
-    PolyWord val = obj;
-    MemSpace *sp = gMem.SpaceForAddress(val.AsStackAddr()-1);
+    MemSpace *sp = gMem.SpaceForAddress((PolyWord*)obj-1);
+
     if (!(sp->spaceType == ST_LOCAL || sp->spaceType == ST_CODE))
         return obj; // Ignore it if it points to a permanent area
 
     // We may have a forwarding pointer if this has been moved by the
     // minor GC.
     if (obj->ContainsForwardingPtr())
-    {
         obj = FollowForwarding(obj);
-        val = obj;
-    }
 
     ASSERT(obj->ContainsNormalLengthWord());
 

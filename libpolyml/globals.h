@@ -26,6 +26,8 @@
 #ifndef _GLOBALS_H
 #define _GLOBALS_H
 
+#define POLYML32IN64DEBUG 1
+
 /*
     Poly words, pointers and objects.
 
@@ -125,7 +127,7 @@ typedef PolyObject *POLYOBJPTR;
 
 #ifdef POLYML32IN64
 class PolyWord;
-extern PolyWord *globalHeapBase;
+extern PolyWord *globalHeapBase, *globalCodeBase;
 typedef uint32_t POLYOBJECTPTR; // This is an index into globalHeapBase
 
 // If a 64-bit value if in the range of the object pointers.
@@ -315,7 +317,8 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 /* case 2 - forwarding pointer */
 inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_GC_BIT; }
 #ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
+//inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
+extern PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L);
 inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
 #else
 inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
