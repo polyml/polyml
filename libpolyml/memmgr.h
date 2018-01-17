@@ -75,7 +75,6 @@ protected:
 public:
     SpaceType       spaceType;
     bool            isMutable;
-    bool            isOwnSpace; // True if this has been allocated.
     bool            isCode;
 
     PolyWord        *bottom;    // Bottom of area

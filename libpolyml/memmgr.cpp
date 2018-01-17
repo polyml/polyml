@@ -62,13 +62,11 @@ MemSpace::MemSpace(OSMem *alloc): SpaceTree(true)
     bottom = 0;
     top = 0;
     isCode = false;
-    isOwnSpace = false;
     allocator = alloc;
 }
 
 MemSpace::~MemSpace()
 {
-    ASSERT(isOwnSpace == (allocator != 0));
     if (allocator != 0 && bottom != 0)
         allocator->Free(bottom, (char*)top - (char*)bottom);
 }
@@ -91,7 +89,6 @@ LocalMemSpace::LocalMemSpace(OSMem *alloc): MarkableSpace(alloc)
 bool LocalMemSpace::InitSpace(PolyWord *heapSpace, uintptr_t size, bool mut)
 {
     isMutable = mut;
-    isOwnSpace = true; // Deallocate when we're finished.
     bottom = heapSpace;
     top = bottom + size;
     // Initialise all the fields.  The partial GC in particular relies on this.
@@ -419,7 +416,6 @@ PermanentMemSpace* MemMgr::NewExportSpace(uintptr_t size, bool mut, bool noOv, b
                 Log("MMGR: New export %smutable space: insufficient space\n", mut ? "" : "im");
             return 0;
         }
-        space->isOwnSpace = true;
 
         // The size may have been rounded up to a block boundary.
         size = iSpace/sizeof(PolyWord);
@@ -539,7 +535,6 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                     space->bottom = space->upperAllocPtr = space->lowerAllocPtr =
                         space->fullGCLowerLimit = pSpace->bottom;
                     space->isMutable = pSpace->isMutable;
-                    space->isOwnSpace = true;
                     space->isCode = false;
                     if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                     {
@@ -722,7 +717,6 @@ PolyWord *MemMgr::AllocHeapSpace(uintptr_t minWords, uintptr_t &maxWords, bool d
 
 CodeSpace::CodeSpace(PolyWord *start, uintptr_t spaceSize, OSMem *alloc): MarkableSpace(alloc)
 {
-    isOwnSpace = true;
     bottom = start;
     top = start+spaceSize;
     isMutable = true; // Make it mutable just in case.  This will cause it to be scanned.
@@ -965,7 +959,6 @@ StackSpace *MemMgr::NewStackSpace(uintptr_t size)
         space->top = space->bottom + size;
         space->spaceType = ST_STACK;
         space->isMutable = true;
-        space->isOwnSpace = true;
 
         // Add the stack space to the tree.  This ensures that operations such as
         // LocalSpaceForAddress will work for addresses within the stack.  We can
