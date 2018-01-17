@@ -409,8 +409,13 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
 // in objects that can't be handled by ScanAddressAt.
 PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
 {
-    if (base->IsCodeObject()) // Don't process code addresses
+#ifdef POLYML32IN64
+    // If this is a code address we can't turn it into a PolyWord.
+    // Check that it's a local address.
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(base - 1);
+    if (space == 0)
         return base;
+#endif
     PolyWord val = base;
     // Scan this as an address.
     (void)QuickGCScanner::ScanAddressAt(&val);
