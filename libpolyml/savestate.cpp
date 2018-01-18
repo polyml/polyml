@@ -403,7 +403,15 @@ PolyObject *SaveFixupAddress::ScanObjectAddress(PolyObject *obj)
 {
     if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a moved object
     {
+#ifdef POLYML32IN64
+        MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
+        PolyObject *newp;
+        if (space->isCode)
+            newp = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+        else newp = obj->GetForwardingPtr();
+#else
         PolyObject *newp = obj->GetForwardingPtr();
+#endif
         ASSERT (newp->ContainsNormalLengthWord());
         return newp;
     }
@@ -422,7 +430,18 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
     {
         pt++;
         PolyObject *obj = (PolyObject*)pt;
+#ifdef POLYML32IN64
+        PolyObject *dest = obj;
+        while (dest->ContainsForwardingPtr())
+        {
+            MemSpace *space = gMem.SpaceForAddress((PolyWord*)dest - 1);
+            if (space->isCode)
+                dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+            else dest = dest->GetForwardingPtr();
+        }
+#else
         PolyObject *dest = obj->FollowForwardingChain();
+#endif
         POLYUNSIGNED length = dest->Length();
         if (length != 0)
             ScanAddressesInObject(obj, dest->LengthWord());
@@ -562,7 +581,13 @@ void SaveRequest::Perform()
             PolyObject *obj = (PolyObject*)pt;
             if (obj->ContainsForwardingPtr())
             {
+#ifdef POLYML32IN64
+                PolyObject *forwardedTo = obj;
+                while (forwardedTo->ContainsForwardingPtr())
+                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+#else
                 PolyObject *forwardedTo = obj->FollowForwardingChain();
+#endif
                 POLYUNSIGNED lengthWord = forwardedTo->LengthWord();
                 obj->SetLengthWord(lengthWord);
             }

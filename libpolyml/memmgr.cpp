@@ -514,9 +514,16 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                         // copied to the exported area. Restore the original length word.
                         if (obj->ContainsForwardingPtr())
                         {
+#ifdef POLYML32IN64
+                            PolyObject *forwardedTo = obj;
+                            while (forwardedTo->ContainsForwardingPtr())
+                                forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+#else
                             PolyObject *forwardedTo = obj->FollowForwardingChain();
+#endif
                             obj->SetLengthWord(forwardedTo->LengthWord());
                         }
+                        // Set the "start" bit if this is allocated.  It will be a byte seg if not.
                         if (obj->IsCodeObject())
                             space->headerMap.SetBit(ptr-space->bottom);
                         ASSERT(!obj->IsClosureObject());
@@ -1224,7 +1231,12 @@ void MemMgr::ReportHeapSizes(const char *phase)
             PolyObject *obj = (PolyObject*)pt;
             if (obj->ContainsForwardingPtr())
             {
+#ifdef POLYML32IN64
+                while (obj->ContainsForwardingPtr())
+                    obj = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+#else
                 obj = obj->FollowForwardingChain();
+#endif
                 pt += obj->Length();
             }
             else
@@ -1292,7 +1304,13 @@ PolyObject *MemMgr::FindCodeObject(const byte *addr)
         // This will find the last non-free code cell or the first cell.
         // Return zero if the value was not actually in the cell or it wasn't code.
         PolyObject *obj = (PolyObject*)(ptr+1);
+#ifdef POLYML32IN64
+        PolyObject *lastObj = obj;
+        while (lastObj->ContainsForwardingPtr())
+            lastObj = (PolyObject*)(globalCodeBase + ((lastObj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+#else
         PolyObject *lastObj = obj->FollowForwardingChain();
+#endif
         // We normally replace forwarding pointers but when scanning to update
         // addresses after a saved state we may not have yet done that.
         if (wordAddr > ptr && wordAddr < ptr + 1 + lastObj->Length() && lastObj->IsCodeObject())
