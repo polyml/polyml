@@ -209,7 +209,7 @@ void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
 }
 
 // Extract a constant from the code.
-PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code)
+PolyObject *ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base)
 {
     switch (code)
     {
@@ -221,8 +221,9 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
             if (pt[3] & 0x80) valu = 0-1; else valu = 0;
             for (i = sizeof(PolyWord); i > 0; i--)
                 valu = (valu << 8) | pt[i-1];
-
-            return PolyWord::FromUnsigned(valu);
+            if (valu == 0 || PolyWord::FromUnsigned(valu).IsTagged())
+                return 0;
+            else return PolyWord::FromUnsigned(valu).AsObjPtr(base);
         }
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
@@ -231,27 +232,24 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
             // Get the displacement. This is signed.
             if (pt[3] & 0x80) disp = -1; else disp = 0; // Set the sign just in case.
             for(unsigned i = 4; i > 0; i--) disp = (disp << 8) | pt[i-1];
-
             byte *absAddr = pt + disp + 4; // The address is relative to AFTER the constant
-
-            return PolyWord::FromCodePtr(absAddr);
+            return (PolyObject*)absAddr;
         }
     default:
         ASSERT(false);
-        return TAGGED(0);
+        return 0;
     }
 }
 
 // Store a constant value.  Also used with a patch table when importing a saved heap which has
 // been exported using the C exporter.
-void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code)
+void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code)
 {
-
     switch (code)
     {
     case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
         {
-            POLYUNSIGNED valu = p.AsUnsigned();
+            POLYUNSIGNED valu = ((PolyWord)p).AsUnsigned();
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
                 addressOfConstant[i] = (byte)(valu & 255); 
@@ -262,7 +260,7 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             // This offset may be positive or negative
-            intptr_t newDisp = p.AsCodePtr() - addressOfConstant - 4;
+            intptr_t newDisp = (byte*)p - addressOfConstant - 4;
 #if (SIZEOF_VOIDP != 4)
             ASSERT(newDisp < (intptr_t)0x80000000 && newDisp >= -(intptr_t)0x80000000);
 #endif
@@ -279,14 +277,13 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
 // ScanObjectAddress for the base address of the object referred to.
 void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
-    PolyWord p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code);
 
-    if (! IS_INT(p))
+    if (p != 0)
     {
-        PolyWord oldValue = p;
-        ScanAddress::ScanAddressAt(&p);
-        if (p != oldValue) // Update it if it has changed.
-            SetConstantValue(addressOfConstant, p, code);
+        PolyObject *newVal = ScanObjectAddress(p);
+        if (newVal != p) // Update it if it has changed.
+            SetConstantValue(addressOfConstant, newVal, code);
     }
 }
 

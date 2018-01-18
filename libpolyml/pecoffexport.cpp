@@ -149,12 +149,12 @@ void PECOFFExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind
 {
 #ifndef POLYML32IN64
     IMAGE_RELOCATION reloc;
-    PolyWord p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code);
 
-    if (IS_INT(p) || p == PolyWord::FromUnsigned(0))
+    if (p == 0)
         return;
 
-    void *a = p.AsAddress();
+    void *a = p;
     unsigned aArea = findArea(a);
 
     // We don't need a relocation if this is relative to the current segment

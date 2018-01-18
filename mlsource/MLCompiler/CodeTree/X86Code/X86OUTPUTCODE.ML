@@ -1702,7 +1702,7 @@ struct
             )
 
         |   cgOp(CallFunction(ConstantCode _)) =
-            if hostIsX64
+            if targetArch = Native64Bit
             then
             let
                 val opc = opCodeBytes(Group5, NONE)
@@ -1730,7 +1730,7 @@ struct
             )
 
         |   cgOp(JumpToFunction (ConstantCode _)) =
-            if hostIsX64
+            if targetArch = Native64Bit
             then
             let
                 val opb = opCodeBytes (Group5, NONE)
@@ -2261,11 +2261,11 @@ struct
 
         |   getConstant(CallFunction(ConstantCode w), bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                    if hostIsX64 then ConstantArea w else InlineRelativeAddress w) :: l
+                    if targetArch = Native64Bit then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(JumpToFunction(ConstantCode w), bytes, ic, l) =
                 (ic + Word.fromInt(Word8Vector.length bytes) - 0w4,
-                    if hostIsX64 then ConstantArea w else InlineRelativeAddress w) :: l
+                    if targetArch = Native64Bit then ConstantArea w else InlineRelativeAddress w) :: l
 
         |   getConstant(LoadLabelAddress _, _, ic, l) =
                 (* We need the address of the code itself but it's in the first of a pair of instructions. *)

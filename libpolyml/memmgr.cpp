@@ -1350,13 +1350,6 @@ POLYOBJECTPTR PolyWord::AddressToObjectPtr(void *address)
     ASSERT((offset & 1) == 0);
     return (POLYOBJECTPTR)offset;
 }
-
-PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L)
-{
-    PolyObject *obj = (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
-    ASSERT(!obj->IsCodeObject());
-    return obj;
-}
 #endif
 
 MemMgr gMem; // The one and only memory manager object

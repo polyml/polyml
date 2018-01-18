@@ -334,12 +334,12 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
    that the offset is saved in original word. */
 void SaveStateExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
-    PolyWord p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code);
 
-    if (IS_INT(p) || p == PolyWord::FromUnsigned(0))
+    if (p == 0)
         return;
 
-    void *a = p.AsAddress();
+    void *a = p;
     unsigned aArea = findArea(a);
 
     // We don't need a relocation if this is relative to the current segment
@@ -1019,11 +1019,11 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 // Update addresses as constants within the code.
 void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
-    PolyWord p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code, originalBaseAddr);
 
-    if (p.IsDataPtr())
+    if (p != 0)
     {
-        PolyWord newValue = RelocateAddress(p.AsObjPtr(originalBaseAddr));
+        PolyObject *newValue = RelocateAddress(p);
         SetConstantValue(addressOfConstant, newValue, code);
     }
 }
@@ -1300,7 +1300,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
                     errorResult = "Bad relocation";
                     continue;
                 }
-                ScanAddress::SetConstantValue(setAddress, PolyWord::FromCodePtr(targetAddress), reloc.relKind);
+                ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
             }
         }
     }
@@ -1834,7 +1834,7 @@ void ModuleLoader::Perform()
                     errorResult = "Unable to read relocation segment";
                 byte *setAddress = (byte*)baseAddr + reloc.relocAddress;
                 byte *targetAddress = (byte*)relocate.targetAddresses[reloc.targetSegment] + reloc.targetAddress;
-                ScanAddress::SetConstantValue(setAddress, PolyWord::FromCodePtr(targetAddress), reloc.relKind);
+                ScanAddress::SetConstantValue(setAddress, (PolyObject*)(targetAddress), reloc.relKind);
             }
         }
     }

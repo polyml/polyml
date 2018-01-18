@@ -2,7 +2,7 @@
     Title:     Export and import memory in a portable format
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006-7, 2015-7 David C. J. Matthews
+    Copyright (c) 2006-7, 2015-8 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -240,8 +240,9 @@ void PExport::printObject(PolyObject *p)
    that the offset is saved in original word. */
 void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
-    PolyWord p = GetConstantValue(addr, code);
-    // We put in all the values including tagged constants.
+    PolyObject *p = GetConstantValue(addr, code);
+    if (p == 0) return; // Don't put in tagged constants
+
     // Put in the byte offset and the relocation type code.
     POLYUNSIGNED offset = (POLYUNSIGNED)(addr - (byte*)base);
     ASSERT (offset < base->Length() * sizeof(POLYUNSIGNED));
@@ -767,12 +768,26 @@ bool PImport::DoImport()
                         fscanf(f, "%" POLYUFMT ",%d", &offset, &code);
                         ch = getc(f);
                         ASSERT(ch == ',');
-                        PolyWord constVal = TAGGED(0);
-                        if (! GetValue(&constVal))
-                            return false;
-                        byte *toPatch = (byte*)p + offset;
-                        ScanAddress::SetConstantValue(toPatch, constVal, (ScanRelocationKind)code);
-
+                        // This should be an address.
+                        ch = getc(f);
+                        if (ch == '@')
+                        {
+                            POLYUNSIGNED obj;
+                            fscanf(f, "%" POLYUFMT, &obj);
+                            ASSERT(obj < nObjects);
+                            PolyObject *addr = objMap[obj];
+                            byte *toPatch = (byte*)p + offset;
+                            ScanAddress::SetConstantValue(toPatch, addr, (ScanRelocationKind)code);
+                        }
+                        else
+                        {
+                            // Previously we also included tagged constants but they are
+                            // already in the code.
+                            ungetc(ch, f);
+                            PolyWord w;
+                            if (!GetValue(&w))
+                                return false;
+                        }
                         do ch = getc(f); while (ch == ' ');
                     }
                 }

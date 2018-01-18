@@ -476,7 +476,13 @@ POLYUNSIGNED PolySetCodeConstant(PolyWord closure, PolyWord offset, PolyWord cWo
         case 1: // Relative constant - X86 - size 4 bytes
         {
             // The offset is relative to the END of the constant.
-            size_t c = cWord.AsCodePtr() - pointer - 4;
+            byte *target;
+            // In 32-in-64 we pass in the closure address here
+            // rather than the code address.
+            if (cWord.AsObjPtr()->IsCodeObject())
+                target = cWord.AsCodePtr();
+            else target = *(POLYCODEPTR*)(cWord.AsObjPtr());
+            size_t c = target - pointer - 4;
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
                 pointer[i] = (byte)(c & 255);

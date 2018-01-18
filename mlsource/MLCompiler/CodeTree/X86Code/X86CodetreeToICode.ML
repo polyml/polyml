@@ -621,12 +621,23 @@ struct
                         in
                             if wordEq(closureAsAddress resultClosure, addr)
                             then (tailCode, [], Recursive)
-                            else if flags addrAsAddr <> Address.F_words
+                            else if flags addrAsAddr <> Address.F_words andalso flags addrAsAddr <> Address.F_closure
                             then (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=movePolyWord}) :: tailCode,
                                       [(RegisterArgument clPReg, GenReg edx)], FullCall)
-                            else
+                            else if targetArch = ObjectId32Bit
+                            then (* We can't actually load the code address here. *)
                             let
-                            
+                                val addrLength = length addrAsAddr
+                                val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
+                                val _ = flags addrAsAddr = Address.F_closure orelse raise InternalError "BICEval address not a closure"
+                            in
+                                if addrLength = 0w2
+                                then (tailCode, [], ConstantCode addr)
+                                else (BlockSimple(LoadArgument{source=AddressConstant addr, dest=clPReg, kind=movePolyWord}) :: tailCode,
+                                      [(RegisterArgument clPReg, GenReg edx)], ConstantCode addr)
+                            end
+                            else (* Native 32 or 64-bits. *)
+                            let
                                 val addrLength = length addrAsAddr
                                 val _ = addrLength >= 0w1 orelse raise InternalError "BICEval address"
                                 val codeAddr = loadWord(addrAsAddr, 0w0)

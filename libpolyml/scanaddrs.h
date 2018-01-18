@@ -1,7 +1,7 @@
 /*
     Title:  scanaddrs.h - Scan addresses in objects
 
-    Copyright (c) 2006-8, 2012, 2015 David C.J. Matthews
+    Copyright (c) 2006-8, 2012, 2015, 2018 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -88,9 +88,13 @@ public:
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
     // Extract a constant from the code.
-    static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
+#ifdef POLYML32IN64
+    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = globalHeapBase);
+#else
+    static PolyObject *GetConstantValue(byte *addressOfConstant, ScanRelocationKind code, PolyWord *base = 0);
+#endif
     // Store a constant in the code.
-    static void SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code);
+    static void SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanRelocationKind code);
 };
 
 // Recursive scan over a data structure.

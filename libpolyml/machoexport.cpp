@@ -145,12 +145,12 @@ PolyWord MachoExport::writeRelocation(POLYUNSIGNED offset, void *relocAddr, unsi
 void MachoExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code)
 {
 #ifndef POLYML32IN64
-    PolyWord p = GetConstantValue(addr, code);
+    PolyObject *p = GetConstantValue(addr, code);
 
-    if (IS_INT(p) || p == PolyWord::FromUnsigned(0))
+    if (p == 0)
         return;
 
-    void *a = p.AsAddress();
+    void *a = p;
     unsigned aArea = findArea(a);
 
     // Set the value at the address to the offset relative to the symbol.

@@ -555,19 +555,18 @@ void MTGCProcessMarkPointers::ScanConstant(PolyObject *base, byte *addressOfCons
 
     if (lock != 0)
         lock->Lock();
-    PolyWord p = GetConstantValue(addressOfConstant, code);
+    PolyObject *p = GetConstantValue(addressOfConstant, code);
     if (lock != 0)
         lock->Unlock();
 
-    if (! IS_INT(p))
+    if (p != 0)
     {
-        PolyWord oldValue = p;
-        ScanAddress::ScanAddressAt(&p);
-        if (p != oldValue) // Update it if it has changed.
+        PolyObject *newVal = ScanObjectAddress(p);
+        if (newVal != p) // Update it if it has changed.
         {
             if (lock != 0)
                 lock->Lock();
-            SetConstantValue(addressOfConstant, p, code);
+            SetConstantValue(addressOfConstant, newVal, code);
             if (lock != 0)
                 lock->Unlock();
         }
