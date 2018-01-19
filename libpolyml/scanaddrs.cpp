@@ -273,17 +273,19 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyObject *p, ScanR
     }
 }
 
-// The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
-// ScanObjectAddress for the base address of the object referred to.
 void ScanAddress::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanRelocationKind code)
 {
     PolyObject *p = GetConstantValue(addressOfConstant, code);
 
     if (p != 0)
     {
-        PolyObject *newVal = ScanObjectAddress(p);
-        if (newVal != p) // Update it if it has changed.
-            SetConstantValue(addressOfConstant, newVal, code);
+        PolyObject *oldValue = p;
+        // If this was a relative address we must have a code address.
+        if (code == PROCESS_RELOC_I386RELATIVE)
+            ScanCodeAddressAt(&p);
+        else p = ScanObjectAddress(p);
+        if (p != oldValue) // Update it if it has changed.
+            SetConstantValue(addressOfConstant, p, code);
     }
 }
 

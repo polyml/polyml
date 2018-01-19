@@ -247,7 +247,7 @@ void PExport::ScanConstant(PolyObject *base, byte *addr, ScanRelocationKind code
     POLYUNSIGNED offset = (POLYUNSIGNED)(addr - (byte*)base);
     ASSERT (offset < base->Length() * sizeof(POLYUNSIGNED));
     fprintf(exportFile, "%" POLYUFMT ",%d,", (POLYUNSIGNED)(addr - (byte*)base), code);
-    printValue(p); // The value to plug in.
+    printAddress(p); // The value to plug in.
     fprintf(exportFile, " ");
 }
 

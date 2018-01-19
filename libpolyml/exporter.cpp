@@ -444,7 +444,10 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 
 POLYUNSIGNED CopyScan::ScanCodeAddressAt(PolyObject **pt)
 {
-    return ScanAddress(pt);
+    POLYUNSIGNED lengthWord = ScanAddress(pt);
+    if (lengthWord)
+        ScanAddressesInObject(*pt, lengthWord);
+    return 0;
 }
 
 PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
