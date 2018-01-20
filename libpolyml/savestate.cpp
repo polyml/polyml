@@ -889,6 +889,7 @@ public:
     unsigned nDescrs;
     const char *errorMessage;
     SpaceBTree *spaceTree;
+    intptr_t relativeOffset;
 };
 
 LoadRelocate::~LoadRelocate()
@@ -1023,6 +1024,11 @@ void LoadRelocate::ScanConstant(PolyObject *base, byte *addressOfConstant, ScanR
 
     if (p != 0)
     {
+        // Relative addresses are computed by adding the CURRENT address.
+        // We have to convert them into addresses in original space before we
+        // can relocate them.
+        if (code == PROCESS_RELOC_I386RELATIVE)
+            p = (PolyObject*)((PolyWord*)p + relativeOffset);
         PolyObject *newValue = RelocateAddress(p);
         SetConstantValue(addressOfConstant, newValue, code);
     }
@@ -1944,6 +1950,8 @@ PolyObject *InitHeaderFromExport(struct _exportDescription *exports)
     {
         SavedStateSegmentDescr *descr = &relocate.descrs[j];
         MemSpace *space = gMem.SpaceForIndex(descr->segmentIndex);
+        // Any relative addresses have to be corrected by adding this.
+        relocate.relativeOffset = (PolyWord*)descr->originalAddress - space->bottom;
         for (PolyWord *p = space->bottom; p < space->top; )
         {
 #ifdef POLYML32IN64
