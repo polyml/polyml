@@ -60,7 +60,7 @@ use "mlsource/MLCompiler/CodeTree/ByteCode/INTGCODE.ML";
 use "mlsource/MLCompiler/Debug.ML";
 use "mlsource/MLCompiler/CodeTree/BackendIntermediateCode.sml";
 use "mlsource/MLCompiler/CodeTree/BaseCodeTree.sml";
-use "mlsource/MLCompiler/CodeTree/ByteCode/ml_bind.interpreted.ML";
+use "mlsource/MLCompiler/CodeTree/ByteCode/ml_bind.ML";
 use "mlsource/MLCompiler/CodeTree/GCode.interpreted.ML";
 use "mlsource/MLCompiler/CodeTree/ml_bind.ML";
 use "mlsource/MLCompiler/StructVals.ML";
