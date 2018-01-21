@@ -54,7 +54,6 @@ struct
     val opcode_enterInt          = 0wx00
     and opcode_jump              = 0wx02    (* 8-bit unsigned jump forward. *)
     and opcode_jumpFalse         = 0wx03    (* Test top of stack. Take 8-bit unsigned jump if false. *)
-    and opcode_setClosure        = 0wx04
     and opcode_delHandler        = 0wx05
     and opcode_alloc_ref         = 0wx06
     and opcode_case16            = 0wx0a
@@ -67,13 +66,11 @@ struct
     and opcode_localW            = 0wx13
     and opcode_indirectW         = 0wx14
     and opcode_moveToVecW        = 0wx15
-    and opcode_setContainerW     = 0wx16
     and opcode_setStackValW      = 0wx17
     and opcode_resetW            = 0wx18
     and opcode_resetR_w          = 0wx19
     and opcode_constAddr16       = 0wx1a
     and opcode_constIntW         = 0wx1b
-    and opcode_setContainerB     = 0wx1c
     and opcode_jumpBack8         = 0wx1e   (* 8-bit unsigned jump backwards - relative to end of instr. *)
     and opcode_returnB           = 0wx1f
     and opcode_jumpBack16        = 0wx20    (* 16-bit unsigned jump backwards - relative to end of instr. *)
@@ -137,16 +134,6 @@ struct
     and opcode_tuple_4           = 0wx6b
     and opcode_lock              = 0wx6c
     and opcode_ldexc             = 0wx6d
-    and opcode_setContainer_0    = 0wx6e
-    and opcode_setContainer_1    = 0wx6f
-    and opcode_setContainer_2    = 0wx70
-    and opcode_setContainer_3    = 0wx71
-    and opcode_setContainer_4    = 0wx72
-    and opcode_indContainerB     = 0wx73
-    and opcode_indContainerW     = 0wx74
-    and opcode_indContainer0     = 0wx75
-    and opcode_indContainer1     = 0wx76
-    and opcode_indContainer2     = 0wx77
     and opcode_pushHandler       = 0wx78
     and opcode_tailbb            = 0wx7b
     and opcode_tail              = 0wx7c
@@ -292,7 +279,6 @@ struct
         val () = repUpdate(opcode_enterInt,     "enterInt");
         val () = repUpdate(opcode_jump,         "jump");
         val () = repUpdate(opcode_jumpFalse,    "jumpFalse");
-        val () = repUpdate(opcode_setClosure,   "setClosure");
         val () = repUpdate(opcode_delHandler,   "delHandler");
         val () = repUpdate(opcode_alloc_ref,    "alloc_ref");
         val () = repUpdate(opcode_case16,       "case16");
@@ -304,13 +290,11 @@ struct
         val () = repUpdate(opcode_localW,       "localW");
         val () = repUpdate(opcode_indirectW,    "indirectW");
         val () = repUpdate(opcode_moveToVecW,   "moveToVecW");
-        val () = repUpdate(opcode_setContainerW, "setContainerW");
         val () = repUpdate(opcode_setStackValW, "setStackValW");
         val () = repUpdate(opcode_resetW,        "resetW");
         val () = repUpdate(opcode_resetR_w,      "resetR_w");
         val () = repUpdate(opcode_constAddr16,   "constAddr16");
         val () = repUpdate(opcode_constIntW,     "constIntW");
-        val () = repUpdate(opcode_setContainerB, "setContainerB");
         val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
         val () = repUpdate(opcode_returnB,       "returnB");
         val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
@@ -365,16 +349,6 @@ struct
         val () = repUpdate(opcode_tuple_4,       "tuple_4");
         val () = repUpdate(opcode_lock,          "lock");
         val () = repUpdate(opcode_ldexc,         "ldexc");
-        val () = repUpdate(opcode_setContainer_0,   "setContainer_0");
-        val () = repUpdate(opcode_setContainer_1,   "setContainer_1");
-        val () = repUpdate(opcode_setContainer_2,   "setContainer_2");
-        val () = repUpdate(opcode_setContainer_3,   "setContainer_3");
-        val () = repUpdate(opcode_setContainer_4,   "setContainer_4");
-        val () = repUpdate(opcode_indContainerB,    "indContainerB");
-        val () = repUpdate(opcode_indContainerW,    "indContainerW");
-        val () = repUpdate(opcode_indContainer0,    "indContainer0");
-        val () = repUpdate(opcode_indContainer1,    "indContainer1");
-        val () = repUpdate(opcode_indContainer2,    "indContainer2");
         val () = repUpdate(opcode_setHandler,    "setHandler");
         val () = repUpdate(opcode_pushHandler,   "pushHandler");
         val () = repUpdate(opcode_tailbb,        "tailbb");
@@ -524,8 +498,6 @@ struct
         val () = sizeUpdate(opcode_localW      , 3);
         val () = sizeUpdate(opcode_indirectW   , 3);
         val () = sizeUpdate(opcode_moveToVecW  , 3);
-        val () = sizeUpdate(opcode_setContainerW  , 3);
-        val () = sizeUpdate(opcode_indContainerW  , 3);
         val () = sizeUpdate(opcode_setStackValW, 3);
         val () = sizeUpdate(opcode_resetW      , 3);
         val () = sizeUpdate(opcode_resetR_w    , 3);
@@ -538,8 +510,6 @@ struct
         val () = sizeUpdate(opcode_localB      , 2);
         val () = sizeUpdate(opcode_indirectB   , 2);
         val () = sizeUpdate(opcode_moveToVecB  , 2);
-        val () = sizeUpdate(opcode_setContainerB, 2);
-        val () = sizeUpdate(opcode_indContainerB, 2);
         val () = sizeUpdate(opcode_setStackValB, 2);
         val () = sizeUpdate(opcode_resetB      , 2);
         val () = sizeUpdate(opcode_resetRB     , 2);
@@ -1051,26 +1021,21 @@ struct
     in
         putBytes(value, addrs, seg, 0w0)
     end
-    
-    (* Only used for bootstrapping. *)
-    fun genEnterInt b = SimpleCode[0wxff, 0wx55, 0wx48, b]
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode (cvec as
                     Code{ printAssemblyCode, printStream,
-                           procName, constVec, stage1Code, ...}, maxStack, numberOfArguments, resultClosure) =
+                           procName, constVec, stage1Code, ...}, maxStack, resultClosure) =
     let
         local
             val revCode = List.rev(!stage1Code)
-            (* If we need enter-int code it must go first. *)
-            val enterInt = genEnterInt(Word8.fromInt numberOfArguments + 0wx80)
             (* Add a stack check. *)
             val stackCheck =
                 if maxStack < 256
                 then SimpleCode[opcode_stackSize8, Word8.fromInt maxStack]
                 else SimpleCode[opcode_stackSize16, Word8.fromInt maxStack, Word8.fromInt(maxStack div 256)]
         in
-            val codeList = enterInt :: stackCheck :: revCode
+            val codeList = stackCheck :: revCode
         end
         val (byteVec, endIC) = genCode(codeList, cvec)
   
@@ -1272,24 +1237,9 @@ struct
             gen1 (opcode_indirectW, opcode_indirectB, ops, 0, arg1, cvec)
         end
 
-        fun genIndirectContainer (arg1, cvec) =
-        let
-            val ops = [opcode_indContainer0, opcode_indContainer1, opcode_indContainer2]
-        in
-            gen1 (opcode_indContainerW, opcode_indContainerB, ops, 0, arg1, cvec)
-        end
-
         (* genMoveToVec is now only used for mutually recursive closures. *)
         fun genMoveToVec (arg1, cvec) =
             gen1 (opcode_moveToVecW, opcode_moveToVecB, [], 0, arg1, cvec)
-            
-        fun genSetContainer (arg1, cvec) =
-        let
-            val ops = [opcode_setContainer_0, opcode_setContainer_1, opcode_setContainer_2,
-                       opcode_setContainer_3, opcode_setContainer_4]
-        in
-            gen1 (opcode_setContainerW, opcode_setContainerB, ops, 0, arg1, cvec)
-        end
 
         fun genSetStackVal (arg1, cvec) =
             gen1 (opcode_setStackValW, opcode_setStackValB, [], 0, arg1, cvec)
@@ -1302,8 +1252,8 @@ struct
         end
     end
     
-    fun genEnterIntCatch code = addItemToList(genEnterInt 0wxff, code)
-    and genEnterIntCall(code, args) = addItemToList(genEnterInt (Word8.fromInt args), code)
+    fun genEnterIntCatch _ = ()
+    and genEnterIntCall _ = ()
 
     val opcode_notBoolean       = SimpleCode [opcode_notBoolean]
     val opcode_isTagged         = SimpleCode [opcode_isTagged]
@@ -1403,7 +1353,6 @@ struct
     val opcode_blockEqualByte   = SimpleCode [opcode_blockEqualByte]
     val opcode_blockCompareByte = SimpleCode [opcode_blockCompareByte]
     val opcode_deleteHandler    = SimpleCode [opcode_deleteHandler]
-    val opcode_setClosure       = SimpleCode [opcode_setClosure]
 
     structure Sharing =
     struct

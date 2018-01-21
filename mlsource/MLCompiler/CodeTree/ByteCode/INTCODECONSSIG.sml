@@ -122,7 +122,6 @@ sig
     val opcode_blockEqualByte: opcode
     val opcode_blockCompareByte: opcode
     val opcode_deleteHandler: opcode
-    val opcode_setClosure: opcode
 
     val codeCreate: string * Universal.universal list -> code  (* makes the initial segment. *)
 
@@ -139,9 +138,7 @@ sig
    val genReturn      : int * code -> unit
    val genLocal       : int * code -> unit
    val genIndirect    : int * code -> unit
-   val genIndirectContainer: int * code -> unit
    val genMoveToVec   : int * code -> unit
-   val genSetContainer   : int * code -> unit
    val genSetStackVal : int * code -> unit
    val genCase        : int * code -> labels list
    val genTuple       : int * code -> unit
@@ -172,7 +169,7 @@ sig
    val genTupleFromContainer : int * code -> unit
       
    (* copyCode - Finish up after compiling a function. *)
-   val copyCode : code * int * int * closureRef -> unit
+   val copyCode : code * int * closureRef -> unit
    
    (* putBranchInstruction puts in an instruction which involves
       a forward reference. *)

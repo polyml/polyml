@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development Copyright David C.J. Matthews 2015-17.
+    Further development Copyright David C.J. Matthews 2015-18.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,6 @@
 
 #define INSTR_jump8         0x02
 #define INSTR_jump8false    0x03
-#define INSTR_setclosure    0x04
 #define INSTR_alloc_ref     0x06
 #define INSTR_case16        0x0a
 #define INSTR_stack_container 0x0b
@@ -40,13 +39,11 @@
 #define INSTR_local_w       0x13
 #define INSTR_indirect_w    0x14
 #define INSTR_move_to_vec_w 0x15
-#define INSTR_set_container_w   0x16
 #define INSTR_set_stack_val_w   0x17
 #define INSTR_reset_w       0x18
 #define INSTR_reset_r_w     0x19
 #define INSTR_constAddr16   0x1a
 #define INSTR_const_int_w   0x1b
-#define INSTR_set_container_b   0x1c
 #define INSTR_jump_back8    0x1e
 #define INSTR_return_b      0x1f
 #define INSTR_jump_back16   0x20
@@ -110,16 +107,6 @@
 #define INSTR_tuple_4       0x6b
 #define INSTR_lock          0x6c
 #define INSTR_ldexc         0x6d
-#define INSTR_set_container_0   0x6e
-#define INSTR_set_container_1   0x6f
-#define INSTR_set_container_2   0x70
-#define INSTR_set_container_3   0x71
-#define INSTR_set_container_4   0x72
-#define INSTR_indContainerB     0x73
-#define INSTR_indContainerW     0x74
-#define INSTR_indContainer0     0x75
-#define INSTR_indContainer1     0x76
-#define INSTR_indContainer2     0x77
 #define INSTR_push_handler  0x78
 #define INSTR_tail_b_b      0x7b
 #define INSTR_tail          0x7c

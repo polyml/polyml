@@ -67,12 +67,6 @@ struct
     datatype tail =
         EndOfProc
     |   NotEnd
-    
-    (* For the moment this the easiest way to tell. *)
-    val is32In64 = Address.nativeWordSize <> Address.wordSize
-
-    (* For the moment this the easiest way to tell. *)
-    val is32In64 = Address.nativeWordSize <> Address.wordSize
 
     (* Code generate a function or global declaration *)
     fun codegen (pt, cvec, resultClosure, numOfArgs, localCount, parameters) =
@@ -88,7 +82,6 @@ struct
         
         (* Maximum size of the stack. *)
         val maxStack = ref 1
-
         (* Exited - set to true if we have jumped out. *)
         val exited = ref false;
 
@@ -122,7 +115,7 @@ struct
         |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *)
             (
                 pushLocalStackValue ~1; (* The closure itself. *)
-                genIndirect (locn+(if is32In64 then 2 else 1), cvec) (* The value in the closure. +1 because first item is code addr. *)
+                genIndirect (locn+1, cvec) (* The value in the closure. +1 because first item is code addr. *)
             )
 
         |   locaddr BICLoadRecursive =
@@ -180,7 +173,7 @@ struct
                 (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
 
         |   BICLoadContainer {base, offset} =>
-                (gencde (base, ToStack, NotEnd, loopAddr); genIndirectContainer (offset, cvec))
+                (gencde (base, ToStack, NotEnd, loopAddr); genIndirect (offset, cvec))
        
         |   BICLambda lam => genProc (lam, false, fn () => ())
            
@@ -427,7 +420,7 @@ struct
                                 gencde (v, ToStack, NotEnd, loopAddr);
                                 (* Move the entry into the container. This instruction
                                    pops the value to be moved but not the destination. *)
-                                genSetContainer(destOffset, cvec);
+                                genMoveToVec(destOffset, cvec);
                                 decsp();
                                 setValues(tl, sourceOffset+1, destOffset+1)
                             )
@@ -451,7 +444,7 @@ struct
                                 (* Duplicate the tuple address . *)
                                 genLocal(1, cvec);
                                 genIndirect(sourceOffset, cvec);
-                                genSetContainer(destOffset, cvec);
+                                genMoveToVec(destOffset, cvec);
                                 if sourceOffset = last
                                 then ()
                                 else copy (sourceOffset+1, destOffset+1)
@@ -654,6 +647,7 @@ struct
 
         |   BICLoadOperation { kind=LoadStoreC64, address} =>
             (
+                wordSize = 0w8 orelse raise InternalError "LoadStoreC64 but not 64-bit mode";
                 genNonByteAddress address;
                 genOpcode(opcode_loadC64, cvec);
                 decsp(); decsp()
@@ -893,25 +887,21 @@ struct
             val newCode = codeCreate (name, parameters)
             (* Code-gen function. *)
             val () = codegen (body, newCode, resClosure, List.length argTypes, localCount, parameters)
-            val numClosureItems = List.length closure
+            val sizeOfClosure = List.length closure + 1;
         in
-            if mutualDecs orelse is32In64
+            if mutualDecs
             then
             let (* Have to make the closure now and fill it in later. *)
                 (* This previously used genGetStore which at one time was widely used. *)
-                val () = pushConst(toMachineWord (numClosureItems + (if is32In64 then 2 else 1)), cvec) (* Length *)
-                val flags = if is32In64 then Word8.orb(F_mutable, F_closure) else F_mutable
-                val () = pushConst(toMachineWord flags, cvec) (* Flags *)
+                val () = pushConst(toMachineWord sizeOfClosure, cvec) (* Length *)
+                val () = pushConst(toMachineWord F_mutable, cvec) (* Flags *)
                 val () = pushConst(toMachineWord 0, cvec) (* Initialise to zero. *)
                 val () = genOpcode(opcode_allocWordMemory, cvec) (* Allocate the memory. *)
                 val () = incsp ()
            
-                (* Put code address into closure.  If this is 32in64 we need to pass
-                   the closure itself here otherwise we can extract the code. *)
-                val codeOrClosure =
-                    if is32In64 then closureAsAddress resClosure else codeAddressFromClosure resClosure
-                val () = pushConst(codeOrClosure, cvec) 
-                val () = genOpcode(opcode_setClosure, cvec)
+                (* Put code address into closure *) 
+                val () = pushConst(codeAddressFromClosure resClosure, cvec) 
+                val () = genMoveToVec(0, cvec)
            
                 val entryAddr : int = !realstackptr
 
@@ -933,7 +923,7 @@ struct
                     loadItems (vs, addr + 1)
                 end
              
-                val () = loadItems (closure, if is32In64 then 2 else 1)
+                val () = loadItems (closure, 1)
                 val () = genLock cvec (* Lock it. *)
            
                 (* Remove the extra reference. *)
@@ -948,9 +938,9 @@ struct
                 val () = pushConst (codeAddressFromClosure resClosure, cvec)
                 val () = incsp ()
                 val () = List.app (fn pt => gencde (BICExtract pt, ToStack, NotEnd, NONE)) closure
-                val () = genTuple (numClosureItems + 1, cvec)
+                val () = genTuple (sizeOfClosure, cvec)
             in
-                realstackptr := !realstackptr - numClosureItems
+                realstackptr := !realstackptr - (sizeOfClosure - 1)
             end
         end
 
@@ -1071,7 +1061,7 @@ struct
     in (* body of codegen *)
        (* Having code-generated the body of the function, it is copied
           into a new data segment. *)
-        copyCode(cvec, !maxStack, numOfArgs, resultClosure)
+        copyCode(cvec, !maxStack, resultClosure)
     end (* codegen *);
 
     fun gencodeLambda({ name, body, argTypes, localCount, ...}:bicLambdaForm, parameters, closure) =
@@ -1103,7 +1093,7 @@ struct
             val () = genReturn (numOfArgs, cvec)
             val closure = makeConstantClosure()
         
-            val () = copyCode(cvec, numOfArgs+1, numOfArgs, closure)
+            val () = copyCode(cvec, numOfArgs+1, closure)
         in
             closureAsAddress closure
         end
