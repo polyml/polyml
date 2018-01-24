@@ -356,7 +356,8 @@ PermanentMemSpace *MemMgr::AllocateNewPermanentSpace(uintptr_t byteSize, unsigne
 bool MemMgr::CompletePermanentSpaceAllocation(PermanentMemSpace *space)
 {
     // Remove write access unless it is mutable.
-    if (!space->isMutable)
+    // Don't remove write access unless this is top-level. Share-data assumes only hierarchy 0 is write-protected.
+    if (!space->isMutable && space->hierarchy == 0)
     {
         if (space->isCode)
             osCodeAlloc.SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
