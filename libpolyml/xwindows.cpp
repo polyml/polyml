@@ -4722,7 +4722,7 @@ static void process_may_block(TaskData *taskData, int fd)
           selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);
           if (selRes > 0) return; /* Something waiting. */
           else if (selRes < 0 && errno != EINTR) // Maybe another thread closed descr
-              raise_syscall(taskData, "select failed %d\n", errno);
+              raise_syscall(taskData, "select failed", errno);
           WaitInputFD waiter(fd);
           processes->ThreadPauseForIO(taskData, &waiter);
       }

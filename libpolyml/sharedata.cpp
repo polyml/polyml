@@ -1016,7 +1016,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
             DepthVector *v = depthVectorArray[j].vector[0];
             // Log this because it could be very large.
             if (debugOptions & DEBUG_SHARING)
-                Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT "\n", 0, j, v->ItemCount());
+                Log("Sharing: Level %4" POLYUFMT ", size %3u, Objects %6" POLYUFMT "\n", 0ul, j, v->ItemCount());
             v->FixLengthAndAddresses(&fixup);
         }
     }
