@@ -96,7 +96,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
     CheckAddress(pt);
     MemSpace *space = gMem.SpaceForAddress(pt-1);
     if (space == 0)
-        Crash ("Bad pointer 0x%08x found", pt);
+        Crash ("Bad pointer 0x%08" PRIxPTR " found", (uintptr_t)pt);
 
     ASSERT (OBJ_IS_LENGTH(L));
 
