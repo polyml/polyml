@@ -97,6 +97,7 @@
 #endif
 
 #include <new>
+#include <vector>
 
 /************************************************************************
  *
@@ -280,13 +281,12 @@ public:
     // fork, though, there is only one thread.
     bool singleThreaded;
 
-    // Each thread has an entry in this array.
-    TaskData **taskArray;
-    unsigned taskArraySize; // Current size of the array.
+    // Each thread has an entry in this vector.
+    std::vector<TaskData*> taskArray;
 
     /* schedLock: This lock must be held when making scheduling decisions.
        It must also be held before adding items to taskArray, removing
-       them or scanning the array.
+       them or scanning the vector.
        It must also be held before deleting a TaskData object
        or using it in a thread other than the "owner"  */
     PLock schedLock;
@@ -329,7 +329,7 @@ public:
 static Processes processesModule;
 ProcessExternal *processes = &processesModule;
 
-Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0),
+Processes::Processes(): singleThreaded(false),
     schedLock("Scheduler"), interrupt_exn(0),
     threadRequest(0), exitResult(0), exitRequest(false), sigTask(0)
 {
@@ -483,9 +483,9 @@ void Processes::MutexUnlock(TaskData *taskData, Handle hMutex)
     // waited on its threadLock (and so will be woken up).
     schedLock.Lock();
     // Unlock any waiters.
-    for (unsigned i = 0; i < taskArraySize; i++)
+    for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
     {
-        TaskData *p = taskArray[i];
+        TaskData *p = *i;
         // If the thread is blocked on this mutex we can signal the thread.
         if (p && p->blockMutex == DEREFHANDLE(hMutex))
             p->threadLock.Signal();
@@ -554,9 +554,9 @@ void Processes::WaitInfinite(TaskData *taskData, Handle hMutex)
         taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
-        for (unsigned i = 0; i < taskArraySize; i++)
+        for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
         {
-            TaskData *p = taskArray[i];
+            TaskData *p = *i;
             // If the thread is blocked on this mutex we can signal the thread.
             if (p && p->blockMutex == DEREFHANDLE(hMutex))
                 p->threadLock.Signal();
@@ -605,9 +605,9 @@ void Processes::WaitUntilTime(TaskData *taskData, Handle hMutex, Handle hWakeTim
         taskData->AtomicReset(hMutex);
         // The mutex was locked so we have to release any waiters.
         // Unlock any waiters.
-        for (unsigned i = 0; i < taskArraySize; i++)
+        for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
         {
-            TaskData *p = taskArray[i];
+            TaskData *p = *i;
             // If the thread is blocked on this mutex we can signal the thread.
             if (p && p->blockMutex == DEREFHANDLE(hMutex))
                 p->threadLock.Signal();
@@ -841,7 +841,7 @@ TaskData *Processes::TaskForIdentifier(PolyObject *taskId)
     // The index is in the first word of the thread object.
     unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->Get(0)));
     // Check the index is valid and matches the object stored in the table.
-    if (index < taskArraySize)
+    if (index < taskArray.size())
     {
         TaskData *p = taskArray[index];
         if (p && p->threadObject == taskId)
@@ -863,9 +863,9 @@ void Processes::BroadcastInterrupt(void)
     // If a thread is set to accept broadcast interrupts set it to
     // "interrupted".
     schedLock.Lock();
-    for (unsigned i = 0; i < taskArraySize; i++)
+    for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
     {
-        TaskData *p = taskArray[i];
+        TaskData *p = *i;
         if (p)
         {
             POLYUNSIGNED attrs = ThreadAttrs(p);
@@ -1277,27 +1277,22 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         PLocker lock(&schedLock);
         // See if there's a spare entry in the array.
         for (thrdIndex = 0;
-                thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
+                thrdIndex < taskArray.size() && taskArray[thrdIndex] != 0;
                 thrdIndex++);
 
-        if (thrdIndex == taskArraySize) // Need to expand the array
+        if (thrdIndex == taskArray.size()) // Need to expand the array
         {
-            TaskData **newArray =
-                (TaskData **)realloc(taskArray, sizeof(TaskData *)*(taskArraySize+1));
-            if (newArray)
-            {
-                taskArray = newArray;
-                taskArraySize++;
-            }
-            else
-            {
+            try {
+                taskArray.push_back(taskData);
+            } catch (std::bad_alloc&) {
                 delete(taskData);
-                schedLock.Unlock();
                 throw MemoryException();
             }
         }
-        // Add into the new entry
-        taskArray[thrdIndex] = taskData;
+        else
+        {
+            taskArray[thrdIndex] = taskData;
+        }
     }
 
     taskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
@@ -1414,11 +1409,12 @@ static void NewThreadFunction(void *parameter)
 void Processes::BeginRootThread(PolyObject *rootFunction)
 {
     int exitLoopCount = 100; // Maximum 100 * 400 ms.
-    if (taskArraySize < 1)
-    {
-        taskArray = (TaskData **)realloc(taskArray, sizeof(TaskData *));
-        if (taskArray == 0) ::Exit("Unable to create the initial thread - insufficient memory");
-        taskArraySize = 1;
+    if (taskArray.size() < 1) {
+        try {
+            taskArray.push_back(0);
+        } catch (std::bad_alloc&) {
+            ::Exit("Unable to create the initial thread - insufficient memory");
+        }
     }
 
     try {
@@ -1491,9 +1487,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         bool allStopped = true;
         bool noUserThreads = true;
         bool signalThreadRunning = false;
-        for (unsigned i = 0; i < taskArraySize; i++)
+        for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
         {
-            TaskData *p = taskArray[i];
+            TaskData *p = *i;
             if (p)
             {
                 if (p == sigTask) signalThreadRunning = true;
@@ -1514,7 +1510,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                     WaitForSingleObject(p->threadHandle, INFINITE);
 #endif
                     delete(p);
-                    taskArray[i] = 0;
+                    *i = 0;
                     globalStats.decCount(PSC_THREADS);
                 }
             }
@@ -1544,9 +1540,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (exitRequest)
         {
             // Set this to kill the threads.
-            for (unsigned i = 0; i < taskArraySize; i++)
+            for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
             {
-                TaskData *taskData = taskArray[i];
+                TaskData *taskData = *i;
                 if (taskData && taskData->requests != kRequestKill)
                     MakeRequest(taskData, kRequestKill);
             }
@@ -1587,9 +1583,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // expensive.
         uintptr_t freeSpace = 0;
         unsigned threadsInML = 0;
-        for (unsigned j = 0; j < taskArraySize; j++)
+        for (std::vector<TaskData*>::iterator j = taskArray.begin(); j != taskArray.end(); j++)
         {
-            TaskData *taskData = taskArray[j];
+            TaskData *taskData = *j;
             if (taskData)
             {
                 // This gets the values last time it was in the RTS.
@@ -1644,27 +1640,23 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         // See if there's a spare entry in the array.
         for (thrdIndex = 0;
-             thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
+             thrdIndex < taskArray.size() && taskArray[thrdIndex] != 0;
              thrdIndex++);
 
-        if (thrdIndex == taskArraySize) // Need to expand the array
+        if (thrdIndex == taskArray.size()) // Need to expand the array
         {
-            TaskData **newArray =
-                (TaskData **)realloc(taskArray, sizeof(TaskData *)*(taskArraySize+1));
-            if (newArray)
-            {
-                taskArray = newArray;
-                taskArraySize++;
-            }
-            else
-            {
+            try {
+                taskArray.push_back(newTaskData);
+            } catch (std::bad_alloc&) {
                 delete(newTaskData);
                 schedLock.Unlock();
                 raise_exception_string(taskData, EXC_thread, "Too many threads");
             }
         }
-        // Add into the new entry
-        taskArray[thrdIndex] = newTaskData;
+        else
+        {
+            taskArray[thrdIndex] = newTaskData;
+        }
         newTaskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
         schedLock.Unlock();
 
@@ -1937,9 +1929,9 @@ void Processes::ProfileInterrupt(void)
         // that is held during garbage collection.
         if (schedLock.Trylock())
         {
-            for (unsigned i = 0; i < taskArraySize; i++)
+            for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
             {
-                TaskData *p = taskArray[i];
+                TaskData *p = *i;
                 if (p && p->threadHandle)
                 {
                     if (testCPUtime(p->threadHandle, p->lastCPUTime))
@@ -1993,9 +1985,9 @@ void Processes::StartProfiling(void)
     // We request each to enter the RTS so that it will start the timer.
     // Since this is being run by the main thread while all the ML threads
     // are paused this may not actually be necessary.
-    for (unsigned i = 0; i < taskArraySize; i++)
+    for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
     {
-        TaskData *taskData = taskArray[i];
+        TaskData *taskData = *i;
         if (taskData)
         {
             taskData->InterruptCode();
@@ -2157,10 +2149,10 @@ void Processes::GarbageCollect(ScanAddress *process)
         process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
         interrupt_exn = (PolyException*)p;
     }
-    for (unsigned i = 0; i < taskArraySize; i++)
+    for (std::vector<TaskData*>::iterator i = taskArray.begin(); i != taskArray.end(); i++)
     {
-        if (taskArray[i])
-            taskArray[i]->GarbageCollect(process);
+        if (*i)
+            (*i)->GarbageCollect(process);
     }
 }
 

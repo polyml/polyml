@@ -71,6 +71,10 @@
 #    define __STDC_FORMAT_MACROS
 #  endif
 #  include <inttypes.h>
+
+#elif (defined(_MSC_VER) && (_MSC_VER >= 1900))
+// In VS 2015 and later we need to use <cinttypes>
+#  include <cinttypes>  
 #endif
 
 #ifdef HAVE_STDDEF_H
