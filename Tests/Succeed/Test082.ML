@@ -16,6 +16,7 @@ raise Fail "wrong"
 
 end
 ) handle OS.SysErr(_, err) =>
-    if err = OS.syserror "ECONNREFUSED" orelse err = OS.syserror "WSAECONNREFUSED" then () else raise Fail "bad error";
+    if err = OS.syserror "ECONNREFUSED" orelse err = OS.syserror "WSAECONNREFUSED" orelse err = OS.syserror "ETIMEDOUT"
+    then () else raise Fail "bad error";
 
 (* We could also get ECONNABORTED here perhaps. *)
