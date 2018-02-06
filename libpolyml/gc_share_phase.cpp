@@ -95,6 +95,8 @@
 #include "gctaskfarm.h"
 #include "heapsizing.h"
 
+#ifndef POLYML32IN64
+
 #ifdef POLYML32IN64
 #define ENDOFLIST ((PolyObject*)globalHeapBase)
 #else
@@ -675,3 +677,8 @@ void GCSharingPhase(void)
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Sort");
 }
+#else
+void GCSharingPhase(void)
+{
+}
+#endif

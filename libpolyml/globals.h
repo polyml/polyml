@@ -2,7 +2,7 @@
     Title:  Globals for the system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright David C. J. Matthews 2017
+    Copyright David C. J. Matthews 2017-18
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
@@ -228,31 +228,7 @@ inline POLYUNSIGNED UNTAGGED_UNSIGNED(PolyWord a)   { return a.UnTaggedUnsigned(
 
 #define IS_INT(x) ((x).IsTagged())
 
-/************************************************************************
- *
- * Low level definitions.
- *
- ************************************************************************/
-
-
 /* length word flags */
-
-/*
-The following encodings are used:
-
-(1) OBJ_PRIVATE_GC_BIT = 0
-       A normal length word i.e. 7 more flags + 24 bit length.
-       
-(2) OBJ_PRIVATE_GC_BIT = 1, OBJ_PRIVATE_MUTABLE_BIT = 0
-       A "normal" tombstone. Remaining 30 bits are (word-aligned) pointer >> 2.
-
-(3) OBJ_PRIVATE_GC_BIT = 1, OBJ_PRIVATE_MUTABLE_BIT = 1
-       A "depth" tombstone; used by share program. Remaining 30 bits are
-       an unsigned integer representing the (approximate) depth of the object
-       in the data-structure. 
-
-SPF 24/1/95
-*/
 #define OBJ_PRIVATE_FLAGS_SHIFT     (8 * (sizeof(PolyWord) - 1))
 
 #define _TOP_BYTE(x)                ((POLYUNSIGNED)(x) << OBJ_PRIVATE_FLAGS_SHIFT)
@@ -271,28 +247,29 @@ SPF 24/1/95
 #define F_NEGATIVE_BIT              0x10  // Sign bit for arbitrary precision ints (byte segs only)
 #define F_PROFILE_BIT               0x10  // Object has a profile pointer (word segs only)
 #define F_WEAK_BIT                  0x20  /* object contains weak references to option values. */
+// The Weak bit is only used on mutables.  The data sharing (sharedata.cpp) uses this with
+// immutables to indicate that the length field is being used to store the "depth".
 #define F_MUTABLE_BIT               0x40  /* object is mutable */
-#define F_PRIVATE_GC_BIT            0x80  /* object is (pointer or depth) tombstone */
+#define F_TOMBSTONE_BIT             0x80  // Object is a forwarding pointer
 #define F_PRIVATE_FLAGS_MASK        0xFF
 
-#define _OBJ_BYTE_OBJ                _TOP_BYTE(0x01)  /* byte object (contains no pointers) */
-#define _OBJ_CODE_OBJ                _TOP_BYTE(0x02)  /* code object (mixed bytes and words) */
-#define _OBJ_CLOSURE_OBJ             _TOP_BYTE(0x03)  // closure (32-in-64 only).  First word is code addr.
-#define _OBJ_GC_MARK                 _TOP_BYTE(0x04)  // Mark bit
-#define _OBJ_NO_OVERWRITE            _TOP_BYTE(0x08)  /* don't overwrite when loading - mutables only. */
-#define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
-#define _OBJ_PROFILE_BIT             _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
-#define _OBJ_WEAK_BIT                _TOP_BYTE(0x20)
-#define _OBJ_MUTABLE_BIT             _TOP_BYTE(0x40)  /* object is mutable */
-#define _OBJ_PRIVATE_GC_BIT          _TOP_BYTE(0x80)  /* object is (pointer or depth) tombstone */
-#define _OBJ_PRIVATE_FLAGS_MASK      _TOP_BYTE(0xFF)
+// Shifted bits
+#define _OBJ_BYTE_OBJ                _TOP_BYTE(F_BYTE_OBJ)  /* byte object (contains no pointers) */
+#define _OBJ_CODE_OBJ                _TOP_BYTE(F_CODE_OBJ)  /* code object (mixed bytes and words) */
+#define _OBJ_CLOSURE_OBJ             _TOP_BYTE(F_CLOSURE_OBJ)  // closure (32-in-64 only).  First word is code addr.
+#define _OBJ_GC_MARK                 _TOP_BYTE(F_GC_MARK)  // Mark bit
+#define _OBJ_NO_OVERWRITE            _TOP_BYTE(F_NO_OVERWRITE)  /* don't overwrite when loading - mutables only. */
+#define _OBJ_NEGATIVE_BIT            _TOP_BYTE(F_NEGATIVE_BIT)  /* sign bit for arbitrary precision ints */
+#define _OBJ_PROFILE_BIT             _TOP_BYTE(F_PROFILE_BIT)  /* sign bit for arbitrary precision ints */
+#define _OBJ_WEAK_BIT                _TOP_BYTE(F_WEAK_BIT)
+#define _OBJ_MUTABLE_BIT             _TOP_BYTE(F_MUTABLE_BIT)  /* object is mutable */
+#define _OBJ_TOMBSTONE_BIT           _TOP_BYTE(F_TOMBSTONE_BIT)  // object is a tombstone.
+#define _OBJ_PRIVATE_FLAGS_MASK      _TOP_BYTE(F_PRIVATE_FLAGS_MASK)
 #define _OBJ_PRIVATE_LENGTH_MASK     ((-1) ^ _OBJ_PRIVATE_FLAGS_MASK)
 #define MAX_OBJECT_SIZE              _OBJ_PRIVATE_LENGTH_MASK
 
-#define _OBJ_PRIVATE_DEPTH_MASK      (_OBJ_PRIVATE_GC_BIT|_OBJ_MUTABLE_BIT)
-
-/* case 1 - proper length words */
-inline bool OBJ_IS_LENGTH(POLYUNSIGNED L)               { return ((L & _OBJ_PRIVATE_GC_BIT) == 0); }
+// 
+inline bool OBJ_IS_LENGTH(POLYUNSIGNED L)               { return ((L & _OBJ_TOMBSTONE_BIT) == 0); }
 
 /* these should only be applied to proper length words */
 /* discards GC flag, mutable bit and weak bit. */
@@ -317,27 +294,13 @@ inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK
 #define OBJ_IS_WORD_OBJECT(L)           (GetTypeBits(L) == 0)
 
 /* case 2 - forwarding pointer */
-inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_GC_BIT; }
+inline bool OBJ_IS_POINTER(POLYUNSIGNED L)  { return (L & _OBJ_TOMBSTONE_BIT) != 0; }
 #ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_GC_BIT; }
+inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_TOMBSTONE_BIT) << 1)); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_TOMBSTONE_BIT; }
 #else
-inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
-inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_GC_BIT; }
-#endif
-
-/* case 3 - depth */
-inline bool OBJ_IS_DEPTH(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
-inline POLYUNSIGNED OBJ_GET_DEPTH(POLYUNSIGNED L) { return L & ~_OBJ_PRIVATE_DEPTH_MASK; }
-inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_PRIVATE_DEPTH_MASK; }
-// or sharing chain
-inline bool OBJ_IS_CHAINED(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
-#ifdef POLYML32IN64
-inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(globalHeapBase + ((L & ~_OBJ_PRIVATE_DEPTH_MASK) << 1)); }
-inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return PolyWord::AddressToObjectPtr(pt) >> 1 | _OBJ_PRIVATE_DEPTH_MASK; }
-#else
-inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
-inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_DEPTH_MASK; }
+inline PolyObject *OBJ_GET_POINTER(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_TOMBSTONE_BIT) <<2); }
+inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_TOMBSTONE_BIT; }
 #endif
 
 // An object i.e. a piece of allocated memory in the heap.  In the simplest case this is a
@@ -371,10 +334,6 @@ public:
     bool ContainsForwardingPtr(void) const { return OBJ_IS_POINTER(LengthWord()); }
     PolyObject *GetForwardingPtr(void) const { return OBJ_GET_POINTER(LengthWord()); }
     void SetForwardingPtr(PolyObject *newp) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_POINTER(newp)); }
-
-    bool ContainsShareChain(void) const { return OBJ_IS_CHAINED(LengthWord()); }
-    PolyObject *GetShareChain(void) const { return OBJ_GET_CHAIN(LengthWord()); }
-    void SetShareChain(PolyObject *newp) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_CHAIN(newp)); }
 
     bool ContainsNormalLengthWord(void) const { return OBJ_IS_LENGTH(LengthWord()); }
 

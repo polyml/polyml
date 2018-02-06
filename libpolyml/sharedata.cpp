@@ -121,6 +121,13 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyShareCommonData(PolyObject *threadId, PolyWord root);
 }
 
+// The depth is stored in the length field.  If the Weak bit is set but the Mutable bit
+// is clear the value in the length word is a depth rather than a real length.
+
+inline bool OBJ_IS_DEPTH(POLYUNSIGNED L) { return (L & (_OBJ_WEAK_BIT| _OBJ_MUTABLE_BIT)) == _OBJ_WEAK_BIT; }
+inline POLYUNSIGNED OBJ_GET_DEPTH(POLYUNSIGNED L) { return OBJ_OBJECT_LENGTH(L); }
+inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_WEAK_BIT; }
+
 // The DepthVector type contains all the items of a particular depth.
 // This is the abstract class.  There are variants for the case where all
 // the cells have the same size and where they may vary.

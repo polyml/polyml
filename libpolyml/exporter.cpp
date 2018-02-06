@@ -269,7 +269,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
         PolyObject *newAddr;
         if (space->isCode)
-            newAddr = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+            newAddr = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
         else newAddr = obj->GetForwardingPtr();
 #else
         PolyObject *newAddr = obj->GetForwardingPtr();
@@ -292,7 +292,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                     PolyObject *newAddr;
                     if (space->isCode)
-                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                        newAddr = (PolyObject*)(globalCodeBase + ((tombObject->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
                     else newAddr = tombObject->GetForwardingPtr();
 #else
                     PolyObject *newAddr = tombObject->GetForwardingPtr();
@@ -405,7 +405,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
 #ifdef POLYML32IN64
                 if (isCodeObj)
                 {
-                    POLYUNSIGNED ll = ((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_PRIVATE_GC_BIT;
+                    POLYUNSIGNED ll = ((PolyWord*)newObj - globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT;
                     tombObject->SetLengthWord(ll);
                 }
                 else tombObject->SetForwardingPtr(newObj);
@@ -422,7 +422,7 @@ POLYUNSIGNED CopyScan::ScanAddress(PolyObject **pt)
     // Instead we have to compute the offset relative to the base of the code.
     else if (isCodeObj)
     {
-        POLYUNSIGNED ll = ((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_PRIVATE_GC_BIT;
+        POLYUNSIGNED ll = ((PolyWord*)newObj-globalCodeBase) >> 1 | _OBJ_TOMBSTONE_BIT;
         obj->SetLengthWord(ll);
     }
 #endif
@@ -480,7 +480,7 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
         {
             MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
             if (space->isCode)
-                forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                forwardedTo = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
             else forwardedTo = obj->GetForwardingPtr();
         }
 #else

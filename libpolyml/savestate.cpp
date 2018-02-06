@@ -407,7 +407,7 @@ PolyObject *SaveFixupAddress::ScanObjectAddress(PolyObject *obj)
         MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj - 1);
         PolyObject *newp;
         if (space->isCode)
-            newp = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+            newp = (PolyObject*)(globalCodeBase + ((obj->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
         else newp = obj->GetForwardingPtr();
 #else
         PolyObject *newp = obj->GetForwardingPtr();
@@ -436,7 +436,7 @@ void SaveFixupAddress::ScanCodeSpace(CodeSpace *space)
         {
             MemSpace *space = gMem.SpaceForAddress((PolyWord*)dest - 1);
             if (space->isCode)
-                dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                dest = (PolyObject*)(globalCodeBase + ((dest->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
             else dest = dest->GetForwardingPtr();
         }
 #else
@@ -584,7 +584,7 @@ void SaveRequest::Perform()
 #ifdef POLYML32IN64
                 PolyObject *forwardedTo = obj;
                 while (forwardedTo->ContainsForwardingPtr())
-                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_PRIVATE_DEPTH_MASK) << 1));
+                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
 #else
                 PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
