@@ -142,7 +142,7 @@ bool MemMgr::Initialise()
 #ifdef POLYML32IN64
     // Allocate a single 16G area but with no access.
     void *heapBase;
-    if (!osHeapAlloc.Initialise((size_t)8 * 1024 * 1024 * 1024, &heapBase))
+    if (!osHeapAlloc.Initialise((size_t)16 * 1024 * 1024 * 1024, &heapBase))
         return false;
     globalHeapBase = (PolyWord*)heapBase;
 
