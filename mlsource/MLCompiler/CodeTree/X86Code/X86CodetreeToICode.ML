@@ -672,9 +672,11 @@ struct
                    if the memory actually refers to a container on the stack.  That would mess
                    up the code that ensures that stack arguments are stored in the right order. *)
                 (* We don't allow long constants in stack arguments to a tail-recursive call
-                   because we may use a memory move to set them. *)
+                   because we may use a memory move to set them.  We also don't allow them in
+                   32-in-64 because we can't push an address constant. *)
                 val allowInStackArg =
-                    Allowed {anyConstant=not isTail, const32s=true, memAddr=false, existingPreg=not isTail }
+                    Allowed {anyConstant=not isTail andalso targetArch <> ObjectId32Bit,
+                               const32s=true, memAddr=false, existingPreg=not isTail }
                 and allowInRegArg =
                     Allowed {anyConstant=true, const32s=true, memAddr=false, existingPreg=not isTail }
 

@@ -562,16 +562,19 @@ struct
                             val () = Array.update(pregMap, dReg, ToStack(! stackCount, container))
                             val () = pushItemToStack(NewEntry{pregNo=dReg})
                         in
-                            case (sourceVal, targetArch) of
-                                (MemoryLocation _, ObjectId32Bit) =>
-                                let
-                                    (* Push will always push a 64-bit value.  We have to put it in a register first. *)
-                                    val newReg = newPReg RegPropUntagged
-                                in
-                                    PushValue{arg=RegisterArgument newReg, container=container} ::
-                                        LoadArgument{source=sourceVal, dest=newReg, kind=movePolyWord} :: sourceCode @ code
-                                end
-                           |    _ => PushValue{arg=sourceVal, container=container} :: sourceCode @ code
+                            if targetArch = ObjectId32Bit andalso
+                                (case sourceVal of MemoryLocation _ => true | AddressConstant _ => true | _ => false)
+                            then
+                            let
+                                (* Push will always push a 64-bit value.  We have to put it in a register first.
+                                   For MemoryLocations that's because it would push 8 bytes; for AddressConstants
+                                   that's because we don't have a way of pushing an unsigned 32-bit constant. *)
+                                val newReg = newPReg RegPropUntagged
+                            in
+                                PushValue{arg=RegisterArgument newReg, container=container} ::
+                                    LoadArgument{source=sourceVal, dest=newReg, kind=movePolyWord} :: sourceCode @ code
+                            end
+                            else PushValue{arg=sourceVal, container=container} :: sourceCode @ code
                         end
                         else (* We're not going to push this. *)
                         let
