@@ -1617,17 +1617,21 @@ struct
                 end
 
         |   cgOp(PushToStack(AddressConstArg _)) = 
-                if targetArch = Native64Bit
-                then (* Put it in the constant area. *)
-		        let
-                    (* N.B.  We can't currently use this in 32-in-64 because it will always
-                       push an 8-byte quantity and the constants are currently 32-bits. *)
-                    val opb = opCodeBytes(Group5, NONE)
-                    val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
-                in
-                    opb @ [mdrm] @ int32Signed(tag 0)
-                end
-                else (* 32-bit. *) opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
+            (
+                case targetArch of
+                    Native64Bit => (* Put it in the constant area. *)
+    		        let
+                        val opb = opCodeBytes(Group5, NONE)
+                        val mdrm = modrm(Based0, 0w6 (* push *), 0w5 (* PC rel *));
+                    in
+                        opb @ [mdrm] @ int32Signed(tag 0)
+                    end
+                |   Native32Bit => opCodeBytes(PUSH_32, NONE) @ int32Signed(tag 0)
+                |   ObjectId32Bit =>
+                    (* We can't do this.  The constant area contains 32-bit quantities
+                       and 32-bit literals are sign-extended rather than zero-extended. *)
+                        raise InternalError "PushToStack:AddressConstArg"
+           )
 
         |   cgOp(PopR reg ) =
                 let
