@@ -1,12 +1,11 @@
 /*
     Title:  osomem.cpp - Interface to OS memory management
 
-    Copyright (c) 2006, 2017 David C.J. Matthews
+    Copyright (c) 2006, 2017-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -44,6 +43,7 @@
 
 #include "osmem.h"
 #include "bitmap.h"
+#include "locking.h"
 
 // Linux prefers MAP_ANONYMOUS to MAP_ANON 
 #ifndef MAP_ANON
@@ -73,18 +73,22 @@ bool OSMem::Initialise(size_t space /* = 0 */, void **pBase /* = 0 */)
 
 void *OSMem::Allocate(size_t &space, unsigned permissions)
 {
-    uintptr_t pages = (space + pageSize - 1) / pageSize;
-    // Round up to an integral number of pages.
-    space = pages * pageSize;
-    // Find some space
-    while (pageMap.TestBit(lastAllocated-1)) // Skip the wholly allocated area.
-        lastAllocated--;
-    uintptr_t free = pageMap.FindFree(0, lastAllocated, pages);
-    if (free == lastAllocated)
-        return 0; // Can't find the space.
-    pageMap.SetBits(free, pages);
-    // TODO: Do we need to zero this?  It may have previously been set.
-    char *baseAddr = memBase + free * pageSize;
+    char *baseAddr;
+    {
+        PLocker l(&bitmapLock);
+        uintptr_t pages = (space + pageSize - 1) / pageSize;
+        // Round up to an integral number of pages.
+        space = pages * pageSize;
+        // Find some space
+        while (pageMap.TestBit(lastAllocated - 1)) // Skip the wholly allocated area.
+            lastAllocated--;
+        uintptr_t free = pageMap.FindFree(0, lastAllocated, pages);
+        if (free == lastAllocated)
+            return 0; // Can't find the space.
+        pageMap.SetBits(free, pages);
+        // TODO: Do we need to zero this?  It may have previously been set.
+        baseAddr = memBase + free * pageSize;
+    }
     return CommitPages(baseAddr, space, permissions);
 }
 
@@ -95,9 +99,12 @@ bool OSMem::Free(void *p, size_t space)
     if (!UncommitPages(p, space))
         return false;
     uintptr_t pages = space / pageSize;
-    pageMap.ClearBits(offset, pages);
-    if (offset+pages > lastAllocated) // We allocate from the top down.
-        lastAllocated = offset+pages;
+    {
+        PLocker l(&bitmapLock);
+        pageMap.ClearBits(offset, pages);
+        if (offset + pages > lastAllocated) // We allocate from the top down.
+            lastAllocated = offset + pages;
+    }
     return true;
 }
 #endif
