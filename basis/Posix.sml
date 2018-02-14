@@ -1340,7 +1340,7 @@ struct
         local
             val doCall = osSpecificGeneral
         in
-            fun lseek(fd, pos, whence) = doCall(115, (fd, pos, seekWhence whence))
+            fun lseek(fd, pos, whence) = doCall(118, (fd, pos, seekWhence whence))
         end
 
         local
