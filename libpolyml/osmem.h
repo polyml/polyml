@@ -1,12 +1,11 @@
 /*
     Title:  osomem.h - Interface to OS memory management
 
-    Copyright (c) 2006, 2017 David C.J. Matthews
+    Copyright (c) 2006, 2017-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -34,6 +33,7 @@
 
 #ifdef POLYML32IN64
 #include "bitmap.h"
+#include "locking.h"
 #endif
 
 // This class provides access to the memory management provided by the
@@ -78,6 +78,7 @@ protected:
     Bitmap pageMap;
     uintptr_t lastAllocated;
     char *memBase;
+    PLock bitmapLock;
 
 #endif
 };
