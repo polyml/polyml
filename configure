@@ -18363,8 +18363,10 @@ if test "$ac_res" != no; then :
 fi
 
 
-# The next two are only used with mingw
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
+# The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
+# the "select" function gets used instead of Cygwin's own.
+if test "x$poly_native_windows" = xyes; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
 $as_echo_n "checking for main in -lws2_32... " >&6; }
 if ${ac_cv_lib_ws2_32_main+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -18403,7 +18405,7 @@ _ACEOF
 
 fi
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgdi32" >&5
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgdi32" >&5
 $as_echo_n "checking for main in -lgdi32... " >&6; }
 if ${ac_cv_lib_gdi32_main+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -18442,6 +18444,7 @@ _ACEOF
 
 fi
 
+fi
 
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
