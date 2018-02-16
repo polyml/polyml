@@ -238,7 +238,7 @@ static bool AddHierarchyEntry(const TCHAR *fileName, time_t timeStamp)
 }
 
 // Test whether we're overwriting a parent of ourself.
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__CYGWIN__))
 static bool sameFile(const TCHAR *x, const TCHAR *y)
 {
     HANDLE hXFile = INVALID_HANDLE_VALUE, hYFile = INVALID_HANDLE_VALUE;

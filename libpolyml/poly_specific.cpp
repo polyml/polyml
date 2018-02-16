@@ -236,7 +236,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         // Return the ABI.  For 64-bit we need to know if this is Windows.
         // Legacy - used by bootstrap code only
 #if (SIZEOF_VOIDP == 8)
-#ifdef _WIN32
+#if(defined(_WIN32) || defined(__CYGWIN__))
         return taskData->saveVec.push(TAGGED(2));
 #else
         return taskData->saveVec.push(TAGGED(1));
@@ -282,7 +282,7 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetABI()
 {
     // Return the ABI.  For 64-bit we need to know if this is Windows.
 #if (SIZEOF_VOIDP == 8)
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__CYGWIN__))
     return TAGGED(2).AsUnsigned(); // 64-bit Windows
 #else
     return TAGGED(1).AsUnsigned(); // 64-bit Unix
