@@ -93,6 +93,12 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "rtsentry.h"
 #include "profiling.h"
 
+#ifdef POLYML32IN64
+#define SIZEOF_POLYWORD 4
+#else
+#define SIZEOF_POLYWORD SIZEOF_VOIDP
+#endif
+
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyAddArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySubtractArbitrary(PolyObject *threadId, PolyWord arg1, PolyWord arg2);
@@ -446,6 +452,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned uval)
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 
+#if (SIZEOF_LONG <= SIZEOF_POLYWORD)
 Handle Make_arbitrary_precision(TaskData *taskData, long val)
 {
     return ArbitraryPrecionFromSigned(taskData, val);
@@ -455,9 +462,37 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
 {
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
+#else
+// This is needed in Unix in 32-in-64.
+Handle Make_arbitrary_precision(TaskData *taskData, long val)
+{
+    if (val <= (long)(MAXTAGGED) && val >= -((long)(MAXTAGGED))-1) /* No overflow */
+        return taskData->saveVec.push(TAGGED((POLYSIGNED)val));
+    // Recursive call to handle the high-order part
+    Handle hi = Make_arbitrary_precision(taskData, val >> (sizeof(int32_t) * 8));
+    // The low-order part is treated as UNsigned.
+    Handle lo = Make_arbitrary_precision(taskData, (uint32_t)val);
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    return add_longc(taskData, mult_longc(taskData, hi, twoTo32), lo);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
+{
+    if (uval <= (unsigned long)(MAXTAGGED))
+        return taskData->saveVec.push(TAGGED((POLYUNSIGNED)uval));
+    // Recursive call to handle the high-order part
+    Handle hi = Make_arbitrary_precision(taskData, uval >> (sizeof(uint32_t) * 8));
+    Handle lo = Make_arbitrary_precision(taskData, (uint32_t)uval);
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    return add_longc(taskData, mult_longc(taskData, hi, twoTo32), lo);
+}
+
+#endif
 
 #ifdef HAVE_LONG_LONG
-#if (SIZEOF_LONG_LONG <= SIZEOF_VOIDP && !defined(POLYML32IN64))
+#if (SIZEOF_LONG_LONG <= SIZEOF_POLYWORD)
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
     return ArbitraryPrecionFromSigned(taskData, val);
