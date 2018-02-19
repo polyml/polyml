@@ -121,6 +121,11 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
         /* Skip to the constants. */
         base->GetConstSegmentForCode(n, pt, n);
     }
+    else if (flags == F_CLOSURE_OBJ)
+    {
+        n -= sizeof(PolyObject*) / sizeof(PolyWord);
+        pt += sizeof(PolyObject*) / sizeof(PolyWord);
+    }
     else ASSERT (flags == 0); /* ordinary word object */
 
     while (n--) DoCheck (*pt++);
