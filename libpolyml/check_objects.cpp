@@ -1,7 +1,7 @@
 /*
     Title:      Validate addresses in objects.
 
-    Copyright (c) 2006, 2012
+    Copyright (c) 2006, 2012, 2017
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -55,6 +55,7 @@ static void CheckAddress(PolyWord *pt)
     if (space->spaceType == ST_STACK) // This may not have valid length words.
         return;
     PolyObject *obj = (PolyObject*)pt;
+    ASSERT(obj->ContainsNormalLengthWord());
     POLYUNSIGNED length = obj->Length();
     if (pt+length > space->top)
     {
@@ -86,7 +87,7 @@ void DoCheck (const PolyWord pt)
 class ScanCheckAddress: public ScanAddress
 {
 public:
-    virtual PolyObject *ScanObjectAddress(PolyObject *pt) { DoCheck(pt); return pt; }
+    virtual PolyObject *ScanObjectAddress(PolyObject *pt) { CheckAddress((PolyWord*)pt); return pt; }
 };
 
 void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
