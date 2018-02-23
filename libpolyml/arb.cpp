@@ -126,7 +126,7 @@ static Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 #ifdef USE_GMP
 #if (BITS_PER_POLYWORD > GMP_LIMB_BITS)
 // We're assuming that every GMP limb occupies at least one word
-#error "Size of GMP limb is less than makemaka Poly word"
+#error "Size of GMP limb is less than a Poly word"
 #endif
 #endif
 
