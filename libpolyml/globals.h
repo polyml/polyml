@@ -104,6 +104,18 @@ typedef uintptr_t       POLYUNSIGNED;
 #  define POLYSFMT "ld"         // idem.
 #endif
 
+// We can use the C99 %zu in most cases except MingW since it uses
+// the old msvcrt and that only supports C89.
+#if (defined(_WIN32) && ! defined(__CYGWIN__) && (! defined(_MSC_VER) || _MSC_VER < 1800))
+#  ifdef _WIN64
+#    define PRI_SIZET PRIu64
+#  else
+#    define PRI_SIZET PRIu32
+#  endif
+#else
+#   define PRI_SIZET "zu"
+#endif
+
 typedef unsigned char   byte;
 
 class PolyObject;
