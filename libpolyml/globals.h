@@ -107,7 +107,7 @@ typedef uintptr_t       POLYUNSIGNED;
 // We can use the C99 %zu in most cases except MingW since it uses
 // the old msvcrt and that only supports C89.
 #if (defined(_WIN32) && ! defined(__CYGWIN__) && (! defined(_MSC_VER) || _MSC_VER < 1800))
-#  ifdef _WIN64
+#  if (SIZEOF_VOIDP == 8)
 #    define PRI_SIZET PRIu64
 #  else
 #    define PRI_SIZET PRIu32
