@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016-17 David C.J. Matthews
+    Copyright (c) 2016-18 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -418,7 +418,7 @@ struct
             |   X86_32 =>
                 let
                     (* GCC likes to keep the stack on a 16-byte alignment. *)
-                    val argSpace = 8 (*nArgs*4*) (* One "double" value. *)
+                    val argSpace = 4 (* One "PolyWord" value. *)
                     val align = argSpace mod 16
                 in
                     (* Add sufficient space so that esp will be 16-byte aligned *)
