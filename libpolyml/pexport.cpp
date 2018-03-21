@@ -95,7 +95,7 @@ size_t PExport::getIndex(PolyObject *p)
 /* Get the index corresponding to an address. */
 void PExport::printAddress(void *p)
 {
-    fprintf(exportFile, "@%zu", getIndex((PolyObject*)p));
+    fprintf(exportFile, "@%" PRI_SIZET "", getIndex((PolyObject*)p));
 }
 
 void PExport::printValue(PolyWord q)
@@ -113,7 +113,7 @@ void PExport::printObject(PolyObject *p)
 
     size_t myIndex = getIndex(p);
 
-    fprintf(exportFile, "%zu:", myIndex);
+    fprintf(exportFile, "%" PRI_SIZET ":", myIndex);
 
     if (p->IsMutable())
         putc('M', exportFile);
@@ -286,8 +286,8 @@ void PExport::exportStore(void)
     }
 
     /* Start writing the information. */
-    fprintf(exportFile, "Objects\t%zu\n", pMap.size());
-    fprintf(exportFile, "Root\t%zu\n", getIndex(rootFunction));
+    fprintf(exportFile, "Objects\t%" PRI_SIZET "\n", pMap.size());
+    fprintf(exportFile, "Root\t%" PRI_SIZET "\n", getIndex(rootFunction));
 
     // Generate each of the areas.
     for (size_t i = 0; i < memTableEntries; i++)

@@ -111,7 +111,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     gMem.RemoveEmptyLocals();
 
     if (debugOptions & DEBUG_GC)
-        Log("GC: Full GC, %lu words required %zu spaces\n", wordsRequiredToAllocate, gMem.lSpaces.size());
+        Log("GC: Full GC, %lu words required %" PRI_SIZET " spaces\n", wordsRequiredToAllocate, gMem.lSpaces.size());
 
     if (debugOptions & DEBUG_HEAPSIZE)
         gMem.ReportHeapSizes("Full GC (before)");
@@ -257,7 +257,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         for(std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
         {
             LocalMemSpace *lSpace = *i;
-            Log("GC: %s space %p %zu free in %zu words %2.1f%% full\n", lSpace->spaceTypeString(),
+            Log("GC: %s space %p %" PRI_SIZET " free in %" PRI_SIZET " words %2.1f%% full\n", lSpace->spaceTypeString(),
                 lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                 ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
         }
@@ -289,7 +289,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
         if (debugOptions & DEBUG_GC_ENHANCED)
-            Log("GC: %s space %p %zu free in %zu words %2.1f%% full\n", space->spaceTypeString(),
+            Log("GC: %s space %p %" PRI_SIZET " free in %" PRI_SIZET " words %2.1f%% full\n", space->spaceTypeString(),
                 space, space->freeSpace(), space->spaceSize(),
                 ((float)space->allocatedSpace()) * 100 / (float)space->spaceSize());
     }

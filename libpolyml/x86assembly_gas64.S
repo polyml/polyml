@@ -52,6 +52,10 @@
 #define EXTNAME(x)  x
 #endif
 
+#ifdef __CYGWIN__
+#define _WIN32 1
+#endif
+
 /* Macro to begin the hand-coded functions */
 #ifdef MACOSX
 #define GLOBAL .globl

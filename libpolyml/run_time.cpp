@@ -133,7 +133,7 @@ POLYUNSIGNED PolyFullGC(PolyObject *threadId)
 // anything.
 Handle errorMsg(TaskData *taskData, int err)
 {
-#ifdef _WIN32
+#if (defined(_WIN32) || defined(__CYGWIN__))
     LPTSTR lpMsg = NULL;
     TCHAR *p;
     if (FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |

@@ -120,9 +120,12 @@ AC_CHECK_LIB(stdc++, main)
 AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
 
-# The next two are only used with mingw
-AC_CHECK_LIB(ws2_32, main)
-AC_CHECK_LIB(gdi32, main)
+# The next two are only used with mingw.  We mustn't include ws2_32 in Cygwin64 because
+# the "select" function gets used instead of Cygwin's own.
+if test "x$poly_native_windows" = xyes; then
+    AC_CHECK_LIB(ws2_32, main)
+    AC_CHECK_LIB(gdi32, main)
+fi
 
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
