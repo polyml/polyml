@@ -1,0 +1,15 @@
+; Exports file for DLL
+
+LIBRARY      "Foreign"
+
+EXPORTS
+	DupNString
+	SumTree
+	ReturnR2
+	MakeCallback
+	MakeCallback2
+	MakeCallback3
+	AllocateIt
+	FreeIt
+    UpdateArg
+    ReturnFn
