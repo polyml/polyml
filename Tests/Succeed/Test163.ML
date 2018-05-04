@@ -23,6 +23,10 @@ set32(m, 0w7, 0wx12211221);
 check get32 (m, 0w0) 0wx12343421;
 check get32 (m, !r) 0wx12343421;
 
+check get32 (m, 0w6) 0wxabccccab;
+r := 0w6;
+check get32 (m, !r) 0wxabccccab;
+
 check get16 (m, 0w14) 0wx1221;
 r := 0w14;
 check get16 (m, !r) 0wx1221;

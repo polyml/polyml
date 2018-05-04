@@ -1403,7 +1403,7 @@ struct
                 opAddress(MOVZW32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadNonWord{size=Size32Bit, source={base, offset, index}, output }) =
-                opAddress(if isX64 then MOVL_A_R64 else MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
+                opAddress(MOVL_A_R32, LargeInt.fromInt offset, base, index, output)
 
         |   cgOp(LoadAddress{ offset, base, index, output }) =
                 (* This provides a mixture of addition and multiplication in a single
