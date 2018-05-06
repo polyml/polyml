@@ -138,14 +138,11 @@ struct
                    rax, rsi, r8, r9 and r10 for the first five arguments in X86/64-32 bit.
         *)
         
-         (* The ML stack pointer needs to be
-           loaded into a register that will be saved by the callee.
-           The entry point doesn't need to be but must be a register
-           that isn't used for an argument. *)
-        (* We have to save the stack pointer to the argument structure but
-           we still need a register if we have args on the stack. *)
-        val (entryPtrReg, saveMLStackPtrReg) =
-            if targetArch <> Native32Bit then (r11, r13) else (ecx, edi)
+        (* Previously the ML stack pointer was saved in a callee-save register.  This works
+           in almost all circumstances except when a call to the FFI code results in a callback
+           and the callback moves the ML stack.  Instead the RTS callback handler adjusts the value
+           in memRegStackPtr and we reload the ML stack pointer from there. *)
+        val entryPtrReg = if targetArch <> Native32Bit then r11 else ecx
         
         val stackSpace =
             case abi of
@@ -180,8 +177,13 @@ struct
                 if targetArch <> Native32Bit then [storeMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize)] (* Save heap ptr *)
                 else []
             ) @
+            (
+                if abi = X86_32 andalso nArgs >= 3
+                then [moveRR{source=esp, output=edi, opSize=nativeWordOpSize}] (* Needed if we have to load from the stack. *)
+                else []
+            ) @
+            
             [
-                moveRR{source=esp, output=saveMLStackPtrReg, opSize=nativeWordOpSize}, (* Save this in case it is needed for arguments. *)
                 (* Have to save the stack pointer to the arg structure in case we need to scan the stack for a GC. *)
                 storeMemory(esp, ebp, memRegStackPtr, nativeWordOpSize), (* Save ML stack and switch to C stack. *)
                 loadMemory(esp, ebp, memRegCStackPtr, nativeWordOpSize), (*moveRR{source=ebp, output=esp},*) (* Load the saved C stack pointer. *)
@@ -212,14 +214,14 @@ struct
                 |   (X86_32, 3) =>
                         [
                             (* We need to move an argument from the ML stack. *)
-                            PushToStack(MemoryArg{base=saveMLStackPtrReg, offset=4, index=NoIndex}), pushR mlArg2Reg, pushR eax,
+                            PushToStack(MemoryArg{base=edi, offset=4, index=NoIndex}), pushR mlArg2Reg, pushR eax,
                             PushToStack(MemoryArg{base=ebp, offset=memRegThreadSelf, index=NoIndex})
                         ]
                 |   _ => raise InternalError "rtsCall: Abi/argument count not implemented"
             ) @
             [
                 CallFunction(DirectReg entryPtrReg), (* Call the function *)
-                moveRR{source=saveMLStackPtrReg, output=esp, opSize=nativeWordOpSize} (* Restore the ML stack pointer *)
+                loadMemory(esp, ebp, memRegStackPtr, nativeWordOpSize) (* Restore the ML stack pointer. *)
             ] @
             (
             if targetArch <> Native32Bit then [loadMemory(r15, ebp, memRegLocalMPointer, nativeWordOpSize) ] (* Copy back the heap ptr *)

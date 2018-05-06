@@ -624,6 +624,8 @@ int X86TaskData::SwitchToPoly()
         }
 
         case RETURN_CALLBACK_RETURN:
+            // regSP has been set by the assembly code.  N.B.  This may not be the same value as when
+            // EnterCallbackFunction was called because the callback may have grown and moved the stack.
             // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(assemblyInterface.handlerRegister == regSP());
             regSP() += 1;
@@ -1028,6 +1030,8 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
     // in localMpointer and localMbottom to be valid across a call to C.  If we do
     // a callback the ML callback function would pick up the values saved in the
     // originating call.
+    // However, it is essential that the light version still saves the stack pointer
+    // and reloads it afterwards.
 
     // Set up an exception handler so we will enter callBackException if there is an exception.
     (--regSP())->stackAddr = assemblyInterface.handlerRegister; // Create a special handler entry
