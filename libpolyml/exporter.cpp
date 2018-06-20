@@ -201,7 +201,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // Much smaller minimum sizes for saved states.
         if (defaultMutSize < 1024) defaultMutSize = 1024;
         if (defaultImmSize < 4096) defaultImmSize = 4096;
-        if (defaultCodeSize < 4096) defaultImmSize = 4096;
+        if (defaultCodeSize < 4096) defaultCodeSize = 4096;
         if (defaultNoOverSize < 4096) defaultNoOverSize = 4096;
         // Set maximum sizes as well.  We may have insufficient contiguous space for
         // very large areas.
