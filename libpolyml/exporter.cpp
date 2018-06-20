@@ -110,6 +110,23 @@ GraveYard::~GraveYard()
     free(graves);
 }
 
+class MutSizes : public ScanAddress
+{
+public:
+    MutSizes() : mutSize(0), noOverSize(0) {}
+
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }// No Actually used
+
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+    {
+        if (OBJ_IS_NO_OVERWRITE(lengthWord))
+            noOverSize += OBJ_OBJECT_LENGTH(lengthWord);
+        else mutSize += OBJ_OBJECT_LENGTH(lengthWord);
+    }
+
+    POLYUNSIGNED mutSize, noOverSize;
+};
+
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
     defaultImmSize = defaultMutSize = defaultCodeSize = defaultNoOverSize = 0;
@@ -179,7 +196,13 @@ void CopyScan::initialise(bool isExport/*=true*/)
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
         if (space->isMutable)
-            defaultMutSize += size/4;
+        {
+            MutSizes sizeMut;
+            sizeMut.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+            sizeMut.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+            defaultNoOverSize += sizeMut.noOverSize / 4;
+            defaultMutSize += sizeMut.mutSize / 4;
+        }
         else
             defaultImmSize += size/2;
     }
@@ -195,6 +218,7 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultMutSize < 1024*1024) defaultMutSize = 1024*1024;
         if (defaultImmSize < 1024*1024) defaultImmSize = 1024*1024;
         if (defaultCodeSize < 1024*1024) defaultCodeSize = 1024*1024;
+        if (defaultNoOverSize < 4096) defaultNoOverSize = 4096; // Except for the no-overwrite area
     }
     else
     {
