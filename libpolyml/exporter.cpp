@@ -235,8 +235,8 @@ void CopyScan::initialise(bool isExport/*=true*/)
         if (defaultNoOverSize > 1024 * 1024) defaultNoOverSize = 1024 * 1024;
     }
     if (debugOptions & DEBUG_SAVING)
-        Log("SAVE: Copyscan default sizes: Immutable: %lu, Mutable: %lu, Code: %lu.\n",
-            defaultImmSize, defaultMutSize, defaultCodeSize);
+        Log("SAVE: Copyscan default sizes: Immutable: %" POLYUFMT ", Mutable: %" POLYUFMT ", Code: %" POLYUFMT ", No-overwrite %" POLYUFMT ".\n",
+            defaultImmSize, defaultMutSize, defaultCodeSize, defaultNoOverSize);
 }
 
 CopyScan::~CopyScan()
