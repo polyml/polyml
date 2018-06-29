@@ -204,10 +204,10 @@ public:
     { add_count(this, assemblyInterface.stackPtr[0].AsCodePtr(), words); }
 
     // PreRTSCall: After calling from ML to the RTS we need to save the current heap pointer
-    virtual void PreRTSCall(void) { SaveMemRegisters(); }
+    virtual void PreRTSCall(void) { TaskData::PreRTSCall();  SaveMemRegisters(); }
     // PostRTSCall: Before returning we need to restore the heap pointer.
     // If there has been a GC in the RTS call we need to create a new heap area.
-    virtual void PostRTSCall(void) { SetMemRegisters(); }
+    virtual void PostRTSCall(void) { SetMemRegisters(); TaskData::PostRTSCall();  }
 
     virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
 
