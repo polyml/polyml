@@ -500,6 +500,14 @@ case "${host_cpu}" in
             CFLAGS="$CFLAGS -mieee -mfp-rounding-mode=d"
             CXXFLAGS="$CXXFLAGS -mieee -mfp-rounding-mode=d"
             ;;
+      riscv32)
+            AC_DEFINE([HOSTARCHITECTURE_RISCV32], [1], [Define if the host is a RISC-V (32-bit)])
+            polyarch=interpret
+            ;;
+      riscv64)
+            AC_DEFINE([HOSTARCHITECTURE_RISCV64], [1], [Define if the host is a RISC-V (64-bit)])
+            polyarch=interpret
+            ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
