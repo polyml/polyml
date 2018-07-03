@@ -110,6 +110,8 @@ GraveYard::~GraveYard()
     free(graves);
 }
 
+// Used to calculate the space required for the ordinary mutables
+// and the no-overwrite mutables.  They are interspersed in local space.
 class MutSizes : public ScanAddress
 {
 public:
@@ -119,9 +121,10 @@ public:
 
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
     {
+        const POLYUNSIGNED words = OBJ_OBJECT_LENGTH(lengthWord) + 1; // Include length word
         if (OBJ_IS_NO_OVERWRITE(lengthWord))
-            noOverSize += OBJ_OBJECT_LENGTH(lengthWord);
-        else mutSize += OBJ_OBJECT_LENGTH(lengthWord);
+            noOverSize += words;
+        else mutSize += words;
     }
 
     POLYUNSIGNED mutSize, noOverSize;
