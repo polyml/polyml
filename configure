@@ -22269,6 +22269,18 @@ $as_echo "#define HOSTARCHITECTURE_ALPHA 1" >>confdefs.h
             CFLAGS="$CFLAGS -mieee -mfp-rounding-mode=d"
             CXXFLAGS="$CXXFLAGS -mieee -mfp-rounding-mode=d"
             ;;
+      riscv32)
+
+$as_echo "#define HOSTARCHITECTURE_RISCV32 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
+      riscv64)
+
+$as_echo "#define HOSTARCHITECTURE_RISCV64 1" >>confdefs.h
+
+            polyarch=interpret
+            ;;
       *) as_fn_error $? "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 

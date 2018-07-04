@@ -475,10 +475,10 @@
 /* Define if the host is a PowerPC (64-bit) */
 #undef HOSTARCHITECTURE_PPC64
 
-/* Define if the host is an RISC-V (32-bit) */
+/* Define if the host is a RISC-V (32-bit) */
 #undef HOSTARCHITECTURE_RISCV32
 
-/* Define if the host is an RISC-V (64-bit) */
+/* Define if the host is a RISC-V (64-bit) */
 #undef HOSTARCHITECTURE_RISCV64
 
 /* Define if the host is an S/390 (32-bit) */
