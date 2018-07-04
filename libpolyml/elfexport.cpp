@@ -241,6 +241,33 @@
 # define HOST_DIRECT_DATA_RELOC R_ALPHA_REFQUAD
 # define HOST_DIRECT_FPTR_RELOC R_ALPHA_REFQUAD
 # define USE_RELA 1
+#elif defined(HOSTARCHITECTURE_RISCV32) || defined(HOSTARCHITECTURE_RISCV64)
+# define HOST_E_MACHINE EM_RISCV
+# if defined(HOSTARCHITECTURE_RISCV32)
+#  define HOST_DIRECT_DATA_RELOC R_RISCV_32
+#  define HOST_DIRECT_FPTR_RELOC R_RISCV_32
+# else
+#  define HOST_DIRECT_DATA_RELOC R_RISCV_64
+#  define HOST_DIRECT_FPTR_RELOC R_RISCV_64
+# endif
+# if defined(__riscv_float_abi_soft)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_RISCV_FLOAT_ABI_SOFT
+# elif defined(__riscv_float_abi_single)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_RISCV_FLOAT_ABI_SINGLE
+# elif defined(__riscv_float_abi_double)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_RISCV_FLOAT_ABI_DOUBLE
+# elif defined(__riscv_float_abi_quad)
+#  define HOST_E_FLAGS_FLOAT_ABI EF_RISCV_FLOAT_ABI_QUAD
+# else
+#  error "Unknown RISC-V float ABI"
+# endif
+# ifdef __riscv_32e
+#  define HOST_E_FLAGS_RVE __riscv_32e
+# else
+#  define HOST_E_FLAGS_RVE 0
+# endif
+# define HOST_E_FLAGS (HOST_E_FLAGS_FLOAT_ABI | HOST_E_FLAGS_RVE)
+# define USE_RELA 1
 #else
 # error "No support for exporting on this architecture"
 #endif
