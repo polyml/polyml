@@ -373,6 +373,9 @@ void RecursiveScan::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWo
         if (baseAddr == endWord)
         {
             // We have done everything except possibly firstWord and secondWord.
+            // Note: Unfortunately the way that ScanAddressesInRegion works means that
+            // we call Completed on the addresses of cells in the permanent areas without
+            // having called TestForScan.
             Completed(obj);
             if (secondWord != 0)
             {

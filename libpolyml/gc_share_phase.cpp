@@ -237,6 +237,16 @@ void GetSharing::MarkAsScanning(PolyObject *obj)
 
 void GetSharing::Completed(PolyObject *obj)
 {
+    // We mustn't include cells in the permanent area.
+    // We scan the permanent mutable areas for local addresses
+    // but we mustn't add the cells themselves.  Normally they
+    // will be mutable so would be ignored but cells that have been
+    // locked will now be immutable.  The test in TestForScan is bypassed
+    // by ScanAddressesInRegion.
+    PolyWord *lengthWord = ((PolyWord*)obj) - 1;
+    if (gMem.LocalSpaceForAddress(lengthWord) == 0)
+        return;
+
     POLYUNSIGNED L = obj->LengthWord();
     // We have tables for word objects and byte objects
     // We chain entries together using the length word so it
