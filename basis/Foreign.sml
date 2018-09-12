@@ -72,6 +72,7 @@ sig
         and loadExecutable: unit -> voidStar
         and freeLibrary: voidStar -> unit
         and getSymbol: voidStar * string -> voidStar
+        and externalFunctionSymbol: string -> voidStar
     end
     
     structure LibFFI:
@@ -157,6 +158,7 @@ sig
     val loadExecutable: unit -> library
     val getSymbol: library -> string  -> symbol
     val symbolAsAddress: symbol -> Memory.voidStar
+    val externalFunctionSymbol: string -> symbol
 
     structure LowLevel:
     sig
@@ -483,6 +485,8 @@ struct
         and loadExecutable(): voidStar = ffiGeneral (3, ())
         and freeLibrary(s: voidStar): unit = ffiGeneral (4, s)
         and getSymbol(lib: voidStar, s: string): voidStar = ffiGeneral (5, (lib, s))
+        
+        val externalFunctionSymbol: string -> voidStar = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
     end
     
     structure Error =
@@ -624,6 +628,14 @@ struct
 
     (* This forces the symbol to be loaded.  The result is NOT memoised. *)
     fun symbolAsAddress(s: symbol): Memory.voidStar = s()
+    
+    (* Create an external symbol.  This can only be used after linking. *)
+    fun externalFunctionSymbol(name: string): symbol =
+        let
+            val r = System.externalFunctionSymbol name
+        in
+            fn () => r
+        end
 
     structure LowLevel =
     struct

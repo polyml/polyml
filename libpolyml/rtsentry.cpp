@@ -102,7 +102,7 @@ extern "C" {
 
 // Create an entry point containing the address of the entry and the
 // string name.  Having the string in there allows us to export the entry.
-Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
+Handle creatEntryPointObject(TaskData *taskData, Handle entryH, bool initialise)
 {
     TempCString entryName(Poly_string_to_C_alloc(entryH->Word()));
     if ((const char *)entryName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
@@ -112,8 +112,18 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH)
     // it actually needs to be mutable but if it is it needs to be no-overwrite.
     Handle refH = alloc_and_save(taskData, space, F_BYTE_OBJ|F_WEAK_BIT|F_MUTABLE_BIT|F_NO_OVERWRITE);
     strcpy((char*)(refH->WordP()->AsBytePtr() + sizeof(polyRTSFunction*)), entryName);
-    if (! setEntryPoint(refH->WordP()))
-        raise_fail(taskData, "entry point not found");
+    if (initialise)
+    {
+        if (!setEntryPoint(refH->WordP()))
+            raise_fail(taskData, "entry point not found");
+    }
+    else
+    {
+        PolyObject *p = refH->WordP();
+        if (p->Length() == 0) return false;
+        *(polyRTSFunction*)p = 0; // Clear it by default
+        if (p->Length() == 1) return false;
+    }
     return refH;
 }
 
@@ -164,7 +174,7 @@ POLYUNSIGNED PolyCreateEntryPointObject(PolyObject *threadId, PolyWord arg)
     Handle result = 0;
 
     try {
-        result = creatEntryPointObject(taskData, pushedArg);
+        result = creatEntryPointObject(taskData, pushedArg, true);
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset

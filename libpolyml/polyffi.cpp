@@ -94,6 +94,7 @@ extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySizeDouble();
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFIGetError(PolyWord addr);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFISetError(PolyWord err);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg);
 }
 
 static struct _abiTable { const char *abiName; ffi_abi abiCode; } abiTable[] =
@@ -624,6 +625,27 @@ POLYUNSIGNED PolyFFISetError(PolyWord err)
     return 0;
 }
 
+// Create an external function reference.
+POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg)
+{
+    TaskData *taskData = TaskData::FindTaskForId(threadId);
+    ASSERT(taskData != 0);
+    taskData->PreRTSCall();
+    Handle reset = taskData->saveVec.mark();
+    Handle pushedArg = taskData->saveVec.push(arg);
+    Handle result = 0;
+
+    try {
+        result = creatEntryPointObject(taskData, pushedArg, false);
+    }
+    catch (...) {} // If an ML exception is raised
+
+    taskData->saveVec.reset(reset); // Ensure the save vec is reset
+    taskData->PostRTSCall();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
+}
+
 struct _entrypts polyFFIEPT[] =
 {
     { "PolyFFIGeneral",                 (polyRTSFunction)&PolyFFIGeneral},
@@ -631,6 +653,7 @@ struct _entrypts polyFFIEPT[] =
     { "PolySizeDouble",                 (polyRTSFunction)&PolySizeDouble},
     { "PolyFFIGetError",                (polyRTSFunction)&PolyFFIGetError},
     { "PolyFFISetError",                (polyRTSFunction)&PolyFFISetError},
+    { "PolyFFICreateExtFn",             (polyRTSFunction)&PolyFFICreateExtFn},
 
     { NULL, NULL} // End of list.
 };
