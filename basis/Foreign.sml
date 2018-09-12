@@ -486,6 +486,8 @@ struct
         and freeLibrary(s: voidStar): unit = ffiGeneral (4, s)
         and getSymbol(lib: voidStar, s: string): voidStar = ffiGeneral (5, (lib, s))
         
+        (* Create an external symbol object.  The first word of this is filled in with the
+           address after the code is exported and linked.  *)
         val externalFunctionSymbol: string -> voidStar = RunCall.rtsCallFull1 "PolyFFICreateExtFn"
     end
     

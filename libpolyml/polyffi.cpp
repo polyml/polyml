@@ -625,7 +625,10 @@ POLYUNSIGNED PolyFFISetError(PolyWord err)
     return 0;
 }
 
-// Create an external function reference.
+// Create an external function reference.  The value returned has space for
+// an address followed by the name of the external symbol.  Because the
+// address comes at the beginning it can be used in the same way as the
+// SysWord value returned by the get-symbol call from a library.
 POLYUNSIGNED PolyFFICreateExtFn(PolyObject *threadId, PolyWord arg)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
