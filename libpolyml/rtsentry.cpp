@@ -120,9 +120,7 @@ Handle creatEntryPointObject(TaskData *taskData, Handle entryH, bool initialise)
     else
     {
         PolyObject *p = refH->WordP();
-        if (p->Length() == 0) return false;
-        *(polyRTSFunction*)p = 0; // Clear it by default
-        if (p->Length() == 1) return false;
+        if (p->Length() != 0) *(polyRTSFunction*)p = 0; // Clear it
     }
     return refH;
 }
